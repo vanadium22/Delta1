@@ -27,6 +27,8 @@ MUTED = "#72818D"
 LINE = "#E3E9EE"
 TEAL = "#087F78"
 FONT = "Microsoft YaHei UI" if sys.platform == "win32" else "sans-serif"
+VOLUME_HINT = "区间量按相邻有效采样计算，非固定1秒成交量"
+QUOTE_HINT = "行时间为采集时间；文件保留五档。\n" + VOLUME_HINT
 
 
 def clock_text(value: str | None) -> str:
@@ -409,17 +411,19 @@ class Delta1App(ctk.CTk):
         self.symbol_selector = ctk.CTkOptionMenu(quote_header, variable=self.display_symbol, values=["—"],
             command=self.select_symbol, width=136, height=29, font=(FONT, 12), fg_color=TEAL, button_color="#06665F")
         self.symbol_selector.grid(row=0, column=1)
-        self.quote_hint = self.label(quotes, "行时间为采集时间；行情时间为接口原值。文件保留五档。",
-                                    size=11, color=MUTED, wraplength=470, justify="left", height=32)
-        self.quote_hint.grid(row=1, column=0, padx=16, pady=(0, 5), sticky="w")
+        self.quote_hint = self.label(quotes, QUOTE_HINT,
+                                    size=11, color=MUTED, wraplength=400, justify="left", height=36)
+        self.quote_hint.grid(row=1, column=0, padx=16, pady=(0, 5), sticky="ew")
         self.quote_table = DataTable(quotes, [("timestamp", "采集时间", 153), ("close", "最新价", 64),
             ("volume_total", "累计成交量", 94), ("volume", "区间成交量", 88),
             ("bid_price_1", "买一价", 64), ("bid_volume_1", "买一量", 82),
             ("ask_price_1", "卖一价", 64), ("ask_volume_1", "卖一量", 82),
             ("quote_time", "行情时间", 78), ("source_symbol", "实际合约", 110),
-            ("mapping_date", "主力依据日期", 102)], font_family=FONT, limit=200)
-        self.quote_table.tree.configure(displaycolumns=("timestamp", "close", "volume_total", "bid_price_1",
-            "bid_volume_1", "ask_price_1", "ask_volume_1", "volume", "quote_time", "source_symbol", "mapping_date"))
+            ("mapping_date", "主力依据日期", 102),
+            ("volume_interval_seconds", "观测间隔(秒)", 102)], font_family=FONT, limit=200)
+        self.quote_table.tree.configure(displaycolumns=("timestamp", "close", "volume", "volume_interval_seconds",
+            "bid_price_1", "bid_volume_1", "ask_price_1", "ask_volume_1", "volume_total", "quote_time",
+            "source_symbol", "mapping_date"))
         self.quote_table.grid(row=2, column=0, padx=14, sticky="nsew")
         details = ctk.CTkFrame(quotes, fg_color="transparent")
         details.grid(row=3, column=0, padx=16, pady=(6, 10), sticky="ew")
@@ -438,7 +442,7 @@ class Delta1App(ctk.CTk):
     def select_symbol(self, _value=None):
         self._quote_cursor = 0
         self.quote_table.clear()
-        self.quote_hint.configure(text="行时间为采集时间；行情时间为接口原值。文件保留五档。")
+        self.quote_hint.configure(text=QUOTE_HINT)
         self._refresh_quotes()
 
     def show_report_window(self, _event=None):
@@ -462,7 +466,8 @@ class Delta1App(ctk.CTk):
             timestamp = datetime.fromtimestamp(row["timestamp"], CHINA).strftime("%Y-%m-%d %H:%M:%S")
             values = [timestamp, *["—" if row[name] is None else f"{row[name]:,.8f}".rstrip("0").rstrip(".") for name in columns],
                       row["quote_time"] or "—", row.get("source_symbol") or row["symbol"],
-                      row.get("mapping_date") or "—"]
+                      row.get("mapping_date") or "—",
+                      "—" if row.get("volume_interval_seconds") is None else f"{row['volume_interval_seconds']:.3f}"]
             self.quote_table.append(row["sequence"], values, scroll=self.autoscroll.get())
             self._quote_cursor = row["sequence"]
         if rows:
@@ -472,7 +477,7 @@ class Delta1App(ctk.CTk):
             text = f"{latest['symbol']} → {source}"
             if mapping_date:
                 text += f"  ·  主力依据 {mapping_date}"
-            self.quote_hint.configure(text=text + "\n行时间为采集时间；文件保留五档。")
+            self.quote_hint.configure(text=text + "\n" + VOLUME_HINT)
 
     def show_page(self, page: str):
         self._page = page

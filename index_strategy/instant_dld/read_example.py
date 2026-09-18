@@ -13,7 +13,8 @@ def main():
     args = parser.parse_args()
     reader = RealtimeReader(args.root)
     frame = reader.latest(args.symbol)
-    print(frame[["symbol", "close", "volume_total", "bid_price_1", "bid_volume_1", "ask_price_1", "ask_volume_1"]].to_string())
+    print(frame[["symbol", "close", "volume", "volume_interval_seconds", "volume_total",
+                 "bid_price_1", "bid_volume_1", "ask_price_1", "ask_volume_1"]].to_string())
     if args.save_result and not frame.empty:
         result = frame[["sequence", "symbol", "close"]].copy()
         result["mid_price"] = (frame["bid_price_1"] + frame["ask_price_1"]) / 2

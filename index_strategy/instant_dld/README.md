@@ -48,7 +48,7 @@ python -m index_strategy.instant_dld --interval 5 --symbols-file index_strategy/
 
 示例保存路径为 `data/AU.SHF/2026/09/2026-09-18.<sha256>.parquet`。`symbol=AU.SHF` 保持连续标识，`source_symbol=AU2610.SHF` 保留实际合约，`mapping_date=2026-09-18`，`trading_date=2026-09-21`。后者是基于采集时刻的映射交易日，接口仍未提供行情本身的交易日期，缓存行情可能滞后。换月原价不复权，策略应检查 `source_symbol` 的变化；换月首条 `volume` 留空，不能对不同合约累计量作差。
 
-已有 SQLite v1 会在写入器启动时事务升级，旧行情的实际合约补为原 `symbol`，日期字段留空。已发布 Parquet 不修改，`RealtimeReader` 兼容新旧分片混合读取。
+旧 SQLite 会在写入器启动时事务升级；v1 行情的实际合约补为原 `symbol`，日期字段留空。已发布 Parquet 不覆盖；成交量 v3 升级会发布修正分片并原子切换目录记录，详见下方口径修正说明。
 
 ## 常用参数
 
@@ -107,18 +107,30 @@ Parquet 先写同目录临时文件，关闭并 fsync 后重命名发布，最�
 | `quote_time` | 接口 `quoteTimestamp` 的 `HH:MM:SS`；接口未提供交易日期，不拼成假定的交易所 datetime |
 | `close` | 最新成交价，来自 `latestPrice` |
 | `volume_total` | 接口累计成交数量 `tradedQuantities`，保持来源单位；不使用对应成交额的 `tradeVolume` |
-| `volume` | 相邻有效采样累计量差；主力按映射交易日建立基准，其他按采集日期；首次、换日、换合约、累计量或接口时钟回退时留空 |
+| `volume` | 连续采集的相邻有效快照累计量差；不是固定 1 秒成交量；首次、重启、失败恢复、超长间隔、换日、换约或量/时钟回退时留空 |
+| `volume_start` | 本次有效增量的前次采集时间，UTC 秒级 datetime；本行 `timestamp` 为区间结束的采集时间。增量为空时也为空 |
+| `volume_interval_seconds` | 两次 HTTP 接收时刻的实际间隔，保留小数秒；不是交易所秒桶时长。增量为空时也为空 |
 | `bid_price_1` … `bid_price_5` | 买一至买五价，来自 `b1Price` … `b5Price` |
 | `bid_volume_1` … `bid_volume_5` | 买一至买五量，来自 `b1Stocks` … `b5Stocks` |
 | `ask_price_1` … `ask_price_5` | 卖一至卖五价，来自 `s1Price` … `s5Price` |
 | `ask_volume_1` … `ask_volume_5` | 卖一至卖五量，来自 `s1Stocks` … `s5Stocks` |
 | `quality_flags` | 缺失字段、累计量重置等位标记，可组合 |
 
-时间语义是轮询快照，`volume` 是两次有效采样之间的增量，遇到漏采或暂停可能跨多个轮询间隔。接口缓存未更新时，仍保留本次采样；策略应检查 `quote_time`、采集时间和质量标记，不把成功下载等同于产生了新成交。价格与数量保持接口原始单位，不自动换算手、股或合约乘数。
+时间语义是轮询快照。主力按映射交易日建立累计量基准，其他直接代码按采集日期；新运行、该标的上次请求失败或跳过轮次后，首条重新建立基准，不把停机期间所有成交堆到恢复时刻。实际观测间隔大于 `max(2×配置间隔, 配置间隔+1秒)` 时也重建基准。接口缓存未更新时，仍保留本次采样；策略应检查 `quote_time`、采集时间和质量标记，不把成功下载等同于产生了新成交。价格与数量保持接口原始单位，不自动换算手、股或合约乘数。
 
 2026-09-18 实测 `AU2610.SHF` 只提供一档有效盘口；二至五档价格为 `9223372036854.775`（INT64_MAX / 1e6）占位值。该值和零盘口价格转为 null，盘口量保留来源值，不伪造缺失档位。有效最新价缺失、非正或为占位值时，该标的作为失败记录，不插入新的行情行。
 
-`quality_flags`：`1` 累计量缺失；`2` 盘口字段缺失；`4` 接口时间缺失/无效；`8` 累计量或接口时钟回退；`16` 没有同交易日（直接代码为采集日）的前次采样；`32` 发现接口价格占位值；`64` 实际合约发生切换。价格缺失在 pandas 中呈现为 NaN。
+`quality_flags`：`1` 累计量缺失；`2` 盘口字段缺失；`4` 接口时间缺失/无效；`8` 累计量基准无效、量/接口时钟/采集时钟回退；`16` 首条、新运行、中断恢复或换日后无连续基准；`32` 发现接口价格占位值；`64` 实际合约发生切换；`128` 观测间隔超过允许阈值。价格及不可计算增量在 pandas 中呈现为 NaN。
+
+## 与历史 1 秒成交量的区别及修复
+
+核对基准：`Z:/Project_data/intraday_timestamp/normalization/v1/cn_futures_main_1s`，版本 `20260918T103821501589Z-473b3e4c`。该库把同一源时间秒内 iFind 快照增量 `vol` 求和为 `volume`，时间标签是秒桶结束（源秒 + 1 秒）。缺秒或竞价情况下，其 `bar_start` 可以为空。实时接口只有累计量与 `HHMMSS`，无法从 2 秒轮询还原中间每秒成交分布；即使设为 1 秒，缓存延迟和不完整快照也不能保证与历史秒桶逐条相等。不能把区间量除以间隔当成真实单秒成交量。
+
+实测实时累计 `80047 → 80053` 对应观测区间约 2 秒的增量 `6`，应与历史多个秒桶的合计在时间和合约一致后比较。9/18 夜盘属于 9/21 交易日，不能直接与历史 9/18 交易日文件对比。历史 9/18 AU.SHF 秒量合计 `248571`，日频量 `248802`，两者处于同一数量级；没有依据按黄金合约乘数 1000 换算成交量。历史文件与实时源的单位元数据均尚未认证，当前也没有重叠实时样本用来证明两个供应商单位完全相同。历史秒库不含盘口量，无法用它校准买卖挂单量。
+
+v3 修复曾跨运行计算的增量（例如停机 581 秒后恢复的 `2991`），并补齐可确认的观测区间。升级前使用 SQLite backup API 创建 `live/backups/quotes.pre-volume-v3.<运行编号>.sqlite3`；在单个事务中重算旧行、发布新的不可变 Parquet、替换 `parquet_parts` 目录记录。历史文件保留，其旧目录记录转入 `retired_parquet_parts`，读取请使用 `RealtimeReader`，不要把目录下所有文件 glob 后合并，以免重复。
+
+升级期间读者仍可读旧快照，提交后读取修正版本。发布或数据库操作失败会回滚原目录和旧库，保留的未登记新文件不会被读取。尚未升级的 v1/v2 数据若通过新版 reader 打开，其增量暂时留空，累计量正常保留；启动写入器后根据原库运行/批次记录修复。原有文件可作审计，不覆盖历史秒库。
 
 ## 策略实时读取与结果保存
 
@@ -129,7 +141,7 @@ from index_strategy.instant_dld.reader import RealtimeReader, write_strategy_fra
 
 reader = RealtimeReader()  # 默认 Z:\Project_data\realtime_market
 df = reader.latest(["AU.SHF"])  # 每个标的最近一条有效行情
-print(df[["symbol", "source_symbol", "close", "volume_total", "bid_price_1", "ask_price_1"]])
+print(df[["symbol", "source_symbol", "close", "volume", "volume_interval_seconds", "volume_total"]])
 
 cursor = 0  # 持续策略需自行保存已处理的 sequence
 new_rows = reader.read_since(cursor, symbols=["AU.SHF"])

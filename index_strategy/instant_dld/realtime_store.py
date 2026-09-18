@@ -13,7 +13,7 @@ import uuid
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, normalize_quote
+from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, normalize_quote, update_volume
 
 DEFAULT_OUTPUT = Path("Z:/Project_data/realtime_market")
 DB_RELATIVE = Path("live/quotes.sqlite3")
@@ -22,13 +22,17 @@ SCHEMA = pa.schema([
     pa.field("symbol", pa.string()),
     *[pa.field(name, pa.string()) for name in IDENTITY_COLUMNS], pa.field("quote_time", pa.string()),
     *[pa.field(name, pa.float64()) for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS]],
+    pa.field("volume_start", pa.timestamp("ms", tz="UTC")),
+    pa.field("volume_interval_seconds", pa.float64()),
     pa.field("quality_flags", pa.uint16()),
-], metadata={b"schema_version": b"swhy_realtime_v2", b"timestamp_semantics": b"capture_time_floor_second_UTC",
+], metadata={b"schema_version": b"swhy_realtime_v3", b"timestamp_semantics": b"capture_time_floor_second_UTC",
              b"quote_time_semantics": b"source_HHMMSS_exchange_date_unavailable",
              b"source_symbol": b"actual_requested_contract;symbol_is_maintained_alias",
              b"mapping_date": b"completed_session_date_used_for_main_contract_mapping",
              b"trading_date": b"resolved_session_date_when_available;not_exchange_reported",
-             b"volume": b"difference_between_successful_cumulative_observations;first_or_reset=null",
+             b"volume": b"cumulative_difference_in_continuous_collection;not_fixed_1s_bar;first_restart_failure_gap_reset=null",
+             b"volume_start": b"previous_capture_time_floor_second_UTC;timestamp_is_interval_end",
+             b"volume_interval_seconds": b"elapsed_between_HTTP_receipts;not_exchange_bar_duration",
              b"volume_total": b"tradedQuantities;source_native_units_unverified",
              b"depth_volume": b"bNStocks/sNStocks;source_native_units_unverified",
              b"invalid_price": b"zero_or_INT64_MAX_div_1e6_to_null"})
@@ -118,6 +122,8 @@ class RealtimeStore:
         self.db_path = self.root / DB_RELATIVE
         self.last_rows = []
         self.last_report = None
+        self.interval_seconds = None
+        self._continuous_symbols = set()
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self.connection = sqlite3.connect(self.db_path, timeout=5)
@@ -135,8 +141,16 @@ class RealtimeStore:
 
     def _create_schema(self):
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             raise ValueError(f"不支持的实时库版本：{version}")
+        if version in (1, 2):
+            backup = self.root / "live" / "backups" / f"quotes.pre-volume-v3.{self.run_id}.sqlite3"
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            destination = sqlite3.connect(backup)
+            try:
+                self.connection.backup(destination)
+            finally:
+                destination.close()
         floats = ", ".join(f'"{name}" REAL' for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS])
         # Keep ALTERs, historical identity backfill and version upgrade atomic.
         # An interrupted upgrade remains a readable v1 database.
@@ -147,7 +161,8 @@ class RealtimeStore:
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL,
                 capture_date TEXT NOT NULL, symbol TEXT NOT NULL,
                 source_symbol TEXT NOT NULL, mapping_date TEXT, trading_date TEXT, quote_time TEXT,
-                {floats}, quality_flags INTEGER NOT NULL, run_id TEXT NOT NULL, poll INTEGER, batch INTEGER
+                {floats}, volume_start INTEGER, volume_interval_seconds REAL, received_at TEXT,
+                quality_flags INTEGER NOT NULL, run_id TEXT NOT NULL, poll INTEGER, batch INTEGER
             );
             CREATE INDEX IF NOT EXISTS quotes_symbol_sequence ON quotes(symbol, sequence);
             CREATE INDEX IF NOT EXISTS quotes_date_symbol ON quotes(capture_date, symbol, sequence);
@@ -159,6 +174,7 @@ class RealtimeStore:
                 run_id TEXT PRIMARY KEY, started_at TEXT, finished_at TEXT, status TEXT,
                 interval_seconds REAL, polls_started INTEGER, requests_saved INTEGER, symbols TEXT
             );
+            CREATE INDEX IF NOT EXISTS batches_run_poll_batch ON batches(run_id,poll,batch);
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY, run_id TEXT, timestamp TEXT, kind TEXT, description TEXT
             );
@@ -167,6 +183,10 @@ class RealtimeStore:
                 first_sequence INTEGER NOT NULL, last_sequence INTEGER NOT NULL, rows INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS parts_symbol_date ON parquet_parts(symbol, capture_date);
+            CREATE TABLE IF NOT EXISTS retired_parquet_parts (
+                path TEXT PRIMARY KEY, symbol TEXT, capture_date TEXT, first_sequence INTEGER,
+                last_sequence INTEGER, rows INTEGER, reason TEXT, retired_at TEXT
+            );
             CREATE TABLE IF NOT EXISTS main_contract_resolutions (
                 symbol TEXT NOT NULL, trading_date TEXT NOT NULL, source_symbol TEXT NOT NULL,
                 mapping_date TEXT, PRIMARY KEY(symbol,trading_date)
@@ -177,13 +197,77 @@ class RealtimeStore:
                 if name not in existing:
                     definition = "TEXT NOT NULL DEFAULT ''" if name == "source_symbol" else "TEXT"
                     self.connection.execute(f"ALTER TABLE quotes ADD COLUMN {name} {definition}")
+            for name, definition in (("volume_start", "INTEGER"), ("volume_interval_seconds", "REAL"),
+                                     ("received_at", "TEXT")):
+                if name not in existing:
+                    self.connection.execute(f"ALTER TABLE quotes ADD COLUMN {name} {definition}")
             if version < 2 or not set(IDENTITY_COLUMNS).issubset(existing):
                 self.connection.execute("UPDATE quotes SET source_symbol=symbol WHERE source_symbol IS NULL OR source_symbol=''")
-            self.connection.execute("PRAGMA user_version=2")
+            if version in (1, 2):
+                self._repair_legacy_volumes()
+            self.connection.execute("PRAGMA user_version=3")
             self.connection.commit()
         except BaseException:
             self.connection.rollback()
             raise
+
+    @staticmethod
+    def _archive_table(records):
+        normalized = []
+        for record in records:
+            row = {name: record[name] for name in QUOTE_COLUMNS}
+            for name in ("timestamp", "volume_start"):
+                if row[name] is not None:
+                    row[name] = datetime.fromtimestamp(row[name], timezone.utc)
+            normalized.append(row)
+        return pa.Table.from_pylist(normalized, schema=SCHEMA)
+
+    def _repair_legacy_volumes(self):
+        """Repair live rows and switch archive catalogues in the same transaction.
+
+        Published files remain untouched. On interruption the old catalogue and
+        database roll back together; unregistered replacement files are harmless.
+        """
+        previous = {}
+        cursor = self.connection.execute("""SELECT q.*,
+            (SELECT timestamp FROM batches b WHERE b.run_id=q.run_id AND b.poll=q.poll
+             AND b.batch=q.batch ORDER BY b.id DESC LIMIT 1) AS batch_received_at,
+            r.interval_seconds AS expected_interval
+            FROM quotes q LEFT JOIN runs r ON q.run_id=r.run_id ORDER BY q.sequence""")
+        while records := cursor.fetchmany(5000):
+            for record in records:
+                row = dict(record)
+                row["received_at"] = row["batch_received_at"] or datetime.fromtimestamp(row["timestamp"], timezone.utc).isoformat()
+                old = previous.get(row["symbol"])
+                reset = old is None or old["run_id"] != row["run_id"]
+                if old and old.get("poll") is not None and row.get("poll") is not None:
+                    reset |= row["poll"] > old["poll"] + 1
+                update_volume(row, old, reset_volume=reset, expected_interval=row["expected_interval"])
+                self.connection.execute("UPDATE quotes SET volume=?,volume_start=?,volume_interval_seconds=?,"
+                                        "received_at=?,quality_flags=? WHERE sequence=?",
+                                        (row["volume"], row["volume_start"], row["volume_interval_seconds"],
+                                         row["received_at"], row["quality_flags"], row["sequence"]))
+                previous[row["symbol"]] = row
+        groups = self.connection.execute("SELECT symbol,capture_date,MAX(last_sequence) AS archived "
+                                         "FROM parquet_parts GROUP BY symbol,capture_date").fetchall()
+        self.connection.execute("INSERT OR IGNORE INTO retired_parquet_parts SELECT *,?,? FROM parquet_parts",
+                                ("volume_interval_v3", datetime.now(timezone.utc).isoformat()))
+        for group in groups:
+            self.connection.execute("DELETE FROM parquet_parts WHERE symbol=? AND capture_date=?",
+                                    (group["symbol"], group["capture_date"]))
+            after, day = 0, group["capture_date"]
+            while True:
+                records = self.connection.execute("SELECT * FROM quotes WHERE symbol=? AND capture_date=? "
+                    "AND sequence>? AND sequence<=? ORDER BY sequence LIMIT 50000",
+                    (group["symbol"], day, after, group["archived"])).fetchall()
+                if not records:
+                    break
+                directory = self.root / "data" / group["symbol"] / day[:4] / day[5:7]
+                path = publish_parquet(self._archive_table(records), directory, day)
+                self.connection.execute("INSERT INTO parquet_parts VALUES (?,?,?,?,?,?)",
+                    (path.relative_to(self.root).as_posix(), group["symbol"], day,
+                     records[0]["sequence"], records[-1]["sequence"], len(records)))
+                after = records[-1]["sequence"]
 
     def pinned_contract(self, symbol: str, trading_date: str) -> dict | None:
         row = self.connection.execute("SELECT source_symbol,mapping_date,trading_date "
@@ -201,6 +285,7 @@ class RealtimeStore:
         return self.pinned_contract(symbol, mapping["trading_date"])
 
     def manifest(self, value: dict):
+        self.interval_seconds = value["interval_seconds"]
         with self.connection:
             self.connection.execute("""INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id) DO UPDATE SET finished_at=excluded.finished_at,
@@ -229,12 +314,17 @@ class RealtimeStore:
                 failures[symbol] = record.get("error") or record["status"]
                 continue
             previous = self.connection.execute(
-                "SELECT capture_date,symbol,source_symbol,trading_date,quote_time,volume_total "
+                "SELECT timestamp,received_at,capture_date,symbol,source_symbol,trading_date,quote_time,volume_total,run_id,poll "
                 "FROM quotes WHERE symbol=? ORDER BY sequence DESC LIMIT 1",
                 (symbol,)).fetchone()
             try:
                 identity = mappings.get(symbol, {})
+                reset = symbol not in self._continuous_symbols or (previous and previous["run_id"] != self.run_id)
+                if previous and previous["poll"] is not None:
+                    reset |= record["poll"] > previous["poll"] + 1
                 rows.append(normalize_quote(symbol, quote, record["received_at"], dict(previous) if previous else None,
+                                            reset_volume=bool(reset),
+                                            expected_interval=self.interval_seconds,
                                             **{name: identity.get(name) for name in IDENTITY_COLUMNS}))
             except ValueError as exc:
                 failures[symbol] = str(exc)
@@ -245,7 +335,11 @@ class RealtimeStore:
         incomplete = sum(bool(row["quality_flags"] & 7) for row in rows)
         if incomplete:
             description += f"；{incomplete} 个标的有缺失字段，已留空并标记"
-        columns = ["timestamp", "capture_date", "symbol", *IDENTITY_COLUMNS, "quote_time", "close", "volume", "volume_total",
+        gaps = sum(bool(row["quality_flags"] & 128) for row in rows)
+        if gaps:
+            description += f"；{gaps} 个标的观测间隔过长，区间成交量已留空并重建基准"
+        columns = ["timestamp", "received_at", "capture_date", "symbol", *IDENTITY_COLUMNS, "quote_time", "close", "volume", "volume_total",
+                   "volume_start", "volume_interval_seconds",
                    *DEPTH_COLUMNS, "quality_flags"]
         sql = f"INSERT INTO quotes ({','.join(columns)},run_id,poll,batch) VALUES ({','.join('?' for _ in range(len(columns)+3))})"
         with self.connection:
@@ -259,6 +353,8 @@ class RealtimeStore:
                  len(record["symbols"]), len(rows), ",".join(failures), description))
         # Expose only committed data. A UI observer must never see partial batches.
         self.last_rows = rows
+        self._continuous_symbols.difference_update(failures)
+        self._continuous_symbols.update(row["symbol"] for row in rows)
         self.last_report = {"timestamp": record["received_at"], "status": status,
                             "description": description, "failed_symbols": list(failures)}
         record["storage_status"] = status
@@ -283,14 +379,9 @@ class RealtimeStore:
                     AND sequence>? ORDER BY sequence LIMIT 50000""", (group["symbol"], group["capture_date"], after)).fetchall()
                 if not records:
                     break
-                normalized = []
-                for record in records:
-                    row = {name: record[name] for name in QUOTE_COLUMNS}
-                    row["timestamp"] = datetime.fromtimestamp(row["timestamp"], timezone.utc)
-                    normalized.append(row)
                 day = group["capture_date"]
                 directory = self.root / "data" / group["symbol"] / day[:4] / day[5:7]
-                target = publish_parquet(pa.Table.from_pylist(normalized, schema=SCHEMA), directory, day)
+                target = publish_parquet(self._archive_table(records), directory, day)
                 # The catalogue is advanced only after the immutable file is complete.
                 with self.connection:
                     self.connection.execute("INSERT INTO parquet_parts VALUES (?,?,?,?,?,?)",

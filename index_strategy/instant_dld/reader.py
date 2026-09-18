@@ -37,7 +37,11 @@ class RealtimeReader:
             existing = {row[1] for row in connection.execute("PRAGMA table_info(quotes)")}
             columns = []
             for name in QUOTE_COLUMNS:
-                if name == "source_symbol":
+                if name == "volume" and "volume_interval_seconds" not in existing:
+                    columns.append("NULL AS volume")
+                elif name == "quality_flags" and "volume_interval_seconds" not in existing:
+                    columns.append("(quality_flags | 16) AS quality_flags")
+                elif name == "source_symbol":
                     columns.append("COALESCE(NULLIF(source_symbol,''),symbol) AS source_symbol" if name in existing
                                    else "symbol AS source_symbol")
                 else:
@@ -45,6 +49,7 @@ class RealtimeReader:
             rows = [dict(row) for row in connection.execute(f"SELECT {','.join(columns)} FROM quotes {clause}", values).fetchall()]
         frame = pd.DataFrame(rows, columns=QUOTE_COLUMNS)
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
+        frame["volume_start"] = pd.to_datetime(frame["volume_start"], unit="s", utc=True)
         return frame.set_index("timestamp")
 
     def pinned_contract(self, symbol: str, trading_date: str) -> dict | None:
@@ -101,7 +106,11 @@ class RealtimeReader:
             # in memory; never replace a file that another reader may have open.
             arrays = []
             for field in SCHEMA:
-                if field.name == "source_symbol":
+                if field.name == "volume" and "volume_interval_seconds" not in table.column_names:
+                    arrays.append(pa.nulls(len(table), type=field.type))
+                elif field.name == "quality_flags" and "volume_interval_seconds" not in table.column_names:
+                    arrays.append(pc.bit_wise_or(table[field.name], pa.scalar(16, type=field.type)))
+                elif field.name == "source_symbol":
                     source = table[field.name] if field.name in table.column_names else table["symbol"]
                     arrays.append(pc.if_else(pc.or_(pc.is_null(source), pc.fill_null(pc.equal(source, ""), False)),
                                              table["symbol"], source))
