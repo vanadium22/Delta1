@@ -8,8 +8,11 @@ import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from functools import partial
 
 from index_strategy.instant_dld.service import DownloadService
+from index_strategy.instant_dld.collector import collect
+from index_strategy.instant_dld.reader import RealtimeReader
 
 try:
     import tkinter as tk
@@ -35,7 +38,10 @@ class BlockingClient:
             raise TimeoutError("test request was not released")
         return {"received_at": datetime.now().astimezone().isoformat(), "elapsed_seconds": .014,
                 "symbols": symbols, "status": "success", "http_status": 200,
-                "response": {"respSuccess": True, "code": "0", "data": {symbol: {"latestPrice": 10} for symbol in symbols}}}
+                "response": {"respSuccess": True, "code": "0", "data": {
+                    symbol: {"latestPrice": 10 + index, "tradedQuantities": 1000 + index, "quoteTimestamp": 93000,
+                             "b1Price": 9 + index, "b1Stocks": 100, "s1Price": 11 + index, "s1Stocks": 200}
+                    for index, symbol in enumerate(symbols)}}}
 
     def close(self):
         self.closed = True
@@ -77,6 +83,14 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(self.service.worker.is_alive())
         self.app.refresh(schedule=False)
 
+    def report_text(self):
+        tree = self.app.status_table.tree
+        return str([tree.item(row, "values") for row in tree.get_children()])
+
+    def run_summary(self):
+        with RealtimeReader(self.root / "行情数据").connect() as connection:
+            return dict(connection.execute("SELECT * FROM runs WHERE run_id=?", (self.service.run_id,)).fetchone())
+
     def test_edit_save_and_restore_settings_without_network(self):
         self.app.symbols.delete("1.0", "end")
         self.app.symbols.insert("1.0", "['000001.sz', '603110.SH', '000001.SZ']")
@@ -102,7 +116,7 @@ class DesktopTests(unittest.TestCase):
         self.app.update()
         self.assertTrue(self.app.symbols.winfo_ismapped())
         self.assertGreaterEqual(self.app.symbols.winfo_height(), 100)
-        for control in (self.app.symbols, self.app.start_button, self.app.stop_button, self.app.log_window):
+        for control in (self.app.symbols, self.app.start_button, self.app.stop_button, self.app.status_table, self.app.quote_table):
             with self.subTest(control=type(control).__name__):
                 self.assertTrue(control.winfo_ismapped())
                 x = control.winfo_rootx() - control.master.winfo_rootx()
@@ -156,12 +170,18 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.client.closed)
         self.assertEqual(self.app.start_button.cget("state"), "normal")
         self.assertEqual(self.app.metric_values["batches"].cget("text"), "1")
-        self.assertIn("已落盘", self.app.log_window.get("1.0", "end"))
-        summary = json.loads(Path(self.service.run_dir, "run.json").read_text(encoding="utf-8"))
+        self.assertIn("保存 2/2", self.report_text())
+        summary = self.run_summary()
         self.assertEqual(summary["status"], "stopped")
-        files = list((self.root / "行情数据").glob("*/*/batches.jsonl"))
-        self.assertEqual(len(files), 1)
-        self.assertEqual(json.loads(files[0].read_text(encoding="utf-8"))["symbols"], ["000001.SZ", "603110.SH"])
+        files = list((self.root / "行情数据/data").glob("*/*/*/*.parquet"))
+        self.assertEqual(len(files), 2)
+        self.assertEqual(list(RealtimeReader(self.root / "行情数据").read_since()["symbol"]), ["000001.SZ", "603110.SH"])
+        self.assertEqual(self.app.display_symbol.get(), "000001.SZ")
+        tree = self.app.quote_table.tree
+        self.assertEqual(tree.item(tree.get_children()[0], "values")[1], "10")
+        self.app.display_symbol.set("603110.SH")
+        self.app.select_symbol()
+        self.assertEqual(tree.item(tree.get_children()[0], "values")[1], "11")
 
     def test_close_waits_without_blocking_then_destroys_after_saving(self):
         self.app.start_button.invoke()
@@ -174,7 +194,7 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(self.service.state, "stopping")
             self.finish()
             destroy.assert_called_once()
-        summary = json.loads(Path(self.service.run_dir, "run.json").read_text(encoding="utf-8"))
+        summary = self.run_summary()
         self.assertEqual(summary["requests_saved"], 1)
         self.assertTrue(self.client.closed)
 
@@ -195,14 +215,33 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.app.page_title.cget("text"), "实时数据下载")
         self.service.log("WARNING", "first warning")
         self.app.refresh(schedule=False)
-        self.assertIn("first warning", self.app.log_window.get("1.0", "end"))
+        self.assertIn("first warning", self.report_text())
         self.app.clear_logs()
         self.app.refresh(schedule=False)
-        self.assertEqual(self.app.log_window.get("1.0", "end").strip(), "")
+        self.assertEqual(self.app.status_table.tree.get_children(), ())
         self.assertTrue(self.service.snapshot()["logs"])
         self.service.log("INFO", "new log")
         self.app.refresh(schedule=False)
-        self.assertIn("new log", self.app.log_window.get("1.0", "end"))
+        self.assertIn("new log", self.report_text())
+
+    def test_failed_symbol_is_named_and_never_shown_as_new_market_data(self):
+        self.service.collector = partial(collect, max_polls=1)
+        self.client.release.set()
+        original = self.client.fetch
+        def partial_response(symbols):
+            record = original(symbols)
+            record["response"]["data"].pop("603110.SH")
+            record["status"] = "partial"
+            return record
+        self.client.fetch = partial_response
+        self.app.start_button.invoke()
+        self.finish()
+        self.assertIn("部分失败", self.report_text())
+        self.assertIn("603110.SH", self.report_text())
+        self.assertEqual(len(self.app.quote_table.tree.get_children()), 1)
+        self.app.display_symbol.set("603110.SH")
+        self.app.select_symbol()
+        self.assertEqual(len(self.app.quote_table.tree.get_children()), 0)
 
 
 if __name__ == "__main__":

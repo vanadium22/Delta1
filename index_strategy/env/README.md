@@ -1,6 +1,6 @@
 # 环境建立与恢复
 
-标准环境名是 `swhy_delta1`。本机所有 Conda 环境统一放在 `P:\code_content\python_work_env\conda_env`。实时采集采用 Python 3.13 和 `requests`，桌面窗口采用 CustomTkinter 6.0.0 / Tk。Python 包版本在 `environment.yml` 与 `requirements.txt` 中固定，Conda 环境文件还包含 Tk 运行库。
+标准环境名是 `swhy_delta1`。本机所有 Conda 环境统一放在 `P:\code_content\python_work_env\conda_env`。实时采集采用 Python 3.13 和 `requests`，桌面窗口采用 CustomTkinter 6.0.0 / Tk，Parquet 保存和策略 DataFrame 接口使用 pyarrow / pandas；事务库使用 Python 自带的 sqlite3。Python 包版本在 `environment.yml` 与 `requirements.txt` 中固定，Conda 环境文件还包含 Tk 运行库。
 
 ## 第一次建立
 
@@ -46,7 +46,7 @@ python -m pip check
 
 ## Wind 可选依赖
 
-实时采集不需要 Oracle、pandas 或 pyarrow。需要历史数据模块时，在同一环境中执行：
+实时采集已包含 pandas、pyarrow，不需要 Oracle。需要历史数据模块时，在同一环境中执行：
 
 ```powershell
 python -m pip install -r index_strategy/data_dld/requirements_wind.txt

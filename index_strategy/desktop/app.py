@@ -14,6 +14,8 @@ import customtkinter as ctk
 
 from ..instant_dld.service import ACTIVE_STATES, DownloadService, write_json
 from ..instant_dld.symbols import load_symbols, parse_symbols
+from ..instant_dld.quotes import CHINA
+from .tables import DataTable
 
 BG = "#F3F6F8"
 NAV = "#132B3A"
@@ -28,7 +30,7 @@ def clock_text(value: str | None) -> str:
     if not value:
         return "—"
     try:
-        return datetime.fromisoformat(value).strftime("%H:%M:%S")
+        return datetime.fromisoformat(value).astimezone(CHINA).strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return value
 
@@ -40,8 +42,8 @@ class Delta1App(ctk.CTk):
         ctk.set_default_color_theme("blue")
         super().__init__()
         self.title("Delta1 · 指数策略工作台")
-        self.geometry("1240x800")
-        self.minsize(1080, 730)
+        self.geometry("1400x820")
+        self.minsize(1120, 760)
         self.configure(fg_color=BG)
         self.protocol("WM_DELETE_WINDOW", self.request_close)
         self._closing = False
@@ -49,10 +51,13 @@ class Delta1App(ctk.CTk):
         self._cursor = 0
         self._busy = None
         self._last_error = None
+        self._quote_cursor = 0
+        self._quote_run = None
         self._page = "realtime"
         self.interval = tk.StringVar(self)
         self.output_dir = tk.StringVar(self)
         self.autoscroll = tk.BooleanVar(self, True)
+        self.display_symbol = tk.StringVar(self)
         self.editable = []
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
@@ -132,8 +137,8 @@ class Delta1App(ctk.CTk):
             self.metric_values[key] = value
         self.realtime_page = ctk.CTkFrame(main, fg_color="transparent")
         self.realtime_page.grid(row=3, column=0, sticky="nsew")
-        self.realtime_page.grid_columnconfigure(0, weight=4, minsize=360)
-        self.realtime_page.grid_columnconfigure(1, weight=5, minsize=360)
+        self.realtime_page.grid_columnconfigure(0, weight=1, minsize=340)
+        self.realtime_page.grid_columnconfigure(1, weight=3, minsize=420)
         self.realtime_page.grid_rowconfigure(0, weight=1)
         self._build_configuration()
         self._build_monitor()
@@ -194,7 +199,7 @@ class Delta1App(ctk.CTk):
         self.browse_button = self.button(directory, "选择…", self.choose_directory, width=64)
         self.browse_button.grid(row=0, column=1, padx=(7, 0))
         self.editable.extend([self.output_entry, self.browse_button])
-        self.label(card, "保存格式  JSONL · 按日期分目录", size=11, color=MUTED).grid(
+        self.label(card, "Parquet · 按标的 / 年 / 月归档", size=11, color=MUTED).grid(
             row=8, column=0, padx=20, pady=(0, 8), sticky="w")
         self.feedback = self.label(card, "准备就绪，点击开始采集。", size=11, color=TEAL, wraplength=340, justify="left")
         self.feedback.grid(row=9, column=0, padx=20, pady=(0, 9), sticky="ew")
@@ -207,38 +212,98 @@ class Delta1App(ctk.CTk):
         self.stop_button.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
     def _build_monitor(self):
-        card = ctk.CTkFrame(self.realtime_page, fg_color="white", corner_radius=12, border_width=1, border_color=LINE)
-        card.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
-        card.grid_columnconfigure(0, weight=1)
-        card.grid_rowconfigure(2, weight=1)
-        header = ctk.CTkFrame(card, fg_color="transparent")
-        header.grid(row=0, column=0, padx=20, pady=(18, 6), sticky="ew")
+        monitor = ctk.CTkFrame(self.realtime_page, fg_color="transparent")
+        monitor.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
+        monitor.grid_columnconfigure(0, weight=1)
+        monitor.grid_rowconfigure((0, 1), weight=1, uniform="monitor")
+        overall = ctk.CTkFrame(monitor, fg_color="white", corner_radius=12, border_width=1, border_color=LINE)
+        overall.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        overall.grid_columnconfigure(0, weight=1)
+        overall.grid_rowconfigure(2, weight=1)
+        header = ctk.CTkFrame(overall, fg_color="transparent")
+        header.grid(row=0, column=0, padx=16, pady=(14, 6), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        self.label(header, "运行监控", size=17, bold=True).grid(row=0, column=0, sticky="w")
-        self.button(header, "清空窗口", self.clear_logs, width=80, height=30).grid(row=0, column=1)
-        tools_row = ctk.CTkFrame(card, fg_color="transparent")
-        tools_row.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.label(header, "整体运行情况", size=17, bold=True).grid(row=0, column=0, sticky="w")
+        self.button(header, "清空记录", self.clear_logs, width=80, height=28).grid(row=0, column=1)
+        tools_row = ctk.CTkFrame(overall, fg_color="transparent")
+        tools_row.grid(row=1, column=0, padx=16, pady=(0, 6), sticky="ew")
         tools_row.grid_columnconfigure(0, weight=1)
         self.result_label = self.label(tools_row, "成功 0  /  异常 0", size=11, color=MUTED)
         self.result_label.grid(row=0, column=0, sticky="w")
         ctk.CTkSwitch(tools_row, text="自动滚动", variable=self.autoscroll, font=(FONT, 11),
                        width=95, switch_width=28, switch_height=16, progress_color=TEAL).grid(row=0, column=1)
-        self.log_window = ctk.CTkTextbox(card, fg_color="#142834", text_color="#D6E4E9", corner_radius=8,
-                                         font=(FONT, 12), wrap="word", state="disabled", height=250,
-                                         scrollbar_button_color="#385261", scrollbar_button_hover_color="#506A78")
-        self.log_window.grid(row=2, column=0, padx=16, sticky="nsew")
-        self.log_window.tag_config("INFO", foreground="#C5DADF")
-        self.log_window.tag_config("WARNING", foreground="#F2C47D")
-        self.log_window.tag_config("ERROR", foreground="#F29191")
-        self.log_window.bind("<Configure>", lambda _event: self.log_window.see("end") if self.autoscroll.get() else None)
-        details = ctk.CTkFrame(card, fg_color="transparent")
-        details.grid(row=3, column=0, padx=20, pady=(12, 16), sticky="ew")
+        self.status_table = DataTable(overall, [("timestamp", "时间", 153), ("status", "结果", 62),
+            ("description", "情况说明", 290), ("failed", "失败标的", 165)], font_family=FONT)
+        self.status_table.tree.configure(displaycolumns=("timestamp", "status", "failed", "description"))
+        self.status_table.grid(row=2, column=0, padx=14, sticky="nsew")
+        self.status_detail = self.label(overall, "选择一行查看摘要，双击查看完整说明。", size=11, color=MUTED,
+                                        wraplength=420, justify="left", height=36)
+        self.status_detail.grid(row=3, column=0, padx=16, pady=(3, 8), sticky="ew")
+        self.status_table.tree.bind("<<TreeviewSelect>>", self.show_status_detail)
+        self.status_table.tree.bind("<Double-1>", self.show_report_window)
+        quotes = ctk.CTkFrame(monitor, fg_color="white", corner_radius=12, border_width=1, border_color=LINE)
+        quotes.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        quotes.grid_columnconfigure(0, weight=1)
+        quotes.grid_rowconfigure(2, weight=1)
+        quote_header = ctk.CTkFrame(quotes, fg_color="transparent")
+        quote_header.grid(row=0, column=0, padx=16, pady=(14, 6), sticky="ew")
+        quote_header.grid_columnconfigure(0, weight=1)
+        self.label(quote_header, "标的行情", size=17, bold=True).grid(row=0, column=0, sticky="w")
+        self.symbol_selector = ctk.CTkOptionMenu(quote_header, variable=self.display_symbol, values=["—"],
+            command=self.select_symbol, width=136, height=29, font=(FONT, 12), fg_color=TEAL, button_color="#06665F")
+        self.symbol_selector.grid(row=0, column=1)
+        self.label(quotes, "行时间为采集时间；行情时间为接口原值。文件保留五档。", size=11, color=MUTED).grid(
+            row=1, column=0, padx=16, pady=(0, 5), sticky="w")
+        self.quote_table = DataTable(quotes, [("timestamp", "采集时间", 153), ("close", "最新价", 64),
+            ("volume_total", "累计成交量", 94), ("volume", "区间成交量", 88),
+            ("bid_price_1", "买一价", 64), ("bid_volume_1", "买一量", 82),
+            ("ask_price_1", "卖一价", 64), ("ask_volume_1", "卖一量", 82),
+            ("quote_time", "行情时间", 78)], font_family=FONT, limit=200)
+        self.quote_table.tree.configure(displaycolumns=("timestamp", "close", "volume_total", "bid_price_1",
+            "bid_volume_1", "ask_price_1", "ask_volume_1", "volume", "quote_time"))
+        self.quote_table.grid(row=2, column=0, padx=14, sticky="nsew")
+        details = ctk.CTkFrame(quotes, fg_color="transparent")
+        details.grid(row=3, column=0, padx=16, pady=(6, 10), sticky="ew")
         details.grid_columnconfigure(0, weight=1)
         self.response_label = self.label(details, "最近响应  —", size=11, color=MUTED)
         self.response_label.grid(row=0, column=0, sticky="w")
-        self.run_label = self.label(details, "本次运行  —", size=10, color=MUTED, wraplength=420, justify="left")
-        self.run_label.grid(row=1, column=0, sticky="w", pady=(2, 7))
-        self.button(details, "打开数据文件夹", self.open_output, width=130, height=30).grid(row=2, column=0, sticky="w")
+        self.button(details, "打开文件夹", self.open_output, width=95, height=28).grid(row=0, column=1)
+
+    def show_status_detail(self, _event=None):
+        selection = self.status_table.tree.selection()
+        if selection:
+            values = self.status_table.tree.item(selection[0], "values")
+            detail = f"{values[0]}  {values[2]}" + (f"；失败：{values[3]}" if values[3] != "—" else "")
+            self.status_detail.configure(text=detail[:140] + ("…" if len(detail) > 140 else ""))
+
+    def select_symbol(self, _value=None):
+        self._quote_cursor = 0
+        self.quote_table.clear()
+        self._refresh_quotes()
+
+    def show_report_window(self, _event=None):
+        selection = self.status_table.tree.selection()
+        if not selection:
+            return
+        values = self.status_table.tree.item(selection[0], "values")
+        window = ctk.CTkToplevel(self)
+        window.title("运行详情")
+        window.geometry("660x330")
+        window.transient(self)
+        text = ctk.CTkTextbox(window, font=(FONT, 13), wrap="word")
+        text.pack(fill="both", expand=True, padx=16, pady=16)
+        text.insert("1.0", f"时间：{values[0]}\n结果：{values[1]}\n失败标的：{values[3]}\n\n{values[2]}")
+        text.configure(state="disabled")
+
+    def _refresh_quotes(self):
+        rows = self.service.quote_snapshot(self.display_symbol.get(), self._quote_cursor)
+        columns = ["close", "volume_total", "volume", "bid_price_1", "bid_volume_1", "ask_price_1", "ask_volume_1"]
+        for row in rows:
+            timestamp = datetime.fromtimestamp(row["timestamp"], CHINA).strftime("%Y-%m-%d %H:%M:%S")
+            values = [timestamp, *["—" if row[name] is None else f"{row[name]:,.8f}".rstrip("0").rstrip(".") for name in columns],
+                      row["quote_time"] or "—"]
+            self.quote_table.append(row["sequence"], values, scroll=self.autoscroll.get())
+            self._quote_cursor = row["sequence"]
 
     def show_page(self, page: str):
         self._page = page
@@ -270,7 +335,12 @@ class Delta1App(ctk.CTk):
 
     def _update_symbol_count(self, _event=None):
         try:
-            count = str(len(parse_symbols(self.symbols.get("1.0", "end-1c"))))
+            symbols = parse_symbols(self.symbols.get("1.0", "end-1c"))
+            count = str(len(symbols))
+            self.symbol_selector.configure(values=symbols or ["—"])
+            if self.display_symbol.get() not in symbols:
+                self.display_symbol.set(symbols[0] if symbols else "—")
+                self.select_symbol()
         except ValueError:
             count = "待检查"
         self.metric_values["symbols"].configure(text=count)
@@ -364,9 +434,8 @@ class Delta1App(ctk.CTk):
 
     def clear_logs(self):
         self._cursor = self.service.snapshot()["log_cursor"]
-        self.log_window.configure(state="normal")
-        self.log_window.delete("1.0", "end")
-        self.log_window.configure(state="disabled")
+        self.status_table.clear()
+        self.status_detail.configure(text="显示记录已清空；磁盘数据保留。")
 
     def refresh(self, *, schedule=True):
         if schedule:
@@ -397,23 +466,21 @@ class Delta1App(ctk.CTk):
         self.metric_values["latency"].configure(text="—" if latency is None else f"{latency} ms")
         self.result_label.configure(text=f"成功 {stats['successful']}  /  异常 {stats['unsuccessful']}")
         self.response_label.configure(text="最近响应  " + clock_text(stats["last_response_at"]))
-        self.run_label.configure(text="本次运行  " + (state["run_id"] or "—"))
+        if state["run_id"] != self._quote_run:
+            self._quote_run = state["run_id"]
+            self._quote_cursor = 0
+            self.quote_table.clear()
+        self._refresh_quotes()
         if state["error"] and state["error"] != self._last_error:
             self._feedback(state["error"], error=True)
         elif not busy and state["status"] == "stopped":
             if self.feedback.cget("text") in ("正在停止，等待当前请求完成并保存。", "采集中；停止后可修改配置。"):
                 self._feedback("采集已结束，数据已保存。可修改配置后重新开始。")
         self._last_error = state["error"]
-        if state["logs"]:
-            self.log_window.configure(state="normal")
-            for row in state["logs"]:
-                self.log_window.insert("end", f"{clock_text(row['at'])}  {row['level']}  {row['message']}\n", row["level"])
-            lines = int(self.log_window.index("end-1c").split(".")[0])
-            if lines > 800:
-                self.log_window.delete("1.0", f"{lines - 800}.0")
-            if self.autoscroll.get():
-                self.log_window.see("end")
-            self.log_window.configure(state="disabled")
+        labels = {"success": "成功", "partial": "部分失败", "failed": "失败", "info": "信息", "warning": "提示"}
+        for row in state["reports"]:
+            self.status_table.append(row["id"], [clock_text(row["timestamp"]), labels.get(row["status"], row["status"]),
+                row["description"], ", ".join(row["failed_symbols"]) or "—"], row["status"], scroll=self.autoscroll.get())
         self._cursor = state["log_cursor"]
         if schedule:
             self._poll_id = self.after(250, self.refresh)
@@ -432,6 +499,7 @@ class Delta1App(ctk.CTk):
         self._action_error(exc_value)
 
     def destroy(self):
+        self.update_idletasks()
         # CustomTkinter also schedules widget and DPI callbacks on this Tcl
         # interpreter. Cancel timers before deleting their widget commands.
         for callback in self.tk.splitlist(self.tk.call("after", "info")):

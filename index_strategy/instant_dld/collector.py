@@ -8,13 +8,21 @@ import math
 from pathlib import Path
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from .client import MarketDataClient
-from .storage import JsonlStore
 from .symbols import SymbolFileError, load_symbols
 
 LOG = logging.getLogger(__name__)
+
+
+class CollectionStore(Protocol):
+    run_id: str
+    run_dir: Path
+
+    def manifest(self, value: dict) -> None: ...
+    def batch(self, record: dict) -> None: ...
+    def event(self, kind: str, **details) -> None: ...
 
 
 def next_deadline(previous: float, now: float, interval: float) -> tuple[float, int]:
@@ -25,7 +33,7 @@ def next_deadline(previous: float, now: float, interval: float) -> tuple[float, 
 
 def collect(
     client: MarketDataClient,
-    store: JsonlStore,
+    store: CollectionStore,
     symbol_files: list[Path],
     *,
     interval: float = 5,

@@ -16,7 +16,7 @@ from typing import Callable
 
 from .client import MarketDataClient
 from .collector import collect
-from .storage import JsonlStore
+from .realtime_store import DEFAULT_OUTPUT, RealtimeStore
 from .symbols import load_symbols, parse_symbols
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,14 +44,14 @@ def write_json(path: Path, value: dict | list) -> None:
             temporary.unlink(missing_ok=True)
 
 
-class ObservedStore(JsonlStore):
+class ObservedStore(RealtimeStore):
     def __init__(self, root: Path, observer: Callable):
         super().__init__(root)
         self.observer = observer
 
     def batch(self, record: dict) -> None:
         super().batch(record)
-        self.observer(record)
+        self.observer(record, self.last_rows, self.last_report)
 
 
 class ThreadLogHandler(logging.Handler):
@@ -71,9 +71,11 @@ class DownloadService:
         self.root = Path(root).resolve()
         self.instance_id = uuid.uuid4().hex
         self.settings_path = self.root / "localsetting" / "realtime_ui.json"
-        self.symbols_path = self.root / "localsetting" / "realtime_symbols.json"
+        self.symbols_path = self.root / "localsetting" / f"realtime_symbols_{self.instance_id}.json"
         self.lock = threading.RLock()
         self.logs: deque[dict] = deque(maxlen=600)
+        self.reports: deque[dict] = deque(maxlen=600)
+        self.market_rows: deque[dict] = deque(maxlen=5000)
         self.sequence = 0
         self.worker: threading.Thread | None = None
         self.stop_event = threading.Event()
@@ -89,7 +91,7 @@ class DownloadService:
 
     @staticmethod
     def _empty_stats() -> dict:
-        return {"polls": 0, "batches": 0, "successful": 0, "unsuccessful": 0,
+        return {"polls": 0, "batches": 0, "successful": 0, "unsuccessful": 0, "quotes_saved": 0, "quote_sequence": 0,
                 "last_response_at": None, "last_latency_ms": None, "started_at": None, "finished_at": None}
 
     def _load_settings(self) -> dict:
@@ -98,7 +100,7 @@ class DownloadService:
             return self.validate(json.loads(self.settings_path.read_text(encoding="utf-8-sig")))
         symbols = load_symbols([self.root / "index_strategy/instant_dld/config/symbols.json"])
         return {"symbols": symbols, "interval": 5.0,
-                "output_dir": str(self.root / "index_strategy/instant_dld/data")}
+                "output_dir": str(DEFAULT_OUTPUT)}
 
     def validate(self, value: dict) -> dict:
         if not isinstance(value, dict):
@@ -158,6 +160,7 @@ class DownloadService:
             self.state, self.error = "starting", None
             self.run_id = self.run_dir = None
             self.stats = self._empty_stats()
+            self.market_rows.clear()
             self.stats["started_at"] = datetime.now().astimezone().isoformat()
             self.active_config = deepcopy(settings)
             self.worker = threading.Thread(target=self._run, args=(settings,), name="delta1-realtime", daemon=True)
@@ -183,30 +186,42 @@ class DownloadService:
         if worker is not None:
             worker.join(timeout)
 
-    def log(self, level: str, message: str) -> None:
+    def log(self, level: str, message: str, *, status: str | None = None, failed_symbols=None, at: str | None = None) -> None:
         with self.lock:
             self.sequence += 1
-            self.logs.append({"id": self.sequence, "at": datetime.now().astimezone().isoformat(),
+            self.logs.append({"id": self.sequence, "at": at or datetime.now().astimezone().isoformat(),
                               "level": level, "message": message})
+            self.reports.append({"id": self.sequence, "timestamp": self.logs[-1]["at"],
+                                 "status": status or {"INFO": "info", "WARNING": "warning", "ERROR": "failed"}.get(level, "info"),
+                                 "description": message, "failed_symbols": failed_symbols or []})
 
     def snapshot(self, after: int = 0) -> dict:
         with self.lock:
             return {"instance_id": self.instance_id, "status": self.state, "error": self.error, "run_id": self.run_id,
                     "run_dir": self.run_dir, "active_config": deepcopy(self.active_config),
                     "stats": dict(self.stats), "log_cursor": self.sequence,
-                    "logs": [dict(item) for item in self.logs if item["id"] > after]}
+                    "logs": [dict(item) for item in self.logs if item["id"] > after],
+                    "reports": [dict(item) for item in self.reports if item["id"] > after]}
 
-    def _batch_saved(self, record: dict) -> None:
+    def quote_snapshot(self, symbol: str, after: int = 0, limit: int = 200) -> list[dict]:
+        with self.lock:
+            return [dict(row) for row in self.market_rows if row["symbol"] == symbol and row["sequence"] > after][-limit:]
+
+    def _batch_saved(self, record: dict, rows: list[dict], report: dict) -> None:
         with self.lock:
             self.stats["batches"] += 1
             self.stats["polls"] = max(self.stats["polls"], record["poll"])
-            good = record["status"] == "success"
+            good = report["status"] == "success"
             self.stats["successful" if good else "unsuccessful"] += 1
             self.stats["last_response_at"] = record["received_at"]
             self.stats["last_latency_ms"] = round(record.get("elapsed_seconds", 0) * 1000)
+            self.market_rows.extend(rows)
+            self.stats["quotes_saved"] += len(rows)
+            if rows:
+                self.stats["quote_sequence"] = rows[-1]["sequence"]
             self.log("INFO" if good else "WARNING",
-                     f"批次 {record['batch']}/{record['batch_count']} 已落盘 · {len(record['symbols'])} 个标的 · "
-                     f"{record['status']} · {self.stats['last_latency_ms']} ms")
+                     report["description"] + f"；{self.stats['last_latency_ms']} ms",
+                     status=report["status"], failed_symbols=report["failed_symbols"], at=report["timestamp"])
 
     def _run(self, settings: dict) -> None:
         client = None
@@ -216,14 +231,15 @@ class DownloadService:
         logger.setLevel(logging.INFO)
         try:
             client = self.client_factory()
-            store = ObservedStore(Path(settings["output_dir"]), self._batch_saved)
-            with self.lock:
-                self.run_id, self.run_dir = store.run_id, str(store.run_dir)
-                if not self.stop_event.is_set():
-                    self.state = "running"
-            self.log("INFO", f"数据目录：{store.root}；运行编号：{store.run_id}")
-            summary = self.collector(client, store, [self.symbols_path], interval=settings["interval"],
-                                     stop=self.stop_event)
+            with ObservedStore(Path(settings["output_dir"]), self._batch_saved) as store:
+                with self.lock:
+                    self.run_id, self.run_dir = store.run_id, str(store.run_dir)
+                    if not self.stop_event.is_set():
+                        self.state = "running"
+                self.log("INFO", f"数据目录：{store.root}；运行编号：{store.run_id}")
+                self.log("INFO", "每批行情实时入库；Parquet 首批、每 60 秒及停止时发布。")
+                summary = self.collector(client, store, [self.symbols_path], interval=settings["interval"],
+                                         stop=self.stop_event)
             with self.lock:
                 self.stats["polls"] = summary["polls_started"]
                 self.state = "stopped"

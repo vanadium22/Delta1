@@ -7,12 +7,13 @@ import math
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import sys
 import threading
 
 from .client import DEFAULT_URL, MarketDataClient
 from .collector import collect
-from .storage import JsonlStore
+from .realtime_store import DEFAULT_OUTPUT, RealtimeStore
 from .symbols import load_symbols
 
 HERE = Path(__file__).resolve().parent
@@ -26,11 +27,11 @@ def positive_seconds(value: str) -> float:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="按秒轮询内网行情，按天保存完整 JSONL 响应")
+    result = argparse.ArgumentParser(description="按秒轮询内网行情，实时事务入库并按标的/年月保存 Parquet")
     result.add_argument("--interval", "--frequency", type=positive_seconds, default=5, help="每轮开始间隔，秒（默认 5）")
     result.add_argument("--symbols-file", "--symbols-files", nargs="+", type=Path,
                         default=[HERE / "config" / "symbols.json"], help="一个或多个 JSON/TXT/LIST 标的文件")
-    result.add_argument("--output-dir", type=Path, default=HERE / "data", help="保存目录（默认脚本旁 data）")
+    result.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT, help="保存目录（默认 Z:/Project_data/realtime_market）")
     result.add_argument("--batch-size", type=int, default=200, help="单次请求最大标的数（默认 200，可按接口容量调整）")
     limit = result.add_mutually_exclusive_group()
     limit.add_argument("--max-polls", type=int, default=0, help="完成多少轮后退出；0 表示持续运行")
@@ -66,17 +67,17 @@ def main(argv: list[str] | None = None) -> int:
         client = MarketDataClient(args.url, use_environment=args.use_environment,
                                   connect_timeout=args.connect_timeout, read_timeout=args.read_timeout,
                                   ca_bundle=args.ca_bundle)
-        store = JsonlStore(args.output_dir)
-        logging.info("结果目录：%s；运行编号：%s；按 Ctrl+C 停止", store.root, store.run_id)
-        if threading.current_thread() is threading.main_thread():
-            for signum in (signal.SIGINT, signal.SIGTERM):
-                previous_handlers[signum] = signal.signal(signum, lambda *_: stop.set())
-        summary = collect(client, store, args.symbols_file, interval=args.interval,
-                          batch_size=args.batch_size, max_polls=args.max_polls, stop=stop)
+        with RealtimeStore(args.output_dir) as store:
+            logging.info("结果目录：%s；运行编号：%s；按 Ctrl+C 停止", store.root, store.run_id)
+            if threading.current_thread() is threading.main_thread():
+                for signum in (signal.SIGINT, signal.SIGTERM):
+                    previous_handlers[signum] = signal.signal(signum, lambda *_: stop.set())
+            summary = collect(client, store, args.symbols_file, interval=args.interval,
+                              batch_size=args.batch_size, max_polls=args.max_polls, stop=stop)
         logging.info("结束：%s；已保存 %s 个请求；摘要：%s", summary["status"],
-                     summary["requests_saved"], store.run_dir / "run.json")
+                     summary["requests_saved"], store.db_path)
         return 2 if any(status != "success" and count for status, count in summary["batch_status_counts"].items()) else 0
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, sqlite3.Error) as exc:
         logging.error("无法继续采集：%s", exc)
         return 1
     finally:

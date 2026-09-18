@@ -45,6 +45,7 @@ logs/
 *.parquet
 *.feather
 *.sqlite*
+.writer.lock
 *.jsonl
 index_strategy/data_dld/wind_test_report_*.md
 *.tmp

@@ -69,7 +69,7 @@
                 <input id="file-input" type="file" accept=".json,.txt,.list" multiple hidden>
                 <p id="symbols-help" class="field-help">每行一个代码，也可粘贴 list 或导入多个标的文件。</p>
               </div>
-              <div class="field-row"><div class="field"><label for="interval">采集间隔</label><div class="input-with-unit"><input id="interval" name="interval" type="number" min="0.001" step="any" value="5" inputmode="decimal" disabled><span>秒 / 轮</span></div></div><div class="field"><label>保存格式</label><div class="format-value"><span class="file-icon">{ }</span><strong>JSONL</strong><span>按天追加</span></div></div></div>
+              <div class="field-row"><div class="field"><label for="interval">采集间隔</label><div class="input-with-unit"><input id="interval" name="interval" type="number" min="0.001" step="any" value="5" inputmode="decimal" disabled><span>秒 / 轮</span></div></div><div class="field"><label>保存格式</label><div class="format-value"><span class="file-icon">P</span><strong>Parquet</strong><span>按标的归档</span></div></div></div>
               <div class="field path-field"><label for="output-dir">数据保存位置</label><div class="path-input"><svg class="icon"><use href="#i-folder"/></svg><textarea id="output-dir" name="output_dir" rows="2" spellcheck="false" aria-describedby="path-help" disabled></textarea></div><p id="path-help" class="field-help">填写本机文件夹路径；不存在的目录会自动创建。</p></div>
               <div id="form-error" class="form-error" role="alert" hidden></div>
               <div class="config-actions"><p id="config-hint"><span class="small-dot"></span>设置将保留到下次打开</p><div class="action-row"><button id="start" class="button primary" type="submit" disabled><svg class="icon"><use href="#i-play"/></svg><span>开始采集</span></button><button id="stop" class="button stop" type="button" disabled><svg class="icon"><use href="#i-stop"/></svg><span>停止采集</span></button></div></div>
@@ -85,7 +85,7 @@
           </section>
         </div>
 
-        <details class="format-details"><summary><svg class="icon small"><use href="#i-info"/></svg><span>数据如何保存？</span><span class="details-summary">JSONL 行情快照 · JSON 运行摘要</span><svg class="icon small"><use href="#i-chevron"/></svg></summary><div><p>每次请求保存为 JSONL 文件中的一行，保留完整接口响应、请求时间、标的和状态。多次采集到相同快照也会保留；不会把轮询数据当作逐笔成交。</p><div class="file-description"><code>日期 / 运行编号 / batches.jsonl</code><span>每批行情响应，按天追加</span><code>runs / 运行编号 / run.json</code><span>运行配置、结果和数量摘要</span><code>runs / 运行编号 / events.jsonl</code><span>运行事件与标的变更</span></div></div></details>
+        <details class="format-details"><summary><svg class="icon small"><use href="#i-info"/></svg><span>数据如何保存？</span><span class="details-summary">Parquet 行情表 · 实时事务库</span><svg class="icon small"><use href="#i-chevron"/></svg></summary><div><p>每个标的一次采样保存为一行，包含最新价、成交量、五档盘口和秒级时间。每批立即入库；首批、每分钟及停止时发布 Parquet。策略可直接通过只读 DataFrame 接口获取新记录。</p><div class="file-description"><code>data / 标的 / 年 / 月 / 日期.哈希.parquet</code><span>已发布文件不再改写</span><code>live / quotes.sqlite3</code><span>实时行情、运行情况及失败标的</span><code>strategy_results / 策略名</code><span>独立保存策略计算结果</span></div></div></details>
         <footer class="page-footer"><span>DELTA1 <span class="footer-separator">/</span> 指数策略研究工作区</span><span>内网直连<span class="footer-separator">·</span>TLS 证书校验已启用</span></footer>
       </section>
 

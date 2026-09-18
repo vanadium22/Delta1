@@ -20,12 +20,15 @@ project/
 │   │   ├── client.py              # HTTP 请求和业务响应检查
 │   │   ├── symbols.py             # 标的读取、合并、校验
 │   │   ├── collector.py           # 轮询、重新加载标的、分批及停止
-│   │   ├── storage.py             # 按天保存 JSONL 和运行摘要
+│   │   ├── quotes.py              # 量价、五档盘口、秒级时间与缺失值归一化
+│   │   ├── realtime_store.py      # 实时事务库、按标的/年月发布 Parquet
+│   │   ├── reader.py              # 策略只读 DataFrame 与独立结果保存
+│   │   ├── storage.py             # 旧 JSONL 存储兼容类，不是当前默认入口
 │   │   ├── service.py             # 界面共用的后台任务与本地配置
 │   │   ├── cli.py                 # 参数与命令行
 │   │   ├── run_realtime.py        # 可直接运行的入口
 │   │   ├── download_market_data.py # 原有单次接口诊断工具
-│   │   └── data/                  # 本机采集结果，Git 忽略
+│   │   └── data/                  # 旧版采集结果，Git 忽略
 │   └── data_dld/                  # Wind 历史数据验证与旧研究脚本
 └── tests/                         # 不访问真实网络的自动化测试
 ```
@@ -53,7 +56,9 @@ python -s -m index_strategy.desktop
 
 Windows 也可双击 `index_strategy/start_app.cmd`，使用统一目录中的 `swhy_delta1` 环境打开独立窗口。进入「数据下载 → 实时下载」，可查看/修改标的、导入多个 list 文件、选择采集间隔和保存文件夹，开始/停止并查看实时日志。交易数据下载页暂作预留。关窗会等待当前请求完成、数据保存后退出。
 
-桌面采用 CustomTkinter，依赖已写入环境文件；原有环境请先更新依赖。设置保存在 Git 忽略的 `localsetting`，下载格式仍为 JSONL。详见 [桌面说明](index_strategy/desktop/README.md)。早期网页入口保留为可选工具，桌面应用不依赖该服务。
+桌面采用 CustomTkinter，依赖已写入环境文件；原有环境请先更新依赖。设置保存在 Git 忽略的 `localsetting`。监控区包含整体运行表和可切换标的的行情表，文件保留五档盘口，默认保存在 `Z:\Project_data\realtime_market`。详见 [桌面说明](index_strategy/desktop/README.md)。
+
+实时采集通过 SQLite WAL 事务入库，策略可直接取得只读 DataFrame；Parquet 使用 `data/标的/年/月/日期.内容哈希.parquet`，首批、每分钟及停止时发布增量分片，已发布文件不再改写。读取方法、时间与成交量含义见 [数据与策略接口](index_strategy/instant_dld/README.md)。早期网页入口保留为可选工具，桌面应用不依赖该服务。
 
 ## 命令行实时采集
 

@@ -13,6 +13,7 @@ import unittest
 from index_strategy.frontend.server import ConsoleServer
 from index_strategy.frontend.service import ConflictError, DownloadService
 from index_strategy.instant_dld.collector import collect
+from index_strategy.instant_dld.reader import RealtimeReader
 
 
 class TestClient:
@@ -87,11 +88,13 @@ class ServiceTests(ServiceCase):
         self.assertEqual(first["stats"]["batches"], 1)
         self.assertEqual(first["stats"]["successful"], 1)
         self.assertEqual(first["stats"]["last_latency_ms"], 12)
-        self.assertTrue(Path(first["run_dir"], "run.json").is_file())
+        self.assertTrue(Path(first["run_dir"], "quotes.sqlite3").is_file())
         self.service.start(self.config)
         self.finish()
         self.assertNotEqual(self.service.snapshot()["run_id"], first["run_id"])
-        self.assertEqual(len(list((self.root / "data/test").glob("*/*/batches.jsonl"))), 2)
+        reader = RealtimeReader(self.root / "data/test")
+        self.assertEqual(len(reader.read_since()), 4)
+        self.assertEqual(len(list((self.root / "data/test/data").glob("*/*/*/*.parquet"))), 4)
 
     def test_stop_waits_for_inflight_save_and_rejects_duplicate_start(self):
         entered, release = threading.Event(), threading.Event()
@@ -110,7 +113,8 @@ class ServiceTests(ServiceCase):
         self.finish()
         self.assertTrue(client.closed)
         self.assertEqual(self.service.snapshot()["stats"]["batches"], 1)
-        summary = json.loads(Path(self.service.run_dir, "run.json").read_text(encoding="utf-8"))
+        with RealtimeReader(self.root / "data/test").connect() as connection:
+            summary = connection.execute("SELECT * FROM runs WHERE run_id=?", (self.service.run_id,)).fetchone()
         self.assertEqual(summary["status"], "stopped")
 
     def test_background_failure_is_visible_and_does_not_leave_running_state(self):
