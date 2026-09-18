@@ -13,6 +13,7 @@ import threading
 
 from .client import DEFAULT_URL, MarketDataClient
 from .collector import collect
+from .contracts import DEFAULT_CALENDAR_FILE, DEFAULT_MAPPING_FILE, MainContractResolver
 from .realtime_store import DEFAULT_OUTPUT, RealtimeStore
 from .symbols import load_symbols
 
@@ -32,6 +33,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--symbols-file", "--symbols-files", nargs="+", type=Path,
                         default=[HERE / "config" / "symbols.json"], help="一个或多个 JSON/TXT/LIST 标的文件")
     result.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT, help="保存目录（默认 Z:/Project_data/realtime_market）")
+    result.add_argument("--mapping-file", type=Path, default=DEFAULT_MAPPING_FILE, help="逐日主力合约映射（日期索引、标的列）")
+    result.add_argument("--calendar-file", type=Path, default=DEFAULT_CALENDAR_FILE, help="交易日历，含未来交易日")
     result.add_argument("--batch-size", type=int, default=200, help="单次请求最大标的数（默认 200，可按接口容量调整）")
     limit = result.add_mutually_exclusive_group()
     limit.add_argument("--max-polls", type=int, default=0, help="完成多少轮后退出；0 表示持续运行")
@@ -73,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     previous_handlers[signum] = signal.signal(signum, lambda *_: stop.set())
             summary = collect(client, store, args.symbols_file, interval=args.interval,
-                              batch_size=args.batch_size, max_polls=args.max_polls, stop=stop)
+                              batch_size=args.batch_size, max_polls=args.max_polls, stop=stop,
+                              resolver=MainContractResolver(args.mapping_file, args.calendar_file, store=store))
         logging.info("结束：%s；已保存 %s 个请求；摘要：%s", summary["status"],
                      summary["requests_saved"], store.db_path)
         return 2 if any(status != "success" and count for status, count in summary["batch_status_counts"].items()) else 0

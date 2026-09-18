@@ -16,7 +16,9 @@ from typing import Callable
 
 from .client import MarketDataClient
 from .collector import collect
+from .contracts import DEFAULT_CALENDAR_FILE, DEFAULT_MAPPING_FILE, ContractMappingError, MainContractResolver
 from .realtime_store import DEFAULT_OUTPUT, RealtimeStore
+from .reader import RealtimeReader
 from .symbols import load_symbols, parse_symbols
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -100,7 +102,8 @@ class DownloadService:
             return self.validate(json.loads(self.settings_path.read_text(encoding="utf-8-sig")))
         symbols = load_symbols([self.root / "index_strategy/instant_dld/config/symbols.json"])
         return {"symbols": symbols, "interval": 5.0,
-                "output_dir": str(DEFAULT_OUTPUT)}
+                "output_dir": str(DEFAULT_OUTPUT), "mapping_file": str(DEFAULT_MAPPING_FILE),
+                "calendar_file": str(DEFAULT_CALENDAR_FILE)}
 
     def validate(self, value: dict) -> dict:
         if not isinstance(value, dict):
@@ -132,7 +135,25 @@ class DownloadService:
         path = path.resolve()
         if path.exists() and not path.is_dir():
             raise ValueError("保存位置是文件，请填写文件夹路径")
-        return {"symbols": symbols, "interval": interval, "output_dir": str(path)}
+        result = {"symbols": symbols, "interval": interval, "output_dir": str(path)}
+        for key, default in (("mapping_file", DEFAULT_MAPPING_FILE), ("calendar_file", DEFAULT_CALENDAR_FILE)):
+            filename = value.get(key, str(default))
+            if not isinstance(filename, str) or not filename.strip() or "\x00" in filename:
+                raise ValueError("请填写有效的主力映射和交易日历文件路径")
+            file_path = Path(filename.strip()).expanduser()
+            if not file_path.is_absolute():
+                file_path = self.root / file_path
+            result[key] = str(file_path.resolve())
+        return result
+
+    def preview_mapping(self, value: dict) -> list[dict]:
+        settings = self.validate(value)
+        resolver = MainContractResolver(Path(settings["mapping_file"]), Path(settings["calendar_file"]),
+                                        store=RealtimeReader(Path(settings["output_dir"])))
+        resolved, errors = resolver.resolve_many(settings["symbols"])
+        if errors:
+            raise ContractMappingError("\n".join(errors.values()))
+        return [{"symbol": symbol, **resolved[symbol]} for symbol in settings["symbols"]]
 
     def _ensure_idle(self) -> None:
         if self.state in ACTIVE_STATES or (self.worker is not None and self.worker.is_alive()):
@@ -239,7 +260,9 @@ class DownloadService:
                 self.log("INFO", f"数据目录：{store.root}；运行编号：{store.run_id}")
                 self.log("INFO", "每批行情实时入库；Parquet 首批、每 60 秒及停止时发布。")
                 summary = self.collector(client, store, [self.symbols_path], interval=settings["interval"],
-                                         stop=self.stop_event)
+                                         stop=self.stop_event,
+                                         resolver=MainContractResolver(Path(settings["mapping_file"]),
+                                                                       Path(settings["calendar_file"]), store=store))
             with self.lock:
                 self.stats["polls"] = summary["polls_started"]
                 self.state = "stopped"

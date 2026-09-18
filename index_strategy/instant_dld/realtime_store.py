@@ -13,17 +13,21 @@ import uuid
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .quotes import DEPTH_COLUMNS, QUOTE_COLUMNS, normalize_quote
+from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, normalize_quote
 
 DEFAULT_OUTPUT = Path("Z:/Project_data/realtime_market")
 DB_RELATIVE = Path("live/quotes.sqlite3")
 SCHEMA = pa.schema([
     pa.field("sequence", pa.int64()), pa.field("timestamp", pa.timestamp("ms", tz="UTC")),
-    pa.field("symbol", pa.string()), pa.field("quote_time", pa.string()),
+    pa.field("symbol", pa.string()),
+    *[pa.field(name, pa.string()) for name in IDENTITY_COLUMNS], pa.field("quote_time", pa.string()),
     *[pa.field(name, pa.float64()) for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS]],
     pa.field("quality_flags", pa.uint16()),
-], metadata={b"schema_version": b"swhy_realtime_v1", b"timestamp_semantics": b"capture_time_floor_second_UTC",
+], metadata={b"schema_version": b"swhy_realtime_v2", b"timestamp_semantics": b"capture_time_floor_second_UTC",
              b"quote_time_semantics": b"source_HHMMSS_exchange_date_unavailable",
+             b"source_symbol": b"actual_requested_contract;symbol_is_maintained_alias",
+             b"mapping_date": b"completed_session_date_used_for_main_contract_mapping",
+             b"trading_date": b"resolved_session_date_when_available;not_exchange_reported",
              b"volume": b"difference_between_successful_cumulative_observations;first_or_reset=null",
              b"volume_total": b"tradedQuantities;source_native_units_unverified",
              b"depth_volume": b"bNStocks/sNStocks;source_native_units_unverified",
@@ -131,13 +135,18 @@ class RealtimeStore:
 
     def _create_schema(self):
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             raise ValueError(f"不支持的实时库版本：{version}")
         floats = ", ".join(f'"{name}" REAL' for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS])
-        self.connection.executescript(f"""
+        # Keep ALTERs, historical identity backfill and version upgrade atomic.
+        # An interrupted upgrade remains a readable v1 database.
+        try:
+            self.connection.executescript(f"""
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS quotes (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL,
-                capture_date TEXT NOT NULL, symbol TEXT NOT NULL, quote_time TEXT,
+                capture_date TEXT NOT NULL, symbol TEXT NOT NULL,
+                source_symbol TEXT NOT NULL, mapping_date TEXT, trading_date TEXT, quote_time TEXT,
                 {floats}, quality_flags INTEGER NOT NULL, run_id TEXT NOT NULL, poll INTEGER, batch INTEGER
             );
             CREATE INDEX IF NOT EXISTS quotes_symbol_sequence ON quotes(symbol, sequence);
@@ -158,8 +167,38 @@ class RealtimeStore:
                 first_sequence INTEGER NOT NULL, last_sequence INTEGER NOT NULL, rows INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS parts_symbol_date ON parquet_parts(symbol, capture_date);
-            PRAGMA user_version=1;
-        """)
+            CREATE TABLE IF NOT EXISTS main_contract_resolutions (
+                symbol TEXT NOT NULL, trading_date TEXT NOT NULL, source_symbol TEXT NOT NULL,
+                mapping_date TEXT, PRIMARY KEY(symbol,trading_date)
+            );
+            """)
+            existing = {row[1] for row in self.connection.execute("PRAGMA table_info(quotes)")}
+            for name in IDENTITY_COLUMNS:
+                if name not in existing:
+                    definition = "TEXT NOT NULL DEFAULT ''" if name == "source_symbol" else "TEXT"
+                    self.connection.execute(f"ALTER TABLE quotes ADD COLUMN {name} {definition}")
+            if version < 2 or not set(IDENTITY_COLUMNS).issubset(existing):
+                self.connection.execute("UPDATE quotes SET source_symbol=symbol WHERE source_symbol IS NULL OR source_symbol=''")
+            self.connection.execute("PRAGMA user_version=2")
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+    def pinned_contract(self, symbol: str, trading_date: str) -> dict | None:
+        row = self.connection.execute("SELECT source_symbol,mapping_date,trading_date "
+                                      "FROM main_contract_resolutions WHERE symbol=? AND trading_date=?",
+                                      (symbol, trading_date)).fetchone()
+        return dict(row) if row is not None else None
+
+    def pin_contract(self, symbol: str, mapping: dict) -> dict:
+        if not mapping.get("trading_date") or not mapping.get("source_symbol"):
+            raise ValueError("固定主力合约需要实际合约和交易日")
+        with self.connection:
+            self.connection.execute("INSERT OR IGNORE INTO main_contract_resolutions "
+                                    "(symbol,trading_date,source_symbol,mapping_date) VALUES (?,?,?,?)",
+                                    (symbol, mapping["trading_date"], mapping["source_symbol"], mapping.get("mapping_date")))
+        return self.pinned_contract(symbol, mapping["trading_date"])
 
     def manifest(self, value: dict):
         with self.connection:
@@ -183,16 +222,20 @@ class RealtimeStore:
         if not isinstance(data, dict):
             data = {}
         acceptable = record["status"] in {"success", "partial"}
+        mappings = record.get("symbol_mapping", {})
         for symbol in record["symbols"]:
             quote = data.get(symbol) if acceptable else None
             if not isinstance(quote, dict) or not quote:
                 failures[symbol] = record.get("error") or record["status"]
                 continue
             previous = self.connection.execute(
-                "SELECT capture_date,quote_time,volume_total FROM quotes WHERE symbol=? ORDER BY sequence DESC LIMIT 1",
+                "SELECT capture_date,symbol,source_symbol,trading_date,quote_time,volume_total "
+                "FROM quotes WHERE symbol=? ORDER BY sequence DESC LIMIT 1",
                 (symbol,)).fetchone()
             try:
-                rows.append(normalize_quote(symbol, quote, record["received_at"], dict(previous) if previous else None))
+                identity = mappings.get(symbol, {})
+                rows.append(normalize_quote(symbol, quote, record["received_at"], dict(previous) if previous else None,
+                                            **{name: identity.get(name) for name in IDENTITY_COLUMNS}))
             except ValueError as exc:
                 failures[symbol] = str(exc)
         status = "success" if len(rows) == len(record["symbols"]) else "partial" if rows else "failed"
@@ -202,7 +245,7 @@ class RealtimeStore:
         incomplete = sum(bool(row["quality_flags"] & 7) for row in rows)
         if incomplete:
             description += f"；{incomplete} 个标的有缺失字段，已留空并标记"
-        columns = ["timestamp", "capture_date", "symbol", "quote_time", "close", "volume", "volume_total",
+        columns = ["timestamp", "capture_date", "symbol", *IDENTITY_COLUMNS, "quote_time", "close", "volume", "volume_total",
                    *DEPTH_COLUMNS, "quality_flags"]
         sql = f"INSERT INTO quotes ({','.join(columns)},run_id,poll,batch) VALUES ({','.join('?' for _ in range(len(columns)+3))})"
         with self.connection:

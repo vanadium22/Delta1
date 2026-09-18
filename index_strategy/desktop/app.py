@@ -5,14 +5,17 @@ from datetime import datetime
 import logging
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog
 
 import customtkinter as ctk
 
 from ..instant_dld.service import ACTIVE_STATES, DownloadService, write_json
+from ..instant_dld.contracts import DEFAULT_CALENDAR_FILE, DEFAULT_MAPPING_FILE
 from ..instant_dld.symbols import load_symbols, parse_symbols
 from ..instant_dld.quotes import CHINA
 from .tables import DataTable
@@ -33,6 +36,151 @@ def clock_text(value: str | None) -> str:
         return datetime.fromisoformat(value).astimezone(CHINA).strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return value
+
+
+class MappingSettings(ctk.CTkToplevel):
+    """Keep mapping reads off Tk's thread and edit a draft until explicitly applied."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("主力合约映射")
+        self.geometry("820x560")
+        self.minsize(680, 500)
+        self.configure(fg_color=BG)
+        self.transient(app)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(7, weight=1)
+        self.mapping_file = tk.StringVar(self, app.mapping_file.get())
+        self.calendar_file = tk.StringVar(self, app.calendar_file.get())
+        self._results = queue.Queue()
+        self._poll_id = None
+        self._reading = False
+        self.editable = []
+        app.label(self, "自动解析主力合约", size=21, bold=True).grid(
+            row=0, column=0, padx=22, pady=(20, 7), sticky="w")
+        app.label(self, "中国期货主力代码（如 AU.SHF）按上一交易日映射下载，仍按 AU.SHF 保存。\n"
+                  "商品期货 20:00 起为下一交易日准备夜盘映射；中金所按日盘。\n"
+                  "同一交易日保持合约不变，具体合约代码直接下载。",
+                  color=MUTED, size=12, justify="left", wraplength=620).grid(
+            row=1, column=0, padx=22, pady=(0, 12), sticky="ew")
+        for label_row, title, variable in ((2, "主力映射文件", self.mapping_file),
+                                            (4, "交易日历文件", self.calendar_file)):
+            app.label(self, title, bold=True).grid(row=label_row, column=0, padx=22, sticky="w")
+            line = ctk.CTkFrame(self, fg_color="transparent")
+            line.grid(row=label_row + 1, column=0, padx=22, pady=(4, 10), sticky="ew")
+            line.grid_columnconfigure(0, weight=1)
+            entry = ctk.CTkEntry(line, textvariable=variable, height=35, font=(FONT, 12),
+                                 border_color=LINE, fg_color="white")
+            entry.grid(row=0, column=0, sticky="ew")
+            browse = app.button(line, "选择文件…", lambda value=variable, name=title: self.choose_file(value, name),
+                                width=95, height=35)
+            browse.grid(row=0, column=1, padx=(8, 0))
+            self.editable.extend([entry, browse])
+        preview_row = ctk.CTkFrame(self, fg_color="transparent")
+        preview_row.grid(row=6, column=0, padx=22, pady=(1, 8), sticky="ew")
+        preview_row.grid_columnconfigure(1, weight=1)
+        self.preview_button = app.button(preview_row, "预览当前标的映射", self.preview, width=153, height=32)
+        self.preview_button.grid(row=0, column=0, sticky="w")
+        self.status = app.label(preview_row, "预览仅读取文件，不请求行情。", size=11, color=MUTED)
+        self.status.grid(row=0, column=1, padx=(12, 0), sticky="w")
+        self.preview_text = ctk.CTkTextbox(self, fg_color="white", border_width=1, border_color=LINE,
+                                         font=(FONT, 12), wrap="word", height=110)
+        self.preview_text.grid(row=7, column=0, padx=22, sticky="nsew")
+        self._set_preview("已自动填入发现的映射及日历路径。可直接使用，或选择自己的文件。\n"
+                          "修改后点击应用，再在主窗口保存配置或开始采集。")
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.grid(row=8, column=0, padx=22, pady=16, sticky="ew")
+        actions.grid_columnconfigure(0, weight=1)
+        app.button(actions, "取消", self.close, width=94).grid(row=0, column=1, padx=(0, 8))
+        self.apply_button = app.button(actions, "应用到配置", self.apply, primary=True, width=118)
+        self.apply_button.grid(row=0, column=2)
+        self.editable.extend([self.preview_button, self.apply_button])
+        self.grab_set()
+
+    def _set_preview(self, text):
+        self.preview_text.configure(state="normal")
+        self.preview_text.delete("1.0", "end")
+        self.preview_text.insert("1.0", text)
+        self.preview_text.configure(state="disabled")
+
+    def choose_file(self, variable, title):
+        if self._reading:
+            return
+        selected = filedialog.askopenfilename(parent=self, title="选择" + title,
+            initialfile=Path(variable.get()).name,
+            filetypes=[("映射 / 交易日历", "*.pkl *.pickle *.parquet"), ("所有文件", "*.*")])
+        if selected:
+            variable.set(selected)
+
+    def preview(self):
+        if self._reading:
+            return
+        value = self.app.form_value()
+        value.update(mapping_file=self.mapping_file.get().strip(), calendar_file=self.calendar_file.get().strip())
+        self._reading = True
+        for widget in self.editable:
+            widget.configure(state="disabled")
+        self.status.configure(text="正在读取映射与交易日历…", text_color=MUTED)
+
+        def read_mapping():
+            try:
+                self._results.put((self.app.service.preview_mapping(value), None))
+            except Exception as exc:
+                self._results.put((None, str(exc)))
+
+        threading.Thread(target=read_mapping, name="main-contract-preview", daemon=True).start()
+        self._poll_id = self.after(50, self._poll_preview)
+
+    def _poll_preview(self):
+        self._poll_id = None
+        try:
+            rows, error = self._results.get_nowait()
+        except queue.Empty:
+            self._poll_id = self.after(50, self._poll_preview)
+            return
+        self._reading = False
+        for widget in self.editable:
+            widget.configure(state="normal")
+        if error is not None:
+            self.status.configure(text="映射不可用，请查看说明。", text_color="#B94242")
+            self._set_preview(error)
+            return
+        lines = []
+        for row in rows:
+            details = f"{row['symbol']}  →  {row['source_symbol']}"
+            if row.get("mapping_date"):
+                details += f"\n  主力依据：{row['mapping_date']}    使用交易日：{row.get('trading_date') or '—'}"
+            else:
+                details += "  （具体代码直接下载）"
+            lines.append(details)
+        self._set_preview("\n\n".join(lines) or "请先在主窗口填写标的。")
+        self.status.configure(text=f"已解析 {len(rows)} 个标的；尚未开始下载。", text_color=TEAL)
+
+    def apply(self):
+        if self._reading:
+            return
+        state = self.app.service.snapshot()["status"]
+        worker = self.app.service.worker
+        if self.app._closing or state in ACTIVE_STATES or (worker is not None and worker.is_alive()):
+            self.status.configure(text="请停止采集后修改映射配置。", text_color="#B94242")
+            return
+        mapping = self.mapping_file.get().strip()
+        calendar = self.calendar_file.get().strip()
+        if not mapping or not calendar:
+            self.status.configure(text="请填写映射与交易日历文件路径。", text_color="#B94242")
+            return
+        self.app.mapping_file.set(mapping)
+        self.app.calendar_file.set(calendar)
+        self.app._feedback("主力映射已修改；保存配置或开始采集后生效。")
+        self.close()
+
+    def close(self):
+        if self._poll_id is not None:
+            self.after_cancel(self._poll_id)
+            self._poll_id = None
+        self.destroy()
 
 
 class Delta1App(ctk.CTk):
@@ -56,6 +204,9 @@ class Delta1App(ctk.CTk):
         self._page = "realtime"
         self.interval = tk.StringVar(self)
         self.output_dir = tk.StringVar(self)
+        self.mapping_file = tk.StringVar(self)
+        self.calendar_file = tk.StringVar(self)
+        self._mapping_window = None
         self.autoscroll = tk.BooleanVar(self, True)
         self.display_symbol = tk.StringVar(self)
         self.editable = []
@@ -164,7 +315,13 @@ class Delta1App(ctk.CTk):
         self.save_button = self.button(header, "保存配置", self.save_config, width=86, height=30)
         self.save_button.grid(row=0, column=1)
         self.editable.append(self.save_button)
-        self.label(card, "标的列表", bold=True).grid(row=1, column=0, padx=20, sticky="w")
+        symbol_header = ctk.CTkFrame(card, fg_color="transparent")
+        symbol_header.grid(row=1, column=0, padx=20, pady=(0, 3), sticky="ew")
+        symbol_header.grid_columnconfigure(0, weight=1)
+        self.label(symbol_header, "标的列表", bold=True).grid(row=0, column=0, sticky="w")
+        self.mapping_button = self.button(symbol_header, "主力映射…", self.show_mapping_settings, width=92, height=26)
+        self.mapping_button.grid(row=0, column=1)
+        self.editable.append(self.mapping_button)
         self.label(card, "每行一个代码，或粘贴 list；自动去重。", size=11, color=MUTED).grid(
             row=2, column=0, padx=20, pady=(0, 5), sticky="w")
         self.symbols = ctk.CTkTextbox(card, height=120, font=("Consolas", 14), fg_color="#F7F9FB",
@@ -174,16 +331,16 @@ class Delta1App(ctk.CTk):
         self.editable.append(self.symbols)
         imports = ctk.CTkFrame(card, fg_color="transparent")
         imports.grid(row=4, column=0, padx=20, pady=(8, 12), sticky="ew")
-        self.import_button = self.button(imports, "导入文件", self.import_symbols, width=91, height=29)
+        self.import_button = self.button(imports, "导入文件", self.import_symbols, width=87, height=29)
         self.import_button.pack(side="left")
-        self.export_button = self.button(imports, "导出列表", self.export_symbols, width=91, height=29)
+        self.export_button = self.button(imports, "导出列表", self.export_symbols, width=87, height=29)
         self.export_button.pack(side="left", padx=(8, 0))
         self.editable.extend([self.import_button, self.export_button])
         interval_row = ctk.CTkFrame(card, fg_color="transparent")
         interval_row.grid(row=5, column=0, padx=20, pady=(0, 12), sticky="ew")
         interval_row.grid_columnconfigure(0, weight=1)
         self.label(interval_row, "采集间隔", bold=True).grid(row=0, column=0, sticky="w")
-        self.label(interval_row, "支持小数，例如 0.5 秒", size=11, color=MUTED).grid(row=1, column=0, sticky="w")
+        self.label(interval_row, "例如 0.5 秒", size=11, color=MUTED).grid(row=1, column=0, sticky="w")
         self.interval_entry = ctk.CTkEntry(interval_row, textvariable=self.interval, width=82, height=36,
                                            border_color=LINE, fg_color="#F7F9FB", font=(FONT, 14))
         self.interval_entry.grid(row=0, column=1, rowspan=2, padx=(8, 8))
@@ -252,15 +409,17 @@ class Delta1App(ctk.CTk):
         self.symbol_selector = ctk.CTkOptionMenu(quote_header, variable=self.display_symbol, values=["—"],
             command=self.select_symbol, width=136, height=29, font=(FONT, 12), fg_color=TEAL, button_color="#06665F")
         self.symbol_selector.grid(row=0, column=1)
-        self.label(quotes, "行时间为采集时间；行情时间为接口原值。文件保留五档。", size=11, color=MUTED).grid(
-            row=1, column=0, padx=16, pady=(0, 5), sticky="w")
+        self.quote_hint = self.label(quotes, "行时间为采集时间；行情时间为接口原值。文件保留五档。",
+                                    size=11, color=MUTED, wraplength=470, justify="left", height=32)
+        self.quote_hint.grid(row=1, column=0, padx=16, pady=(0, 5), sticky="w")
         self.quote_table = DataTable(quotes, [("timestamp", "采集时间", 153), ("close", "最新价", 64),
             ("volume_total", "累计成交量", 94), ("volume", "区间成交量", 88),
             ("bid_price_1", "买一价", 64), ("bid_volume_1", "买一量", 82),
             ("ask_price_1", "卖一价", 64), ("ask_volume_1", "卖一量", 82),
-            ("quote_time", "行情时间", 78)], font_family=FONT, limit=200)
+            ("quote_time", "行情时间", 78), ("source_symbol", "实际合约", 110),
+            ("mapping_date", "主力依据日期", 102)], font_family=FONT, limit=200)
         self.quote_table.tree.configure(displaycolumns=("timestamp", "close", "volume_total", "bid_price_1",
-            "bid_volume_1", "ask_price_1", "ask_volume_1", "volume", "quote_time"))
+            "bid_volume_1", "ask_price_1", "ask_volume_1", "volume", "quote_time", "source_symbol", "mapping_date"))
         self.quote_table.grid(row=2, column=0, padx=14, sticky="nsew")
         details = ctk.CTkFrame(quotes, fg_color="transparent")
         details.grid(row=3, column=0, padx=16, pady=(6, 10), sticky="ew")
@@ -279,6 +438,7 @@ class Delta1App(ctk.CTk):
     def select_symbol(self, _value=None):
         self._quote_cursor = 0
         self.quote_table.clear()
+        self.quote_hint.configure(text="行时间为采集时间；行情时间为接口原值。文件保留五档。")
         self._refresh_quotes()
 
     def show_report_window(self, _event=None):
@@ -301,9 +461,18 @@ class Delta1App(ctk.CTk):
         for row in rows:
             timestamp = datetime.fromtimestamp(row["timestamp"], CHINA).strftime("%Y-%m-%d %H:%M:%S")
             values = [timestamp, *["—" if row[name] is None else f"{row[name]:,.8f}".rstrip("0").rstrip(".") for name in columns],
-                      row["quote_time"] or "—"]
+                      row["quote_time"] or "—", row.get("source_symbol") or row["symbol"],
+                      row.get("mapping_date") or "—"]
             self.quote_table.append(row["sequence"], values, scroll=self.autoscroll.get())
             self._quote_cursor = row["sequence"]
+        if rows:
+            latest = rows[-1]
+            source = latest.get("source_symbol") or latest["symbol"]
+            mapping_date = latest.get("mapping_date")
+            text = f"{latest['symbol']} → {source}"
+            if mapping_date:
+                text += f"  ·  主力依据 {mapping_date}"
+            self.quote_hint.configure(text=text + "\n行时间为采集时间；文件保留五档。")
 
     def show_page(self, page: str):
         self._page = page
@@ -323,7 +492,8 @@ class Delta1App(ctk.CTk):
 
     def form_value(self) -> dict:
         return {"symbols": self.symbols.get("1.0", "end-1c"),
-                "interval": self.interval.get(), "output_dir": self.output_dir.get()}
+                "interval": self.interval.get(), "output_dir": self.output_dir.get(),
+                "mapping_file": self.mapping_file.get(), "calendar_file": self.calendar_file.get()}
 
     def set_form(self, value: dict):
         self.symbols.configure(state="normal")
@@ -331,7 +501,17 @@ class Delta1App(ctk.CTk):
         self.symbols.insert("1.0", "\n".join(value["symbols"]))
         self.interval.set(f"{value['interval']:g}")
         self.output_dir.set(value["output_dir"])
+        self.mapping_file.set(str(value.get("mapping_file", DEFAULT_MAPPING_FILE)))
+        self.calendar_file.set(str(value.get("calendar_file", DEFAULT_CALENDAR_FILE)))
         self._update_symbol_count()
+
+    def show_mapping_settings(self):
+        if self._busy or self._closing:
+            return
+        if self._mapping_window is not None and self._mapping_window.winfo_exists():
+            self._mapping_window.lift()
+            return
+        self._mapping_window = MappingSettings(self)
 
     def _update_symbol_count(self, _event=None):
         try:

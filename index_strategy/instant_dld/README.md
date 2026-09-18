@@ -13,7 +13,7 @@ python -m index_strategy.instant_dld --once
 python index_strategy/instant_dld/run_realtime.py --interval 10
 ```
 
-频率是相邻轮次的计划开始间隔，支持小数。第一轮立即开始。每轮分批串行请求；若一轮超时或请求耗时超过间隔，跳过已经错过的计划时点，不并发补发。间隔不能保证接口在对应频率更新行情；休市期间可能重复拿到缓存值。程序不内置交易日历，默认全天轮询。
+频率是相邻轮次的计划开始间隔，支持小数。第一轮立即开始。每轮分批串行请求；若一轮超时或请求耗时超过间隔，跳过已经错过的计划时点，不并发补发。间隔不能保证接口在对应频率更新行情；休市期间可能重复拿到缓存值。默认全天轮询；主力映射使用交易日历，但不据此判断当前是否开盘。
 
 ## 维护标的
 
@@ -33,6 +33,23 @@ python -m index_strategy.instant_dld --interval 5 --symbols-file index_strategy/
 
 每轮开始重新读取文件，保存后下一轮生效。启动时文件无效、丢失或合并列表为空会直接报错；运行中出现这种情况会记录 `symbol_reload_error`，沿用上一版有效标的，修复文件后自动恢复。空列表不会暂停程序，需要暂停时按 Ctrl+C。
 
+## 主力连续标的
+
+可输入 `AU.SHF`，程序实际请求具体合约、仍按 `AU.SHF` 保存。默认读取：
+
+- 逐日主力：`Z:\Project_data\future_investment\data\raw\day\main\month_contract_code.pkl`，日期索引、标的列、具体合约代码值。
+- 交易日历：`Z:\Project_data\future_investment\data\normalization\Date.pkl`，`Date` 列或日期索引，需包含下一交易日。该日历由日频数据流程持续更新。
+
+日频文件在当日盘后更新，因此严格使用**当前交易日的前一交易日**那一行，不使用当日行，不向前回填更早主力。例如 2026-09-18 夜盘属于 2026-09-21，使用 2026-09-18 的 `AU.SHF → AU2610.SHF`。商品期货在北京时间 20:00 切换到下一交易日口径，为夜盘提前准备；凌晨和周末按日历延续到下一交易日，中金所代码 `.CFE` 不作夜间提前切换。20:00 是本程序映射切换时间，不代表开盘时间；节假日与周末由本地交易日历确定。夜盘交易日归属参考[上期所交易时间](https://www.shfe.cn/services/calenderandholidays/tradinghours/)。
+
+第一次解析成功后，主力关系按标的和交易日固定并保存到实时库，使用同一保存目录重启也保持不变；下一交易日重新查映射。运行监控显示实际合约、交易日和映射日期。缺少指定日期、空合约、错误文件或日历覆盖不足时，该主力标的明确失败且不请求接口，下一轮重试；同批的其他有效标的继续下载。不会自动猜月份或静默使用过期映射。
+
+主力映射仅用于中国期货，限定 `.SHF/.DCE/.CZC/.INE/.CFE/.GFE` 的纯字母品种代码。原样输入 `AU2610.SHF` 等具体合约、股票或境外市场代码时直接请求，不依赖主力映射文件。桌面「主力映射…」可选择文件、预览并应用路径，随后保存配置或开始采集；命令行可用 `--mapping-file` 和 `--calendar-file`。支持可信本地 pandas Pickle 或同结构 Parquet；Pickle 只应来自自己的数据流程。`normalization/contract_map.pkl` 是交割年月表，不是本功能需要的逐日主力表。
+
+示例保存路径为 `data/AU.SHF/2026/09/2026-09-18.<sha256>.parquet`。`symbol=AU.SHF` 保持连续标识，`source_symbol=AU2610.SHF` 保留实际合约，`mapping_date=2026-09-18`，`trading_date=2026-09-21`。后者是基于采集时刻的映射交易日，接口仍未提供行情本身的交易日期，缓存行情可能滞后。换月原价不复权，策略应检查 `source_symbol` 的变化；换月首条 `volume` 留空，不能对不同合约累计量作差。
+
+已有 SQLite v1 会在写入器启动时事务升级，旧行情的实际合约补为原 `symbol`，日期字段留空。已发布 Parquet 不修改，`RealtimeReader` 兼容新旧分片混合读取。
+
 ## 常用参数
 
 | 参数 | 默认值 | 说明 |
@@ -41,6 +58,8 @@ python -m index_strategy.instant_dld --interval 5 --symbols-file index_strategy/
 | `--symbols-file` | 模块内 `config/symbols.json` | 一个或多个 JSON/TXT/LIST 文件 |
 | `--batch-size` | `200` | 单次请求标的上限；不是已确认的服务端限额 |
 | `--output-dir` | `Z:/Project_data/realtime_market` | 本机数据目录；相对路径按当前工作目录解析；其他机器可指定自己的目录 |
+| `--mapping-file` | 上述 `month_contract_code.pkl` | 逐日主力映射 |
+| `--calendar-file` | 上述 `Date.pkl` | 含未来交易日的日历 |
 | `--max-polls` | `0` | 0 为持续运行，正整数表示有限轮数 |
 | `--once` | 关闭 | 只采集一轮，与 `--max-polls` 互斥 |
 | `--direct` | 开启 | 不使用环境代理、环境 CA、netrc |
@@ -57,7 +76,7 @@ python -m index_strategy.instant_dld --interval 5 --symbols-file index_strategy/
 ```text
 Z:\Project_data\realtime_market\
 ├── data/
-│   ├── AU2610.SHF/2026/09/2026-09-18.<sha256>.parquet
+│   ├── AU.SHF/2026/09/2026-09-18.<sha256>.parquet
 │   └── 000001.SZ/2026/09/2026-09-18.<sha256>.parquet
 ├── live/
 │   ├── quotes.sqlite3           # 行情、批次结果、运行摘要、事件和 Parquet 文件目录
@@ -82,10 +101,13 @@ Parquet 先写同目录临时文件，关闭并 fsync 后重命名发布，最�
 | `sequence` | 跨运行递增的记录编号，策略增量游标；同秒多条记录也不会冲突 |
 | `timestamp` | HTTP 响应接收时刻，向下取整到秒，保存为带 UTC 时区的 datetime；界面显示北京时间 |
 | `symbol` | 标的代码，保留前导零 |
+| `source_symbol` | 实际请求的合约代码；直接输入具体合约时等于 `symbol` |
+| `mapping_date` | 选取主力的上一交易日日期，直接输入具体代码时为空 |
+| `trading_date` | 根据采集时刻和日历确定的主力映射交易日，非接口原始交易日期；直接输入具体代码时为空 |
 | `quote_time` | 接口 `quoteTimestamp` 的 `HH:MM:SS`；接口未提供交易日期，不拼成假定的交易所 datetime |
 | `close` | 最新成交价，来自 `latestPrice` |
 | `volume_total` | 接口累计成交数量 `tradedQuantities`，保持来源单位；不使用对应成交额的 `tradeVolume` |
-| `volume` | 相邻有效采样的累计量差；首次、跨采集日期、累计量回退或接口时钟回退时留空 |
+| `volume` | 相邻有效采样累计量差；主力按映射交易日建立基准，其他按采集日期；首次、换日、换合约、累计量或接口时钟回退时留空 |
 | `bid_price_1` … `bid_price_5` | 买一至买五价，来自 `b1Price` … `b5Price` |
 | `bid_volume_1` … `bid_volume_5` | 买一至买五量，来自 `b1Stocks` … `b5Stocks` |
 | `ask_price_1` … `ask_price_5` | 卖一至卖五价，来自 `s1Price` … `s5Price` |
@@ -96,7 +118,7 @@ Parquet 先写同目录临时文件，关闭并 fsync 后重命名发布，最�
 
 2026-09-18 实测 `AU2610.SHF` 只提供一档有效盘口；二至五档价格为 `9223372036854.775`（INT64_MAX / 1e6）占位值。该值和零盘口价格转为 null，盘口量保留来源值，不伪造缺失档位。有效最新价缺失、非正或为占位值时，该标的作为失败记录，不插入新的行情行。
 
-`quality_flags`：`1` 累计量缺失；`2` 盘口字段缺失；`4` 接口时间缺失/无效；`8` 累计量或接口时钟回退；`16` 没有同采集日的前次采样；`32` 发现接口价格占位值。价格缺失在 pandas 中呈现为 NaN。
+`quality_flags`：`1` 累计量缺失；`2` 盘口字段缺失；`4` 接口时间缺失/无效；`8` 累计量或接口时钟回退；`16` 没有同交易日（直接代码为采集日）的前次采样；`32` 发现接口价格占位值；`64` 实际合约发生切换。价格缺失在 pandas 中呈现为 NaN。
 
 ## 策略实时读取与结果保存
 
@@ -106,11 +128,11 @@ Parquet 先写同目录临时文件，关闭并 fsync 后重命名发布，最�
 from index_strategy.instant_dld.reader import RealtimeReader, write_strategy_frame
 
 reader = RealtimeReader()  # 默认 Z:\Project_data\realtime_market
-df = reader.latest(["AU2610.SHF"])  # 每个标的最近一条有效行情
-print(df[["symbol", "close", "volume_total", "bid_price_1", "ask_price_1"]])
+df = reader.latest(["AU.SHF"])  # 每个标的最近一条有效行情
+print(df[["symbol", "source_symbol", "close", "volume_total", "bid_price_1", "ask_price_1"]])
 
 cursor = 0  # 持续策略需自行保存已处理的 sequence
-new_rows = reader.read_since(cursor, symbols=["AU2610.SHF"])
+new_rows = reader.read_since(cursor, symbols=["AU.SHF"])
 if not new_rows.empty:
     result = new_rows[["sequence", "symbol", "close"]].copy()
     # 在这里执行你的策略计算。

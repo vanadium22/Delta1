@@ -11,6 +11,7 @@ import time
 from typing import Any, Callable, Protocol
 
 from .client import MarketDataClient
+from .contracts import MainContractResolver
 from .symbols import SymbolFileError, load_symbols
 
 LOG = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ def collect(
     max_polls: int = 0,
     stop: threading.Event | None = None,
     clock: Callable[[], float] = time.monotonic,
+    resolver: MainContractResolver | None = None,
 ) -> dict[str, Any]:
     if not math.isfinite(interval) or interval <= 0:
         raise ValueError("interval 必须是大于 0 的有限秒数")
@@ -49,6 +51,9 @@ def collect(
     if type(max_polls) is not int or max_polls < 0:
         raise ValueError("max_polls 必须是非负整数（0 表示持续运行）")
     symbols = load_symbols(symbol_files)
+    resolver = resolver or MainContractResolver(store=store)
+    resolver.store = store
+    last_mapping = {}
     stop = stop if stop is not None else threading.Event()
     counts: Counter[str] = Counter()
     summary: dict[str, Any] = {
@@ -87,11 +92,44 @@ def collect(
                     store.event("symbols_changed", poll=poll, symbols=symbols)
                     LOG.info("标的已更新：%s 个", len(symbols))
             total_batches = math.ceil(len(symbols) / batch_size)
+            mapping, mapping_errors = resolver.resolve_many(symbols)
+            for symbol, identity in mapping.items():
+                if identity["source_symbol"] != symbol and last_mapping.get(symbol) != identity:
+                    store.event("main_contract_resolved", symbol=symbol, **identity)
+                    LOG.info("主力映射 %s → %s；交易日 %s，采用 %s 盘后数据", symbol,
+                             identity["source_symbol"], identity["trading_date"], identity["mapping_date"])
+                    last_mapping[symbol] = identity
             poll_counts: Counter[str] = Counter()
             for index, offset in enumerate(range(0, len(symbols), batch_size), 1):
                 if stop.is_set():
                     break
-                result = client.fetch(symbols[offset:offset + batch_size])
+                logical = symbols[offset:offset + batch_size]
+                actual = list(dict.fromkeys(mapping[symbol]["source_symbol"] for symbol in logical if symbol in mapping))
+                if actual:
+                    result = client.fetch(actual)
+                    payload = result.get("response")
+                    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+                        data = payload["data"]
+                        result["response"] = {**payload, "data": {
+                            symbol: data[mapping[symbol]["source_symbol"]] for symbol in logical
+                            if symbol in mapping and mapping[symbol]["source_symbol"] in data}}
+                else:
+                    result = {"received_at": datetime.now().astimezone().isoformat(), "elapsed_seconds": 0,
+                              "status": "mapping_error"}
+                result["requested_symbols"] = actual
+                result["symbols"] = logical
+                result["symbol_mapping"] = {symbol: mapping[symbol] for symbol in logical if symbol in mapping}
+                failures = {symbol: mapping_errors[symbol] for symbol in logical if symbol in mapping_errors}
+                if failures:
+                    result["mapping_errors"] = failures
+                    result["error"] = "; ".join(part for part in [result.get("error"), *failures.values()] if part)
+                    if result["status"] == "success":
+                        result["status"] = "partial"
+                response_data = (result.get("response") or {}).get("data", {}) if isinstance(result.get("response"), dict) else {}
+                if not isinstance(response_data, dict):
+                    response_data = {}
+                result["received_symbols"] = [symbol for symbol in logical if isinstance(response_data.get(symbol), dict) and response_data[symbol]]
+                result["missing_symbols"] = [symbol for symbol in logical if symbol not in result["received_symbols"]]
                 result.update(poll=poll, batch=index, batch_count=total_batches)
                 store.batch(result)
                 counts[result["status"]] += 1
