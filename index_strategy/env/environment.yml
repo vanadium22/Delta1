@@ -1,0 +1,14 @@
+name: swhy_delta1
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - pip:
+      - requests==2.34.2
+      - certifi==2026.7.22
+      - charset-normalizer==3.5.1
+      - idna==3.20
+      - urllib3==2.8.0
+variables:
+  PYTHONNOUSERSITE: "1"
