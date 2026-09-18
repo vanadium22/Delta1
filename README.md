@@ -12,6 +12,7 @@ project/
 ├── localsetting/                  # 本机私有配置，Git 忽略
 ├── index_strategy/
 │   ├── env/                       # Conda 环境定义、固定版本依赖和恢复说明
+│   ├── frontend/                  # 本地网页界面、运行控制与实时日志
 │   ├── instant_dld/
 │   │   ├── config/symbols.json     # 维护标的列表，可增加多个 JSON/TXT/LIST 文件
 │   │   ├── client.py              # HTTP 请求和业务响应检查
@@ -39,7 +40,17 @@ conda activate P:\code_content\python_work_env\conda_env\swhy_delta1
 
 环境已存在时只需激活。其他机器可以替换 `--prefix`，环境文件不绑定绝对路径。具体依赖、更新和 Wind 可选依赖见 [环境说明](index_strategy/env/README.md)。
 
-## 实时采集
+## 网页界面
+
+在仓库根目录、激活 `swhy_delta1` 后：
+
+```powershell
+python -m index_strategy.frontend --open
+```
+
+打开 `http://127.0.0.1:8766`，进入「数据下载 → 实时下载」，可查看/修改标的、采集间隔和保存目录，开始/停止任务并查看实时日志。交易数据下载页暂作预留。页面设置保存在 Git 忽略的 `localsetting`；不增加环境依赖。详见 [界面说明](index_strategy/frontend/README.md)。
+
+## 命令行实时采集
 
 在仓库根目录运行，每 5 秒发起一轮，按 Ctrl+C 结束：
 

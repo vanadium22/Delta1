@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Delta1 · 实时数据下载</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6M12 7v5l3 2"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 4 8 8-8 8"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm0 1h18"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v7h10V3M7 21v-7h10v7"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 5 7 7-7 7m10 0h7"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol>
+  </svg>
+
+  <aside class="sidebar">
+    <a class="brand" href="#realtime" aria-label="Delta1 首页"><span class="brand-mark">Δ</span><span>Delta<span class="brand-one">1</span><small>RESEARCH WORKSPACE</small></span></a>
+    <div class="workspace"><span class="workspace-icon"><svg class="icon"><use href="#i-grid"/></svg></span><div>指数策略<small>Index Strategy</small></div><span class="workspace-version">01</span></div>
+    <nav aria-label="模块导航">
+      <div class="nav-caption">工作空间</div>
+      <div class="nav-group"><svg class="icon"><use href="#i-data"/></svg><span>数据下载</span><svg class="icon small down"><use href="#i-chevron"/></svg></div>
+      <div class="nav-children">
+        <a href="#trading" id="nav-trading" class="nav-link"><svg class="icon"><use href="#i-history"/></svg><span>交易数据下载</span><span class="soon">待接入</span></a>
+        <a href="#realtime" id="nav-realtime" class="nav-link active" aria-current="page"><svg class="icon"><use href="#i-pulse"/></svg><span>实时下载</span><span class="nav-active-dot"></span></a>
+      </div>
+    </nav>
+    <div class="sidebar-note"><svg class="icon"><use href="#i-data"/></svg><div>每一次采集，都有记录<p>行情快照按日归档<br>运行过程可追溯</p></div></div>
+    <div class="workspace-footer"><span class="local-avatar">D1</span><div>本地工作区<small><span class="dot"></span> 仅本机访问</small></div></div>
+  </aside>
+
+  <main>
+    <header class="topbar"><div class="breadcrumb"><svg class="icon"><use href="#i-grid"/></svg><span>指数策略</span><span class="divider">/</span><span>数据下载</span><span class="divider">/</span><strong id="breadcrumb-page">实时下载</strong></div><div class="topbar-right"><span id="connection" class="connection"><span class="dot"></span><span>连接本地服务…</span></span><span class="topbar-line"></span><time id="clock"></time></div></header>
+
+    <div class="content">
+      <div id="connection-error" class="notice error" role="alert" hidden>无法连接本地服务，正在重连。请确认本地网页服务仍在运行。</div>
+
+      <section id="realtime-page" aria-labelledby="page-title">
+        <div class="page-heading"><div><div class="eyebrow">DATA DOWNLOAD <span>/</span> REALTIME</div><h1 id="page-title">实时下载<span class="heading-badge">行情快照</span></h1><p>管理标的与采集任务，实时查看数据下载状态。</p></div><span class="local-label"><span class="dot"></span> 本地采集</span></div>
+
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">采集状态<svg class="icon"><use href="#i-pulse"/></svg></div><div class="metric-value status-value"><span id="status-dot" class="status-dot"></span><span id="status-text" aria-live="polite">未启动</span></div><div id="status-description" class="metric-note">准备好配置，即可开始</div></div>
+          <div class="metric"><div class="metric-label">采集轮次<svg class="icon"><use href="#i-history"/></svg></div><div class="metric-value"><span id="poll-count">0</span><span class="metric-unit">轮</span></div><div class="metric-note">本次运行累计</div></div>
+          <div class="metric"><div class="metric-label">已保存批次<svg class="icon"><use href="#i-data"/></svg></div><div class="metric-value"><span id="batch-count">0</span><span class="metric-unit">批</span></div><div id="batch-note" class="metric-note">成功 0 · 异常 0</div></div>
+          <div class="metric"><div class="metric-label">最近请求耗时<svg class="icon"><use href="#i-clock"/></svg></div><div class="metric-value"><span id="latency">—</span><span class="metric-unit">ms</span></div><div id="last-response" class="metric-note">尚未收到响应</div></div>
+        </div>
+
+        <div id="run-error" class="notice error" role="alert" hidden></div>
+        <div class="work-grid">
+          <section class="panel config-panel" aria-labelledby="config-title">
+            <div class="panel-heading"><div><span class="section-number">01</span><h2 id="config-title">采集配置</h2></div><button id="save" class="text-button" type="button" disabled><svg class="icon small"><use href="#i-save"/></svg>保存配置</button></div>
+            <form id="config-form" novalidate>
+              <div class="field symbols-field">
+                <div class="field-label"><label for="symbols">标的列表 <span id="symbol-count" class="count-badge">0</span></label><button id="import" class="text-button muted" type="button" disabled><svg class="icon small"><use href="#i-import"/></svg>导入文件</button></div>
+                <textarea id="symbols" name="symbols" spellcheck="false" aria-describedby="symbols-help" placeholder="603110.SH&#10;000001.SZ" disabled></textarea>
+                <input id="file-input" type="file" accept=".json,.txt,.list" multiple hidden>
+                <p id="symbols-help" class="field-help">每行一个代码，也可粘贴 list 或导入多个标的文件。</p>
+              </div>
+              <div class="field-row"><div class="field"><label for="interval">采集间隔</label><div class="input-with-unit"><input id="interval" name="interval" type="number" min="0.001" step="any" value="5" inputmode="decimal" disabled><span>秒 / 轮</span></div></div><div class="field"><label>保存格式</label><div class="format-value"><span class="file-icon">{ }</span><strong>JSONL</strong><span>按天追加</span></div></div></div>
+              <div class="field path-field"><label for="output-dir">数据保存位置</label><div class="path-input"><svg class="icon"><use href="#i-folder"/></svg><textarea id="output-dir" name="output_dir" rows="2" spellcheck="false" aria-describedby="path-help" disabled></textarea></div><p id="path-help" class="field-help">填写本机文件夹路径；不存在的目录会自动创建。</p></div>
+              <div id="form-error" class="form-error" role="alert" hidden></div>
+              <div class="config-actions"><p id="config-hint"><span class="small-dot"></span>设置将保留到下次打开</p><div class="action-row"><button id="start" class="button primary" type="submit" disabled><svg class="icon"><use href="#i-play"/></svg><span>开始采集</span></button><button id="stop" class="button stop" type="button" disabled><svg class="icon"><use href="#i-stop"/></svg><span>停止采集</span></button></div></div>
+            </form>
+          </section>
+
+          <section class="panel monitor-panel" aria-labelledby="monitor-title">
+            <div class="panel-heading"><div><span class="section-number">02</span><h2 id="monitor-title">运行监控</h2></div><span id="monitor-status" class="pill"><span class="dot"></span><span>等待开始</span></span></div>
+            <div class="log-toolbar"><div class="log-tab"><svg class="icon small"><use href="#i-terminal"/></svg>实时日志</div><div class="log-tools"><label class="autoscroll"><input id="autoscroll" type="checkbox" checked>自动滚动</label><button id="copy-logs" class="icon-button" type="button" title="复制日志" aria-label="复制日志"><svg class="icon small"><use href="#i-copy"/></svg></button><button id="clear-logs" class="text-button muted" type="button">清空显示</button></div></div>
+            <div id="console" class="console" role="log" aria-label="采集运行日志" aria-live="off" tabindex="0"><div class="console-topline"><span class="terminal-dots"><i></i><i></i><i></i></span><span>delta1 / realtime</span><span id="console-live">STANDBY</span></div><div id="logs"></div><div id="console-empty" class="console-empty"><div class="empty-terminal"><svg class="icon"><use href="#i-terminal"/></svg></div><h3>等待开始采集</h3><p>配置完成后点击「开始采集」<br>请求与保存状态将在这里持续更新</p><span class="terminal-prompt">&gt; ready<span class="cursor">_</span></span></div></div>
+            <div class="monitor-meta"><div><span>运行编号</span><strong id="run-id" title="尚未开始">尚未开始</strong></div><div><span>开始时间</span><strong id="started-at">—</strong></div><span class="sync-label"><span class="dot"></span>日志每秒同步</span></div>
+            <div class="output-location"><svg class="icon small"><use href="#i-folder"/></svg><span id="actual-output" title="">等待加载保存位置</span><button id="copy-path" class="icon-button" type="button" title="复制保存路径" aria-label="复制保存路径"><svg class="icon small"><use href="#i-copy"/></svg></button></div>
+          </section>
+        </div>
+
+        <details class="format-details"><summary><svg class="icon small"><use href="#i-info"/></svg><span>数据如何保存？</span><span class="details-summary">JSONL 行情快照 · JSON 运行摘要</span><svg class="icon small"><use href="#i-chevron"/></svg></summary><div><p>每次请求保存为 JSONL 文件中的一行，保留完整接口响应、请求时间、标的和状态。多次采集到相同快照也会保留；不会把轮询数据当作逐笔成交。</p><div class="file-description"><code>日期 / 运行编号 / batches.jsonl</code><span>每批行情响应，按天追加</span><code>runs / 运行编号 / run.json</code><span>运行配置、结果和数量摘要</span><code>runs / 运行编号 / events.jsonl</code><span>运行事件与标的变更</span></div></div></details>
+        <footer class="page-footer"><span>DELTA1 <span class="footer-separator">/</span> 指数策略研究工作区</span><span>内网直连<span class="footer-separator">·</span>TLS 证书校验已启用</span></footer>
+      </section>
+
+      <section id="trading-page" hidden><div class="page-heading"><div><div class="eyebrow">DATA DOWNLOAD <span>/</span> HISTORICAL</div><h1>交易数据下载<span class="heading-badge neutral">待接入</span></h1><p>交易数据下载模块入口已预留。</p></div></div><div class="panel placeholder-panel"><div class="placeholder-icon"><svg class="icon"><use href="#i-history"/></svg></div><h2>交易数据下载界面尚未接入</h2><p>目前可以使用实时下载模块管理标的、配置采集频率并查看运行情况。</p><a class="button primary" href="#realtime">进入实时下载<svg class="icon small"><use href="#i-chevron"/></svg></a></div></section>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status" hidden><svg class="icon small"><use href="#i-check"/></svg><span></span></div>
+</body>
+</html>
