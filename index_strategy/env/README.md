@@ -1,6 +1,6 @@
 # 环境建立与恢复
 
-标准环境名是 `swhy_delta1`。本机所有 Conda 环境统一放在 `P:\code_content\python_work_env\conda_env`。实时采集采用 Python 3.13 和 `requests`，依赖版本在 `environment.yml` 与 `requirements.txt` 中固定。
+标准环境名是 `swhy_delta1`。本机所有 Conda 环境统一放在 `P:\code_content\python_work_env\conda_env`。实时采集采用 Python 3.13 和 `requests`，桌面窗口采用 CustomTkinter 6.0.0 / Tk。Python 包版本在 `environment.yml` 与 `requirements.txt` 中固定，Conda 环境文件还包含 Tk 运行库。
 
 ## 第一次建立
 
@@ -25,6 +25,7 @@ python -m unittest discover -s tests -v
 
 ```powershell
 & 'P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe' -s -m index_strategy.instant_dld --interval 5
+& 'P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe' -s -m index_strategy.desktop
 ```
 
 `environment.yml` 配置了 `PYTHONNOUSERSITE=1`，激活后不会混用用户目录的其他 Python 包。直接调用解释器时加 `-s` 可达到同样效果。VS Code 本机选择这个解释器即可，`.vscode` 配置不提交。
@@ -38,6 +39,8 @@ conda activate swhy_delta1
 python -m pip install -r index_strategy/env/requirements.txt
 python -m pip check
 ```
+
+本机已有 Tk，更新 pip 依赖即可运行桌面窗口。若其他机器缺少 `tkinter`，用 `conda install -n swhy_delta1 -c conda-forge tk` 补齐。只使用系统 Python 的 Linux 机器需通过系统包管理器安装匹配版本的 Tk。
 
 环境文件使用 `conda-forge`，不包含绝对路径，其他系统可使用 `conda env create -f index_strategy/env/environment.yml`。Python 固定到 3.13 系列，Conda 运行库和补丁版本由求解器选取；这不是逐字节相同的系统镜像。当前本机验证版本为 Python 3.13.15。
 

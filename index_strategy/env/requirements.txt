@@ -1,6 +1,9 @@
-# Tested Python 3.13 HTTP client and its complete dependency set.
+# Tested Python 3.13 HTTP client, native desktop GUI and their dependencies.
 requests==2.34.2
 certifi==2026.7.22
 charset-normalizer==3.5.1
 idna==3.20
 urllib3==2.8.0
+customtkinter==6.0.0
+darkdetect==0.8.0
+packaging==26.3

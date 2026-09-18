@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.13
+  - tk
   - pip
   - pip:
       - requests==2.34.2
@@ -10,5 +11,8 @@ dependencies:
       - charset-normalizer==3.5.1
       - idna==3.20
       - urllib3==2.8.0
+      - customtkinter==6.0.0
+      - darkdetect==0.8.0
+      - packaging==26.3
 variables:
   PYTHONNOUSERSITE: "1"

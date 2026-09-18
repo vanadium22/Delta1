@@ -1,5 +1,7 @@
 # 本地数据下载界面
 
+此目录保留早期网页入口。当前主入口为 [CustomTkinter 桌面应用](../desktop/README.md)，Windows 可双击 `index_strategy/start_app.cmd`。两个界面复用 `instant_dld/service.py` 和本地配置，但各自运行任务，不要同时启动同一采集。
+
 页面导航包含「数据下载 → 交易数据下载 / 实时下载」。实时下载已经接入现有采集模块；交易数据下载入口暂作预留。
 
 ## 启动
