@@ -17,14 +17,17 @@ def digest(path: Path) -> str:
     return result.hexdigest()
 
 
-def synchronize(config: dict, day: str, data_root: Path):
+def synchronize(config: dict, day: str, data_root: Path, progress=None):
+    progress = progress or (lambda message: None)
     source = source_directory(config, day)
+    progress(f"正在访问当日目录：{source}")
     if not source.is_dir():
         raise ValueError(f"当日目录不可访问：{source}；请检查公司网络及共享盘映射")
-    files = [p for p in source.glob(config["file_glob"]) if p.is_file() and not p.name.startswith("~$") and p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}]
+    pattern = config["file_glob"].replace("{date}", day)
+    files = [p for p in source.glob(pattern) if p.is_file() and not p.name.startswith("~$") and p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}]
     files.sort(key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
     if not files:
-        raise ValueError(f"当日目录没有符合 {config['file_glob']} 的 Excel 券单：{source}")
+        raise ValueError(f"未找到当日券单：{source / pattern}；请核对根目录、日期及文件名后重试")
     selected = files[:1] if config["file_selection"] == "latest" else files
     batch = data_root / day / "snapshots" / uuid.uuid4().hex
     batch.mkdir(parents=True)
@@ -34,6 +37,7 @@ def synchronize(config: dict, day: str, data_root: Path):
     if config["file_selection"] == "merge" and len(selected) > 1:
         warnings.append("正在合并多份券单；除完全相同文件外，各行均相加，请确认这些文件不是同一库存的不同版本")
     for original in selected:
+        progress(f"正在下载到本地项目：{original.name}")
         before = original.stat()
         local = batch / original.name
         shutil.copy2(original, local)

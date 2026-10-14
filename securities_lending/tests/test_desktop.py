@@ -18,7 +18,7 @@ from securities_lending.desktop_settings import SettingsDialog
 from securities_lending.service import InventoryService
 
 
-class DesktopTests(unittest.TestCase):
+class DesktopCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -64,6 +64,8 @@ class DesktopTests(unittest.TestCase):
         QTest.mouseClick(self.window.calculate_button, Qt.MouseButton.LeftButton)
         self.wait(lambda: self.window.response is not None and not self.window.busy)
 
+
+class DesktopTests(DesktopCase):
     def test_native_workflow_per_stock_notional_and_insufficient_capacity(self):
         self.query("600519 300750 000001")
         self.assertEqual(self.window.table.rowCount(), 3)
@@ -118,12 +120,12 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.window.table.rowCount(), 0)
         self.assertFalse(self.window.export_button.isEnabled())
 
-    def test_settings_rejects_invalid_mapping(self):
+    def test_settings_rejects_invalid_filename(self):
         dialog = SettingsDialog(self.service.config, self.window)
-        dialog.fields["columns"].setPlainText("invalid json")
+        dialog.fields["file_glob"].setText("../bad.xlsx")
         dialog.save()
         self.assertTrue(dialog.error.text())
-        self.assertEqual(self.service.config["columns"], {})
+        self.assertNotEqual(self.service.config["file_glob"], "../bad.xlsx")
         dialog.close()
 
 

@@ -45,7 +45,7 @@ python -m pip check
 
 ## 日常启动
 
-双击 `securities_lending/start.cmd`。App 使用原生 Qt 窗口，正常 Windows 启动使用 `pythonw.exe`，Wind 子进程使用同目录 `python.exe`。界面底部以及设置对话框会显示实际使用的解释器，便于核对。
+双击 `securities_lending/start.cmd`。App 使用原生 Qt 窗口，正常 Windows 启动使用 `pythonw.exe`，Wind 子进程使用同目录 `python.exe`。设置对话框和状态栏悬停提示会显示 App 实际使用的解释器，便于核对。
 
 解释器选择顺序：
 
@@ -57,7 +57,13 @@ python -m pip check
 
 如果公司使用了其他环境名/位置，可设置 `SWHY_DELTA1_PYTHON`，或新建上述 `python.local.txt`。不要把本机配置提交到 Git。Wind Python 路径留空时使用 App 同一环境，不会自动改用系统 Python。
 
-首次在 App 填写共享盘中的「发送券单」目录并保存，后续每次启动自动读取当日目录。若只想验证界面，双击 `start_demo.cmd`，演示会明确标识合成库存与合成价格。
+首次在 App 填写共享盘中的「发送券单」根目录并保存。每次启动按北京时间定位 `根目录/YYYY-MM-DD/申万内部券单YYYY-MM-DD.xlsx`，先下载到项目 `securities_lending/data/live` 的日期/批次目录，再读取本地副本的「库存券单」。顶部「打开本地数据」打开实际下载批次。
+
+文件名模板（支持 `{date}`）、Sheet 名、表头行、具体列名均可在设置中修改。默认逐笔取「实际可融股数」与「可融股数」的较小值，再按证券汇总；参考费率 0.05 显示 5%。库存市值按有效股数乘本次 Wind 最新价计算，原始券单市值只供追溯。任一必要数量列缺失时不确认上限。
+
+界面适配 1920×1080 屏幕，小窗口/高 DPI 下可以横向滚动；「券源明细」按需展开。Ctrl+B 可粘贴 Excel 代码与目标名本两列，金额单位万元。Tab/Enter 下一行，Ctrl+Enter 刷新计算；复制所选行或导出 Excel/CSV 均保留日期、模式和来源。
+
+演示入口仍为 `start_demo.cmd`，设置独立保存至 `data/demo/config.local.json`，不会覆盖正式配置。旧默认配置会在内存迁移到本版文件名与列口径，启动不会自行写回配置。
 
 ## 股数示例
 

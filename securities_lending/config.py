@@ -28,12 +28,25 @@ def atomic_json(path: Path, value) -> None:
 def load_config(path: Path) -> dict:
     config = dict(DEFAULTS)
     if path.exists():
-        config.update(json.loads(path.read_text(encoding="utf-8-sig")))
+        saved = json.loads(path.read_text(encoding="utf-8-sig"))
+        config.update(saved)
+        if saved.get("schema_version", 1) < 2:
+            if config["file_glob"] == "*.xls*" and config["file_selection"] == "latest":
+                config["file_glob"] = DEFAULTS["file_glob"]
+            if not saved.get("columns"):
+                config["columns"] = dict(DEFAULTS["columns"])
+                config["numeric_rate_unit"] = DEFAULTS["numeric_rate_unit"]
+            else:
+                # Preserve a previously configured single quantity column.
+                config["quantity_policy"] = "minimum" if "quantity_actual" in saved["columns"] else "primary"
+            config["schema_version"] = 2
     validate(config)
     return config
 
 
 def validate(config: dict) -> None:
+    if config.get("quantity_policy", "primary") not in {"primary", "minimum"}:
+        raise ValueError("库存数量口径必须为 primary 或 minimum")
     if config["file_selection"] not in {"latest", "merge"}:
         raise ValueError("文件读取方式必须为 latest 或 merge")
     if config["numeric_rate_unit"] not in {"percent", "decimal"}:
@@ -55,6 +68,8 @@ def validate(config: dict) -> None:
         raise ValueError("Sheet 名不能为空")
     if any(x in config["file_glob"] for x in ("/", "\\", "..")):
         raise ValueError("文件筛选仅支持文件名通配符，不支持目录")
+    if not config["file_glob"].strip() or any(char in config["file_glob"].replace("{date}", "") for char in "{}"):
+        raise ValueError("文件名不能为空，日期占位符仅支持 {date}")
 
 
 def source_directory(config: dict, day: str) -> Path:

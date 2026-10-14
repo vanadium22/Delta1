@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import math
 import re
+from decimal import Decimal, DecimalException
 from dataclasses import dataclass
 from pathlib import Path
 
 ALIASES = {
     "code": ["证券代码", "股票代码", "标的代码", "券代码", "代码", "Wind代码", "标的"],
     "name": ["证券名称", "证券简称", "股票名称", "股票简称", "标的名称", "名称", "简称"],
-    "quantity": ["可融数量", "可融券数量", "可出借数量", "出借数量", "可用数量", "库存数量", "可借数量", "券源数量", "数量", "可融券余额"],
-    "nominal": ["名本", "名义本金", "可融名本", "可融券名本", "可融金额", "名义金额"],
+    "quantity": ["可融股数", "可融数量", "可融券数量", "可出借数量", "出借数量", "可用数量", "库存数量", "可借数量", "券源数量", "数量", "可融券余额"],
+    "quantity_actual": ["实际可融股数"],
+    "nominal_limit": ["可融市值上限"],
+    "nominal": ["名本", "名义本金", "可融名本", "可融券名本", "可融金额", "名义金额", "可融市值"],
     "rate": ["出借费率", "融券费率", "借券费率", "出借利率", "费率", "参考费率", "年化费率"],
     "industry": ["所属行业", "所在行业", "申万一级行业", "申万行业", "行业名称", "行业"],
     "price": ["参考价格", "参考价", "收盘价", "最新价", "市价", "价格"],
     "term": ["期限", "出借期限", "融券期限", "期限天数"],
+    "source": ["来源", "券源来源", "出借方"],
 }
 
 
@@ -52,19 +56,21 @@ def normalize_code(value) -> str:
     return f"{number}.{exchange}"
 
 
-def number(value, multiplier=1.0):
+def number(value, multiplier=1):
+    if isinstance(value, bool):
+        return None
     text = clean(value).replace(",", "").replace("，", "").replace(" ", "")
     if not text or text in {"-", "--", "—", "N/A", "None"}:
         return None
     # A unit in the cell overrides the column/default unit.
-    for suffix, scale in (("亿元", 1e8), ("万元", 1e4), ("万股", 1e4), ("亿", 1e8), ("万", 1e4), ("股", 1), ("元", 1)):
+    for suffix, scale in (("亿元", 100000000), ("万元", 10000), ("万股", 10000), ("亿", 100000000), ("万", 10000), ("股", 1), ("元", 1)):
         if text.endswith(suffix):
             text, multiplier = text[:-len(suffix)], scale
             break
     try:
-        result = float(text) * multiplier
-        return result if math.isfinite(result) and result >= 0 else None
-    except (TypeError, ValueError):
+        result = Decimal(text) * Decimal(str(multiplier))
+        return result if result.is_finite() and result >= 0 else None
+    except (DecimalException, TypeError, ValueError):
         return None
 
 
@@ -164,10 +170,20 @@ def parse_workbook(path: Path, config: dict):
             continue
         q_header = headers[mapping["quantity"]]
         n_header = headers[mapping["nominal"]] if "nominal" in mapping else ""
-        q_scale = 1e4 if "万股" in q_header or ("股" not in q_header and config["quantity_unit"] == "万股") else 1
-        n_scale = 1e8 if "亿元" in n_header else 1e4 if "万元" in n_header else 1 if "元" in n_header else {"元": 1, "万元": 1e4, "亿元": 1e8}[config["nominal_unit"]]
-        quantity = number(get("quantity").value, q_scale)
+        q_scale = 10000 if "万股" in q_header or ("股" not in q_header and config["quantity_unit"] == "万股") else 1
+        n_scale = 100000000 if "亿元" in n_header else 10000 if "万元" in n_header else 1 if "元" in n_header else {"元": 1, "万元": 10000, "亿元": 100000000}[config["nominal_unit"]]
+        quantity_primary = number(get("quantity").value, q_scale)
+        actual_header = headers[mapping["quantity_actual"]] if "quantity_actual" in mapping else ""
+        actual_scale = 10000 if "万股" in actual_header or ("股" not in actual_header and config["quantity_unit"] == "万股") else 1
+        quantity_actual = number(get("quantity_actual").value, actual_scale)
+        policy = config.get("quantity_policy", "primary")
+        quantity = quantity_primary
+        if policy == "minimum":
+            quantity = min(quantity_primary, quantity_actual) if quantity_primary is not None and quantity_actual is not None else None
         nominal = number(get("nominal").value, n_scale)
+        limit_header = headers[mapping["nominal_limit"]] if "nominal_limit" in mapping else ""
+        limit_scale = 100000000 if "亿元" in limit_header else 10000 if "万元" in limit_header else 1 if "元" in limit_header else {"元": 1, "万元": 10000, "亿元": 100000000}[config["nominal_unit"]]
+        nominal_limit = number(get("nominal_limit").value, limit_scale)
         price = number(get("price").value)
         nominal_source = "券单" if nominal is not None else "缺失"
         if nominal is None and quantity is not None and price is not None:
@@ -178,18 +194,21 @@ def parse_workbook(path: Path, config: dict):
         if rate is not None and "%" not in rate_raw and "％" not in rate_raw:
             if "%" in rate_cell.format or config["numeric_rate_unit"] == "decimal":
                 rate *= 100
-        for field in ("quantity", "nominal", "rate"):
+        for field in ("quantity", "quantity_actual", "nominal", "rate"):
             cell = get(field)
             if cell.formula and cell.value is None:
                 warnings.append(f"{path.name}:{rownum} {field} 公式没有缓存值，请用 Excel 重新计算并保存")
         if quantity is None:
-            warnings.append(f"{path.name}:{rownum} 可融数量缺失或无效，保留该记录但不计入合计")
+            warnings.append(f"{path.name}:{rownum} {'两列库存之一' if policy == 'minimum' else '可融数量'}缺失或无效，保留记录但无法确认上限")
         records.append({
             "code": code, "name": clean(get("name").value), "quantity": quantity,
+            "quantity_primary": quantity_primary, "quantity_actual": quantity_actual, "quantity_policy": policy,
             "nominal": nominal, "nominal_source": nominal_source, "rate": rate,
+            "nominal_limit": nominal_limit,
             "rate_raw": rate_raw, "industry": clean(get("industry").value),
             "industry_source": "券单" if clean(get("industry").value) else "待补充",
             "term": clean(get("term").value), "file": path.name, "row": rownum,
+            "source": clean(get("source").value),
         })
     if mapping is None:
         raise ValueError("Sheet 为空或未识别表头")

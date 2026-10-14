@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import config as settings
 from .config import atomic_json, load_config, source_directory, timestamp
-from .calculation import size_order
+from .calculation import decimal_value, size_order
 from .inventory import normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
@@ -20,7 +20,7 @@ def demo_source(root: Path, day: str):
     sheet = book.active
     sheet.title = "库存券单"
     sheet.append(["合成演示券单 · 不代表真实可融库存"])
-    sheet.append(["证券代码", "证券名称", "可融数量（股）", "名本（万元）", "出借费率", "所属行业", "期限"])
+    sheet.append(["证券代码", "证券名称", "可融数量（股）", "名本（万元）", "出借费率", "所属行业", "期限", "实际可融股数", "来源"])
     for row in [
         ["600519.SH", "贵州茅台", 12000, 1680, .025, "食品饮料", "28天"],
         ["600519.SH", "贵州茅台", 8000, 1120, .028, "食品饮料", "14天"],
@@ -31,7 +31,7 @@ def demo_source(root: Path, day: str):
         ["688981.SH", "中芯国际", 50000, 450, .04, "电子", "14天"],
         ["000858.SZ", "五粮液", 0, 0, .03, "食品饮料", "28天"],
     ]:
-        sheet.append(row)
+        sheet.append([*row, row[2] + 37 if row[2] else 0, "合成券源"])
         sheet.cell(sheet.max_row, 5).number_format = "0.00%"
     book.save(folder / "合成演示_库存券单.xlsx")
     book.close()
@@ -47,6 +47,9 @@ def summarize(code: str, rows: list[dict]):
         "code": code, "name": next((r["name"] for r in rows if r["name"]), "未提供名称"),
         "quantity": sum(quantities) if quantities else None,
         "quantity_complete": len(quantities) == len(rows),
+        "quantity_primary": sum(r["quantity_primary"] for r in rows if r.get("quantity_primary") is not None) if any(r.get("quantity_primary") is not None for r in rows) else None,
+        "quantity_actual": sum(r["quantity_actual"] for r in rows if r.get("quantity_actual") is not None) if any(r.get("quantity_actual") is not None for r in rows) else None,
+        "quantity_policy": rows[0].get("quantity_policy", "primary"),
         "nominal": sum(nominals) if nominals else None,
         "nominal_complete": len(nominals) == len(rows),
         "nominal_estimated": any(r["nominal_source"].startswith("估算") for r in rows),
@@ -62,7 +65,7 @@ class InventoryService:
     def __init__(self, root: Path = settings.ROOT, demo=False, clock=None):
         self.root, self.demo = root, demo
         self.clock = clock or settings.today
-        self.config_path = root / "config.local.json"
+        self.config_path = root / "data" / "demo" / "config.local.json" if demo else root / "config.local.json"
         self.config = load_config(self.config_path)
         self.data_root = root / "data" / ("demo" if demo else "live")
         self.provider = IndustryProvider(self.data_root)
@@ -73,10 +76,10 @@ class InventoryService:
     def active_config(self):
         config = dict(self.config)
         if self.demo:
-            config.update(source_root=str(self.root / "data" / "demo_source"), wind_enabled=False, file_glob="*.xlsx", file_selection="latest", columns={}, header_row=None)
+            config.update(source_root=str(self.root / "data" / "demo_source"), wind_enabled=False, file_glob="*.xlsx", file_selection="latest", sheet_name="库存券单", columns={}, header_row=None, quantity_policy="minimum")
         return config
 
-    def update_config(self, patch):
+    def update_config(self, patch, progress=None):
         unknown = set(patch) - settings.DEFAULTS.keys()
         if unknown:
             raise ValueError(f"未知配置：{', '.join(sorted(unknown))}")
@@ -84,18 +87,22 @@ class InventoryService:
         settings.validate(config)
         atomic_json(self.config_path, config)
         self.config = config
-        return self.refresh()
+        return self.refresh(progress)
 
-    def _parse(self, manifest, config):
+    def _parse(self, manifest, config, progress=None):
         records, warnings, files = [], list(manifest["warnings"]), []
         for entry in manifest["files"]:
+            if progress:
+                progress(f"正在读取本地文件：{entry['name']} → {config['sheet_name']}")
             rows, notices, mapping = parse_workbook(Path(entry["path"]), config)
+            for row in rows:
+                row.update(local_path=entry["path"], source_path=entry["source"], sha256=entry["sha256"])
             records.extend(rows)
             warnings.extend(notices)
             files.append({**entry, **mapping, "records": len(rows)})
         return records, warnings, files
 
-    def refresh(self):
+    def refresh(self, progress=None):
         with self.lock:
             day, config = self.clock(), self.active_config()
             self.provider.failed_keys.clear()
@@ -103,9 +110,9 @@ class InventoryService:
             try:
                 if self.demo:
                     demo_source(self.root / "data" / "demo_source", day)
-                manifest = synchronize(config, day, self.data_root)
+                manifest = synchronize(config, day, self.data_root, progress)
                 manifest["file_glob"] = config["file_glob"]
-                parsed = self._parse(manifest, config)
+                parsed = self._parse(manifest, config, progress)
                 save_manifest(self.data_root, manifest)
             except Exception as exc:
                 issue = str(exc)
@@ -113,7 +120,7 @@ class InventoryService:
                 try:
                     manifest = cached_manifest(self.data_root, day, config)
                     if manifest:
-                        parsed = self._parse(manifest, config)
+                        parsed = self._parse(manifest, config, progress)
                 except Exception as cache_exc:
                     issue += f"；缓存也无法使用：{cache_exc}"
                     manifest = None
@@ -134,15 +141,15 @@ class InventoryService:
             }
             return self.state
 
-    def status(self):
+    def status(self, progress=None):
         with self.lock:
             if self.state["state"] == "loading" or self.state["date"] != self.clock():
-                self.refresh()
+                self.refresh(progress)
             return self.state
 
-    def query(self, text: str, targets=None):
+    def query(self, text: str, targets=None, input_targets=None, progress=None):
         with self.lock:
-            status = self.status()
+            status = self.status(progress)
             tokens = list(dict.fromkeys(x for x in re.split(r"[\s,，;；、]+", text.strip()) if x))
             if not tokens:
                 raise ValueError("请输入至少一个证券代码或名称")
@@ -166,6 +173,23 @@ class InventoryService:
                     if not row["industry"]:
                         codes.add(row["code"])
                 groups.append((token, grouped))
+            resolved_targets = dict(targets)
+            batch_codes = {}
+            for token, grouped in groups:
+                if token not in (input_targets or {}):
+                    continue
+                code = normalize_code(token)
+                if not code:
+                    if len(grouped) != 1:
+                        raise ValueError(f"批量名本未应用：名称「{token}」匹配 {len(grouped)} 只股票，请改用完整证券代码后重试")
+                    code = next(iter(grouped))
+                value = input_targets[token]
+                if code in batch_codes and decimal_value(batch_codes[code]) != decimal_value(value):
+                    raise ValueError(f"批量名本冲突：{code} 对应多个不同金额，请核对后重试")
+                batch_codes[code] = value
+            resolved_targets.update(batch_codes)
+            if progress:
+                progress("正在获取本次 Wind 最新价与行业…" if not self.demo else "正在生成合成演示价格…")
             if self.demo:
                 prices = {"600519.SH": "1400.25", "300750.SZ": "200.18", "601318.SH": "50.36", "000001.SZ": "12.17", "600036.SH": "35.28", "688981.SH": "90.45", "000858.SZ": "130.52"}
                 quotes = {code: {"price": prices[code], "retrieved_at": timestamp(), "wind_returned_at": None, "source": "合成演示价格"} for code in quote_codes if code in prices}
@@ -182,14 +206,16 @@ class InventoryService:
                             row["industry_source"] = "Wind · " + self.config["industry_label"]
                     item = summarize(code, rows)
                     item["quote"] = quotes.get(code)
-                    item["calculation"] = size_order(targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"])
+                    price = decimal_value((quotes.get(code) or {}).get("price"))
+                    item["inventory_market_value"] = item["quantity"] * price if item["quantity_complete"] and item["quantity"] is not None and price is not None and price > 0 else None
+                    item["calculation"] = size_order(resolved_targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"])
                     matches.append(item)
                     unique[code] = item
                 results.append({"input": token, "matches": matches})
             values = list(unique.values())
             quantities = [v["quantity"] for v in values if v["quantity"] is not None]
             nominals = [v["nominal"] for v in values if v["nominal"] is not None]
-            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": notices, "summary": {
+            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": notices, "targets": resolved_targets, "summary": {
                 "inputs": len(tokens), "matched": len(values), "unmatched": sum(not g["matches"] for g in results),
                 "quantity": sum(quantities) if quantities else None,
                 "quantity_complete": bool(values) and all(v["quantity_complete"] for v in values),

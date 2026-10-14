@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -27,7 +28,7 @@ class AppTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(dir=temp_root)
         self.root = Path(self.tmp.name)
         self.day = "2026-10-14"
-        self.config = {**DEFAULTS, "source_root": str(self.root / "source"), "wind_enabled": False}
+        self.config = {**DEFAULTS, "source_root": str(self.root / "source"), "wind_enabled": False, "file_glob": "*.xlsx", "columns": {}, "quantity_policy": "primary", "numeric_rate_unit": "percent"}
         atomic_json(self.root / "config.local.json", self.config)
 
     def tearDown(self):
@@ -94,7 +95,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(records[0]["rate"],2.5)
         path = self.workbook(rows=[["000001","平安银行",1,10,.032,"银行"]])
         records, _, _ = parse_workbook(path,{**self.config,"numeric_rate_unit":"decimal"})
-        self.assertEqual(records[0]["rate"],3.2)
+        self.assertEqual(records[0]["rate"],Decimal("3.2"))
 
     def test_missing_quantity_formula_and_nominal_estimate(self):
         path = self.workbook(headers=["证券代码","证券名称","可融数量","参考价","出借费率"], rows=[["000001","平安银行",100,12,"协商"],["600519","贵州茅台","=2*100",1400,.03]])
