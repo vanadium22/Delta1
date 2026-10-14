@@ -48,7 +48,12 @@ def quality(item):
 
 def source_description(row):
     rate = f"{row['rate']}%" if row["rate"] is not None else row["rate_raw"] or "缺失"
-    return f"{row['file']} 第 {row['row']} 行 | 有效 {row['quantity']} 股（实际 {row.get('quantity_actual')} / 可融 {row.get('quantity_primary')}） | 原始市值 {row['nominal']} 元（{row['nominal_source']}，仅参考） | 费率 {rate} | 期限 {row['term'] or '未提供'} | 来源 {row.get('source') or '未提供'}"
+    note = source_note(row)
+    return f"{row['file']} 第 {row['row']} 行 | 有效 {row['quantity']} 股（实际 {row.get('quantity_actual')} / 可融 {row.get('quantity_primary')}） | 原始市值 {row['nominal']} 元（{row['nominal_source']}，仅参考） | 费率 {rate} | 期限 {row['term'] or '未提供'} | 来源 {row.get('source') or '未提供'}" + (f" | {note}" if note else "")
+
+
+def source_note(row):
+    return "自有券源，无需询其他交易台" if (row.get("source") or "").strip() == "互换" else ""
 
 
 def export_tables(items, status):
@@ -61,19 +66,21 @@ def export_tables(items, status):
         for row in item["rows"]:
             details.append([status["date"], status["mode"], status["state"], status.get("downloaded_at"), item["code"], item["name"], row["quantity"], row["nominal"], row["nominal_source"], row["rate"], row["rate_raw"], row["term"], row["industry"], row["industry_source"], row["file"], row["row"], row.get("local_path"), row.get("source_path"), row.get("sha256"), row.get("source")])
     headers[17] = "券单原始市值（元，仅参考）"
-    headers.extend(["库存市值（元，本次最新价）", "实际可融股数合计", "可融股数合计", "库存取值口径"])
+    headers.extend(["库存市值（元，本次最新价）", "实际可融股数合计", "可融股数合计", "库存取值口径", "券源笔数", "期限（逐笔）", "来源（逐笔）"])
     for row, item in zip(rows, items):
-        row.extend([item.get("inventory_market_value"), item.get("quantity_actual"), item.get("quantity_primary"), "逐笔取较小值再合计" if item.get("quantity_policy") == "minimum" else "可融数量列"])
+        row.extend([item.get("inventory_market_value"), item.get("quantity_actual"), item.get("quantity_primary"), "逐笔取较小值再合计" if item.get("quantity_policy") == "minimum" else "可融数量列", len(item["rows"]), " / ".join(source["term"] or "未提供" for source in item["rows"]), " / ".join(source.get("source") or "未提供" for source in item["rows"])])
     detail_headers[7] = "券单原始市值（元，仅参考）"
-    detail_headers.extend(["实际可融股数", "可融股数", "券单市值上限（元，仅参考）"])
+    detail_headers.extend(["实际可融股数", "可融股数", "券单市值上限（元，仅参考）", "券源说明"])
     sources = [row for item in items for row in item["rows"]]
     for row, source in zip(details, sources):
-        row.extend([source.get("quantity_actual"), source.get("quantity_primary"), source.get("nominal_limit")])
+        row.extend([source.get("quantity_actual"), source.get("quantity_primary"), source.get("nominal_limit"), source_note(source)])
     return [("查询汇总", headers, rows), ("券源明细", detail_headers, details)]
 
 
-def clipboard_text(items, status):
-    _, headers, rows = export_tables(items, status)[0]
+def clipboard_text(items, status, detail_indices=None):
+    _, headers, rows = export_tables(items, status)[0 if detail_indices is None else 1]
+    if detail_indices is not None:
+        rows = [rows[index] for index in detail_indices]
     stream = io.StringIO(newline="")
     writer = csv.writer(stream, delimiter="\t", lineterminator="\r\n")
     # Preserve one physical line per security when pasted into Excel.

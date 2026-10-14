@@ -18,7 +18,7 @@ from .config import ROOT, today
 from .desktop_settings import SettingsDialog
 from .desktop_theme import STYLE
 from .desktop_widgets import BatchDialog, ResultTable, TargetEdit
-from .exporting import clipboard_text, quality, rate_text, source_description, write_export
+from .exporting import clipboard_text, quality, rate_text, source_description, source_note, write_export
 from .inventory import normalize_code
 from .service import InventoryService
 
@@ -110,7 +110,8 @@ class Window(QMainWindow):
         top.addWidget(self.mode_label)
         top.addStretch()
         self.refresh_button = self.button("同步当日券单  F5", self.refresh)
-        self.folder_button = self.button("打开本地数据", self.open_local_data)
+        self.folder_button = self.button("打开下载位置", self.open_local_data)
+        self.folder_button.setToolTip("直接打开本次下载的 Excel 所在文件夹；读取失败时也可查看原文件。")
         self.settings_button = self.button("设置", self.settings)
         for button in (self.refresh_button, self.folder_button, self.settings_button):
             top.addWidget(button)
@@ -192,16 +193,46 @@ class Window(QMainWindow):
             self.table.setColumnWidth(column, width)
         self.table.horizontalHeader().setMinimumSectionSize(70)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.currentCellChanged.connect(lambda *args: self.show_detail())
+        self.table.currentCellChanged.connect(lambda *args: self.show_detail(auto_expand=True))
         self.table.copyRequested.connect(self.copy_selected)
         layout.addWidget(self.table, 1)
 
-        self.detail = QPlainTextEdit()
+        self.detail_panel = QWidget()
+        detail_layout = QVBoxLayout(self.detail_panel)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(4)
+        detail_top = QHBoxLayout()
+        self.detail_title = label("逐笔券源 · 选择股票查看", "section")
+        self.detail_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        detail_top.addWidget(self.detail_title, 1)
+        self.copy_detail_button = self.button("复制明细", self.copy_detail)
+        detail_top.addWidget(self.copy_detail_button)
+        detail_top.addWidget(self.button("计算与追溯", lambda: self.text_dialog("计算依据与原始券源", self.detail.toPlainText())))
+        detail_layout.addLayout(detail_top)
+        self.detail_table = ResultTable(0, 8)
+        self.detail_table.setHorizontalHeaderLabels(["来源", "期限", "出借费率", "有效库存 / 股", "实际可融 / 股", "可融股数 / 股", "券源说明", "文件 / Excel 行号"])
+        self.detail_table.verticalHeader().hide()
+        self.detail_table.setShowGrid(False)
+        self.detail_table.setAlternatingRowColors(True)
+        self.detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.detail_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.detail_table.setWordWrap(False)
+        self.detail_table.setMinimumHeight(70)
+        self.detail_table.setMaximumHeight(150)
+        self.detail_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        for column, width in enumerate([120, 80, 90, 120, 114, 114, 210, 250]):
+            self.detail_table.setColumnWidth(column, width)
+        self.detail_table.horizontalHeader().setStretchLastSection(True)
+        self.detail_table.copyRequested.connect(self.copy_detail)
+        detail_layout.addWidget(self.detail_table)
+        self.detail_panel.setMaximumHeight(190)
+        self.detail_panel.hide()
+        layout.addWidget(self.detail_panel)
+        # Keep the complete calculation/provenance text available in its own dialog.
+        self.detail = QPlainTextEdit(self)
         self.detail.setReadOnly(True)
-        self.detail.setMaximumHeight(150)
-        self.detail.setPlaceholderText("选择标的，查看各笔数量、费率、期限、来源及计算依据。")
         self.detail.hide()
-        layout.addWidget(self.detail)
         self.quote_note = label("目标名本单位：万元  ·  Tab / Enter 下一行，Shift+Tab / ↑ 上一行  ·  可粘贴一列名本  ·  Ctrl+C 复制所选行", "muted")
         self.quote_note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.quote_note.setToolTip("目标名本每只股票分别输入；Ctrl+Enter 重新获取价格并计算。价格使用本次 Wind RT_LAST，盘后可能为最近成交价。")
@@ -273,7 +304,7 @@ class Window(QMainWindow):
 
     def show_notices(self, messages=()):
         self.messages = list(dict.fromkeys(str(message) for message in messages if message))
-        text = "；".join(self.messages)
+        text = "；".join(self.messages).replace("\n", " ")
         self.notice.setText(text[:180] + ("…" if len(text) > 180 else ""))
         self.notice.setToolTip("\n".join(self.messages))
         self.notice.setVisible(bool(self.messages))
@@ -283,11 +314,17 @@ class Window(QMainWindow):
         self.last_status = status
         self.current_date = status["date"]
         names = {"ready": "本次同步成功", "cached": "使用当日缓存 · 本次同步失败", "unavailable": "当日券单不可用", "loading": "正在同步"}
+        if status["state"] == "unavailable" and status.get("downloaded_files"):
+            names["unavailable"] = "已下载 · 读取失败" if any(file.get("read_error") for file in status["downloaded_files"]) else "已下载 · 同步未完成"
         self.status_label.setText(f"{names[status['state']]}  |  {status['date']}（北京）")
         self.tone(self.status_label, {"ready": "ok", "cached": "warning", "unavailable": "error"}.get(status["state"], "neutral"))
         files = status["files"]
-        names = "、".join(file["name"] for file in files) or "尚无成功下载文件"
-        self.source_label.setText(f"文件：{names}   |   下载：{status.get('downloaded_at') or '—'}   |   {status['security_count']} 只 / {status['record_count']} 笔")
+        if not files and status.get("downloaded_files"):
+            names = "、".join(file["name"] for file in status["downloaded_files"])
+            self.source_label.setText(f"已下载待核查：{names}   |   下载：{status['attempt_downloaded_at']}   |   未作为库存使用")
+        else:
+            names = "、".join(file["name"] for file in files) or "尚无成功下载文件"
+            self.source_label.setText(f"{'缓存文件' if status['state'] == 'cached' else '文件'}：{names}   |   下载：{status.get('downloaded_at') or '—'}   |   {status['security_count']} 只 / {status['record_count']} 笔")
         self.source_label.setToolTip(self.source_text())
         policy = self.service.active_config()["quantity_policy"]
         self.table.horizontalHeaderItem(3).setText("库存股数 / 股\n" + ("逐笔取小值再合计" if policy == "minimum" else "可融数量列"))
@@ -300,16 +337,33 @@ class Window(QMainWindow):
                  f"库存日期：{status['date']}（北京时间） | 状态：{status['state']}",
                  f"来源目录：{status.get('source_dir', '尚未读取')}",
                  f"文件名规则：{self.service.active_config()['file_glob']}",
+                 f"读取方式：{'最新一份（按修改时间）' if self.service.active_config()['file_selection'] == 'latest' else '合并独立券源'}",
+                 f"要求的 Sheet：{status.get('sheet_name', self.service.active_config()['sheet_name'])}",
                  f"本次检查：{status.get('refreshed_at') or '—'}",
-                 f"成功下载：{status.get('downloaded_at') or '—'}"]
+                 f"本次文件下载：{status.get('attempt_downloaded_at') or '—'}",
+                 f"当前有效库存的下载时间：{status.get('downloaded_at') or '—'}"]
+        if status["state"] != "ready" and status.get("downloaded_files"):
+            lines.append("\n本次下载文件（同步未完成，不作为当前库存；打开下载位置将定位这里）：")
+            for file in status["downloaded_files"]:
+                lines.extend([f"\n文件：{file['name']}", f"共享源：{file['source']}", f"本地文件：{file['path']}",
+                              f"大小：{file['size']:,} 字节", f"SHA256：{file['sha256']}"])
+                if file.get("source_sha256") == file["sha256"]:
+                    lines.append("复制校验：共享源与本地副本 SHA256 一致")
+                if "available_sheets" in file:
+                    lines.append("实际 Sheet：" + "、".join(file["available_sheets"]))
+                if file.get("read_error"):
+                    lines.append("读取错误：" + file["read_error"])
+        if status["files"]:
+            lines.append("\n当前使用的有效库存" + ("（当日缓存）：" if status["state"] == "cached" else "："))
         for file in status["files"]:
             lines.extend([f"\n文件：{file['name']}", f"共享源：{file['source']}", f"本地快照：{file['path']}",
                           f"大小：{file['size']:,} 字节 | {file['records']} 行 | 表头第 {file['header_row']} 行",
                           f"SHA256：{file['sha256']}"])
+        lines.append("\n本地按日期和批次保留完整 Excel 快照；这些目录不是 Excel 被拆开的内容。")
         lines.extend(["\n同步提示：", *status["warnings"]])
         return "\n".join(lines)
 
-    def text_dialog(self, title, text):
+    def text_dialog(self, title, text, actions=()):
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
         dialog.resize(min(850, self.width()), min(520, self.height()))
@@ -317,17 +371,43 @@ class Window(QMainWindow):
         contents = QPlainTextEdit(text)
         contents.setReadOnly(True)
         layout.addWidget(contents)
-        layout.addWidget(self.button("关闭", dialog.accept))
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.button("复制全部详情", lambda: QApplication.clipboard().setText(text)))
+        for caption, callback in actions:
+            buttons.addWidget(self.button(caption, callback))
+        buttons.addStretch()
+        buttons.addWidget(self.button("关闭", dialog.accept))
+        layout.addLayout(buttons)
         dialog.exec()
 
     def show_source(self):
-        self.text_dialog("文件与同步详情", self.source_text())
+        actions = [("打开下载位置", self.open_local_data)]
+        files = self.local_files()
+        if files:
+            actions.append(("打开本地 Excel" if len(files) == 1 else "打开首个 Excel", self.open_local_excel))
+        self.text_dialog("文件与同步详情", self.source_text(), actions)
 
     def show_messages(self):
         self.text_dialog("操作提示", "\n\n".join(self.messages))
 
+    def local_files(self):
+        return self.last_status.get("downloaded_files") or self.last_status.get("files", [])
+
+    def open_local_excel(self):
+        files = self.local_files()
+        if not files:
+            return
+        path = Path(files[0]["path"])
+        try:
+            if not path.is_file():
+                raise OSError("本地文件已不存在，请重新同步")
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve()))):
+                raise OSError("系统未能打开 Excel 文件")
+        except OSError as exc:
+            self.show_notices([f"打开 Excel 失败：{exc}；路径：{path}"])
+
     def open_local_data(self):
-        files = self.last_status.get("files", [])
+        files = self.local_files()
         folder = Path(files[0]["path"]).parent if files else self.service.data_root
         try:
             folder.mkdir(parents=True, exist_ok=True)
@@ -345,13 +425,23 @@ class Window(QMainWindow):
         self.items, self.editors = [], {}
         self.table.setRowCount(0)
         self.detail.clear()
+        self.detail_table.setRowCount(0)
+        self.detail_title.setText("逐笔券源 · 选择股票查看")
+        self.detail_panel.hide()
+        self.detail_button.setChecked(False)
         for metric in self.metrics:
             metric.setText("—")
         self.update_controls()
 
     def refresh_done(self, status):
         self.show_status(status)
-        self.result_label.setText("券单已就绪，输入标的查询" if status["state"] in {"ready", "cached"} else "请检查共享盘和当日文件，再同步重试")
+        message = ("券单已就绪，输入标的查询" if status["state"] == "ready" else
+                   "使用当日缓存 · 本次同步失败，可查看提示后重试" if status["state"] == "cached" else
+                   "已下载但读取失败 · 打开文件与同步详情，核对文件名和 Sheet" if any(file.get("read_error") for file in status.get("downloaded_files", [])) else
+                   "已下载但同步未完成 · 查看提示后重试" if status.get("downloaded_files") else
+                   "请检查共享盘和当日文件，再同步重试")
+        self.result_label.setText(message)
+        self.statusBar().showMessage(message)
         self.loaded.emit()
 
     def refresh(self):
@@ -450,9 +540,10 @@ class Window(QMainWindow):
             nominal = number(market_value / 10000 if market_value is not None else None)
             if market_value is None:
                 nominal += "\n无法估值"
-            values = [f"{item['name']}\n{item['code']}", item["industry"] or "待补充",
+            multiple = len(item["rows"]) > 1
+            values = [f"{item['name']}\n{item['code']}" + (f"\n{len(item['rows'])} 笔券源" if multiple else ""), item["industry"] or "待补充",
                       number(quote.get("price"), 4) + (f"\n{retrieved[11:19]} 获取" if retrieved else "\n价格不可用"),
-                      stock, nominal, rate_text(item) + ("" if item.get("rate_complete", False) else "\n费率缺失"),
+                      stock, nominal, rate_text(item) + ("\n逐笔见明细" if multiple else "") + ("" if item.get("rate_complete", False) else "\n费率缺失"),
                       "", number(calc["requested_shares"], 0), calc["message"]]
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
@@ -478,6 +569,7 @@ class Window(QMainWindow):
         wanted = next((i for i, item in enumerate(self.items) if item["code"] == self.restore_code), 0)
         if self.items:
             self.table.selectRow(wanted)
+        self.show_detail(auto_expand=True)
         valid = sum(bool(item["quote"]) for item in self.items)
         times = [(item["quote"] or {}).get("retrieved_at", "") for item in self.items]
         latest = max(times, default="")
@@ -563,14 +655,36 @@ class Window(QMainWindow):
         self.show_detail()
 
     def toggle_detail(self):
-        self.detail.setVisible(self.detail_button.isChecked())
+        self.detail_panel.setVisible(self.detail_button.isChecked())
         self.show_detail()
 
-    def show_detail(self):
+    def show_detail(self, auto_expand=False):
+        from PySide6.QtWidgets import QTableWidgetItem
         row = self.table.currentRow()
         if not self.response or not 0 <= row < len(self.items):
             return
         item = self.items[row]
+        if auto_expand and item["rows"]:
+            self.detail_button.setChecked(True)
+        self.detail_panel.setVisible(self.detail_button.isChecked())
+        title = f"{item['name']} {item['code']} · {len(item['rows'])} 笔券源 · 有效库存合计 {number(item['quantity'], 0)} 股" + ("（仅已知部分）" if not item["quantity_complete"] else "")
+        self.detail_title.setText(title)
+        self.detail_title.setToolTip(title + "；不同费率、期限、来源逐笔保留，不自动分配需求。")
+        self.detail_table.setRowCount(len(item["rows"]))
+        for index, source in enumerate(item["rows"]):
+            values = [source.get("source") or "未提供", source["term"] or "未提供",
+                      number(source["rate"], 4) + "%" if source["rate"] is not None else source["rate_raw"] or "未提供",
+                      number(source["quantity"], 4), number(source.get("quantity_actual"), 4), number(source.get("quantity_primary"), 4),
+                      source_note(source) or "—", f"{source['file']} · 第 {source['row']} 行"]
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setTextAlignment((Qt.AlignmentFlag.AlignRight if column in (2, 3, 4, 5) else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter)
+                cell.setToolTip(source_description(source) + f"\n本地：{source.get('local_path', '—')}")
+                if source_note(source) and column in (0, 6):
+                    cell.setForeground(QColor("#166650"))
+                self.detail_table.setItem(index, column, cell)
+            self.detail_table.setRowHeight(index, 30)
+        self.copy_detail_button.setEnabled(bool(item["rows"]))
         quote, calc = item["quote"] or {}, item["calculation"]
         lines = [f"{item['name']}  {item['code']} | 行业：{item['industry'] or '待补充'}（{item.get('industry_source') or '无来源'}）",
                  f"价格：{quote.get('price', '缺失')} 元 | 来源：{quote.get('source', '无有效价格')} | 获取：{quote.get('retrieved_at', '—')}",
@@ -584,6 +698,15 @@ class Window(QMainWindow):
         for source in item["rows"]:
             lines.extend([source_description(source), f"本地：{source.get('local_path', '—')}"])
         self.detail.setPlainText("\n".join(lines))
+
+    def copy_detail(self):
+        row = self.table.currentRow()
+        if not self.response or not 0 <= row < len(self.items):
+            return
+        item = self.items[row]
+        rows = sorted({index.row() for index in self.detail_table.selectionModel().selectedRows()}) or list(range(len(item["rows"])))
+        QApplication.clipboard().setText(clipboard_text([item], self.response["status"], detail_indices=rows))
+        self.statusBar().showMessage(f"已复制 {len(rows)} 笔券源明细（含期限、来源与文件行号）")
 
     def settings(self):
         if self.busy:

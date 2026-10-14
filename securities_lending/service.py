@@ -7,7 +7,7 @@ from pathlib import Path
 from . import config as settings
 from .config import atomic_json, load_config, source_directory, timestamp
 from .calculation import decimal_value, size_order
-from .inventory import normalize_code, parse_workbook
+from .inventory import MissingSheetError, normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
 
@@ -31,7 +31,8 @@ def demo_source(root: Path, day: str):
         ["688981.SH", "中芯国际", 50000, 450, .04, "电子", "14天"],
         ["000858.SZ", "五粮液", 0, 0, .03, "食品饮料", "28天"],
     ]:
-        sheet.append([*row, row[2] + 37 if row[2] else 0, "合成券源"])
+        source = "互换" if row[0] == "600519.SH" and row[6] == "28天" else "外部券源（演示）" if row[0] == "600519.SH" else "合成券源"
+        sheet.append([*row, row[2] + 37 if row[2] else 0, source])
         sheet.cell(sheet.max_row, 5).number_format = "0.00%"
     book.save(folder / "合成演示_库存券单.xlsx")
     book.close()
@@ -94,7 +95,18 @@ class InventoryService:
         for entry in manifest["files"]:
             if progress:
                 progress(f"正在读取本地文件：{entry['name']} → {config['sheet_name']}")
-            rows, notices, mapping = parse_workbook(Path(entry["path"]), config)
+            try:
+                rows, notices, mapping = parse_workbook(Path(entry["path"]), config)
+            except Exception as exc:
+                entry["read_error"] = str(exc)
+                hint = ""
+                if isinstance(exc, MissingSheetError):
+                    entry["available_sheets"] = exc.available_sheets
+                    hint = "\n请在 Excel 中打开下方本地文件，核对文件及工作表。"
+                    if any(char in config["file_glob"] for char in "*?["):
+                        hint += (f"当前筛选「{config['file_glob']}」可能匹配其他 Excel；"
+                                 "默认券单请在设置中恢复「申万内部券单{date}.xlsx」和「库存券单」。")
+                raise ValueError(f"{entry['name']}：{exc}\n共享源：{entry['source']}\n本地文件：{entry['path']}{hint}") from exc
             for row in rows:
                 row.update(local_path=entry["path"], source_path=entry["source"], sha256=entry["sha256"])
             records.extend(rows)
@@ -106,12 +118,13 @@ class InventoryService:
         with self.lock:
             day, config = self.clock(), self.active_config()
             self.provider.failed_keys.clear()
-            manifest, parsed, issue = None, None, None
+            manifest, parsed, issue, downloaded = None, None, None, None
             try:
                 if self.demo:
                     demo_source(self.root / "data" / "demo_source", day)
                 manifest = synchronize(config, day, self.data_root, progress)
                 manifest["file_glob"] = config["file_glob"]
+                downloaded = manifest
                 parsed = self._parse(manifest, config, progress)
                 save_manifest(self.data_root, manifest)
             except Exception as exc:
@@ -134,6 +147,11 @@ class InventoryService:
                 "state": "cached" if manifest and issue else "ready" if manifest else "unavailable",
                 "source_dir": source, "refreshed_at": timestamp(),
                 "downloaded_at": manifest["downloaded_at"] if manifest else None,
+                # A copied workbook can fail validation. Keep its provenance separate
+                # from the accepted inventory/cache so it can still be inspected.
+                "downloaded_files": downloaded["files"] if downloaded else [],
+                "attempt_downloaded_at": downloaded["downloaded_at"] if downloaded else None,
+                "sheet_name": config["sheet_name"],
                 "warnings": ([issue] if issue else []) + (parsed[1] if manifest and parsed else []),
                 "files": parsed[2] if manifest and parsed else [],
                 "record_count": len(self.records), "security_count": len(set(r["code"] for r in self.records)),

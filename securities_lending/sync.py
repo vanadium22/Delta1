@@ -41,15 +41,18 @@ def synchronize(config: dict, day: str, data_root: Path, progress=None):
         before = original.stat()
         local = batch / original.name
         shutil.copy2(original, local)
+        source_sha = digest(original)
         after = original.stat()
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or local.stat().st_size != after.st_size:
             raise ValueError(f"文件复制期间发生变化，请稍后刷新：{original.name}")
         sha = digest(local)
+        if sha != source_sha:
+            raise ValueError(f"下载副本与共享源内容不一致，请重新同步：{original.name}")
         if sha in hashes:
             warnings.append(f"已跳过内容完全相同的文件：{original.name}")
             continue
         hashes.add(sha)
-        entries.append({"name": original.name, "source": str(original), "path": str(local.resolve()), "size": local.stat().st_size, "sha256": sha})
+        entries.append({"name": original.name, "source": str(original), "path": str(local.resolve()), "size": local.stat().st_size, "sha256": sha, "source_sha256": source_sha})
     return {"date": day, "downloaded_at": timestamp(), "source_dir": str(source), "selection": config["file_selection"], "files": entries, "warnings": warnings}
 
 

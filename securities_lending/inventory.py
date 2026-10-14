@@ -81,6 +81,12 @@ class Cell:
     formula: bool = False
 
 
+class MissingSheetError(ValueError):
+    def __init__(self, sheet_name: str, available_sheets: list[str]):
+        self.available_sheets = available_sheets
+        super().__init__(f"缺少「{sheet_name}」Sheet；已有：{'、'.join(available_sheets)}")
+
+
 def read_rows(path: Path, sheet_name: str):
     if path.suffix.lower() == ".xls":
         try:
@@ -91,7 +97,7 @@ def read_rows(path: Path, sheet_name: str):
         try:
             name = next((n for n in book.sheet_names() if n.strip() == sheet_name), None)
             if name is None:
-                raise ValueError(f"缺少「{sheet_name}」Sheet；已有：{'、'.join(book.sheet_names())}")
+                raise MissingSheetError(sheet_name, book.sheet_names())
             sheet = book.sheet_by_name(name)
             for row in range(sheet.nrows):
                 cells = []
@@ -109,7 +115,7 @@ def read_rows(path: Path, sheet_name: str):
         try:
             name = next((n for n in values.sheetnames if n.strip() == sheet_name), None)
             if name is None:
-                raise ValueError(f"缺少「{sheet_name}」Sheet；已有：{'、'.join(values.sheetnames)}")
+                raise MissingSheetError(sheet_name, values.sheetnames)
             formulas = load_workbook(path, read_only=True, data_only=False)
             for value_row, formula_row in zip(values[name].iter_rows(), formulas[name].iter_rows()):
                 yield [Cell(v.value, v.number_format or "", f.data_type == "f") for v, f in zip(value_row, formula_row)]
