@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>券源查询 · Delta1</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="Delta1 首页"><img src="/favicon.svg" alt=""><span>DELTA<span class="brand-one">1</span><small>SECURITIES FINANCE</small></span></a>
+  <div class="workspace-label">工作台 <span>WORKSPACE</span></div>
+  <div class="nav-item active"><span class="nav-icon">▦</span> 券源查询 <span class="nav-arrow">↗</span></div>
+  <button class="nav-item" id="settings-nav"><span class="nav-icon">⚙</span> 数据设置</button>
+  <div class="sidebar-note"><span class="side-line"></span><p>从库存到标的，<br>让每一笔券源清晰可见。</p><small>DAILY INVENTORY / LOCAL WORKSPACE</small></div>
+  <div class="side-bottom"><span class="status-dot"></span> 本地工作空间 <span>v1.0</span></div>
+</aside>
+<main>
+  <header class="topbar"><div class="breadcrumb">Delta1 <span>/</span> 证券金融 <span>/</span> <strong>券源查询</strong></div><div class="date-tag" id="run-date">—</div></header>
+  <div class="content">
+    <section class="page-heading"><div><div class="eyebrow">INVENTORY EXPLORER</div><h1>今日券源，一查即知<span>.</span></h1><p>查询可融数量、名本与出借费率，快速了解标的所在行业。</p></div><button class="button secondary" id="refresh"><span>↻</span> 同步当日券单</button></section>
+    <section class="source-strip" aria-live="polite"><div class="source-main"><span class="status-dot" id="source-dot"></span><strong id="source-state">正在载入券单</strong><span class="divider"></span><span id="source-description">读取运行日数据…</span></div><button class="text-button" id="settings-source">数据设置 ↗</button></section>
+    <div id="demo-banner" class="demo-banner" hidden>演示模式 · 所有券源、费率及行业均为合成示例，不代表真实库存。</div>
+    <div id="alerts" class="alerts" role="status" aria-live="polite"></div>
+    <section class="query-card">
+      <div class="section-label"><span class="section-number">01</span><h2>输入查询标的</h2><span class="section-caption">支持证券代码 / 名称 / 批量粘贴</span></div>
+      <form id="query-form"><label class="sr-only" for="symbols">证券代码或名称</label><div class="query-input"><span class="search-symbol">⌕</span><textarea id="symbols" rows="2" placeholder="例如：600519、宁德时代、000001.SZ&#10;多个标的以空格、逗号或换行分隔" spellcheck="false"></textarea><button class="button primary" type="submit" id="query-button">查询券源 <span>→</span></button></div></form>
+      <div class="input-footer"><div class="examples"><span>试试</span><button data-example="600519 300750 601318">600519 · 300750 · 601318</button><button data-example="平安">平安</button></div><span>Ctrl / ⌘ + Enter 查询 · 最多 100 个标的</span></div>
+    </section>
+    <section class="metrics" aria-label="查询汇总">
+      <article class="metric"><div>匹配标的 <span>01</span></div><p><strong id="metric-matched">—</strong><small>只</small></p><footer id="metric-inputs">等待查询</footer></article>
+      <article class="metric"><div>可融数量合计 <span>02</span></div><p><strong id="metric-quantity">—</strong><small>万股</small></p><footer id="metric-quantity-note">按标的去重汇总</footer></article>
+      <article class="metric"><div>名本合计 <span>03</span></div><p><strong id="metric-nominal">—</strong><small>万元</small></p><footer id="metric-nominal-note">名义本金 · 保留数据口径</footer></article>
+      <article class="metric muted"><div>未匹配输入 <span>04</span></div><p><strong id="metric-unmatched">—</strong><small>项</small></p><footer>以当日库存券单为准</footer></article>
+    </section>
+    <section class="results-card">
+      <div class="results-heading"><div class="section-label"><span class="section-number">02</span><h2>券源明细</h2><span id="result-count" class="count-label">等待查询</span></div><button class="text-button" id="export" disabled>↓ 导出结果</button></div>
+      <div id="result-body" aria-live="polite"><div class="empty-state"><div class="empty-icon">⌕</div><h3>从一个标的开始</h3><p>输入证券代码或名称，查看库存、费率与行业信息。</p><span>同一标的多笔券源将保留各自费率与来源行号</span></div></div>
+      <div class="table-footer"><span>数量：股 / 万股 <span class="footer-separator">·</span> 名本：元 / 万元 <span class="footer-separator">·</span> 费率：按券单原始口径</span><span id="last-sync">尚未同步</span></div>
+    </section>
+    <details class="provenance"><summary>数据来源与解析信息 <span>＋</span></summary><div id="provenance-body"></div></details>
+    <footer class="page-footer"><span>DELTA1 <b>/</b> SECURITIES FINANCE</span><span>运行日自动同步 · 本地缓存 · 来源可追溯</span></footer>
+  </div>
+</main>
+<dialog id="settings-dialog"><form id="settings-form"><div class="dialog-header"><div><div class="eyebrow">DATA CONNECTION</div><h2>数据设置</h2></div><button type="button" class="icon-button" id="close-settings" aria-label="关闭">×</button></div><p class="dialog-intro">保存后自动同步。配置只保存在本机，日期按北京时间自动更新。</p>
+  <label>发送券单根目录<input name="source_root" placeholder="共享盘中的发送券单文件夹" autocomplete="off"><small>每天读取「根目录 / YYYY-MM-DD」。也可粘贴带日期的目录，日期会自动替换。</small></label>
+  <div class="form-grid"><label>文件筛选<input name="file_glob" placeholder="*.xls*"></label><label>读取方式<select name="file_selection"><option value="latest">最新一份（按修改时间）</option><option value="merge">合并全部（独立券源）</option></select></label></div>
+  <label>库存 Sheet 名称<input name="sheet_name"></label>
+  <div class="form-grid"><label>无单位数量列<select name="quantity_unit"><option>股</option><option>万股</option></select></label><label>无单位名本列<select name="nominal_unit"><option>元</option><option>万元</option><option>亿元</option></select></label></div>
+  <label>普通数字费率的口径<select name="numeric_rate_unit"><option value="percent">百分数：2.5 表示 2.5%</option><option value="decimal">小数：0.025 表示 2.5%</option></select><small>Excel 百分比格式与带 % 的文本会自动识别，优先于此设置。</small></label>
+  <label class="checkbox-label"><input name="wind_enabled" type="checkbox">使用 Wind 补充券单缺失的行业</label>
+  <div class="form-grid"><label>Wind 行业字段<input name="wind_field"></label><label>行业名称口径<input name="industry_label"></label></div>
+  <details class="advanced"><summary>高级配置：Wind 环境、表头与列名</summary><label>Wind Python 路径<input name="wind_python" placeholder="留空使用当前 Python"><small>公司 WindPy 装在另一个 Python 时，填该环境的 python.exe 完整路径。</small></label><label>Wind 参数<input name="wind_options"></label><label>表头所在 Excel 行号<input name="header_row" type="number" min="1" max="100" placeholder="留空自动扫描前 50 行"></label><label>自定义列名映射（JSON）<textarea name="columns" rows="4" spellcheck="false" placeholder='{"code":"证券代码","quantity":"可融数量（万股）"}'></textarea><small>可用字段：code、name、quantity、nominal、rate、industry、price、term。</small></label></details>
+  <div id="settings-error" class="settings-error" role="alert"></div><div class="dialog-actions"><button type="button" class="button secondary" id="cancel-settings">取消</button><button type="submit" class="button primary" id="save-settings">保存并同步 →</button></div>
+</form></dialog>
+</body></html>

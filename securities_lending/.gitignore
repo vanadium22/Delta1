@@ -1,0 +1,7 @@
+data/
+config.local.json
+.venv/
+__pycache__/
+.pytest_cache/
+outputs/
+*.log

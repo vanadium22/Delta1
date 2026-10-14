@@ -1,0 +1,17 @@
+{
+  "source_root": "",
+  "file_glob": "*.xls*",
+  "file_selection": "latest",
+  "sheet_name": "库存券单",
+  "header_row": null,
+  "columns": {},
+  "quantity_unit": "股",
+  "nominal_unit": "元",
+  "numeric_rate_unit": "percent",
+  "wind_enabled": true,
+  "wind_python": "",
+  "wind_field": "industry_sw",
+  "wind_options": "tradeDate={date};industryType=1",
+  "industry_label": "申万一级",
+  "wind_timeout_seconds": 25
+}
