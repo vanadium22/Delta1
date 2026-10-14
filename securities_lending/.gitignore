@@ -1,5 +1,6 @@
 data/
 config.local.json
+python.local.txt
 .venv/
 __pycache__/
 .pytest_cache/

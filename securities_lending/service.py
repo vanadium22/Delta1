@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import config as settings
 from .config import atomic_json, load_config, source_directory, timestamp
+from .calculation import size_order
 from .inventory import normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
@@ -139,7 +140,7 @@ class InventoryService:
                 self.refresh()
             return self.state
 
-    def query(self, text: str):
+    def query(self, text: str, targets=None):
         with self.lock:
             status = self.status()
             tokens = list(dict.fromkeys(x for x in re.split(r"[\s,，;；、]+", text.strip()) if x))
@@ -147,17 +148,30 @@ class InventoryService:
                 raise ValueError("请输入至少一个证券代码或名称")
             if len(tokens) > 100 or len(text) > 10000:
                 raise ValueError("每次最多查询 100 个标的")
-            groups, codes = [], set()
+            targets = targets or {}
+            if not isinstance(targets, dict):
+                raise ValueError("目标名本应按证券代码提供")
+            groups, codes, quote_codes = [], set(), set()
             for token in tokens:
                 normalized = normalize_code(token)
+                if normalized:
+                    quote_codes.add(normalized)
                 rows = [dict(r) for r in self.records if (r["code"] == normalized if normalized else token.casefold() in r["name"].casefold())]
+                if normalized and not rows:
+                    codes.add(normalized)
                 grouped = {}
                 for row in rows:
                     grouped.setdefault(row["code"], []).append(row)
+                    quote_codes.add(row["code"])
                     if not row["industry"]:
                         codes.add(row["code"])
                 groups.append((token, grouped))
-            industries, notice = self.provider.lookup(codes, status["date"], self.active_config())
+            if self.demo:
+                prices = {"600519.SH": "1400.25", "300750.SZ": "200.18", "601318.SH": "50.36", "000001.SZ": "12.17", "600036.SH": "35.28", "688981.SH": "90.45", "000858.SZ": "130.52"}
+                quotes = {code: {"price": prices[code], "retrieved_at": timestamp(), "wind_returned_at": None, "source": "合成演示价格"} for code in quote_codes if code in prices}
+                industries, notices = {}, []
+            else:
+                industries, quotes, notices = self.provider.market(quote_codes, codes, status["date"], self.active_config())
             results, unique = [], {}
             for token, grouped in groups:
                 matches = []
@@ -167,13 +181,15 @@ class InventoryService:
                             row["industry"] = industries[code]
                             row["industry_source"] = "Wind · " + self.config["industry_label"]
                     item = summarize(code, rows)
+                    item["quote"] = quotes.get(code)
+                    item["calculation"] = size_order(targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"])
                     matches.append(item)
                     unique[code] = item
                 results.append({"input": token, "matches": matches})
             values = list(unique.values())
             quantities = [v["quantity"] for v in values if v["quantity"] is not None]
             nominals = [v["nominal"] for v in values if v["nominal"] is not None]
-            return {"status": status, "results": results, "warnings": [notice] if notice else [], "summary": {
+            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": notices, "summary": {
                 "inputs": len(tokens), "matched": len(values), "unmatched": sum(not g["matches"] for g in results),
                 "quantity": sum(quantities) if quantities else None,
                 "quantity_complete": bool(values) and all(v["quantity_complete"] for v in values),

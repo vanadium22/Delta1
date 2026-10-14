@@ -1,7 +1,9 @@
 """Isolated process: Wind cannot hold up inventory lookup indefinitely."""
 import contextlib
 import json
+import math
 import sys
+from datetime import datetime, timedelta, timezone
 
 
 def fetch(request, w):
@@ -22,13 +24,67 @@ def fetch(request, w):
     return result
 
 
+def fetch_market(request, w):
+    status = w.start(waitTime=10, showmenu=False)
+    if status.ErrorCode != 0:
+        raise RuntimeError(f"Wind 连接失败：{status.ErrorCode}")
+    quotes, industries, warnings = {}, {}, []
+    for start in range(0, len(request["quote_codes"]), 100):
+        batch = request["quote_codes"][start:start + 100]
+        try:
+            response = w.wsq(",".join(batch), "rt_last")
+            if response.ErrorCode != 0:
+                raise RuntimeError(f"Wind 最新价查询失败：{response.ErrorCode}")
+            fields = [str(field).upper() for field in response.Fields]
+            if "RT_LAST" not in fields:
+                raise ValueError("Wind 返回缺少 RT_LAST 字段")
+            values = response.Data[fields.index("RT_LAST")]
+            if len(values) != len(response.Codes):
+                raise ValueError("Wind 最新价数据长度不一致")
+            retrieved = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+            times = getattr(response, "Times", [])
+            for index, (code, value) in enumerate(zip(response.Codes, values)):
+                code = str(code).upper()
+                try:
+                    valid = not isinstance(value, bool) and math.isfinite(float(value)) and float(value) > 0
+                except (TypeError, ValueError, OverflowError):
+                    valid = False
+                if code not in batch or not valid:
+                    continue
+                wind_time = times[index] if len(times) == len(response.Codes) else times[0] if len(times) == 1 else None
+                quotes[code] = {"price": str(value), "retrieved_at": retrieved,
+                                "wind_returned_at": str(wind_time) if wind_time is not None else None,
+                                "source": "Wind WSQ · RT_LAST"}
+        except Exception as exc:
+            warnings.append(str(exc))
+    missing = sorted(set(request["quote_codes"]) - quotes.keys())
+    if missing:
+        warnings.append("未返回有效最新价：" + ", ".join(missing))
+    for start in range(0, len(request["industry_codes"]), 100):
+        batch = request["industry_codes"][start:start + 100]
+        try:
+            response = w.wss(",".join(batch), request["field"], request["options"])
+            if response.ErrorCode != 0:
+                raise RuntimeError(f"Wind 行业查询失败：{response.ErrorCode}；最新价结果保留")
+            if not response.Data or len(response.Data[0]) != len(response.Codes):
+                raise ValueError("Wind 行业数据长度不一致")
+            for code, value in zip(response.Codes, response.Data[0]):
+                if str(code).upper() in batch and isinstance(value, str) and value.strip().casefold() not in {"", "nan", "none", "null", "n/a", "--"}:
+                    industries[str(code).upper()] = value.strip()
+        except Exception as exc:
+            warnings.append(str(exc))
+    return {"quotes": quotes, "industries": industries, "warnings": warnings, "error": None}
+
+
 def main():
     request = json.loads(sys.stdin.read())
     try:
         with contextlib.redirect_stdout(sys.stderr):
             from WindPy import w
-            result = fetch(request, w)
-        output = {"industries": result, "error": None}
+            if request.get("operation") == "market":
+                output = fetch_market(request, w)
+            else:
+                output = {"industries": fetch(request, w), "error": None}
     except Exception as exc:
         output = {"industries": {}, "error": f"{type(exc).__name__}: {exc}"}
     print(json.dumps(output, ensure_ascii=True))

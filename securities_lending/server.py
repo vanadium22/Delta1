@@ -74,7 +74,7 @@ def make_server(service, port):
                     elif self.path == "/api/query":
                         if not isinstance(body.get("symbols"), str):
                             raise ValueError("symbols 必须为文本")
-                        result = service.query(body["symbols"])
+                        result = service.query(body["symbols"], body.get("targets"))
                     elif self.path == "/api/config":
                         result = service.update_config(body)
                     else:

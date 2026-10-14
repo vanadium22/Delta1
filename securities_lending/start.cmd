@@ -1,13 +1,16 @@
 @echo off
 setlocal
 set "D1_APP_DIR=%~dp0"
-if defined D1_LENDING_PYTHON (
-  set "D1_PYTHON=%D1_LENDING_PYTHON%"
-) else if exist "%D1_APP_DIR%.venv\Scripts\python.exe" (
-  set "D1_PYTHON=%D1_APP_DIR%.venv\Scripts\python.exe"
-) else (
-  set "D1_PYTHON=python"
+call "%D1_APP_DIR%resolve_python.cmd"
+if errorlevel 1 (
+  pause
+  exit /b 1
 )
 cd /d "%D1_APP_DIR%.."
-"%D1_PYTHON%" -X utf8 -m securities_lending %*
+set "D1_PYTHONW=%D1_PYTHON:~0,-4%w.exe"
+if exist "%D1_PYTHONW%" (
+  start "" "%D1_PYTHONW%" -s -X utf8 -m securities_lending %*
+) else (
+  "%D1_PYTHON%" -s -X utf8 -m securities_lending %*
+)
 if errorlevel 1 pause

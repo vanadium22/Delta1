@@ -1,0 +1,12 @@
+name: swhy_delta1
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - pip:
+      - PySide6-Essentials==6.11.2
+      - openpyxl==3.1.5
+      - xlrd==2.0.1
+variables:
+  PYTHONNOUSERSITE: "1"
