@@ -313,6 +313,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from .distributions import annualized_distributions, cross_index_basis, cross_index_distributions
 
     if annual_quantiles is None:
@@ -356,7 +357,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
         shape = para.add_run().add_picture(str(charts[key]), width=Inches(width))
         shape._inline.docPr.set("descr", caption)
 
-    def table(caption, headers, rows, widths=None):
+    def table(caption, headers, rows, widths=None, font_size=None):
         nonlocal table_number
         table_number += 1
         p(f"表{table_number}  {caption}", "Caption")
@@ -377,6 +378,13 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
                     para.paragraph_format.space_after = Pt(3)
                     para.paragraph_format.space_before = Pt(3)
                     para.paragraph_format.keep_with_next = False
+                    if font_size is not None:
+                        para.paragraph_format.line_spacing = Pt(font_size + 3)
+                        para.paragraph_format.space_before = Pt(1)
+                        para.paragraph_format.space_after = Pt(1)
+                        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT if i > 0 else WD_ALIGN_PARAGRAPH.LEFT
+                        for run in para.runs:
+                            run.font.size = Pt(font_size)
         for row_idx, row in enumerate(t.rows):
             trpr = row._tr.get_or_add_trPr()
             trpr.append(OxmlElement("w:cantSplit"))
@@ -404,11 +412,48 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
                 if row_idx == 0:
                     for run in cell.paragraphs[0].runs:
                         run.bold = True
-        p("").paragraph_format.space_after = Pt(0)
+        spacer = p("")
+        spacer.paragraph_format.space_after = Pt(0)
+        if font_size is not None:
+            spacer.paragraph_format.line_spacing = Pt(3)
 
-    p("晨会分析" + (" 合成演示" if preview else ""), "Title")
+    p("股指基差计算明细" + (" 合成演示" if preview else ""), "Title")
+    def front_note(text):
+        para = p(text)
+        para.paragraph_format.first_line_indent = Pt(0)
+        para.paragraph_format.line_spacing = Pt(15)
+        para.paragraph_format.space_after = Pt(5)
+        for run in para.runs:
+            run.font.size = Pt(10.5)
+        return para
+
     if preview:
-        p("本报告全部使用合成行情及合成分红，仅用于演示应用功能，不是真实市场研究结果。")
+        front_note("本报告全部使用合成行情及合成分红，仅用于演示应用功能，不是真实市场研究结果。")
+    front_note(f"行情日期：{end:%Y-%m-%d}。报告生成时间：{provenance.get('generated_at', '未记录')}。"
+      "下表均为该行情日的实际合约收盘数据。请先核对行情日期，再比较年化结果。")
+    requested_end = provenance.get("requested_end")
+    if requested_end and pd.Timestamp(requested_end).normalize() > pd.Timestamp(end).normalize():
+        front_note(f"本次完整日线截止目标为{requested_end}，本报告实际行情截至{end:%Y-%m-%d}。"
+          "如需更新，在数据管理页检查并补齐行情后重新导出。")
+    dividend_info = provenance.get("dividends", {})
+    if dividend_info.get("historical_type") == "fixed_snapshot_scenario":
+        front_note(f"分红快照日期：{dividend_info.get('snapshot_date', '未记录')}。"
+          "采用表格G列固定点数，按00—03档位匹配；不是行情日期，也不使用J列期间分红。")
+    front_note("调整基差B＝期货收盘价F＋分红G−现货收盘值S；年化基差＝B÷S×365÷剩余自然日D×100%。"
+      "D＝实际到期日−行情日期；D不足5天时年化留空，记为—。价格和基差单位均为指数点。")
+    for root in roots:
+        latest = panel[panel.root.eq(root) & panel.trade_date.eq(end)].sort_values("slot")
+        rows = [[f"{r.continuous_code.replace('.CFE', '')}/{r.instrument_id.replace('.CFE', '')}",
+                 fmt(r.futures_close, 2), f"{r.expiry_date:%Y-%m-%d}", str(r.days_to_expiry),
+                 fmt(r.dividend_points, 5), fmt(r.basis_points, 4), fmt(r.annualized_basis_pct, 3)]
+                for r in latest.itertuples()]
+        proportions = [2.3, 2.1, 2.4, 1.0, 2.5, 2.5, 1.8]
+        table(f"{NAMES[root]} {root} 现货收盘值 {fmt(latest.spot_close.iloc[0], 4)} 点",
+              ["连续档位\n实际合约", "期货收盘\nF", "到期日", "天数\nD", "分红\nG", "调整基差\nB", "年化\n%"],
+              rows, [width * part / sum(proportions) for part in proportions], font_size=9)
+    front_note("表内数字按列显示精度四舍五入，计算使用原始精度。到期日取实际合约行情源；"
+      "本报告生成日期不代表行情已更新到当天。")
+    heading("晨会分析", page=True)
     actual_start = panel.loc[panel.trade_date.ge(start), "trade_date"].min()
     current = fixed[fixed.trade_date.eq(end)].set_index("root").annualized_basis_pct
     overview = "、".join(f"{r}为{fmt(current.get(r))}%" for r in roots)
