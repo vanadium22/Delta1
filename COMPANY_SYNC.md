@@ -18,6 +18,8 @@ dashboard/                        # 公司 Git 仓库根目录
 
 首次汇总保留原提交历史，将基差分支 `008a31f` 和券单分支 `f4a51b5` 合并，发布说明提交为 `f9dc705`。index_strategy 保留已提交的 42 个文件；家里尚未提交的 index_strategy 改动、另一个实际 dashboard 子目录及 research 不在该次公司发布中。这里的“整个项目一次更新”指公司分支中所有已发布的 Git 跟踪文件，包括各模块、公共配置模板、测试和说明；Git 不会自动收集其他开发分支或未提交工作。
 
+本次补充汇总：券单分支 `24875ce`（含 `298ed75` 行业联系表功能及公司同步说明修正）、基差分支 `a2cf6ae`（原业务实现及同步说明修正）均已合入。三个模块源码与入口同时保留；index_strategy 本次仅补公司更新说明，原已提交业务实现不变。尚未提交的其他开发工作继续留在原目录。
+
 ## 当前状态与默认更新方式
 
 **2026-10-15 用户确认：公司首次迁移、配置已完成，原解压包备份已删除。此后直接更新整个项目，无需再次备份解压目录、恢复数据或逐个切换模块分支。**
@@ -39,7 +41,29 @@ git pull --ff-only
 .\index_strategy\start_app.cmd
 ```
 
-旧模块说明里的开发分支同步命令仍用于开发；**公司日常运行统一停留在 codex/company-apps**。不要在公司轮流切券单/基差开发分支，否则会丢失统一版本视图。
+各模块公司说明、交接提示词现已统一为 **codex/company-apps**。公司保持此分支，按各 App 的入口启动；切换 Git 分支会改变整个仓库的源码集合。
+
+## 误切开发分支后的恢复
+
+用户曾执行券单旧说明中的 `git switch codex/securities-lending`，随后发现 `index_futures_basis` 只剩复制过来的数据文件夹。该开发分支未包含基差源码，因此 Git 移除了当前检出中的基差跟踪文件，忽略的本地数据仍保留。恢复无需删除数据、找回已删除备份或重新解压 ZIP。
+
+关闭所有 App，在 PowerShell 整段运行；任何 Git 步骤失败都会停止：
+
+```powershell
+& {
+    Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard' -ErrorAction Stop
+    git fetch origin
+    if ($LASTEXITCODE -ne 0) { throw '获取更新失败，已停止。' }
+    git switch codex/company-apps
+    if ($LASTEXITCODE -ne 0) { throw '切换失败，请保留文件并反馈报错。' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw '更新失败，请保留文件并反馈报错。' }
+    git branch --show-current
+    Get-Item -LiteralPath '.\securities_lending\start.cmd', '.\index_futures_basis\start.cmd', '.\index_strategy\start_app.cmd' -ErrorAction Stop | Select-Object FullName
+}
+```
+
+成功时显示 `codex/company-apps` 和三个启动文件的完整路径。以后保持该分支，只运行日常 pull。若有本地源码冲突，保留现场处理，不强制切换或清理。模块的准确目录名是 `index_futures_basis`（futures 有 s）。
 
 ## 后续开发与发布
 
@@ -63,7 +87,15 @@ git pull --ff-only
 
 ## 验证记录
 
-### 本次说明更新（2026-10-15）
+### 同步入口修正与补充汇总（2026-10-15）
+
+- 券单、基差各四份文档（README、COMPANY_SETUP、AGENTS、PROJECT_HANDOFF）在各自开发分支修正并推送，交接完整提示词同样要求发布到公司分支。11 个 PowerShell 代码块语法、35 处本地文档链接及 Git 差异检查通过。
+- 合并后的券单完整回归 **114 项通过，0 跳过，6.263 秒**；基差完整回归 **48 项通过，0 跳过，17.175 秒**。使用原验证环境，无真实 Wind 或公司共享盘调用。
+- 两个 App 的 `--demo --startup-check` 均正常退出（退出码 0）。最终 12 份说明中的 22 个 PowerShell 代码块语法与 47 处本地链接路径检查通过；公司更新的可执行命令均指向统一分支。
+- 在项目忽略的 QA 目录创建纯本地隔离副本，实测切到券单开发分支后基差启动文件消失；切回公司分支后，三个 App 入口均恢复，合成分红目录文件、行情目录文件、导出目录文件、配置和 Python 路径文件共 5 份文件 SHA256 全部不变，Git 工作区干净。
+- 两个业务模块的合并结果分别与上述开发分支完全一致；指数策略已提交业务代码保持不变。本次未修改 App 业务实现，真实公司恢复操作仍由用户执行。
+
+### 整体更新说明（2026-10-15，ff48f0d）
 
 - 根据用户反馈记录公司迁移完成、备份已删除；日常入口统一为仓库根目录的一次 `git pull --ff-only`。
 - 本次仅修改根目录 README.md、AGENTS.md、COMPANY_SYNC.md。检查文档命令、链接、差异与空白格式；业务代码、配置和数据均无变化，未重新运行 App 测试。

@@ -2,6 +2,8 @@
 
 使用 CustomTkinter / Tk 构建独立桌面窗口。桌面入口直接调用 Python 采集服务，无需浏览器、HTTP 服务或前端构建步骤。
 
+公司统一使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新指数策略、券单和基差等全部已发布模块。本机配置与数据由 Git 忽略规则保留；公司保持统一分支，各模块按原入口启动。同步及误切分支后的恢复见 [公司统一同步说明](../../COMPANY_SYNC.md)。
+
 ## 启动
 
 Windows 双击上一级的 `index_strategy/start_app.cmd`。启动器使用本机统一环境目录中的 `P:\code_content\python_work_env\conda_env\swhy_delta1\pythonw.exe`，不会自动开始采集。
