@@ -26,7 +26,7 @@ dashboard/                        # 公司 Git 仓库根目录
 | 项目目录 | 开发分支/安排 | 公司分支内的内容 |
 | --- | --- | --- |
 | index_strategy | 按具体任务开发后汇总 | 现有已提交的指数策略与采集模块 |
-| securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表 |
+| securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；新增个人微信接口调研，尚无微信收发入口 |
 | index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成 |
 | script_making | codex/script-making | 项目准备骨架；后续正式实现按同一流程发布 |
 
@@ -116,6 +116,14 @@ git pull --ff-only
 5. 确认 App 正常使用、配置与数据已恢复且路径不指向备份后，可自行删除备份。不要使用 reset/clean 清理目录。
 
 ## 验证记录
+
+### 个人微信接口调研（2026-10-15，开发提交 488c3fc）
+
+- 本轮按“先查看接口”交付 [微信接口调研与接入设计](securities_lending/WECHAT_INTERFACE_REVIEW.md)，同时维护券单 README、COMPANY_SETUP、PROJECT_HANDOFF 及其可复制提示词。核对当前 wxauto 免费/Plus、社区 4.0.5 分支和已归档 WeChatFerry，记录版本、接口、@ 判断局限、上下文缓存和发送结果边界。
+- 本次只有 4 份模块文档和本公司同步说明变化，没有改动业务源码、依赖、配置模板或界面。尚未实现微信监听/发送入口，未安装或运行插件、未读取私人聊天或发送消息。具体插件、公司微信完整版本、真实 @ 和收发联调仍待后续确认与实施。
+- 开发分支实际通过 35 处相对链接、9 个 PowerShell 代码块语法、4 份 UTF-8 文件与 Git 差异检查；5 个拟用微信配置/缓存路径被既有忽略规则覆盖。公司集成检查通过：36 处相对链接、12 个 PowerShell 代码块、5 份 UTF-8 文档、上述忽略边界、三项现有 App 入口和 script_making 准备文档；变更精确限定为 5 份说明，券单模块与开发提交一致，其他目录与集成前一致。
+- 本轮为文档交付，没有重跑 App 测试、演示或 Word 渲染。公司微信、Wind、共享盘与真实公司 pull 未验证；不将下方历史测试数字计作本轮结果。原家里工作目录的其他未提交修改保留。
+- 公司继续保持 `codex/company-apps`，根目录一次 `git pull --ff-only`；券单启动仍是 `securities_lending/start.cmd`。微信调研可直接打开上方文档，本轮无需安装新依赖。
 
 ### script_making 接入（2026-10-15）
 
