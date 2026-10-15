@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import config as settings
 from .config import atomic_json, load_config, source_directory, timestamp
-from .calculation import decimal_value, size_order
+from .calculation import decimal_value, size_order, source_coverage
 from .inventory import MissingSheetError, normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
@@ -182,7 +182,7 @@ class InventoryService:
                 self.load_today(progress)
             return self.state
 
-    def query(self, text: str, targets=None, input_targets=None, progress=None):
+    def query(self, text: str, targets=None, input_targets=None, progress=None, *, share_targets=None):
         with self.lock:
             status = self.status(progress)
             tokens = list(dict.fromkeys(x for x in re.split(r"[\s,，;；、]+", text.strip()) if x))
@@ -193,12 +193,35 @@ class InventoryService:
             targets = targets or {}
             if not isinstance(targets, dict):
                 raise ValueError("目标名本应按证券代码提供")
+            if share_targets is not None and not isinstance(share_targets, dict):
+                raise ValueError("要求股数应按证券代码提供")
+            share_targets = dict(share_targets or {})
+            missing_codes, missing_names = set(), set()
+            for token in tokens:
+                code = normalize_code(token)
+                if not any(r["code"] == code if code else token.casefold() in r["name"].casefold() for r in self.records):
+                    (missing_codes if code else missing_names).add(code or token)
+                elif code and not any(r["name"] for r in self.records if r["code"] == code):
+                    missing_codes.add(code)
+            if progress and (missing_codes or missing_names):
+                progress("正在识别券单外标的名称与代码…")
+            if self.demo:
+                identities = {"600000.SH": {"name": "浦发银行", "source": "合成演示标的目录"},
+                              "601398.SH": {"name": "工商银行", "source": "合成演示标的目录"}}
+                identity_notices = []
+            else:
+                identities, identity_notices = self.provider.resolve(missing_codes, missing_names, status["date"], self.active_config())
             groups, codes, quote_codes = [], set(), set()
             for token in tokens:
                 normalized = normalize_code(token)
                 if normalized:
                     quote_codes.add(normalized)
                 rows = [dict(r) for r in self.records if (r["code"] == normalized if normalized else token.casefold() in r["name"].casefold())]
+                if not normalized:
+                    exact = [r for r in rows if r["name"].casefold() == token.casefold()]
+                    rows = exact or rows
+                    matched_codes = {r["code"] for r in rows}
+                    rows = [dict(r) for r in self.records if r["code"] in matched_codes]
                 if normalized and not rows:
                     codes.add(normalized)
                 grouped = {}
@@ -207,6 +230,16 @@ class InventoryService:
                     quote_codes.add(row["code"])
                     if not row["industry"]:
                         codes.add(row["code"])
+                if not grouped:
+                    found = {code: identity for code, identity in identities.items()
+                             if code == normalized or (not normalized and token.casefold() in identity["name"].casefold())}
+                    exact = {code: identity for code, identity in found.items() if identity["name"].casefold() == token.casefold()}
+                    for code in exact or found:
+                        grouped[code] = [dict(r) for r in self.records if r["code"] == code]
+                        quote_codes.add(code)
+                        codes.add(code)
+                    if normalized and not grouped:
+                        grouped[normalized] = []
                 groups.append((token, grouped))
             resolved_targets = dict(targets)
             batch_codes = {}
@@ -223,34 +256,60 @@ class InventoryService:
                     raise ValueError(f"批量名本冲突：{code} 对应多个不同金额，请核对后重试")
                 batch_codes[code] = value
             resolved_targets.update(batch_codes)
+            for code in batch_codes:
+                share_targets.pop(code, None)  # An explicit two-column amount replaces the previous share input.
+            conflicts = set(resolved_targets) & set(share_targets)
+            if conflicts:
+                raise ValueError("同一标的不能同时输入要求金额和要求股数：" + "、".join(sorted(conflicts)))
             if progress:
                 progress("正在获取本次 Wind 最新价与行业…" if not self.demo else "正在生成合成演示价格…")
             if self.demo:
-                prices = {"600519.SH": "1400.25", "300750.SZ": "200.18", "601318.SH": "50.36", "000001.SZ": "12.17", "600036.SH": "35.28", "688981.SH": "90.45", "000858.SZ": "130.52"}
+                prices = {"600519.SH": "1400.25", "300750.SZ": "200.18", "601318.SH": "50.36", "000001.SZ": "12.17", "600036.SH": "35.28", "688981.SH": "90.45", "000858.SZ": "130.52", "600000.SH": "10.18", "601398.SH": "6.25"}
                 quotes = {code: {"price": prices[code], "retrieved_at": timestamp(), "wind_returned_at": None, "source": "合成演示价格"} for code in quote_codes if code in prices}
                 industries, notices = {}, []
             else:
                 industries, quotes, notices = self.provider.market(quote_codes, codes, status["date"], self.active_config())
             results, unique = [], {}
+            ready = status["state"] in {"ready", "local", "cached"}
             for token, grouped in groups:
-                matches = []
+                matches, securities = [], []
+                if not grouped:
+                    grouped = {token: []}  # Preserve every unresolved input as a visible result.
                 for code, rows in grouped.items():
                     for row in rows:
                         if not row["industry"] and code in industries:
                             row["industry"] = industries[code]
                             row["industry_source"] = "Wind · " + self.config["industry_label"]
-                    item = summarize(code, rows)
+                    identity = identities.get(code, {})
+                    identified = bool(rows or identity)
+                    item = summarize(code, rows) if rows else {
+                        "code": code, "name": identity.get("name", "名称未确认" if normalize_code(code) else token),
+                        "quantity": 0 if ready and normalize_code(code) else None,
+                        "quantity_complete": bool(ready and normalize_code(code)), "nominal": None, "nominal_complete": False,
+                        "rate_min": None, "rate_max": None, "rate_raw": [], "rate_complete": False,
+                        "industry": industries.get(code), "industry_source": "Wind" if code in industries else None, "rows": [],
+                    }
+                    item.update(identified=identified, identity_source="当日券单" if rows else identity.get("source"),
+                                query_input=token, identification="已识别" if identified else "未确认 · 请核对代码/名称")
+                    if rows and item["name"] == "未提供名称" and identity:
+                        item.update(name=identity["name"], identity_source=identity["source"])
+                    item["inventory_status"] = ("unknown" if not ready or item["quantity"] is None or not item["quantity_complete"] else
+                                                "absent" if not rows else "zero" if item["quantity"] == 0 else "available")
+                    item["inventory_message"] = {"unknown": "库存未确认", "absent": "库存没有 · 券单无记录", "zero": "库存没有 · 可融数量为 0", "available": "已识别 · 有库存"}[item["inventory_status"]]
                     item["quote"] = quotes.get(code)
                     price = decimal_value((quotes.get(code) or {}).get("price"))
                     item["inventory_market_value"] = item["quantity"] * price if item["quantity_complete"] and item["quantity"] is not None and price is not None and price > 0 else None
-                    item["calculation"] = size_order(resolved_targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"])
-                    matches.append(item)
-                    unique[code] = item
-                results.append({"input": token, "matches": matches})
+                    item["calculation"] = size_order(resolved_targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"], requested_shares=share_targets.get(code))
+                    item["coverage"] = source_coverage(rows, item["calculation"], ready)
+                    securities.append(item)
+                    if rows:
+                        matches.append(item)
+                        unique[code] = item
+                results.append({"input": token, "matches": matches, "securities": securities})
             values = list(unique.values())
             quantities = [v["quantity"] for v in values if v["quantity"] is not None]
             nominals = [v["nominal"] for v in values if v["nominal"] is not None]
-            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": notices, "targets": resolved_targets, "summary": {
+            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": identity_notices + notices, "targets": resolved_targets, "share_targets": share_targets, "summary": {
                 "inputs": len(tokens), "matched": len(values), "unmatched": sum(not g["matches"] for g in results),
                 "quantity": sum(quantities) if quantities else None,
                 "quantity_complete": bool(values) and all(v["quantity_complete"] for v in values),

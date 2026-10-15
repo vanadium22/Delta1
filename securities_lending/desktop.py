@@ -10,14 +10,14 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QIcon,
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QFileDialog, QHBoxLayout,
     QLabel, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget, QLineEdit,
+    QSizePolicy, QVBoxLayout, QWidget, QLineEdit, QComboBox, QSplitter,
 )
 
-from .calculation import decimal_value, size_order
+from .calculation import decimal_value
 from .config import ROOT, today
 from .desktop_settings import SettingsDialog
 from .desktop_theme import STYLE
-from .desktop_widgets import BatchDialog, ResultTable, TargetEdit
+from .desktop_widgets import BatchDialog, EmphasisDelegate, ResultTable, TargetEdit
 from .exporting import clipboard_text, quality, rate_text, source_description, source_note, write_export
 from .inventory import normalize_code
 from .service import InventoryService
@@ -73,6 +73,8 @@ class Window(QMainWindow):
         self.response = None
         self.items, self.messages = [], []
         self.target_texts, self.editors, self.batch_targets = {}, {}, {}
+        self.target_modes, self.mode_editors = {}, {}
+        self.restore_focus = None
         self.batch_text = ""
         self.restore_code = None
         self.current_date = today()
@@ -84,6 +86,10 @@ class Window(QMainWindow):
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1720, screen.width() - 40), min(920, screen.height() - 60))
         self.build_ui()
+        self.auto_calculate = QTimer(self)
+        self.auto_calculate.setSingleShot(True)
+        self.auto_calculate.setInterval(900)
+        self.auto_calculate.timeout.connect(self.calculate)
         self.rollover = QTimer(self)
         self.rollover.timeout.connect(self.check_date)
         self.rollover.start(30000)
@@ -100,8 +106,8 @@ class Window(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(16, 12, 16, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 6)
+        layout.setSpacing(5)
         top = QHBoxLayout()
         top.addWidget(label("DELTA1", "brand"))
         top.addWidget(label("券源工作台", "title"))
@@ -155,21 +161,21 @@ class Window(QMainWindow):
 
         summary = QHBoxLayout()
         self.metrics = []
-        for heading in ("匹配 / 只", "库存 / 万股", "目标名本 / 万元", "库存不足 / 只"):
+        for heading in ("券单匹配", "库存 / 万股", "金额 / 万元", "不足"):
             summary.addWidget(label(heading, "muted"))
             value = label("—", "metric")
             self.metrics.append(value)
             summary.addWidget(value)
-            summary.addSpacing(16)
+            summary.addSpacing(8)
+        self.metrics[2].setToolTip("仅合计金额模式输入的目标名本；不包含股数模式的估算金额。")
         summary.addStretch()
         self.detail_button = self.button("券源明细", self.toggle_detail)
         self.detail_button.setCheckable(True)
         summary.addWidget(self.detail_button)
-        layout.addLayout(summary)
-
-        actions = QHBoxLayout()
+        actions = summary
         self.result_label = label("输入标的开始查询", "section")
-        actions.addWidget(self.result_label, 1)
+        self.result_label.setParent(central)
+        self.result_label.hide()
         self.copy_button = self.button("复制所选", self.copy_selected)
         self.export_button = self.button("导出…", self.export)
         self.calculate_button = self.button("刷新价格并计算  Ctrl+Enter", self.calculate, True)
@@ -179,7 +185,8 @@ class Window(QMainWindow):
         layout.addLayout(actions)
 
         self.table = ResultTable(0, 9)
-        self.table.setHorizontalHeaderLabels(["证券 / 代码", "行业", "最新价 / 元\n本次获取时间", "库存股数 / 股\n逐笔取小值再合计", "库存市值 / 万元\n按本次最新价", "出借费率", "目标名本\n万元 · 可编辑", "需求股数\n100 股向下取整", "校验结果"])
+        self.table.setHorizontalHeaderLabels(["标的识别 / 库存", "行业", "最新价 / 元\n本次获取时间", "有效库存 / 股\n整百股上限", "库存市值\n万元", "参考费率", "要求金额 / 股数\n逐票选择单位", "需求 / 股", "可融判断 / 自有覆盖"])
+        self.table.setItemDelegate(EmphasisDelegate(self.table))
         self.table.verticalHeader().hide()
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
@@ -190,13 +197,17 @@ class Window(QMainWindow):
         self.table.setMinimumHeight(180)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        for column, width in enumerate([126, 78, 108, 196, 122, 86, 114, 118, 225]):
+        for column, width in enumerate([144, 78, 108, 130, 94, 88, 130, 100, 280]):
             self.table.setColumnWidth(column, width)
         self.table.horizontalHeader().setMinimumSectionSize(70)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.currentCellChanged.connect(lambda *args: self.show_detail(auto_expand=True))
         self.table.copyRequested.connect(self.copy_selected)
-        layout.addWidget(self.table, 1)
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(7)
+        self.splitter.addWidget(self.table)
+        layout.addWidget(self.splitter, 1)
 
         self.detail_panel = QWidget()
         detail_layout = QVBoxLayout(self.detail_panel)
@@ -210,6 +221,9 @@ class Window(QMainWindow):
         detail_top.addWidget(self.copy_detail_button)
         detail_top.addWidget(self.button("计算与追溯", lambda: self.text_dialog("计算依据与原始券源", self.detail.toPlainText())))
         detail_layout.addLayout(detail_top)
+        self.detail_verdict = label("", "verdict")
+        self.detail_verdict.setWordWrap(True)
+        detail_layout.addWidget(self.detail_verdict)
         self.detail_table = ResultTable(0, 8)
         self.detail_table.setHorizontalHeaderLabels(["来源", "期限", "出借费率", "有效库存 / 股", "实际可融 / 股", "可融股数 / 股", "券源说明", "文件 / Excel 行号"])
         self.detail_table.verticalHeader().hide()
@@ -220,23 +234,24 @@ class Window(QMainWindow):
         self.detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.detail_table.setWordWrap(False)
         self.detail_table.setMinimumHeight(70)
-        self.detail_table.setMaximumHeight(150)
         self.detail_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        for column, width in enumerate([120, 80, 90, 120, 114, 114, 210, 250]):
+        for column, width in enumerate([120, 80, 90, 120, 114, 114, 250, 220]):
             self.detail_table.setColumnWidth(column, width)
         self.detail_table.horizontalHeader().setStretchLastSection(True)
         self.detail_table.copyRequested.connect(self.copy_detail)
-        detail_layout.addWidget(self.detail_table)
-        self.detail_panel.setMaximumHeight(190)
+        detail_layout.addWidget(self.detail_table, 1)
         self.detail_panel.hide()
-        layout.addWidget(self.detail_panel)
+        self.splitter.addWidget(self.detail_panel)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([310, 300])
         # Keep the complete calculation/provenance text available in its own dialog.
         self.detail = QPlainTextEdit(self)
         self.detail.setReadOnly(True)
         self.detail.hide()
-        self.quote_note = label("目标名本单位：万元  ·  Tab / Enter 下一行，Shift+Tab / ↑ 上一行  ·  可粘贴一列名本  ·  Ctrl+C 复制所选行", "muted")
+        self.quote_note = label("金额：万元，向下取整至100股  ·  股数：100的正整数倍  ·  停止输入后自动刷新行情  ·  拖动中间分隔条调整明细", "muted")
         self.quote_note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.quote_note.setToolTip("目标名本每只股票分别输入；Ctrl+Enter 重新获取价格并计算。价格使用本次 Wind RT_LAST，盘后可能为最近成交价。")
+        self.quote_note.setToolTip("目标名本/股数每只股票分别输入；Ctrl+Enter 立即刷新价格并计算。数量结论仅依据当前券单，未分配具体费率/期限。价格使用本次 Wind RT_LAST，盘后可能为最近成交价。")
         layout.addWidget(self.quote_note)
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -260,6 +275,8 @@ class Window(QMainWindow):
         for control in (self.refresh_button, self.query_button, self.settings_button, self.symbols, self.batch_button, self.retry_button):
             control.setEnabled(not self.busy)
         for editor in self.editors.values():
+            editor.setEnabled(not self.busy)
+        for editor in self.mode_editors.values():
             editor.setEnabled(not self.busy)
         ready = bool(self.items and self.response) and not self.busy
         pending = any(item["calculation"]["status"] == "pending" for item in self.items)
@@ -329,7 +346,7 @@ class Window(QMainWindow):
             self.source_label.setText(f"{kind}：{names}   |   原下载时间：{status.get('downloaded_at') or '—'}   |   {status['security_count']} 只 / {status['record_count']} 笔")
         self.source_label.setToolTip(self.source_text())
         policy = self.service.active_config()["quantity_policy"]
-        self.table.horizontalHeaderItem(3).setText("库存股数 / 股\n" + ("逐笔取小值再合计" if policy == "minimum" else "可融数量列"))
+        self.table.horizontalHeaderItem(3).setText("库存股数 / 股\n" + ("逐笔取小值汇总" if policy == "minimum" else "可融数量列"))
         self.show_notices(status["warnings"])
         self.retry_button.setVisible(status["state"] in {"cached", "unavailable"})
 
@@ -422,15 +439,17 @@ class Window(QMainWindow):
             self.show_notices([f"打开本地数据失败：{exc}；路径：{folder}"])
 
     def clear_results(self):
+        self.auto_calculate.stop()
         row = self.table.currentRow()
         if 0 <= row < len(self.items):
             self.restore_code = self.items[row]["code"]
         self.response = None
-        self.items, self.editors = [], {}
+        self.items, self.editors, self.mode_editors = [], {}, {}
         self.table.setRowCount(0)
         self.detail.clear()
         self.detail_table.setRowCount(0)
         self.detail_title.setText("逐笔券源 · 选择股票查看")
+        self.detail_verdict.clear()
         self.detail_panel.hide()
         self.detail_button.setChecked(False)
         for metric in self.metrics:
@@ -468,10 +487,13 @@ class Window(QMainWindow):
     def target_values(self):
         values = {}
         for code, text in self.target_texts.items():
-            if text.strip():
+            if text.strip() and self.target_modes.get(code, "amount") == "amount":
                 value = decimal_value(text)
                 values[code] = str(value * 10000) if value is not None and 0 < value <= 10000000000 else "invalid"
         return values
+
+    def share_values(self):
+        return {code: text for code, text in self.target_texts.items() if self.target_modes.get(code) == "shares"}
 
     def batch(self):
         if self.busy:
@@ -496,16 +518,19 @@ class Window(QMainWindow):
 
     def calculate(self):
         if not self.busy and self.items:
+            focused = QApplication.focusWidget()
+            self.restore_focus = next(((code, editor.cursorPosition()) for code, editor in self.editors.items() if editor is focused), None)
             self.perform_query(" ".join(item["code"] for item in self.items), {})
 
     def perform_query(self, symbols, inputs):
         targets = self.target_values()
+        share_targets = self.share_values()
         self.retry_action = lambda: self.perform_query(symbols, inputs)
         self.clear_results()
         self.result_label.setText("正在匹配库存并获取本次价格…")
         self.wind_label.setText("合成价格 · 生成中" if self.service.demo else "Wind · 正在请求最新价")
         self.tone(self.wind_label, "neutral")
-        self.run_task("正在查询…", lambda progress: self.service.query(symbols, targets, inputs, progress), self.render)
+        self.run_task("正在查询…", lambda progress: self.service.query(symbols, targets, inputs, progress, **({"share_targets": share_targets} if share_targets else {})), self.render)
 
     def render(self, response):
         from PySide6.QtWidgets import QTableWidgetItem
@@ -515,28 +540,19 @@ class Window(QMainWindow):
             amount = decimal_value(value)
             if amount is not None:
                 self.target_texts[code] = format(amount / 10000, "f")
+                self.target_modes[code] = "amount"
+        for code, value in response.get("share_targets", {}).items():
+            self.target_texts[code] = str(value)
+            self.target_modes[code] = "shares"
         self.batch_targets = {}
         self.items = []
-        seen, unmatched = set(), []
+        seen = set()
         for group in response["results"]:
-            if not group["matches"]:
-                unmatched.append(group["input"])
-                code = normalize_code(group["input"])
-                if code and code not in seen:
-                    quote = response["quotes"].get(code)
-                    available = 0 if response["status"]["state"] in {"ready", "local", "cached"} else None
-                    self.items.append({"code": code, "name": "未匹配库存" if available is not None else "库存未就绪", "industry": response.get("industries", {}).get(code),
-                        "quantity": available, "quantity_complete": available is not None, "nominal": None, "nominal_complete": False,
-                        "rate_min": None, "rate_max": None, "rate_raw": [], "rows": [], "quote": quote,
-                        "calculation": size_order(response.get("targets", self.target_values()).get(code), (quote or {}).get("price"), available, available is not None)})
-                    seen.add(code)
-            for item in group["matches"]:
+            for item in group.get("securities", group["matches"]):
                 if item["code"] not in seen:
                     self.items.append(item)
                     seen.add(item["code"])
         notices = response["status"]["warnings"] + response["warnings"]
-        if unmatched:
-            notices.append(("当前已加载券单未匹配：" if response["status"]["state"] in {"ready", "local", "cached"} else "库存未就绪，无法确认以下标的库存：") + "、".join(unmatched))
         self.show_notices(notices)
         self.table.setRowCount(len(self.items))
         self.editors = {}
@@ -544,15 +560,15 @@ class Window(QMainWindow):
             quote, calc = item["quote"] or {}, item["calculation"]
             retrieved = quote.get("retrieved_at", "")
             stock = number(item["quantity"], 0) + ("" if item["quantity_complete"] else "（已知）")
-            stock = f"有效 {stock} / 上限 {number(calc['maximum_shares'], 0)}"
-            if item.get("quantity_policy") == "minimum":
-                stock += f"\n实际 {number(item.get('quantity_actual'), 0)}\n可融 {number(item.get('quantity_primary'), 0)}"
+            stock = f"{stock}\n上限 {number(calc['maximum_shares'], 0)}"
             market_value = item.get("inventory_market_value")
             nominal = number(market_value / 10000 if market_value is not None else None)
             if market_value is None:
                 nominal += "\n无法估值"
             multiple = len(item["rows"]) > 1
-            values = [f"{item['name']}\n{item['code']}" + (f"\n{len(item['rows'])} 笔券源" if multiple else ""), item["industry"] or "待补充",
+            identity = item.get("identification", "已识别")
+            availability = item.get("inventory_message", "")
+            values = [f"{item['name']}\n{item['code'] if normalize_code(item['code']) else '代码未确认'}\n{availability}" if item.get("identified") else f"{item['name']}\n{item['code'] if normalize_code(item['code']) else '代码未确认'}\n未确认标的身份", item["industry"] or "待补充",
                       number(quote.get("price"), 4) + (f"\n{retrieved[11:19]} 获取" if retrieved else "\n价格不可用"),
                       stock, nominal, rate_text(item) + ("\n逐笔见明细" if multiple else "") + ("" if item.get("rate_complete", False) else "\n费率缺失"),
                       "", number(calc["requested_shares"], 0), calc["message"]]
@@ -561,21 +577,41 @@ class Window(QMainWindow):
                 cell.setToolTip(value)
                 cell.setTextAlignment((Qt.AlignmentFlag.AlignRight if column in (2, 3, 4, 5, 7) else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(row, column, cell)
-            self.table.item(row, 3).setToolTip(f"券单原始合计：{number(item['quantity'], 4)} 股\n整百股上限：{number(calc['maximum_shares'], 0)} 股\n{quality(item)}")
+                if column != 6:
+                    cell.setData(Qt.ItemDataRole.UserRole, True)
+            self.table.item(row, 0).setToolTip(f"{identity} · {item.get('identity_source') or 'Wind 未确认'}\n{availability}\n输入：{item.get('query_input', item['code'])}")
+            if item.get("inventory_status") in {"absent", "zero"}:
+                for column in (0, 3, 8):
+                    self.table.item(row, column).setBackground(QColor("#fff0ed"))
+                    self.table.item(row, column).setForeground(QColor("#b33a2d"))
+            self.table.item(row, 3).setToolTip(f"有效库存合计：{number(item['quantity'], 4)} 股\n整百股上限：{number(calc['maximum_shares'], 0)} 股\n两列原始合计：实际可融 {number(item.get('quantity_actual'), 4)} 股 / 可融 {number(item.get('quantity_primary'), 4)} 股\n{quality(item)}")
             self.table.item(row, 4).setToolTip(f"库存市值 = 逐笔取较小值后的有效股数 × 本次最新价\n{number(market_value)} 元；不是目标名本。\n券单原始市值（仅参考）：{number(item['nominal'])} 元")
             self.paint_calculation(row)
             editor = TargetEdit(self.target_texts.get(item["code"], ""))
             editor.setObjectName("target")
             editor.setAlignment(Qt.AlignmentFlag.AlignRight)
-            editor.setPlaceholderText("万元")
-            editor.setToolTip("目标名本（万元）；Enter / Tab 下一行；Ctrl+Enter 刷新价格并计算。支持粘贴一列金额。")
+            mode = self.target_modes.get(item["code"], "amount")
+            editor.setPlaceholderText("股 · 100的倍数" if mode == "shares" else "万元")
+            editor.setToolTip("每只票选择金额或股数；停止输入0.9秒后自动请求新价格。Enter / Tab 下一行；Ctrl+Enter 立即刷新计算。")
             editor.focused.connect(lambda index=row: self.focus_row(index))
             editor.advance.connect(lambda step, index=row: self.move_editor(index, step))
             editor.pasteColumn.connect(lambda text, index=row: self.paste_targets(index, text))
             editor.textEdited.connect(lambda text, code=item["code"], index=row: self.target_edited(code, index, text))
-            self.table.setCellWidget(row, 6, editor)
+            container = QWidget()
+            inputs = QVBoxLayout(container)
+            inputs.setContentsMargins(5, 4, 5, 4)
+            inputs.setSpacing(3)
+            selector = QComboBox()
+            selector.addItem("金额 / 万元", "amount")
+            selector.addItem("数量 / 股", "shares")
+            selector.setCurrentIndex(1 if mode == "shares" else 0)
+            selector.currentIndexChanged.connect(lambda _value, code=item["code"], index=row: self.mode_changed(code, index))
+            inputs.addWidget(selector)
+            inputs.addWidget(editor)
+            self.table.setCellWidget(row, 6, container)
+            self.mode_editors[item["code"]] = selector
             self.editors[item["code"]] = editor
-            self.table.setRowHeight(row, 62 if item.get("quantity_policy") == "minimum" else 48)
+            self.table.setRowHeight(row, 78)
         self.update_metrics()
         wanted = next((i for i, item in enumerate(self.items) if item["code"] == self.restore_code), 0)
         if self.items:
@@ -592,36 +628,42 @@ class Window(QMainWindow):
             self.tone(self.wind_label, "ok" if valid and valid == len(self.items) else "warning" if valid else "error")
         self.wind_label.setToolTip("仅表示本次请求结果，不代表持续连接。价格获取时间见各行；Wind返回时间见券源明细。")
         self.result_label.setText(f"结果 {len(self.items)} 只 · 需求不自动缩减" if self.items else "无匹配结果 · 请核对代码或名称")
-        self.retry_button.setVisible(valid < len(self.items) or response["status"]["state"] in {"cached", "unavailable"})
+        expected_prices = sum(bool(normalize_code(item["code"])) for item in self.items)
+        self.retry_button.setVisible(valid < expected_prices or response["status"]["state"] in {"cached", "unavailable"})
         if response["status"]["state"] in {"cached", "unavailable"}:
             self.retry_action = self.refresh
         self.update_controls()
+        if self.restore_focus:
+            code, position = self.restore_focus
+            if code in self.editors:
+                self.editors[code].setFocus()
+                self.editors[code].setCursorPosition(position)
+            self.restore_focus = None
         self.queried.emit()
 
     def paint_calculation(self, row):
-        calc = self.items[row]["calculation"]
+        item = self.items[row]
+        calc, coverage = item["calculation"], item.get("coverage", {})
         cell = self.table.item(row, 8)
-        text = calc["message"]
-        if calc["status"] == "insufficient":
-            text = f"库存不足\n需 {number(calc['requested_shares'], 0)} / 最多 {number(calc['maximum_shares'], 0)} 股"
-        elif calc["status"] == "ok":
-            text = f"可借 {number(calc['executable_shares'], 0)} 股\n取整名本 {number(calc['actual_nominal'])} 元"
-        elif calc["status"] == "no_price":
-            text = "价格不可用\n无法计算"
-        elif calc["status"] == "unknown_inventory":
-            text = "库存数量缺失 / 不完整\n无法确认上限"
-        elif calc["status"] == "pending":
-            text = "名本已修改\n待刷新价格并计算"
+        maximum = decimal_value(calc.get("maximum_nominal"))
+        headline = coverage.get("message", calc["message"])
+        if item.get("inventory_status") in {"absent", "zero"}:
+            headline = "库存没有 · 当前不可融"
+        text = headline + f"\n自有 {number(coverage.get('own_shares'), 0)} / 其他 {number(coverage.get('other_shares'), 0)} 股"
+        text += f"\n最多 {number(calc.get('maximum_shares'), 0)} 股 · " + (f"约 {number(maximum / 10000)} 万元" if maximum is not None else "金额无法估算")
+        if calc["status"] == "pending":
+            text = "需求已修改 · 正在等待新行情\n待自动刷新价格并计算"
         cell.setText(text)
-        cell.setToolTip(calc["message"])
-        cell.setForeground(QColor("#166650" if calc["status"] == "ok" else "#a24032" if calc["status"] in {"insufficient", "invalid", "no_price", "unknown_inventory"} else "#677684"))
+        cell.setToolTip(f"{calc['message']}\n{coverage.get('message', '')}\n自有缺口：{number(coverage.get('other_needed_shares'), 0)} 股；合计缺口：{number(coverage.get('shortage_shares'), 0)} 股\n仅依据当前券单，其他来源需询券确认；不同费率/期限未自动分配。")
+        tone = "#166650" if coverage.get("status") == "own" else "#8b5918" if coverage.get("status") in {"other", "combined"} else "#b33a2d" if calc["status"] in {"insufficient", "invalid", "no_price", "unknown_inventory"} or item.get("inventory_status") in {"zero", "absent"} else "#526b7b"
+        cell.setForeground(QColor(tone))
 
     def update_metrics(self):
         self.metrics[0].setText(str(self.response["summary"]["matched"]) if self.response else "—")
         total = self.response["summary"]["quantity"] if self.response else None
         partial = bool(self.response and not self.response["summary"]["quantity_complete"])
         self.metrics[1].setText(number(total / 10000 if total is not None else None) + ("（已知）" if partial and total is not None else ""))
-        known = [value for item in self.items if (value := decimal_value(self.target_texts.get(item["code"], ""))) is not None and 0 < value <= 10000000000]
+        known = [value for item in self.items if self.target_modes.get(item["code"], "amount") == "amount" and (value := decimal_value(self.target_texts.get(item["code"], ""))) is not None and 0 < value <= 10000000000]
         self.metrics[2].setText(number(sum(known)) if known else "—")
         self.metrics[3].setText(str(sum(item["calculation"]["status"] == "insufficient" for item in self.items)))
 
@@ -644,26 +686,38 @@ class Window(QMainWindow):
             return
         values = [line.strip() for line in text.strip().splitlines()]
         if not values or any("\t" in value for value in values) or start + len(values) > len(self.items):
-            self.show_notices(["请粘贴一列目标名本（万元），行数不能超过当前行至表尾；代码与名本两列请用“批量粘贴”。"])
+            self.show_notices(["请粘贴一列数值，按各行所选单位填写，行数不能超过当前行至表尾；代码与金额两列请用“批量粘贴”。"])
             return
         parsed = [decimal_value(value) for value in values]
-        if any(value is None or not 0 < value <= 10000000000 for value in parsed):
-            self.show_notices(["整列未应用：名本须为有效正数（万元），请核对后重试。"])
+        if any(value is None or not 0 < value <= 10000000000 or
+               (self.target_modes.get(self.items[row]["code"]) == "shares" and value % 100)
+               for row, value in enumerate(parsed, start)):
+            self.show_notices(["整列未应用：请按各行单位输入正数；数量须为100股的整数倍。"])
             return
         for row, text in enumerate(values, start):
             code = self.items[row]["code"]
             self.editors[code].setText(text)
             self.target_edited(code, row, text)
-        self.statusBar().showMessage(f"已填入 {len(values)} 行目标名本，请刷新价格并计算")
+        self.statusBar().showMessage(f"已按各行单位填入 {len(values)} 行需求，等待自动刷新价格并计算")
+
+    def mode_changed(self, code, row):
+        self.target_modes[code] = self.mode_editors[code].currentData()
+        editor = self.editors[code]
+        editor.clear()  # Do not reinterpret a monetary amount as a share count.
+        editor.setPlaceholderText("股 · 100的倍数" if self.target_modes[code] == "shares" else "万元")
+        self.target_edited(code, row, "")
+        editor.setFocus()
 
     def target_edited(self, code, row, text):
         self.target_texts[code] = text
         self.items[row]["calculation"] = {**self.items[row]["calculation"], "status": "pending", "message": "待刷新价格并计算", "requested_shares": None, "executable_shares": None, "actual_nominal": None, "unused_nominal": None, "target_nominal": None}
+        self.items[row]["coverage"] = {"status": "pending", "message": "需求已修改，待自动刷新价格并计算"}
         self.table.item(row, 7).setText("—")
         self.paint_calculation(row)
         self.update_metrics()
         self.update_controls()
         self.show_detail()
+        self.auto_calculate.start()
 
     def toggle_detail(self):
         self.detail_panel.setVisible(self.detail_button.isChecked())
@@ -675,12 +729,16 @@ class Window(QMainWindow):
         if not self.response or not 0 <= row < len(self.items):
             return
         item = self.items[row]
-        if auto_expand and item["rows"]:
+        if auto_expand:
             self.detail_button.setChecked(True)
         self.detail_panel.setVisible(self.detail_button.isChecked())
         title = f"{item['name']} {item['code']} · {len(item['rows'])} 笔券源 · 有效库存合计 {number(item['quantity'], 0)} 股" + ("（仅已知部分）" if not item["quantity_complete"] else "")
         self.detail_title.setText(title)
         self.detail_title.setToolTip(title + "；不同费率、期限、来源逐笔保留，不自动分配需求。")
+        coverage, calc = item.get("coverage", {}), item["calculation"]
+        self.detail_verdict.setText(self.table.item(row, 8).text().replace("\n", "  ·  "))
+        self.tone(self.detail_verdict, "ok" if coverage.get("status") == "own" else "error" if item.get("inventory_status") in {"zero", "absent"} or coverage.get("status") == "insufficient" else "warning")
+        self.detail_verdict.setToolTip(self.table.item(row, 8).toolTip())
         self.detail_table.setRowCount(len(item["rows"]))
         for index, source in enumerate(item["rows"]):
             values = [source.get("source") or "未提供", source["term"] or "未提供",
@@ -693,14 +751,22 @@ class Window(QMainWindow):
                 cell.setToolTip(source_description(source) + f"\n本地：{source.get('local_path', '—')}")
                 if source_note(source) and column in (0, 6):
                     cell.setForeground(QColor("#166650"))
+                if column in (2, 3, 4, 5) or source_note(source) and column in (0, 6):
+                    font = cell.font()
+                    font.setBold(True)
+                    font.setPixelSize(14)
+                    cell.setFont(font)
                 self.detail_table.setItem(index, column, cell)
-            self.detail_table.setRowHeight(index, 30)
+            self.detail_table.setRowHeight(index, 38)
         self.copy_detail_button.setEnabled(bool(item["rows"]))
         quote, calc = item["quote"] or {}, item["calculation"]
         lines = [f"{item['name']}  {item['code']} | 行业：{item['industry'] or '待补充'}（{item.get('industry_source') or '无来源'}）",
                  f"价格：{quote.get('price', '缺失')} 元 | 来源：{quote.get('source', '无有效价格')} | 获取：{quote.get('retrieved_at', '—')}",
                  f"Wind 返回时间：{quote.get('wind_returned_at') or '未提供'}（不保证为逐笔成交时间）",
-                 f"当前输入目标名本：{self.target_texts.get(item['code']) or '未填'} 万元 | 校验：{calc['message']}",
+                 f"标的识别：{item.get('identification', '—')}（{item.get('identity_source') or '未确认'}） | {item.get('inventory_message', '')}",
+                 f"当前输入：{self.target_texts.get(item['code']) or '未填'} {'股' if self.target_modes.get(item['code']) == 'shares' else '万元'} | 校验：{calc['message']}",
+                 f"券源覆盖：{coverage.get('message', '—')} | 自有上限 {number(coverage.get('own_shares'), 0)} 股 | 其他来源上限 {number(coverage.get('other_shares'), 0)} 股",
+                 f"自有缺口 {number(coverage.get('other_needed_shares'), 0)} 股 | 合计仍缺 {number(coverage.get('shortage_shares'), 0)} 股；仅按当前券单校验，不代表成交承诺。",
                  f"库存市值（本次最新价）：{number(item.get('inventory_market_value'))} 元；券单原始市值仅供追溯，不参与此计算。",
                  f"取整名本：{number(calc.get('actual_nominal'))} 元 | 未用名本：{number(calc.get('unused_nominal'))} 元 | 最大可借名本：{number(calc.get('maximum_nominal'))} 元",
                  f"数据完整性：{quality(item)}",
@@ -767,6 +833,7 @@ class Window(QMainWindow):
             self.load_today()
 
     def closeEvent(self, event):
+        self.auto_calculate.stop()
         if self.busy:
             self.closing = True
             self.statusBar().showMessage("正在等待当前后台操作完成后关闭…")
