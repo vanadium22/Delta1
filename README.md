@@ -1,5 +1,7 @@
 # Delta1
 
+**公司统一更新使用 `codex/company-apps` 分支。** 公司名为 `dashboard` 的文件夹本身就是仓库根目录，包含并列的 `index_strategy`、`securities_lending` 和 `index_futures_basis`。首次从解压包接入及日常一次更新所有已发布模块，见 [公司统一同步说明](COMPANY_SYNC.md)。各模块开发分支继续保留。
+
 指数策略研究的数据采集项目。Git 仓库根目录是 `project`，实时行情入口位于 `index_strategy/instant_dld`。
 
 ## 目录

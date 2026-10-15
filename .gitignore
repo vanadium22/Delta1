@@ -52,3 +52,6 @@ index_strategy/data_dld/wind_test_report_*.md
 *.part
 .DS_Store
 Thumbs.db
+
+# Preserve an extracted App before its first migration to the company branch.
+/index_futures_basis_zip_backup_*/
