@@ -1,6 +1,6 @@
 # Delta1
 
-**公司统一更新使用 `codex/company-apps` 分支。** 公司名为 `dashboard` 的文件夹本身就是仓库根目录，包含并列的 `index_strategy`、`securities_lending` 和 `index_futures_basis`。用户已于 2026-10-15 确认首次迁移完成，解压包备份已删除。
+**公司统一更新使用 `codex/company-apps` 分支。** 公司名为 `dashboard` 的文件夹本身就是仓库根目录，包含并列的 `index_strategy`、`securities_lending`、`index_futures_basis`，以及准备中的 `script_making`。用户已于 2026-10-15 确认首次迁移完成，解压包备份已删除。
 
 以后关闭 App，在 PowerShell 运行以下命令，即可一次更新整个项目中已发布的模块和公共文件：
 
@@ -12,6 +12,8 @@ git pull --ff-only
 公司保持在 `codex/company-apps`，本机配置、分红 Excel、行情缓存及导出继续保留。后续模块开发完成后，须将本次已验证提交汇总并推送到公司分支；各模块开发分支继续保留。完整约定及首次迁移历史见 [公司统一同步说明](COMPANY_SYNC.md)，开发交付要求见 [AGENTS.md](AGENTS.md)。
 
 若基差目录只剩本地数据文件夹，先检查 `git branch --show-current`：切换 Git 分支会影响整个仓库。误切开发分支时，按 [公司统一同步说明中的恢复步骤](COMPANY_SYNC.md#误切开发分支后的恢复) 切回公司分支即可恢复已跟踪源码。正确模块名为 `index_futures_basis`。
+
+今后要把新项目加入统一更新，只需明确项目目录及本次需求。正式代码、说明和无真实数据的模板完成验证、提交并发布到公司分支后，公司一次 pull 就会取得新增目录及后续改动。新增项目流程和当前清单见 [COMPANY_SYNC.md](COMPANY_SYNC.md#未来新增项目如何一起同步)。[script_making](script_making/README.md) 当前只发布项目骨架，原始日报、Excel 和旧参考脚本保留在本机。
 
 指数策略研究的数据采集项目。Git 仓库根目录是 `project`，实时行情入口位于 `index_strategy/instant_dld`。
 
