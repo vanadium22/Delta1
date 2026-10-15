@@ -4,7 +4,7 @@
 
 ## 第一次使用
 
-1. **放好 App 文件夹。** 把 `index_futures_basis` 整个文件夹放在仓库根目录，与 `securities_lending` 并排。根目录可在终端运行 `git rev-parse --show-toplevel` 确认，不要放进 `dashboard` 子目录。
+1. **确认 App 文件夹。** 公司统一分支 `codex/company-apps` 已包含 `index_futures_basis`，与 `securities_lending` 并排。公司 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身就是仓库根目录，可用 `git rev-parse --show-toplevel` 确认，无需再建一层 dashboard 或重新解压。
 2. **告诉 App 你的 Python 在哪里。** 复制 `python.local.txt.example` 为 `python.local.txt`，用记事本打开，只留一行实际的完整路径，例如 `D:\conda\envs\swhy_delta1\python.exe`。不加引号。如果你的路径正好是这个默认路径，可跳过本步。
 3. **双击启动。** 先登录 Wind，双击 `start.cmd`。若提示缺少 App 依赖，双击一次 `install.cmd`，完成后重新启动。这会在现有环境补装界面/绘图依赖，不安装或替换 WindPy。
 
@@ -20,19 +20,16 @@
 
 ## 拿到后续更新
 
-最简单：关闭 App，用新版 `index_futures_basis` 代码文件覆盖原代码；**保留你自己的 `data`、`inputs`、`exports`、`config.local.json`、`python.local.txt`**。它们不包含在代码更新包中。
-
-使用 Git 时，在确认好的仓库根目录运行：
+公司已完成 Git 迁移。保持在 **`codex/company-apps`**，关闭 App，在仓库根目录一次更新所有已发布模块。本机 `data`、`inputs`、`exports`、`config.local.json`、`python.local.txt` 由 Git 忽略规则保留：
 
 ```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
 git status --short
-git fetch origin
-git switch codex/index-futures-basis
-git pull --ff-only origin codex/index-futures-basis
+git pull --ff-only
 .\index_futures_basis\start.cmd
 ```
 
-如果切分支提示本地修改冲突，先保留并处理那些修改，不要强制切换或清理。首次切换时 Git 通常会自动跟踪同名远端分支；也可明确使用 `git switch --track origin/codex/index-futures-basis`。本 App 的开发分支不是券单分支。
+若误切到了开发分支，先执行 `git fetch origin` 和 `git switch codex/company-apps`，成功后再 pull。任何一步报错都停止，保留现场，不强制切换或清理。Git 切换分支会影响整个仓库；切到券单开发分支时，基差可能只剩本地数据文件夹，切回统一分支会恢复源码。源码目录是 **index_futures_basis**（futures 有 s）。
 
 ## 遇到问题看这里
 

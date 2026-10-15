@@ -2,6 +2,8 @@
 
 与 `securities_lending` 并列的 Python + PySide6 原生桌面 App。入口为 `python -m index_futures_basis`，开发分支为 `codex/index-futures-basis`。
 
+**公司统一使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新基差、券单及指数策略等全部已发布模块。** 公司保持此分支；开发分支更新完成后，须将本次已验证提交汇总并推送到公司分支。切换 Git 分支会影响整个仓库，可能使其他模块源码退出当前检出。
+
 公司第一次使用请看 [三步启动说明](COMPANY_SETUP.md)。继续开发请先读 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) 和 [AGENTS.md](AGENTS.md)。
 
 ## 平时怎么用
