@@ -1,11 +1,42 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence
+from html import escape
+
+from PySide6.QtGui import QKeySequence, QTextDocument
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QLabel, QLineEdit, QPlainTextEdit,
-    QTableWidget, QVBoxLayout,
+    QTableWidget, QVBoxLayout, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
 from .batch_input import parse_batch
+
+
+class EmphasisDelegate(QStyledItemDelegate):
+    """Keep plain cell text for accessibility/copy, with a larger primary value."""
+    def paint(self, painter, option, index):
+        if not index.data(Qt.ItemDataRole.UserRole):
+            return super().paint(painter, option, index)
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        text = styled.text
+        styled.text = ""
+        style = styled.widget.style() if styled.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, styled, painter, styled.widget)
+        lines = text.splitlines()
+        color = index.data(Qt.ItemDataRole.ForegroundRole)
+        color = color.color().name() if color else "#203f50"
+        size = 19 if index.column() == 2 else 14
+        align = "right" if option.displayAlignment & Qt.AlignmentFlag.AlignRight else "left"
+        document = QTextDocument()
+        document.setDefaultFont(option.font)
+        document.setDocumentMargin(0)
+        document.setHtml(f'<div style="text-align:{align};color:{color};font-size:{size}px;font-weight:700">{escape(lines[0])}</div>'
+                         + ''.join(f'<div style="text-align:{align};color:#647887;font-size:11px">{escape(line)}</div>' for line in lines[1:]))
+        document.setTextWidth(max(1, option.rect.width() - 16))
+        painter.save()
+        painter.setClipRect(option.rect)
+        painter.translate(option.rect.x() + 8, option.rect.y() + max(4, (option.rect.height() - document.size().height()) / 2))
+        document.drawContents(painter)
+        painter.restore()
 
 
 class ResultTable(QTableWidget):

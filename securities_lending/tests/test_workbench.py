@@ -413,7 +413,8 @@ class WorkbenchTests(native_tests.DesktopCase):
         self.assertTrue(self.window.retry_button.isHidden())
         self.assertEqual(self.service.state["downloaded_at"], previous["downloaded_at"])
         self.query("600519 600000")
-        self.assertEqual(self.window.items[1]["name"], "未匹配库存")
+        self.assertEqual(self.window.items[1]["name"], "浦发银行")
+        self.assertEqual(self.window.items[1]["inventory_status"], "absent")
         path = Path(self.tmp.name) / "local.xlsx"
         self.window.export_to(path)
         book = load_workbook(path, read_only=True)

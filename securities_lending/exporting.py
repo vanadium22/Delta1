@@ -69,6 +69,13 @@ def export_tables(items, status):
     headers.extend(["库存市值（元，本次最新价）", "实际可融股数合计", "可融股数合计", "库存取值口径", "券源笔数", "期限（逐笔）", "来源（逐笔）"])
     for row, item in zip(rows, items):
         row.extend([item.get("inventory_market_value"), item.get("quantity_actual"), item.get("quantity_primary"), "逐笔取较小值再合计" if item.get("quantity_policy") == "minimum" else "可融数量列", len(item["rows"]), " / ".join(source["term"] or "未提供" for source in item["rows"]), " / ".join(source.get("source") or "未提供" for source in item["rows"])])
+    headers.extend(["标的识别", "识别来源", "库存提示", "需求输入方式", "输入要求股数", "券源覆盖判断", "自有最大可融（股）", "其他来源最大可融（股）", "自有缺口（股）", "合计缺口（股）", "最大可融估算金额（元）"])
+    for row, item in zip(rows, items):
+        calc, coverage = item["calculation"], item.get("coverage", {})
+        row.extend([item.get("identification"), item.get("identity_source"), item.get("inventory_message"),
+                    "股数" if calc.get("input_mode") == "shares" else "金额（万元）", calc.get("input_shares"),
+                    coverage.get("message"), coverage.get("own_shares"), coverage.get("other_shares"),
+                    coverage.get("other_needed_shares"), coverage.get("shortage_shares"), calc.get("maximum_nominal")])
     detail_headers[7] = "券单原始市值（元，仅参考）"
     detail_headers.extend(["实际可融股数", "可融股数", "券单市值上限（元，仅参考）", "券源说明"])
     sources = [row for item in items for row in item["rows"]]
@@ -128,6 +135,7 @@ def write_export(path, items, status, detail_only=False):
                     if isinstance(cell.value, str):
                         cell.data_type = "s"
             note.column_dimensions["A"].width = 25
+            note.append(("券源覆盖", "只有来源恰好为互换才计入自有。其他来源的数量判断仅依据当前券单，需询券确认；未自动分配费率/期限。股数输入必须为100的正整数倍，不静默缩减。"))
             note.column_dimensions["B"].width = 100
             try:
                 book.save(temporary)

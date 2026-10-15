@@ -46,7 +46,9 @@ class DesktopCase(unittest.TestCase):
             self.app.processEvents()
             if predicate():
                 return
-            QTest.qWait(10)
+            # Let Python workers import/parse workbooks on a cold start. A tight
+            # QTest.qWait loop can retain the GIL and starve their first import.
+            time.sleep(0.01)
         self.fail("Native UI operation timed out")
 
     def query(self, symbols):
@@ -109,7 +111,9 @@ class DesktopTests(DesktopCase):
         self.query("000858 600000 不存在")
         self.assertEqual(self.window.items[0]["calculation"]["status"], "insufficient")
         self.assertEqual(self.window.items[0]["calculation"]["maximum_shares"], 0)
-        self.assertEqual(self.window.items[1]["name"], "未匹配库存")
+        self.assertEqual(self.window.items[1]["name"], "浦发银行")
+        self.assertEqual(self.window.items[1]["inventory_status"], "absent")
+        self.assertEqual(self.window.items[2]["identification"], "未确认 · 请核对代码/名称")
         self.assertEqual(self.window.metrics[0].text(), "1")
 
     def test_refresh_invalidates_previous_calculations(self):

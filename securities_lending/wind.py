@@ -26,6 +26,29 @@ class IndustryProvider:
         industries, _, warnings = self.market([], codes, day, config)
         return industries, "；".join(warnings) or None
 
+    def resolve(self, codes, names, day, config):
+        """Resolve identities separately: a failure must not erase market data."""
+        if not codes and not names:
+            return {}, []
+        if not config["wind_enabled"]:
+            return {}, ["Wind 已关闭；券单外标的身份未确认，请核对完整证券代码"]
+        try:
+            proc = subprocess.run(
+                [wind_executable(config), "-s", "-X", "utf8", str(ROOT / "wind_worker.py")],
+                input=json.dumps({"operation": "resolve", "codes": sorted(set(codes)), "names": sorted(set(names)), "day": day}),
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=float(config["wind_timeout_seconds"]),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if proc.returncode:
+                raise ValueError("Wind Python 进程启动失败")
+            output = json.loads(proc.stdout)
+            if output.get("error"):
+                raise ValueError(output["error"])
+            return output.get("securities", {}), output.get("warnings", [])
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            return {}, [f"Wind 标的识别失败：{exc}；未识别不代表证券不存在"]
+
     def market(self, quote_codes, industry_codes, day, config):
         if not quote_codes and not industry_codes:
             return {}, {}, []
