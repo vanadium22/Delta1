@@ -1,0 +1,19 @@
+# Original business materials remain local, including legacy scripts.
+/materials/*
+!/materials/README.md
+
+# Inputs, generated files, caches and machine-specific settings.
+/inputs/*
+!/inputs/README.md
+/data/
+/outputs/
+/exports/
+/logs/
+/cache/
+*.local.*
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+~$*
