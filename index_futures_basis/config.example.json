@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "history_months": 12,
+  "close_hour": 18,
+  "wind_python": "",
+  "wind_timeout_seconds": 90,
+  "wind_mapping_field": "trade_hiscode",
+  "wind_expiry_field": "lasttrade_date",
+  "data_directory": "data",
+  "exports_directory": "exports",
+  "auto_sync": true,
+  "dividends": {
+    "selection": "latest_snapshot",
+    "directories": ["inputs", "input"],
+    "pattern": "*基差情况_*.xlsx",
+    "sheet": "Sheet1",
+    "header_row": 3,
+    "layout": "snapshot_continuous",
+    "snapshot_date_cell": "B1",
+    "code_column": "B",
+    "dividend_column": "G"
+  }
+}

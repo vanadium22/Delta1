@@ -1,0 +1,110 @@
+"""Exercise real Qt signals, worker completion, selection invalidation and file export."""
+import os
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QApplication
+
+from index_futures_basis.desktop import Window
+from index_futures_basis.service import BasisService
+
+
+class DesktopTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.service = BasisService(Path(self.temp.name), "demo")
+        self.window = Window(self.service, auto_start=False)
+        self.window.show()
+
+    def wait_idle(self):
+        deadline = time.monotonic() + 20
+        while self.window.worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)  # Yield the GIL to the worker as well as pumping Qt.
+        self.app.processEvents()
+        self.assertIsNone(self.window.worker, "后台任务未结束")
+
+    def tearDown(self):
+        self.wait_idle()
+        self.window.close()
+        self.window.deleteLater()
+        self.app.processEvents()
+        self.temp.cleanup()
+
+    def test_query_copy_and_selection_changes_clear_old_values(self):
+        with patch("index_futures_basis.service.WindProvider", side_effect=AssertionError("network")):
+            self.window.load_local()
+            self.wait_idle()
+            self.assertEqual(self.window.query_result["current_contract"], "IC2703.CFE")
+            self.assertEqual(self.window.stats.rowCount(), 3)
+            self.window.stats.copy()
+            self.assertIn("中位数", self.app.clipboard().text())
+            self.assertIn("3个月", self.app.clipboard().text())
+            self.window.root.setCurrentText("IM")
+            self.assertIsNone(self.window.query_result)
+            self.assertEqual(self.window.stats.rowCount(), 0)
+            self.window.query()
+            self.wait_idle()
+            self.assertEqual(self.window.query_result["root"], "IM")
+
+    def test_failed_query_does_not_leave_exportable_previous_result(self):
+        self.window.load_local()
+        self.wait_idle()
+        self.window.latest.setChecked(False)
+        self.window.date.setDate(QDate(2030, 1, 1))
+        self.window.query()
+        self.wait_idle()
+        self.assertIsNone(self.window.query_result)
+        self.assertEqual(self.window.history.rowCount(), 0)
+        self.assertIn("未完成", self.window.progress_label.text())
+        self.window.export_query()
+        self.assertEqual(self.window.progress_label.text(), "请先完成查询")
+
+    def test_charts_run_in_worker_and_query_csv_preserves_source(self):
+        self.window.export("figures", ["IC_年化基差分位蜡烛图"])
+        self.wait_idle()
+        self.assertFalse(self.window.image_pixmap.isNull())
+        self.assertTrue(self.window.image_path.exists())
+        self.assertIn("demo", self.window.image_note.text())
+        self.assertEqual(self.window.tabs.currentIndex(), 2)
+        target = Path(self.temp.name) / "query.csv"
+        with patch("index_futures_basis.desktop.QFileDialog.getSaveFileName", return_value=(str(target), "CSV")):
+            self.window.export_query()
+            self.wait_idle()
+        text = target.read_text(encoding="utf-8-sig")
+        self.assertIn(self.window.query_result["fingerprint"], text)
+        self.assertIn("IC2703.CFE", text)
+
+    def test_switch_mode_clears_demo_and_does_not_implicitly_sync(self):
+        self.window.load_local()
+        self.wait_idle()
+        demo_path = self.service.store.path
+        with patch("index_futures_basis.service.WindProvider", side_effect=AssertionError("network")):
+            self.window.mode.setCurrentIndex(self.window.mode.findData("wind"))
+            self.wait_idle()
+        self.assertNotEqual(self.window.service.store.path, demo_path)
+        self.assertIsNone(self.window.query_result)
+        self.assertEqual(self.window.stats.rowCount(), 0)
+        self.assertIn("Wind 正式数据", self.window.status_label.text())
+
+    def test_close_waits_for_owned_worker_and_requests_cancel(self):
+        started = threading.Event()
+        def operation(progress):
+            started.set()
+            self.service.cancel.wait(2)
+        self.window.run_task("测试后台关闭", operation, lambda result: None, cancellable=True)
+        self.assertTrue(started.wait(2))
+        self.window.close()
+        self.assertTrue(self.service.cancel.is_set())
+        self.wait_idle()
+        self.assertFalse(self.window.isVisible())

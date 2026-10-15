@@ -1,0 +1,11 @@
+data/
+exports/
+inputs/*
+!inputs/README.txt
+input/
+config.local.json
+python.local.txt
+!python.local.txt.example
+__pycache__/
+*.pyc
+.mplconfig/
