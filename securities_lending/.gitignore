@@ -1,5 +1,7 @@
 data/
 config.local.json
+trader_contacts.local.json
+trader_contacts.local.json.tmp
 python.local.txt
 .venv/
 __pycache__/

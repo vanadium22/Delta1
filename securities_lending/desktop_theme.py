@@ -11,6 +11,7 @@ QLabel#badge[tone="error"] { background: #fbe6e2; color: #a13329; }
 QLabel#notice { background: #fff1dc; color: #8b5818; padding: 6px 10px; border-radius: 4px; }
 QLabel#error { color: #a13329; }
 QLabel#section { font-weight: 700; font-size: 13px; }
+QLabel#contactGroup { color: #205e7a; font-weight: 600; font-size: 11px; }
 QLabel#verdict { background: #edf3f7; border-radius: 5px; padding: 7px 10px; font-weight: 700; font-size: 13px; }
 QLabel#verdict[tone="ok"] { background: #e5f4ed; color: #17664e; }
 QLabel#verdict[tone="warning"] { background: #fff3d9; color: #805117; }

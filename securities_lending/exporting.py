@@ -76,6 +76,10 @@ def export_tables(items, status):
                     "股数" if calc.get("input_mode") == "shares" else "金额（万元）", calc.get("input_shares"),
                     coverage.get("message"), coverage.get("own_shares"), coverage.get("other_shares"),
                     coverage.get("other_needed_shares"), coverage.get("shortage_shares"), calc.get("maximum_nominal")])
+    headers.extend(["询券交易台", "询券联系人（群内@）", "询券微信群", "联系表备注"])
+    for row, item in zip(rows, items):
+        contact = item.get("contact", {})
+        row.extend([contact.get("desk", ""), "、".join(contact.get("traders", [])), contact.get("group", ""), contact.get("note", "")])
     detail_headers[7] = "券单原始市值（元，仅参考）"
     detail_headers.extend(["实际可融股数", "可融股数", "券单市值上限（元，仅参考）", "券源说明"])
     sources = [row for item in items for row in item["rows"]]
@@ -136,6 +140,7 @@ def write_export(path, items, status, detail_only=False):
                         cell.data_type = "s"
             note.column_dimensions["A"].width = 25
             note.append(("券源覆盖", "只有来源恰好为互换才计入自有。其他来源的数量判断仅依据当前券单，需询券确认；未自动分配费率/期限。股数输入必须为100的正整数倍，不静默缩减。"))
+            note.append(("行业联系表", "询券联系人按行业名称精确匹配本机联系表；未映射时留空。默认姓名/群名为照片暂读初稿，备注随汇总保留，可在App中修改。不代表该交易台有库存或已接受需求。"))
             note.column_dimensions["B"].width = 100
             try:
                 book.save(temporary)
