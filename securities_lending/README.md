@@ -2,6 +2,8 @@
 
 Python + PySide6 原生 Windows 应用，默认入口为 python -m securities_lending。界面按公司 1920×1080 屏幕设计，支持 Windows 放大显示、小窗口横向滚动和可收起的券源明细。默认启动不打开浏览器。
 
+后续对话或继续开发，请先读 [项目交接与后续修改入口](PROJECT_HANDOFF.md)：包含已确认业务口径、代码索引、最近修复、验证边界和继续工作流程。
+
 ## 日常启动和查询
 
 1. 在 swhy_delta1 环境中双击 securities_lending/start.cmd；家中使用 start_demo.cmd。环境说明见 [COMPANY_SETUP.md](COMPANY_SETUP.md)。
@@ -124,7 +126,7 @@ Wind 状态只表示本次请求结果，不代表持续连接。各行显示本
 
 公司建议 App 环境：D:\conda\envs\swhy_delta1\python.exe。现有 Python 3.13、PySide6-Essentials、openpyxl、xlrd 配置保留，本次没有新增依赖。WindPy 由用户在公司自行管理，不属于公共 pip 依赖。可以配置独立 Wind Python，该环境无需安装 PySide6。
 
-公司 Conda 环境是否成功创建、真实共享盘访问、Wind 权限及 Python 3.13 兼容性仍需公司验证。诊断默认不连接 Wind：
+公司用户已反馈 App 可以操作，恢复默认文件名和 Sheet 后券单读取正常；这不代表具体解释器配置、Wind 权限及 Python 3.13 兼容性已经验证。后续联调需核对实际环境与真实行情返回。诊断默认不连接 Wind：
 
 ~~~powershell
 python -s -X utf8 -m securities_lending.diagnose

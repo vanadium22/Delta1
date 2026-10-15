@@ -1,6 +1,6 @@
 # 公司环境配置：swhy_delta1
 
-本机现有环境为 `swhy_delta1`，Python 3.13.15（64 位）。本次已为该环境补齐 PySide6-Essentials 6.11.2、openpyxl 3.1.5、xlrd 2.0.1，未安装 WindPy。公司建议环境路径为 `D:\conda\envs\swhy_delta1`。
+家中开发机已验证的环境为 `swhy_delta1`，Python 3.13.15（64 位），包含 PySide6-Essentials 6.11.2、openpyxl 3.1.5、xlrd 2.0.1，未安装 WindPy。公司建议环境路径为 `D:\conda\envs\swhy_delta1`；上述版本记录不代表公司实际环境与 Wind 已验证通过。项目现状和用户反馈见 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)。
 
 ## 首次建立环境
 
@@ -57,7 +57,7 @@ python -m pip check
 
 如果公司使用了其他环境名/位置，可设置 `SWHY_DELTA1_PYTHON`，或新建上述 `python.local.txt`。不要把本机配置提交到 Git。Wind Python 路径留空时使用 App 同一环境，不会自动改用系统 Python。
 
-首次在 App 填写共享盘中的「发送券单」根目录并保存。每次启动按北京时间定位 `根目录/YYYY-MM-DD/申万内部券单YYYY-MM-DD.xlsx`，先下载到项目 `securities_lending/data/live` 的日期/批次目录，再读取本地副本的「库存券单」。顶部「打开本地数据」打开实际下载批次。
+首次在 App 填写共享盘中的「发送券单」根目录并保存。每次启动按北京时间定位 `根目录/YYYY-MM-DD/申万内部券单YYYY-MM-DD.xlsx`，先下载到项目 `securities_lending/data/live` 的日期/批次目录，再读取本地副本的「库存券单」。顶部「打开下载位置」打开实际下载批次，读取失败的文件也可定位；「文件与同步详情」可直接打开本地 Excel。
 
 文件名模板（支持 `{date}`）、Sheet 名、表头行、具体列名均可在设置中修改。默认逐笔取「实际可融股数」与「可融股数」的较小值，再按证券汇总；参考费率 0.05 显示 5%。库存市值按有效股数乘本次 Wind 最新价计算，原始券单市值只供追溯。任一必要数量列缺失时不确认上限。
 
