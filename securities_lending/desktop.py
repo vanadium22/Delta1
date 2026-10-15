@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
 from .calculation import decimal_value
 from .config import ROOT, today
 from .desktop_settings import SettingsDialog
+from .desktop_contacts import ContactsDialog
 from .desktop_theme import STYLE
 from .desktop_widgets import BatchDialog, EmphasisDelegate, ResultTable, TargetEdit
 from .exporting import clipboard_text, quality, rate_text, source_description, source_note, write_export
 from .inventory import normalize_code
 from .service import InventoryService
+from .trader_contacts import contact_description, contact_for, contacts_path, load_contacts
 
 
 def number(value, digits=2):
@@ -68,6 +70,8 @@ class Window(QMainWindow):
     def __init__(self, service=None, demo=False):
         super().__init__()
         self.service = service or InventoryService(demo=demo)
+        self.contacts_path = contacts_path(self.service.root, self.service.demo)
+        self.contacts, self.contacts_error = load_contacts(self.contacts_path)
         self.worker = None
         self.closing = False
         self.response = None
@@ -130,12 +134,19 @@ class Window(QMainWindow):
         states.addWidget(self.status_label)
         states.addWidget(self.wind_label)
         states.addStretch()
+        self.contacts_button = self.button("行业联系表…", self.edit_contacts)
+        states.addWidget(self.contacts_button)
         self.source_button = self.button("文件与同步详情", self.show_source)
         states.addWidget(self.source_button)
         layout.addLayout(states)
         self.source_label = label("", "muted")
         self.source_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        layout.addWidget(self.source_label)
+        source_info = QHBoxLayout()
+        source_info.addWidget(self.source_label, 1)
+        self.contact_group = label("", "contactGroup")
+        self.contact_group.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        source_info.addWidget(self.contact_group, 1)
+        layout.addLayout(source_info)
 
         notices = QHBoxLayout()
         self.notice = label("", "notice")
@@ -184,8 +195,8 @@ class Window(QMainWindow):
             actions.addWidget(button)
         layout.addLayout(actions)
 
-        self.table = ResultTable(0, 9)
-        self.table.setHorizontalHeaderLabels(["标的识别 / 库存", "行业", "最新价 / 元\n本次获取时间", "有效库存 / 股\n整百股上限", "库存市值\n万元", "参考费率", "要求金额 / 股数\n逐票选择单位", "需求 / 股", "可融判断 / 自有覆盖"])
+        self.table = ResultTable(0, 10)
+        self.table.setHorizontalHeaderLabels(["标的识别 / 库存", "行业", "最新价 / 元\n本次获取时间", "有效库存 / 股\n整百股上限", "库存市值\n万元", "参考费率", "要求金额 / 股数\n逐票选择单位", "需求 / 股", "可融判断 / 自有覆盖", "询券联系人\n群内 @"])
         self.table.setItemDelegate(EmphasisDelegate(self.table))
         self.table.verticalHeader().hide()
         self.table.setShowGrid(False)
@@ -197,8 +208,10 @@ class Window(QMainWindow):
         self.table.setMinimumHeight(180)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        for column, width in enumerate([144, 78, 108, 130, 94, 88, 130, 100, 280]):
+        for column, width in enumerate([140, 78, 104, 120, 86, 82, 125, 90, 260, 112]):
             self.table.setColumnWidth(column, width)
+        # Keep the established logical calculation/editor columns; display contacts beside industry.
+        self.table.horizontalHeader().moveSection(9, 2)
         self.table.horizontalHeader().setMinimumSectionSize(70)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.currentCellChanged.connect(lambda *args: self.show_detail(auto_expand=True))
@@ -266,13 +279,14 @@ class Window(QMainWindow):
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.batch)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self.export)
         QShortcut(QKeySequence("F5"), self, activated=self.refresh)
+        self.update_contacts()
 
     @property
     def busy(self):
         return self.worker is not None
 
     def update_controls(self):
-        for control in (self.refresh_button, self.query_button, self.settings_button, self.symbols, self.batch_button, self.retry_button):
+        for control in (self.refresh_button, self.query_button, self.settings_button, self.contacts_button, self.symbols, self.batch_button, self.retry_button):
             control.setEnabled(not self.busy)
         for editor in self.editors.values():
             editor.setEnabled(not self.busy)
@@ -612,6 +626,7 @@ class Window(QMainWindow):
             self.mode_editors[item["code"]] = selector
             self.editors[item["code"]] = editor
             self.table.setRowHeight(row, 78)
+        self.update_contacts()
         self.update_metrics()
         wanted = next((i for i, item in enumerate(self.items) if item["code"] == self.restore_code), 0)
         if self.items:
@@ -761,6 +776,7 @@ class Window(QMainWindow):
         self.copy_detail_button.setEnabled(bool(item["rows"]))
         quote, calc = item["quote"] or {}, item["calculation"]
         lines = [f"{item['name']}  {item['code']} | 行业：{item['industry'] or '待补充'}（{item.get('industry_source') or '无来源'}）",
+                 contact_description(item["contact"]),
                  f"价格：{quote.get('price', '缺失')} 元 | 来源：{quote.get('source', '无有效价格')} | 获取：{quote.get('retrieved_at', '—')}",
                  f"Wind 返回时间：{quote.get('wind_returned_at') or '未提供'}（不保证为逐笔成交时间）",
                  f"标的识别：{item.get('identification', '—')}（{item.get('identity_source') or '未确认'}） | {item.get('inventory_message', '')}",
@@ -784,6 +800,40 @@ class Window(QMainWindow):
         rows = sorted({index.row() for index in self.detail_table.selectionModel().selectedRows()}) or list(range(len(item["rows"])))
         QApplication.clipboard().setText(clipboard_text([item], self.response["status"], detail_indices=rows))
         self.statusBar().showMessage(f"已复制 {len(rows)} 笔券源明细（含期限、来源与文件行号）")
+
+    def update_contacts(self):
+        from PySide6.QtWidgets import QTableWidgetItem
+        group, note = self.contacts["group"], self.contacts["note"]
+        text = "联系表读取失败 · 点击「行业联系表」修复" if self.contacts_error else f"询券微信群：{group or '未设置'}" + (f" · {note}" if note else "")
+        self.contact_group.setText(text)
+        origin = str(self.contacts_path) if self.contacts_path.exists() else "随 App 提供的照片暂读初稿"
+        self.contact_group.setToolTip(f"{text}\n来源：{origin}\n{self.contacts_error}\n可在「行业联系表」中修改；没有明确映射的行业留空。")
+        self.table.horizontalHeaderItem(9).setToolTip(self.contact_group.toolTip())
+        for row, item in enumerate(self.items):
+            contact = contact_for(item.get("industry"), self.contacts)
+            item["contact"] = contact
+            cell = QTableWidgetItem("\n".join("@" + name for name in contact["traders"]))
+            cell.setToolTip(contact_description(contact) + f"\n联系表来源：{origin}")
+            font = cell.font()
+            font.setBold(True)
+            font.setPixelSize(13)
+            cell.setFont(font)
+            cell.setForeground(QColor("#205e7a"))
+            self.table.setItem(row, 9, cell)
+
+    def edit_contacts(self):
+        if self.busy:
+            return
+        pending = self.auto_calculate.isActive()
+        self.auto_calculate.stop()
+        dialog = ContactsDialog(self.contacts, self.contacts_path, self, self.contacts_error)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.contacts, self.contacts_error = dialog.book, ""
+            self.update_contacts()
+            self.show_detail()
+            self.statusBar().showMessage("行业联系表已保存并应用；当前需求和计算结果保留。")
+        if pending:
+            self.auto_calculate.start()
 
     def settings(self):
         if self.busy:

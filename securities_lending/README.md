@@ -4,7 +4,9 @@ Python + PySide6 原生 Windows 应用，默认入口为 python -m securities_le
 
 后续对话或继续开发，请先读 [项目交接与后续修改入口](PROJECT_HANDOFF.md)：包含已确认业务口径、代码索引、最近修复、验证边界和继续工作流程。
 
-持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，再将本次代码、测试和说明一起提交推送到 `codex/securities-lending`，保留其他模块及本机数据。
+**公司使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新券单、基差和指数策略等全部已发布模块。** `codex/securities-lending` 用于开发；公司运行时保持统一分支。
+
+持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，将本次代码、测试和说明提交推送到开发分支，再将本次已验证提交汇总、验证并推送到 `codex/company-apps`，保留其他模块及本机数据。
 
 ## 日常启动和查询
 
@@ -89,6 +91,28 @@ python -s -X utf8 -m securities_lending --demo
 
 「券源明细」可展开/收起，主表与明细之间的分隔条可上下拖动；无库存标的也能查看单独结论。「复制明细」复制选中券源行，未选行时复制当前股票全部明细，也可在明细表按 Ctrl+C。「计算与追溯」查看完整价格时间、识别来源、自有缺口/合计缺口、计算依据和快照路径。列宽可拖动调整，窄窗口用水平滚动条查看其余列。
 
+## 行业询券联系表（可自行修改）
+
+行业右侧新增「询券联系人」列，显示群内需要 @ 的姓名；上方显示微信群名。点击「行业联系表…」，可以修改微信群名、备注、交易台联系人，以及行业到交易台的对应关系。表格双击编辑，支持新增/删除行；多人姓名用逗号或顿号分隔。**保存后立即更新当前结果、计算与追溯和汇总复制/导出**，不触发券单同步或额外行情请求，不丢失正在输入的金额/股数。
+
+以下只是用户照片的**暂读初稿，姓名与群名尚待用户核对**，不是已确认名单；备注也会显示在主界面和导出里，可在核对后自行修改：
+
+| 交易台 / 分组 | 暂读联系人 |
+| --- | --- |
+| 机械/硬件 | 顾炎、辛博洋 |
+| 电子/软件/汽车 | 李昊汉、李响 |
+| 周期 | 王润楷 |
+| 消费 | 马瑛涵、薛宇豪 |
+
+微信群暂读为 **D1&股票交流群**。联系人只作询券提示，不代表该交易台持有库存、接受需求或属于自有券源，也不会自动发送微信消息。
+
+默认行业归组由 App 根据照片分组建立：机械/机械设备/硬件/计算机设备 → 机械/硬件；电子/软件/软件开发/汽车 → 电子/软件/汽车；煤炭/石油石化/有色金属/钢铁/基础化工/建筑材料 → 周期；食品饮料/家用电器/纺织服饰/商贸零售/社会服务/美容护理 → 消费。行业按去除首尾空格后的**完整名称精确匹配**，不做模糊推断；银行、医药生物、电力设备、计算机等未明确归组的行业和多个行业混合字符串先留空，可在「行业映射」里补充。交易台可留空；引用不存在的交易台或重复行业会拒绝保存并指出原因。
+
+- 默认模板：[trader_contacts.example.json](trader_contacts.example.json)。以后更新模板不会覆盖已有本机联系表。
+- 正式本机文件：`securities_lending/trader_contacts.local.json`；演示文件：`securities_lending/data/demo/trader_contacts.local.json`，互相隔离且不提交 Git。文件不存在时使用模板；文件损坏时显示错误并将联系人留空，不悄悄恢复成初稿。
+- 也可直接编辑本机 JSON 后重启 App：`group` 是群名、`note` 是备注、`desks` 是交易台到姓名列表、`industries` 是行业名称到交易台名称；`schema_version` 保持 `1`。本机文件完整替代默认表，不自动合并新增分组。
+- 代码接口见 [trader_contacts.py](trader_contacts.py)：`contacts_path(root, demo)` 选择模式路径；`load_contacts(path)` 返回 `(联系表, 错误提示)`；`save_contacts(path, book)` 校验后原子保存；`contact_for(industry, book)` 查询映射。编辑窗口见 [desktop_contacts.py](desktop_contacts.py)。不需改券单配置或库存计算逻辑。
+
 ## 导出与来源追溯
 
 默认导出 Excel，包含“查询汇总”“券源明细”“数据说明”；也支持 CSV 汇总或 CSV 券源明细。CSV 使用 UTF-8 BOM，复制内容使用制表符分隔。
@@ -98,6 +122,8 @@ python -s -X utf8 -m securities_lending --demo
 CSV 汇总也有逐笔追溯文本。金额/原始数量保留精确值，Excel 超出可精确表示范围的数值用文本保存。库存不足时“校验通过股数”为空。原生保存对话框可另选位置，默认在项目 data/exports；导出在后台完成，先写临时文件，成功后才替换目标，失败不损坏已有导出。
 
 汇总复制/导出同时保留标的识别及来源、库存提示、金额/股数输入方式、自有/其他来源上限、自有缺口/合计缺口、覆盖结论及最大可融估算金额。无库存与未识别输入均保留独立结果，便于核对。
+
+原生 App 汇总还包含询券交易台、联系人、微信群名和联系表备注；没有明确映射时交易台/姓名留空。姓名字段使用不带 @ 的纯文字，表头说明在群内 @。
 
 ## 可配置接口与文件同步
 
@@ -166,16 +192,14 @@ securities_lending/
 
 真实券单、缓存、导出、本机配置均不提交 Git。旧网页代码保留兼容，但默认原生 App 不启动它。仓库根 README 的指数工具说明属于另一个模块。
 
-家中修改需要先提交并推送，公司的 git pull 才能取得更新。公司在**实际仓库根目录**检查本地改动后：
+家中修改需要先发布到 `codex/company-apps`，公司的 git pull 才能取得更新。公司保持在该分支，关闭 App，在**实际仓库根目录**检查本地改动后：
 
 ~~~powershell
 git status
-git fetch origin
-git switch codex/securities-lending
-git pull --ff-only origin codex/securities-lending
+git pull --ff-only
 ~~~
 
-分支尚不存在时使用 git switch --track origin/codex/securities-lending。有本地改动时先保留并检查，不用 reset/clean 强行覆盖；目录叫 dashboard 不影响原生应用入口。
+若误切到了开发分支，先 `git fetch origin`，再 `git switch codex/company-apps`，成功后才执行上述 pull。任何一步报错都停止并保留现场，不用 reset/clean 强行覆盖。Git 分支控制整个仓库，切到券单开发分支可能使其他模块源码退出当前检出；切回统一分支会恢复其已跟踪文件，本机数据仍由忽略规则保留。目录叫 dashboard 不影响原生应用入口。
 
 ## 测试与演示截图
 
