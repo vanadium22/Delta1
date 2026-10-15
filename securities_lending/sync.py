@@ -69,6 +69,8 @@ def cached_manifest(data_root: Path, day: str, config: dict):
         return None
     if manifest["selection"] != config["file_selection"] or manifest.get("file_glob") != config["file_glob"]:
         return None
+    if not isinstance(manifest.get("files"), list) or not manifest["files"]:
+        raise ValueError("当日本地清单没有有效文件，请重新同步")
     for entry in manifest["files"]:
         local = Path(entry["path"])
         if not local.resolve().is_relative_to((data_root / day).resolve()) or not local.is_file() or digest(local) != entry["sha256"]:

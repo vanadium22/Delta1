@@ -87,7 +87,7 @@ class Window(QMainWindow):
         self.rollover = QTimer(self)
         self.rollover.timeout.connect(self.check_date)
         self.rollover.start(30000)
-        QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(0, self.load_today)
 
     def button(self, text, callback, primary=False):
         button = QPushButton(text)
@@ -110,6 +110,7 @@ class Window(QMainWindow):
         top.addWidget(self.mode_label)
         top.addStretch()
         self.refresh_button = self.button("同步当日券单  F5", self.refresh)
+        self.refresh_button.setToolTip("强制从共享目录重新下载当日券单；普通启动优先读取已校验的当日本地副本。")
         self.folder_button = self.button("打开下载位置", self.open_local_data)
         self.folder_button.setToolTip("直接打开本次下载的 Excel 所在文件夹；读取失败时也可查看原文件。")
         self.settings_button = self.button("设置", self.settings)
@@ -118,7 +119,7 @@ class Window(QMainWindow):
         layout.addLayout(top)
 
         states = QHBoxLayout()
-        self.status_label = label("正在同步运行日券单…", "badge")
+        self.status_label = label("正在检查当日本地券单…", "badge")
         self.wind_label = label("演示价格 · 不连接 Wind" if self.service.demo else "Wind · 尚未请求行情", "badge")
         states.addWidget(self.status_label)
         states.addWidget(self.wind_label)
@@ -313,18 +314,19 @@ class Window(QMainWindow):
     def show_status(self, status):
         self.last_status = status
         self.current_date = status["date"]
-        names = {"ready": "本次同步成功", "cached": "使用当日缓存 · 本次同步失败", "unavailable": "当日券单不可用", "loading": "正在同步"}
+        names = {"ready": "本次同步成功", "local": "使用当日本地券单 · 未重新下载", "cached": "使用当日缓存 · 本次同步失败", "unavailable": "当日券单不可用", "loading": "正在检查券单"}
         if status["state"] == "unavailable" and status.get("downloaded_files"):
             names["unavailable"] = "已下载 · 读取失败" if any(file.get("read_error") for file in status["downloaded_files"]) else "已下载 · 同步未完成"
         self.status_label.setText(f"{names[status['state']]}  |  {status['date']}（北京）")
-        self.tone(self.status_label, {"ready": "ok", "cached": "warning", "unavailable": "error"}.get(status["state"], "neutral"))
+        self.tone(self.status_label, {"ready": "ok", "local": "ok", "cached": "warning", "unavailable": "error"}.get(status["state"], "neutral"))
         files = status["files"]
         if not files and status.get("downloaded_files"):
             names = "、".join(file["name"] for file in status["downloaded_files"])
             self.source_label.setText(f"已下载待核查：{names}   |   下载：{status['attempt_downloaded_at']}   |   未作为库存使用")
         else:
             names = "、".join(file["name"] for file in files) or "尚无成功下载文件"
-            self.source_label.setText(f"{'缓存文件' if status['state'] == 'cached' else '文件'}：{names}   |   下载：{status.get('downloaded_at') or '—'}   |   {status['security_count']} 只 / {status['record_count']} 笔")
+            kind = "缓存文件" if status["state"] == "cached" else "当日本地文件" if status["state"] == "local" else "文件"
+            self.source_label.setText(f"{kind}：{names}   |   原下载时间：{status.get('downloaded_at') or '—'}   |   {status['security_count']} 只 / {status['record_count']} 笔")
         self.source_label.setToolTip(self.source_text())
         policy = self.service.active_config()["quantity_policy"]
         self.table.horizontalHeaderItem(3).setText("库存股数 / 股\n" + ("逐笔取小值再合计" if policy == "minimum" else "可融数量列"))
@@ -342,6 +344,8 @@ class Window(QMainWindow):
                  f"本次检查：{status.get('refreshed_at') or '—'}",
                  f"本次文件下载：{status.get('attempt_downloaded_at') or '—'}",
                  f"当前有效库存的下载时间：{status.get('downloaded_at') or '—'}"]
+        if status["state"] == "local":
+            lines.append("本次读取：已校验当日本地副本；未访问共享目录，未检查公盘是否更新。需要更新请点击“同步当日券单”或 F5。")
         if status["state"] != "ready" and status.get("downloaded_files"):
             lines.append("\n本次下载文件（同步未完成，不作为当前库存；打开下载位置将定位这里）：")
             for file in status["downloaded_files"]:
@@ -435,7 +439,8 @@ class Window(QMainWindow):
 
     def refresh_done(self, status):
         self.show_status(status)
-        message = ("券单已就绪，输入标的查询" if status["state"] == "ready" else
+        message = ("使用当日本地券单，输入标的查询；需要公盘最新版本时按 F5" if status["state"] == "local" else
+                   "券单已就绪，输入标的查询" if status["state"] == "ready" else
                    "使用当日缓存 · 本次同步失败，可查看提示后重试" if status["state"] == "cached" else
                    "已下载但读取失败 · 打开文件与同步详情，核对文件名和 Sheet" if any(file.get("read_error") for file in status.get("downloaded_files", [])) else
                    "已下载但同步未完成 · 查看提示后重试" if status.get("downloaded_files") else
@@ -444,15 +449,21 @@ class Window(QMainWindow):
         self.statusBar().showMessage(message)
         self.loaded.emit()
 
+    def load_today(self):
+        self.load_inventory(self.service.load_today, "正在检查当日本地券单…")
+
     def refresh(self):
+        self.load_inventory(self.service.refresh, "正在下载并读取当日券单…")
+
+    def load_inventory(self, operation, message):
         if self.busy:
             return
         self.retry_action = self.refresh
         self.clear_results()
-        self.status_label.setText(f"正在下载并读取当日券单  |  {today()}")
+        self.status_label.setText(f"{message}  |  {today()}")
         self.tone(self.status_label, "neutral")
         self.wind_label.setText("演示价格 · 不连接 Wind" if self.service.demo else "Wind · 等待下次查询")
-        self.run_task("正在同步当日券单…", lambda progress: self.service.refresh(progress), self.refresh_done)
+        self.run_task(message, operation, self.refresh_done)
 
     def target_values(self):
         values = {}
@@ -513,7 +524,7 @@ class Window(QMainWindow):
                 code = normalize_code(group["input"])
                 if code and code not in seen:
                     quote = response["quotes"].get(code)
-                    available = 0 if response["status"]["state"] in {"ready", "cached"} else None
+                    available = 0 if response["status"]["state"] in {"ready", "local", "cached"} else None
                     self.items.append({"code": code, "name": "未匹配库存" if available is not None else "库存未就绪", "industry": response.get("industries", {}).get(code),
                         "quantity": available, "quantity_complete": available is not None, "nominal": None, "nominal_complete": False,
                         "rate_min": None, "rate_max": None, "rate_raw": [], "rows": [], "quote": quote,
@@ -525,7 +536,7 @@ class Window(QMainWindow):
                     seen.add(item["code"])
         notices = response["status"]["warnings"] + response["warnings"]
         if unmatched:
-            notices.append(("当前已加载券单未匹配：" if response["status"]["state"] in {"ready", "cached"} else "库存未就绪，无法确认以下标的库存：") + "、".join(unmatched))
+            notices.append(("当前已加载券单未匹配：" if response["status"]["state"] in {"ready", "local", "cached"} else "库存未就绪，无法确认以下标的库存：") + "、".join(unmatched))
         self.show_notices(notices)
         self.table.setRowCount(len(self.items))
         self.editors = {}
@@ -753,7 +764,7 @@ class Window(QMainWindow):
 
     def check_date(self):
         if not self.busy and today() != self.current_date:
-            self.refresh()
+            self.load_today()
 
     def closeEvent(self, event):
         if self.busy:

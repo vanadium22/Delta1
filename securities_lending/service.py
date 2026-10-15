@@ -114,29 +114,46 @@ class InventoryService:
             files.append({**entry, **mapping, "records": len(rows)})
         return records, warnings, files
 
-    def refresh(self, progress=None):
+    def load_today(self, progress=None):
+        """Use a verified local snapshot before considering a shared-drive download."""
+        return self.refresh(progress, prefer_local=True)
+
+    def refresh(self, progress=None, *, prefer_local=False):
         with self.lock:
             day, config = self.clock(), self.active_config()
             self.provider.failed_keys.clear()
             manifest, parsed, issue, downloaded = None, None, None, None
-            try:
-                if self.demo:
-                    demo_source(self.root / "data" / "demo_source", day)
-                manifest = synchronize(config, day, self.data_root, progress)
-                manifest["file_glob"] = config["file_glob"]
-                downloaded = manifest
-                parsed = self._parse(manifest, config, progress)
-                save_manifest(self.data_root, manifest)
-            except Exception as exc:
-                issue = str(exc)
-                manifest = None
+            local_warnings, using_local = [], False
+            if prefer_local:
+                if progress:
+                    progress("正在检查当日本地券单…")
                 try:
                     manifest = cached_manifest(self.data_root, day, config)
                     if manifest:
                         parsed = self._parse(manifest, config, progress)
-                except Exception as cache_exc:
-                    issue += f"；缓存也无法使用：{cache_exc}"
+                        using_local = True
+                except Exception as exc:
+                    local_warnings.append(f"当日本地券单不可用，已尝试重新下载：{exc}")
+                    manifest, parsed = None, None
+            if not using_local:
+                try:
+                    if self.demo:
+                        demo_source(self.root / "data" / "demo_source", day)
+                    manifest = synchronize(config, day, self.data_root, progress)
+                    manifest["file_glob"] = config["file_glob"]
+                    downloaded = manifest
+                    parsed = self._parse(manifest, config, progress)
+                    save_manifest(self.data_root, manifest)
+                except Exception as exc:
+                    issue = str(exc)
                     manifest = None
+                    try:
+                        manifest = cached_manifest(self.data_root, day, config)
+                        if manifest:
+                            parsed = self._parse(manifest, config, progress)
+                    except Exception as cache_exc:
+                        issue += f"；缓存也无法使用：{cache_exc}"
+                        manifest = None
             self.records = parsed[0] if manifest and parsed else []
             try:
                 source = str(source_directory(config, day))
@@ -144,7 +161,7 @@ class InventoryService:
                 source = "未配置"
             self.state = {
                 "date": day, "mode": "demo" if self.demo else "live",
-                "state": "cached" if manifest and issue else "ready" if manifest else "unavailable",
+                "state": "local" if using_local else "cached" if manifest and issue else "ready" if manifest else "unavailable",
                 "source_dir": source, "refreshed_at": timestamp(),
                 "downloaded_at": manifest["downloaded_at"] if manifest else None,
                 # A copied workbook can fail validation. Keep its provenance separate
@@ -152,7 +169,7 @@ class InventoryService:
                 "downloaded_files": downloaded["files"] if downloaded else [],
                 "attempt_downloaded_at": downloaded["downloaded_at"] if downloaded else None,
                 "sheet_name": config["sheet_name"],
-                "warnings": ([issue] if issue else []) + (parsed[1] if manifest and parsed else []),
+                "warnings": local_warnings + ([issue] if issue else []) + (parsed[1] if manifest and parsed else []),
                 "files": parsed[2] if manifest and parsed else [],
                 "record_count": len(self.records), "security_count": len(set(r["code"] for r in self.records)),
                 "selection": config["file_selection"],
@@ -162,7 +179,7 @@ class InventoryService:
     def status(self, progress=None):
         with self.lock:
             if self.state["state"] == "loading" or self.state["date"] != self.clock():
-                self.refresh(progress)
+                self.load_today(progress)
             return self.state
 
     def query(self, text: str, targets=None, input_targets=None, progress=None):

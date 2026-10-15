@@ -48,6 +48,124 @@ class InventoryRegressionTests(unittest.TestCase):
     def service(self):
         return InventoryService(self.root, clock=lambda: self.day)
 
+    def test_restart_reuses_verified_local_snapshot_without_shared_drive(self):
+        source = self.workbook()
+        first = self.service().status()
+        source.unlink()
+        batch_root = self.root / "data" / "live" / self.day / "snapshots"
+        batches = sorted(batch_root.iterdir())
+        service = self.service()
+        with patch("securities_lending.service.synchronize", side_effect=AssertionError("must not access shared drive")) as sync:
+            status = service.status()
+            sync.assert_not_called()
+        self.assertEqual(status["state"], "local")
+        self.assertEqual(status["files"], first["files"])
+        self.assertEqual(status["downloaded_at"], first["downloaded_at"])
+        self.assertIsNone(status["attempt_downloaded_at"])
+        self.assertEqual(status["downloaded_files"], [])
+        self.assertEqual(sorted(batch_root.iterdir()), batches)
+        self.assertEqual(len(service.records), 2)
+
+    def test_local_startup_still_fetches_new_prices_for_every_query(self):
+        self.workbook()
+        self.service().refresh()
+        service = self.service()
+        service.status()
+        with patch.object(service.provider, "market", side_effect=[({}, {"000001.SZ": {"price": "10"}}, []), ({}, {"000001.SZ": {"price": "20"}}, [])]) as market:
+            first = service.query("000001", {"000001.SZ": "10000"})
+            second = service.query("000001", {"000001.SZ": "10000"})
+        self.assertEqual(market.call_count, 2)
+        self.assertEqual(first["status"]["state"], "local")
+        self.assertEqual(first["results"][0]["matches"][0]["calculation"]["requested_shares"], 1000)
+        self.assertEqual(second["results"][0]["matches"][0]["calculation"]["requested_shares"], 500)
+
+    def test_manual_refresh_gets_new_source_and_failure_stays_distinct(self):
+        source = self.workbook()
+        first = self.service().status()
+        self.workbook(rows=[["000001.SZ", "测试银行", 300, 300, 1, .05, "互换", 14]])
+        service = self.service()
+        self.assertEqual(service.status()["state"], "local")
+        self.assertEqual(len(service.records), 2)
+        refreshed = service.refresh()
+        self.assertEqual(refreshed["state"], "ready")
+        self.assertNotEqual(refreshed["files"][0]["path"], first["files"][0]["path"])
+        self.assertEqual(service.records[0]["quantity"], 300)
+        source.unlink()
+        self.assertEqual(service.refresh()["state"], "cached")
+
+    def test_missing_corrupt_or_empty_local_cache_downloads_again(self):
+        self.workbook()
+        for damage in ("missing", "corrupt_file", "invalid_manifest", "empty_manifest"):
+            with self.subTest(damage=damage):
+                service = self.service()
+                original = service.refresh()
+                local = Path(original["files"][0]["path"])
+                manifest_path = service.data_root / self.day / "latest.json"
+                if damage == "missing":
+                    local.unlink()
+                elif damage == "corrupt_file":
+                    local.write_bytes(b"corrupt")
+                elif damage == "invalid_manifest":
+                    manifest_path.write_text("invalid", encoding="utf-8")
+                else:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest["files"] = []
+                    atomic_json(manifest_path, manifest)
+                with patch("securities_lending.service.synchronize", wraps=synchronize) as sync:
+                    status = self.service().status()
+                self.assertEqual(sync.call_count, 1)
+                self.assertEqual(status["state"], "ready")
+                self.assertEqual(status["record_count"], 2)
+                self.assertNotEqual(status["files"][0]["path"], str(local))
+
+    def test_new_day_uses_its_local_copy_or_downloads_never_yesterday(self):
+        old_source = self.workbook()
+        service = self.service()
+        old = service.status()
+        self.day = "2030-02-08"
+        with patch("securities_lending.service.synchronize", wraps=synchronize) as sync:
+            self.assertEqual(service.status()["state"], "unavailable")
+        self.assertEqual(sync.call_count, 1)
+        self.assertEqual(service.records, [])
+        self.workbook(rows=[["000001.SZ", "次日库存", 100, 100, 1, .05, "互换", 14]])
+        today = self.service().status()
+        service.clock = lambda: "2030-02-07"
+        service.status()
+        service.clock = lambda: self.day
+        with patch("securities_lending.service.synchronize") as sync:
+            loaded = service.status()
+        sync.assert_not_called()
+        self.assertEqual(loaded["state"], "local")
+        self.assertEqual(loaded["files"], today["files"])
+        self.assertNotEqual(loaded["files"], old["files"])
+        self.assertEqual(service.records[0]["quantity"], 100)
+        self.assertTrue(old_source.is_file())
+
+    def test_startup_rejects_cache_from_different_file_selection_config(self):
+        self.workbook()
+        self.service().refresh()
+        for change in ({"source_root": str(self.root / "other")}, {"file_glob": "other*.xlsx"}, {"file_selection": "merge"}):
+            with self.subTest(change=change):
+                service = self.service()
+                service.config.update(change)
+                with patch("securities_lending.service.synchronize", side_effect=OSError("offline")) as sync:
+                    status = service.status()
+                sync.assert_called_once()
+                self.assertEqual(status["state"], "unavailable")
+                self.assertEqual(service.records, [])
+
+    def test_local_file_must_parse_with_current_sheet_config(self):
+        self.workbook()
+        self.service().refresh()
+        service = self.service()
+        service.config["sheet_name"] = "changed_sheet"
+        with patch("securities_lending.service.synchronize", wraps=synchronize) as sync:
+            status = service.status()
+        sync.assert_called_once()
+        self.assertEqual(status["state"], "unavailable")
+        self.assertEqual(service.records, [])
+        self.assertTrue(any("changed_sheet" in warning for warning in status["warnings"]))
+
     def test_decimal_unit_conversion_survives_floor_boundary(self):
         quantity = number("0.57", 10000)
         self.assertEqual(quantity, Decimal(5700))
@@ -277,6 +395,54 @@ class EntrypointTests(unittest.TestCase):
 
 
 class WorkbenchTests(native_tests.DesktopCase):
+    def test_native_restart_is_local_and_refresh_button_forces_download(self):
+        previous = self.service.state
+        self.window.close()
+        self.window.deleteLater()
+        self.app.processEvents()
+        self.service = InventoryService(self.service.root, demo=True)
+        with patch("securities_lending.service.synchronize", side_effect=AssertionError("unexpected download")) as sync, patch("securities_lending.service.demo_source") as generator:
+            self.window = native_tests.Window(self.service)
+            self.window.show()
+            self.wait(lambda: self.service.state["state"] != "loading" and not self.window.busy)
+            sync.assert_not_called()
+            generator.assert_not_called()
+        self.assertEqual(self.service.state["state"], "local")
+        self.assertIn("未重新下载", self.window.status_label.text())
+        self.assertIn("未访问共享目录", self.window.source_text())
+        self.assertTrue(self.window.retry_button.isHidden())
+        self.assertEqual(self.service.state["downloaded_at"], previous["downloaded_at"])
+        self.query("600519 600000")
+        self.assertEqual(self.window.items[1]["name"], "未匹配库存")
+        path = Path(self.tmp.name) / "local.xlsx"
+        self.window.export_to(path)
+        book = load_workbook(path, read_only=True)
+        try:
+            self.assertEqual(book["查询汇总"]["C2"].value, "local")
+        finally:
+            book.close()
+        with patch("securities_lending.service.synchronize", wraps=synchronize) as sync:
+            QTest.mouseClick(self.window.refresh_button, Qt.MouseButton.LeftButton)
+            self.wait(lambda: not self.window.busy)
+        sync.assert_called_once()
+        self.assertEqual(self.service.state["state"], "ready")
+        self.assertNotEqual(self.service.state["files"][0]["path"], previous["files"][0]["path"])
+
+    def test_native_rollover_loads_existing_new_day_snapshot(self):
+        from datetime import date, timedelta
+        next_day = (date.fromisoformat(self.service.state["date"]) + timedelta(days=1)).isoformat()
+        next_service = InventoryService(self.service.root, demo=True, clock=lambda: next_day)
+        prepared = next_service.refresh()
+        self.service.clock = lambda: next_day
+        with patch("securities_lending.desktop.today", return_value=next_day), patch("securities_lending.service.synchronize") as sync:
+            self.window.check_date()
+            self.wait(lambda: not self.window.busy)
+        sync.assert_not_called()
+        self.assertEqual(self.service.state["state"], "local")
+        self.assertEqual(self.service.state["date"], next_day)
+        self.assertEqual(self.service.state["files"], prepared["files"])
+        self.assertIsNone(self.window.response)
+
     def test_multi_source_details_keep_rates_terms_and_sources_visible(self):
         self.query("600519 000001")
         self.assertEqual(len(self.window.items), 2)

@@ -107,8 +107,8 @@ def main():
         raise SystemExit(f"端口 {args.port} 无法使用，请关闭已有实例或使用 --port 指定其他端口：{exc}")
     url = f"http://127.0.0.1:{server.server_port}"
     print(f"Delta1 券源查询 {'[合成演示]' if args.demo else ''} {url}", flush=True)
-    print("首次启动及每次重启自动同步运行日券单。Ctrl+C 关闭服务。", flush=True)
-    threading.Thread(target=service.refresh, daemon=True).start()
+    print("启动优先读取当日本地券单，无可用副本时自动同步。Ctrl+C 关闭服务。", flush=True)
+    threading.Thread(target=service.status, daemon=True).start()
     if not args.no_browser:
         webbrowser.open(url)
     try:

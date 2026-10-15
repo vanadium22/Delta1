@@ -24,7 +24,7 @@ function showStatus(status) {
   currentStatus = status;
   $("run-date").textContent = `${status.date.replaceAll("-", " / ")} · 运行日`;
   $("demo-banner").hidden = status.mode !== "demo";
-  const labels = {ready:"当日券单已就绪", cached:"使用当日本地缓存", unavailable:"当日券单未就绪", loading:"正在同步券单"};
+  const labels = {ready:"本次同步成功", local:"使用当日本地券单 · 未重新下载", cached:"使用当日缓存 · 本次同步失败", unavailable:"当日券单未就绪", loading:"正在检查券单"};
   $("source-state").textContent = labels[status.state] || status.state;
   $("source-dot").className = "status-dot" + (status.state === "cached" ? " warning" : status.state === "unavailable" ? " error" : "");
   $("source-description").textContent = `${status.files.length} 份文件 · ${fmt(status.security_count, 0)} 只标的 · ${fmt(status.record_count, 0)} 笔券源`;
