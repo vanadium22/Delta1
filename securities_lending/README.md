@@ -113,6 +113,12 @@ python -s -X utf8 -m securities_lending --demo
 - 也可直接编辑本机 JSON 后重启 App：`group` 是群名、`note` 是备注、`desks` 是交易台到姓名列表、`industries` 是行业名称到交易台名称；`schema_version` 保持 `1`。本机文件完整替代默认表，不自动合并新增分组。
 - 代码接口见 [trader_contacts.py](trader_contacts.py)：`contacts_path(root, demo)` 选择模式路径；`load_contacts(path)` 返回 `(联系表, 错误提示)`；`save_contacts(path, book)` 校验后原子保存；`contact_for(industry, book)` 查询映射。编辑窗口见 [desktop_contacts.py](desktop_contacts.py)。不需改券单配置或库存计算逻辑。
 
+## 个人微信接入调研（尚未接通）
+
+2026-10-15 已核查 GitHub 候选方案与当前官方接口，见 [微信接口调研与接入设计](WECHAT_INTERFACE_REVIEW.md)。目标是读取指定群中 @ 本人的前后文并发送指定消息；目前只完成调研，**没有微信监听/发送入口，不需安装新依赖**。现有群名和联系人仍仅作提示。
+
+后续接入需核对公司微信完整版本和具体插件。前后文要在本地缓存并持续补齐，UI 文本中的“@昵称”不能直接视为准确命中；不同 wxauto 版本/分支能力不可混用。真实群配置、消息和凭证留在本机，演示不连接微信。
+
 ## 导出与来源追溯
 
 默认导出 Excel，包含“查询汇总”“券源明细”“数据说明”；也支持 CSV 汇总或 CSV 券源明细。CSV 使用 UTF-8 BOM，复制内容使用制表符分隔。
