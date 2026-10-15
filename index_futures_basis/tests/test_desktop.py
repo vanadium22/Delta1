@@ -1,5 +1,6 @@
 """Exercise real Qt signals, worker completion, selection invalidation and file export."""
 import os
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -108,3 +109,26 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.service.cancel.is_set())
         self.wait_idle()
         self.assertFalse(self.window.isVisible())
+
+    def test_report_fallback_is_visible_in_warning_and_completion_status(self):
+        folder = Path(self.temp.name) / "saved_report"
+        folder.mkdir()
+        message = "更新未成功，已回退至前一交易日2026-10-07；原因：指数收盘价缺失"
+        (folder / "run_manifest.json").write_text(json.dumps({"actual_end": "2026-10-07",
+            "market_update_check": {"state": "fallback", "message": message}}), encoding="utf-8")
+        with patch.object(self.service, "export", return_value=str(folder)), \
+             patch("index_futures_basis.desktop.QMessageBox.warning") as warning:
+            self.window.export("report")
+            self.wait_idle()
+        self.assertEqual(warning.call_count, 1)
+        self.assertIn(message, warning.call_args.args[2])
+        self.assertIn(message, self.window.progress_label.text())
+
+    def test_report_failure_explicitly_says_no_report_created(self):
+        with patch.object(self.service, "export", side_effect=ValueError("前一交易日数据也不完整；未生成报告")), \
+             patch("index_futures_basis.desktop.QMessageBox.warning") as warning:
+            self.window.export("report")
+            self.wait_idle()
+        self.assertEqual(warning.call_args.args[1], "报告未生成")
+        self.assertIn("数据也不完整", warning.call_args.args[2])
+        self.assertIn("未生成报告", self.window.progress_label.text())

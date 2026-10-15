@@ -1,7 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "history_months": 12,
-  "close_hour": 18,
+  "close_hour": 15,
+  "close_minute": 5,
   "wind_python": "",
   "wind_timeout_seconds": 90,
   "wind_mapping_field": "trade_hiscode",

@@ -10,7 +10,7 @@ import uuid
 ROOT = Path(__file__).resolve().parent
 SHANGHAI = timezone(timedelta(hours=8))
 DEFAULTS = {
-    "version": 1, "history_months": 12, "close_hour": 18,
+    "version": 2, "history_months": 12, "close_hour": 15, "close_minute": 5,
     "wind_python": "", "wind_timeout_seconds": 90,
     "wind_mapping_field": "trade_hiscode", "wind_expiry_field": "lasttrade_date",
     "data_directory": "data", "exports_directory": "exports", "auto_sync": True,
@@ -27,7 +27,9 @@ def timestamp():
 
 def closed_date(config, now=None):
     now = now or datetime.now(SHANGHAI)
-    return (now if now.hour >= config["close_hour"] else now - timedelta(days=1)).date().isoformat()
+    now = now.replace(tzinfo=SHANGHAI) if now.tzinfo is None else now.astimezone(SHANGHAI)
+    ready = (now.hour, now.minute) >= (config["close_hour"], config.get("close_minute", 0))
+    return (now if ready else now - timedelta(days=1)).date().isoformat()
 
 
 def atomic_json(path, data):
@@ -46,6 +48,13 @@ def load_config(root=ROOT, demo=False):
     path = Path(root) / ("data/demo/config.local.json" if demo else "config.local.json")
     if path.exists():
         saved = json.loads(path.read_text(encoding="utf-8-sig"))
+        # Migrate the old default; preserve deliberately customized later times.
+        if saved.get("version", 1) < 2:
+            if saved.get("close_hour", 18) == 18:
+                saved.update(close_hour=15, close_minute=5)
+            else:
+                saved.setdefault("close_minute", 0)
+            saved["version"] = 2
         dividend_patch = saved.pop("dividends", {})
         config.update(saved)
         config["dividends"].update(dividend_patch)
@@ -56,8 +65,9 @@ def load_config(root=ROOT, demo=False):
 def validate_config(config):
     if not 12 <= int(config["history_months"]) <= 36:
         raise ValueError("历史窗口须为12至36个月")
-    if not 16 <= int(config["close_hour"]) <= 23:
-        raise ValueError("完整日线门槛须为北京时间16至23点；默认18点")
+    hour, minute = int(config["close_hour"]), int(config.get("close_minute", 0))
+    if not (15, 5) <= (hour, minute) <= (23, 59) or not 0 <= minute <= 59:
+        raise ValueError("日线检查时间须为北京时间15:05至23:59；默认15:05")
     if not 10 <= float(config["wind_timeout_seconds"]) <= 600:
         raise ValueError("Wind 单次请求超时须为10至600秒")
     for key in ("data_directory", "exports_directory"):

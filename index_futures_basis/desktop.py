@@ -8,12 +8,12 @@ import shutil
 import uuid
 
 import pandas as pd
-from PySide6.QtCore import QDate, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QDate, QTime, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit,
     QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QScrollArea, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+    QScrollArea, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTimeEdit, QVBoxLayout, QWidget)
 
 from .analytics import read_continuous_snapshot, sha256
 from .config import ROOT, resolve
@@ -32,7 +32,7 @@ QPushButton:hover {background:#e8f0f8;}
 QPushButton:disabled {color:#a0abb6; background:#f1f3f5;}
 QPushButton#primary {background:#245c86; color:white; border:1px solid #245c86;}
 QPushButton#primary:disabled {background:#dfe7ef; color:#8092a4; border-color:#d4dfe9;}
-QComboBox, QLineEdit, QSpinBox, QDateEdit {padding:5px; background:white; border:1px solid #bdcbd9; border-radius:3px;}
+QComboBox, QLineEdit, QSpinBox, QDateEdit, QTimeEdit {padding:5px; background:white; border:1px solid #bdcbd9; border-radius:3px;}
 QTableWidget {background:white; alternate-background-color:#f4f7fb; gridline-color:#e0e6ed; selection-background-color:#d5e8f9; selection-color:#142f48;}
 QHeaderView::section {background:#e8eef5; color:#294761; padding:7px; border:0; border-right:1px solid #d9e2ec;}
 QTabWidget::pane {border:1px solid #d4dfe9; background:white;}
@@ -289,12 +289,12 @@ class Window(QMainWindow):
         row.addStretch()
         row.addWidget(self.button("打开导出目录", self.open_exports))
         layout.addLayout(row)
-        layout.addWidget(self.hint("报告、统计与图片使用同一计算版本。导出保留行情截止日、分红日期与来源；双击记录打开所在文件夹。"))
+        layout.addWidget(self.hint("正式 Word 生成前自动补齐并校验行情；默认15:05后尝试当天，未取全则明确提示并回退前一交易日。离线/演示不联网；双击记录打开文件夹。"))
         self.export_table = Table(["生成时间", "行情截止日", "分红日期", "类型", "版本状态", "保存位置"])
         self.export_table.cellDoubleClicked.connect(self.open_artifact)
         layout.addWidget(self.export_table, 1)
 
-    def run_task(self, text, operation, success, cancellable=False):
+    def run_task(self, text, operation, success, cancellable=False, failure=None):
         if self.worker is not None:
             return
         self.set_busy(True)
@@ -310,6 +310,8 @@ class Window(QMainWindow):
             if worker.error:
                 self.progress_label.setText("未完成：" + worker.error)
                 self.log.appendPlainText(worker.error)
+                if failure and not self.closing:
+                    failure(worker.error)
             else:
                 self.progress_label.setText("已完成")
                 try:
@@ -517,17 +519,32 @@ class Window(QMainWindow):
         self.run_task("读取分红表…", operation, lambda result: self.load_local())
 
     def export(self, kind, selected=None):
+        if self.worker:
+            return
         end = self.as_of()
+        if kind == "report" and self.service.mode == "wind":
+            self.invalidate_query()
         def done(folder):
-            self.progress_label.setText("已保存：" + folder)
+            manifest = json.loads((Path(folder) / "run_manifest.json").read_text(encoding="utf-8"))
+            check = manifest.get("market_update_check", {})
+            message = f"已保存（行情截至{manifest['actual_end']}）：{folder}"
+            if check.get("state") == "fallback":
+                message = check["message"] + "；" + message
             self.refresh_artifacts()
             pictures = sorted((Path(folder) / "figures").glob("*.png"))
             if pictures:
                 self.show_image(pictures[0])
             if kind == "figures":
                 self.tabs.setCurrentIndex(2)
-            self.load_local(after=lambda: self.progress_label.setText("已保存：" + folder))
-        self.run_task("准备导出…", lambda progress: self.service.export(kind, selected, end, progress), done)
+            def finish():
+                self.progress_label.setText(message)
+                if check.get("state") == "fallback" and not self.closing:
+                    QMessageBox.warning(self, "当日更新未成功，报告已使用前一交易日", message)
+            self.load_local(after=finish)
+        self.run_task("检查行情并准备报告…" if kind == "report" else "准备导出…",
+            lambda progress: self.service.export(kind, selected, end, progress), done,
+            cancellable=kind == "report" and self.service.mode == "wind",
+            failure=(lambda error: QMessageBox.warning(self, "报告未生成", error)) if kind == "report" else None)
 
     def export_query(self):
         if not self.query_result:
@@ -632,13 +649,13 @@ class Window(QMainWindow):
         months = QSpinBox()
         months.setRange(12, 36)
         months.setValue(config["history_months"])
-        hour = QSpinBox()
-        hour.setRange(16, 23)
-        hour.setValue(config["close_hour"])
+        daily_time = QTimeEdit(QTime(config["close_hour"], config.get("close_minute", 0)))
+        daily_time.setDisplayFormat("HH:mm")
+        daily_time.setTimeRange(QTime(15, 5), QTime(23, 59))
         auto = QCheckBox("正式模式启动后自动检查并补齐")
         auto.setChecked(config["auto_sync"])
         for label, control in [("分红主目录", inputs), ("Wind Python", wind), ("本地数据目录", data), ("导出目录", exports),
-                               ("历史窗口（月）", months), ("当日日线门槛（北京时间）", hour)]:
+                               ("历史窗口（月）", months), ("当日日线检查时间（北京时间）", daily_time)]:
             form.addRow(label, control)
         form.addRow(auto)
         form.addRow(self.hint("日线门槛后仍须校验字段完整。保存后重新打开应用生效；演示设置与正式设置分开。"))
@@ -649,7 +666,8 @@ class Window(QMainWindow):
         if dialog.exec():
             try:
                 message = self.service.save_settings({"wind_python": wind.text().strip(), "data_directory": data.text().strip(),
-                    "exports_directory": exports.text().strip(), "history_months": months.value(), "close_hour": hour.value(),
+                    "exports_directory": exports.text().strip(), "history_months": months.value(),
+                    "close_hour": daily_time.time().hour(), "close_minute": daily_time.time().minute(),
                     "auto_sync": auto.isChecked(), "dividends": {**config["dividends"], "directories": [inputs.text().strip(), "input"]}})
                 self.progress_label.setText(message)
             except Exception as exc:
