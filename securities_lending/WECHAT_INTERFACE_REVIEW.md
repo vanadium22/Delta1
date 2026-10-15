@@ -1,6 +1,6 @@
 # 个人微信接口调研：群内 @ 上下文与指定消息发送
 
-核查日期：2026-10-15（北京时间）。本轮响应“先查看 GitHub 插件接口”：交付接口证据、选型限制和接入设计，**尚未实现微信运行入口、监听或发送按钮**。未安装、激活或运行第三方插件，未读取私人聊天、未发送消息。券单 App 的现有业务与依赖不变。
+核查日期：2026-10-15（北京时间）。本文记录最初“先查看 GitHub 插件接口”的调研与设计。用户随后授权测试本人测试号：已执行 pyweixin、wxauto 社区版只读连接和本地 OCR 标题探测，并审查其余候选，最新结果见 [实机验证与安全审查](WECHAT_VALIDATION.md)。**尚未通过完整收发验收，未接入券单、未发送消息，没有公司可运行的微信入口。** 券单 App 的现有业务与依赖不变。
 
 ## 结论与候选方案
 
@@ -42,7 +42,7 @@ Wechaty 的 Python 源码有 `message.room()`、`await message.mention_self()`�
 
 ### wxauto 的版本和分发不能混用
 
-官方当前文档列出免费包 `wxauto4`（Python 3.9–3.12，免费版最新支持客户端 4.1.8.107）和 Plus 包 `wxautox4`（Python 3.9–3.13）。`AddListenChat` 标记为 Plus 功能。券单现用 Python 3.13，免费包不能直接作为已兼容依赖加入；若试验免费版，建议独立 Python 3.12 进程，保留主 App 环境。Plus 的具体客户端小版本仍需现场核验。[安装文档](https://docs.wxauto.org/docs/install.html)、[WeChat 类](https://docs.wxauto.org/docs/class/WeChat.html)。
+官方安装文档列出免费包 `wxauto4`（页面标注 Python 3.9–3.12，客户端上限 4.1.8.107）和 Plus 包 `wxautox4`（Python 3.9–3.13）。但后续核对 PyPI **wxauto4 41.1.7 已提供 cp313 wheel、元数据为 `>=3.9,<3.14`**，与页面有差异；不能继续断言没有 Python 3.13 包，也不能由包存在推断已兼容本机微信。`AddListenChat` 在官网标记为 Plus 功能。试验继续使用独立环境，实际运行兼容性和分发安全性见验证记录，不能直接加入券单依赖。[安装文档](https://docs.wxauto.org/docs/install.html)、[WeChat 类](https://docs.wxauto.org/docs/class/WeChat.html)、[41.1.7 元数据](https://pypi.org/pypi/wxauto4/41.1.7/json)。
 
 旧 GitHub README 的使用声明与当前 Plus 分发条款不同。当前 Plus 条款涉及组织内部工作流、设备数及凭证分发边界；具体采购和授权以所选产品记录为准。本轮没有购买、复制插件或凭证，也没有判断任意 fork 的公司使用授权。[旧仓库 README](https://github.com/cluic/wxauto/blob/05e5a52379c99f401dc512acfdd811b3d701da8b/README.md)、[当前 Plus 条款](https://docs.wxauto.org/legal/commercial-license.html)。
 
@@ -87,7 +87,7 @@ Wechaty 的 Python 源码有 `message.room()`、`await message.mention_self()`�
 
 ### 本地与 Git 边界
 
-可提交适配器源码、合成测试、无真实账号的配置模板和说明。拟用 `wechat.local.json` 保存正式本机设置，演示配置放 `data/demo/`；正式缓存/待发任务/本地诊断放 `data/live/wechat/`，演示放 `data/demo/wechat/`。这些路径受既有 `*.local.*`、`data/`、`*.jsonl`、`*.sqlite*` 忽略规则覆盖，本轮没有创建真实配置或聊天数据。
+可提交适配器源码、合成测试、无真实账号的配置模板和说明。拟用 `wechat.local.json` 保存正式本机设置，演示配置放 `data/demo/`；正式缓存/待发任务/本地诊断放 `data/live/wechat/`，演示放 `data/demo/wechat/`。这些路径受既有 `*.local.*`、`data/`、`*.jsonl`、`*.sqlite*` 忽略规则覆盖。后续独立验证材料保存在忽略的 `data/wechat_probe/`；没有创建正式微信配置。
 
 账号标识、群标识、聊天正文、附件、插件二进制、登录材料、激活码与本机路径留在本机，不复制进 Git、公共日志或文档。未来新增日志/数据路径时需重新检查忽略规则。公司 pull 只同步源码与说明，不传输微信登录状态、授权或聊天记录。
 
@@ -95,9 +95,9 @@ Wechaty 的 Python 源码有 `message.room()`、`await message.mention_self()`�
 
 后续先核对公司 Windows 微信完整版本号，再依据本报告选定并锁定候选；用户已经明确没有指定插件，不应反复要求用户寻找仓库。只有选择 Plus 路线时再核对对应授权。群身份、本人群昵称/微信 ID、上下文范围在本机配置；没有这些信息时本轮调研仍可完成，但不能宣称正式功能已接通。
 
-后续在明确的测试群验证：普通消息、真正 @ 我、@ 别人、@所有人、引用/手打 @ 文本、重名；前后文不足和持续补齐；群切换、重命名、断线重连及重启去重；指定文本仅发送一次、错误群拒发、发送超时不盲重试；演示完全隔离。随后才评估公司实际使用。当前未执行这些微信验收，也未调用公司 Wind/共享盘。
+后续在明确的测试群验证：普通消息、真正 @ 我、@ 别人、@所有人、引用/手打 @ 文本、重名；前后文不足和持续补齐；群切换、重命名、断线重连及重启去重；指定文本仅发送一次、错误群拒发、发送超时不盲重试；演示完全隔离。随后才评估公司实际使用。目前仅完成验证记录中的连接/标题检查与安全缺陷复现，上述收发验收尚未完成；用户表示稍后再配合现场测试，未调用公司 Wind/共享盘。
 
-本轮仅静态核对公共文档、固定源码、GitHub 元数据及本项目接入边界；文档检查与公司发布结果记录于 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) 和公司分支根目录 `COMPANY_SYNC.md`。本轮没有 UI 变更，也没有可启动的微信模块。
+最初调研仅静态核对公共文档、固定源码、GitHub 元数据及本项目接入边界；后续实机与安全结果另见 [WECHAT_VALIDATION.md](WECHAT_VALIDATION.md)。文档检查与公司发布结果记录于 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) 和公司分支根目录 `COMPANY_SYNC.md`。券单没有 UI 变更，也没有可启动的微信模块。
 
 ## 来源版本快照
 
