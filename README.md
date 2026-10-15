@@ -1,6 +1,15 @@
 # Delta1
 
-**公司统一更新使用 `codex/company-apps` 分支。** 公司名为 `dashboard` 的文件夹本身就是仓库根目录，包含并列的 `index_strategy`、`securities_lending` 和 `index_futures_basis`。首次从解压包接入及日常一次更新所有已发布模块，见 [公司统一同步说明](COMPANY_SYNC.md)。各模块开发分支继续保留。
+**公司统一更新使用 `codex/company-apps` 分支。** 公司名为 `dashboard` 的文件夹本身就是仓库根目录，包含并列的 `index_strategy`、`securities_lending` 和 `index_futures_basis`。用户已于 2026-10-15 确认首次迁移完成，解压包备份已删除。
+
+以后关闭 App，在 PowerShell 运行以下命令，即可一次更新整个项目中已发布的模块和公共文件：
+
+```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
+git pull --ff-only
+```
+
+公司保持在 `codex/company-apps`，本机配置、分红 Excel、行情缓存及导出继续保留。后续模块开发完成后，须将本次已验证提交汇总并推送到公司分支；各模块开发分支继续保留。完整约定及首次迁移历史见 [公司统一同步说明](COMPANY_SYNC.md)，开发交付要求见 [AGENTS.md](AGENTS.md)。
 
 指数策略研究的数据采集项目。Git 仓库根目录是 `project`，实时行情入口位于 `index_strategy/instant_dld`。
 
