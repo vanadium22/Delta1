@@ -4,7 +4,9 @@
 
 ## 首次建立环境
 
-同步 `codex/securities-lending` 分支后，在 **Conda 已初始化的终端**中进入 Delta1 仓库根目录：
+公司统一使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新全部已发布模块；`codex/securities-lending` 仅用于开发。已有公司环境按下节使用，无需重建。
+
+仅首次建立环境时，同步公司分支后，在 **Conda 已初始化的终端**中进入 Delta1 仓库根目录：
 
 ```powershell
 conda env create --prefix "D:\conda\envs\swhy_delta1" --file securities_lending/environment.yml

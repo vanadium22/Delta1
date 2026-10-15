@@ -4,7 +4,9 @@ Python + PySide6 原生 Windows 应用，默认入口为 python -m securities_le
 
 后续对话或继续开发，请先读 [项目交接与后续修改入口](PROJECT_HANDOFF.md)：包含已确认业务口径、代码索引、最近修复、验证边界和继续工作流程。
 
-持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，再将本次代码、测试和说明一起提交推送到 `codex/securities-lending`，保留其他模块及本机数据。
+**公司使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新券单、基差和指数策略等全部已发布模块。** `codex/securities-lending` 用于开发；公司运行时保持统一分支。
+
+持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，将本次代码、测试和说明提交推送到开发分支，再将本次已验证提交汇总、验证并推送到 `codex/company-apps`，保留其他模块及本机数据。
 
 ## 日常启动和查询
 
@@ -190,16 +192,14 @@ securities_lending/
 
 真实券单、缓存、导出、本机配置均不提交 Git。旧网页代码保留兼容，但默认原生 App 不启动它。仓库根 README 的指数工具说明属于另一个模块。
 
-家中修改需要先提交并推送，公司的 git pull 才能取得更新。公司在**实际仓库根目录**检查本地改动后：
+家中修改需要先发布到 `codex/company-apps`，公司的 git pull 才能取得更新。公司保持在该分支，关闭 App，在**实际仓库根目录**检查本地改动后：
 
 ~~~powershell
 git status
-git fetch origin
-git switch codex/securities-lending
-git pull --ff-only origin codex/securities-lending
+git pull --ff-only
 ~~~
 
-分支尚不存在时使用 git switch --track origin/codex/securities-lending。有本地改动时先保留并检查，不用 reset/clean 强行覆盖；目录叫 dashboard 不影响原生应用入口。
+若误切到了开发分支，先 `git fetch origin`，再 `git switch codex/company-apps`，成功后才执行上述 pull。任何一步报错都停止并保留现场，不用 reset/clean 强行覆盖。Git 分支控制整个仓库，切到券单开发分支可能使其他模块源码退出当前检出；切回统一分支会恢复其已跟踪文件，本机数据仍由忽略规则保留。目录叫 dashboard 不影响原生应用入口。
 
 ## 测试与演示截图
 

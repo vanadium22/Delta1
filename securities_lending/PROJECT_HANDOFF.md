@@ -4,7 +4,11 @@
 
 **当前版本在 `f4a51b5` 基础上新增行业询券联系人、微信群提示及可编辑的本机联系表，分支 `codex/securities-lending`。** 上次已完成逐票识别、金额/股数需求、自有/其他来源覆盖和桌面布局；本次保留这些功能及“启动优先读取当日本地券单”。后续请先检查实际 Git 状态，不能回退到本文记录的历史提交，也不要把历史测试结果当成本次验证。
 
-**用户的持续工作约定：每次修改券单 App 后，同步更新本文件，完成适当验证，再把本次代码、测试和说明一起提交并推送到 `codex/securities-lending`。** 无需重复询问是否提交推送；后续用户明确要求暂不提交/推送时从其要求。约定也写入了本模块 [AGENTS.md](AGENTS.md)，供新对话先行读取。
+**公司统一使用 `codex/company-apps`；仓库根目录一次 `git pull --ff-only` 更新所有已发布模块。** `codex/securities-lending` 是开发分支。用户曾按旧说明切回开发分支，导致基差源码退出当前检出，仅余本地数据文件夹；不能再次给出这样的公司日常更新步骤。
+
+**用户的持续工作约定：每次修改券单 App 后，同步更新本文件，完成适当验证，把本次代码、测试和说明提交推送到开发分支，再将本次已验证提交汇总、验证并推送到 `codex/company-apps`。** 无需重复询问是否提交推送；用户明确要求暂不提交/推送时从其要求。保留公司分支内其他模块，报告公司分支提交号。约定也写入本模块 [AGENTS.md](AGENTS.md)。
+
+2026-10-15 同步说明修正：本模块四份说明及下方完整提示词已统一公司更新流程。本次只改文档，检查命令、链接和 Git 差异；行业联系表等业务实现保持 `298ed75`，此前测试结果按原验证日期保留，公司分支的本次集成验证另记根目录 COMPANY_SYNC.md。
 
 ## 1. 先读这些，避免找错项目
 
@@ -215,7 +219,7 @@ securities_lending/
 2. 简要指出本次问题和改进，再在现有原生实现上直接修改。普通界面细节自行合理决定，仅业务正确性有实质歧义时提问。
 3. 重要逻辑/受影响交互做针对性验证；必要时运行完整 App 测试与演示截图。公司网络和 Wind 无法验证时明确说明。
 4. **每次修改后必须同步更新本文件**，必要时维护 README，记录本次实际验证和未验证事项；不要永久保留已经被用户新反馈推翻的“待确认”。
-5. **验证完成后将本次代码、测试和说明一起提交并推送到 `codex/securities-lending`**，这是用户持续授权，不必重复请求确认。只暂存本任务明确涉及的文件；不能 `git add .` 混入其他模块，不能提交真实 Excel、缓存、导出、截图或本机配置；不使用 reset/clean/强推覆盖用户工作。推送受阻时如实报告，不声称已同步到公司。
+5. **验证完成后将本次代码、测试和说明提交推送到 `codex/securities-lending`，再将本次已验证提交汇总、验证并推送到 `codex/company-apps`**，这是用户持续授权，不必重复请求确认。只暂存本任务明确涉及的文件；不能 `git add .` 混入其他模块，不能提交真实 Excel、缓存、导出、截图或本机配置；不使用 reset/clean/强推覆盖用户工作。核验远端公司分支已包含本次提交后再报告发布完成；推送受阻时如实报告。
 
 在仓库根目录、正确 Python 环境中：
 
@@ -228,17 +232,17 @@ git diff --check -- securities_lending
 
 默认诊断不调用 Wind：`python -s -X utf8 -m securities_lending.diagnose`。只有需要在公司实际检验时，才显式使用 `--wind 000001.SZ`。
 
-公司同步并启动（先检查本地改动，有冲突先保留，不强制覆盖）：
+公司保持在 `codex/company-apps`，同步并启动（先检查本地改动，有冲突先保留，不强制覆盖）：
 
 ```powershell
 Set-Location (git rev-parse --show-toplevel)
 git status
-git fetch origin
-git switch codex/securities-lending
-git pull --ff-only origin codex/securities-lending
+git pull --ff-only
 git log -1 --oneline
 .\securities_lending\start.cmd
 ```
+
+如果误切到了开发分支，先运行 `git fetch origin` 和 `git switch codex/company-apps`，成功后再 pull；报错立即停止。基差模块的实际目录名为 `index_futures_basis`。
 
 ## 9. 可直接用于新对话的开场
 
@@ -252,6 +256,7 @@ git log -1 --oneline
 - 公司操作目录：D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
 - Git 仓库：https://github.com/vanadium22/Delta1.git
 - 开发分支：codex/securities-lending
+- 公司统一分支：codex/company-apps（公司日常保持此分支，仓库根目录一次 git pull --ff-only 更新所有已发布模块）
 - 核心模块：仓库根目录下的 securities_lending
 请根据当前机器确认实际路径，并用 git rev-parse --show-toplevel 确认仓库根目录。
 
@@ -267,7 +272,7 @@ git log -1 --oneline
 - 为重要逻辑和受影响交互做适当验证，条件允许时启动演示并检查截图。公司共享盘和真实 Wind 未验证的部分如实说明。
 
 持续交付约定：
-每次修改券单 App 后，必须同步更新 securities_lending/PROJECT_HANDOFF.md，记录行为变化、实际测试结果及待验证事项；必要时更新其他使用说明。验证完成后，将本次代码、测试和说明一起提交并推送到 codex/securities-lending。这是持续授权，无需重复询问是否提交推送，除非我明确要求暂不提交。
+每次修改券单 App 后，必须同步更新 securities_lending/PROJECT_HANDOFF.md，记录行为变化、实际测试结果及待验证事项；必要时更新其他使用说明。验证完成后，将本次代码、测试和说明提交推送到 codex/securities-lending，再将本次已验证提交汇总、验证并推送到 codex/company-apps，保留公司分支内其他模块，更新 COMPANY_SYNC.md。核验远端公司分支包含本次提交后，再报告公司提交号与一次 git pull --ff-only 的更新方式；不要让公司切回模块开发分支。这是持续授权，无需重复询问是否提交推送，除非我明确要求暂不提交。
 
 仅提交本次券单模块相关文件，不提交真实券单、缓存、导出、本机配置或其他模块改动；不使用强推或 reset/clean 覆盖已有工作。完成后告诉我改动内容、验证结果、提交号和公司同步方法。
 
