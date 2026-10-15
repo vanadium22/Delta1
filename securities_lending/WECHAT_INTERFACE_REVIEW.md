@@ -4,15 +4,41 @@
 
 ## 结论与候选方案
 
-接口层面存在收发能力，但还没有在公司微信上验证可用的完整方案。最关键的缺口是准确识别真正的 @、稳定定位目标群及补齐上下文。用户尚未给出指定插件仓库与公司微信完整版本号；以下为候选对比，不表示已选定依赖。
+接口层面存在收发能力，但还没有在公司微信上验证可用的完整方案。最关键的缺口是准确识别真正的 @、稳定定位目标群及补齐上下文。**用户已明确没有指定插件，需要我们主动检索 GitHub、官方等渠道的 Python 或其他接口。** 公司微信完整版本未知，不影响本轮调研；以下为候选对比，不表示已选定依赖。
 
 | 候选 | 已查到的能力 | 本项目判断 |
 | --- | --- | --- |
+| Hello-Mr-Crab/pywechat 内的 pyweixin | Python + Windows UI 自动化；当前 README 声明 4.1.6+，源码有窗口监听、向上读取消息及指定文本发送 | 开源源码可核对，可与 wxauto 一起优先验证；目前所查监听接口未提供准确 @ 名单 |
 | wxauto 当前官方产品线 | Windows UI Automation；当前安装文档覆盖微信 4.1；有窗口消息读取、文本发送，Plus 有监听回调 | 若公司是 4.1，可优先做兼容性验证；精确 @ 识别仍待证实 |
 | FreeWisdom/wxauto-4.0 社区分支 | 可审阅的 Python 源码包含监听、读取、发送 | README 只声明适配 4.0.5，不推断适配当前所有 4.x；不能与官方当前同名 pip 包混为一谈 |
 | lich0821/WeChatFerry | Hook/RPC；群 ID、本人 wxid、消息 XML、接收队列、文本发送 | 2026-07-10 已归档；README 最新适配记录为 3.9.12.51。只作为接口参照，不作为当前默认接入方案 |
+| wechaty/python-wechaty | Python 异步 SDK；message 事件、群对象、mention_self、say | API 较完整，但依赖实际 Puppet/网关提供微信连接；SDK 存在不等于当前个人账号可登录 |
 
 依据：[wxauto 安装与版本说明](https://docs.wxauto.org/docs/install.html)、[社区分支固定版 README](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/README.md)、[WeChatFerry 仓库归档状态](https://github.com/lich0821/WeChatFerry)、[其固定版适配记录](https://github.com/lich0821/WeChatFerry/blob/0f5c60a034fcac234cabd000b49c9200defa7f7d/README.MD)。
+
+### 腾讯官方接口的适用范围
+
+本轮检索没有找到腾讯公开提供的、供个人微信账号直接读取任意现有群消息并自动发送消息的 Python/HTTP 接口。这是本轮检索结论，不是对所有内部或未公开接口的断言。
+
+核实到的腾讯官方资料分别面向公众号和企业微信群：[公众号 API](https://cloud.tencent.com/document/product/1301/100187) 的账号主体是公众号；[企业微信群机器人配置](https://cloud.tencent.cn/document/product/1551/84530) 描述通过 webhook 让企业微信群接收腾讯云通知，标题中的“接收消息”不是读取群成员聊天记录。依据这些资料，不能把这些能力当成现有个人微信群的读写接口。Python 可以调用 HTTP，但语言封装不会改变接口服务对象。
+
+本轮未成功直读微信开发者站的“接收普通消息”和企微 `99110` 页面，因此这里仅依据可读取的腾讯云官方文档界定上述能力，不引用第三方转载来宣称已完整审计腾讯接口目录。若未来将业务迁到企业微信，需要另查具体群类型、消息回调及历史获取能力，不能直接套用个人群设计。
+
+### 补充 Python 候选：pyweixin 与 Wechaty
+
+`Hello-Mr-Crab/pywechat` 当前主要维护 `src/pyweixin`，README 声明微信 4.1.6+、Python 3.10+；旧 `pywechat` 与新版不能混用。固定源码核对到：
+
+| pyweixin 接口 | 当前实现语义 |
+| --- | --- |
+| `Messages.pull_messages(friend, number, ...)` | 通过 UI 向上滚动读取消息；返回发送人、内容、类型等，仍受客户端能显示的记录限制 |
+| `Monitor.listen_on_chat(dialog_window, duration, ...)` | 按 UI runtime ID 轮询，**持续时间结束后返回汇总字典**，不是逐条实时回调；群发送人拆分需要群成员信息 |
+| `Messages.send_messages_to_friend(friend, messages, at_members=..., ...)` | 可指定好友或群、文本列表及群昵称形式的 @；签名返回 `None`，不能把无异常返回当送达回执 |
+
+所查 `WeChatAuto.py` 未见 `mention_self` / `atuserlist` / 独立 `at_only` 接口；旧文章中的“被 @ 自动回复”不能作为新版精确 @ 能力的依据。实现实时前后文需另外组织事件流、缓存和去重，并验证群身份及 @ 证据。适配器要控制窗口关闭和媒体保存参数，避免直接照抄默认行为。[固定版 README](https://github.com/Hello-Mr-Crab/pywechat/blob/8589baa049bb91d3a500602c167f07b2f8397a13/README.md)、[实际源码](https://github.com/Hello-Mr-Crab/pywechat/blob/8589baa049bb91d3a500602c167f07b2f8397a13/src/pyweixin/WeChatAuto.py)。
+
+Wechaty 的 Python 源码有 `message.room()`、`await message.mention_self()`、`await message.say(text, mention_ids=...)`。`mention_self()` 检查本人 ID 是否在底层返回的 `payload.mention_ids`；没有名单时返回 False，因此需要验证底层提供了名单，不能把缺失数据当“肯定没 @”。接入通常还需可用的 Puppet Service/网关、地址与 token；当前服务商可用性、成本和公司账号登录未验证。[Python SDK](https://github.com/wechaty/python-wechaty)、[消息源码](https://github.com/wechaty/python-wechaty/blob/a69851c448e2c845f807b62e12185d8dd9a06bec/src/wechaty/user/message.py)、[Puppet Service 客户端](https://github.com/wechaty/python-wechaty-puppet-service)。
+
+针对本项目的判断：若优先本机、可审阅的 Python 实现，先验证 `pyweixin` 与 wxauto 的客户端兼容性和 UI 消息结构；若必须基于真实成员 ID 准确识别 @，则需证明底层能提供名单，不能用正文匹配凑成“已实现”。Wechaty 可作后一条路线的候选，前提是先验证连接提供方。现阶段不指定采购或安装任何方案。
 
 ### wxauto 的版本和分发不能混用
 
@@ -67,7 +93,7 @@
 
 ## 下一步所需信息与验收
 
-接入前需知道：指定插件仓库（若有）、公司 Windows 微信完整版本号，以及使用免费版还是已有 Plus。群身份、本人群昵称/微信 ID、上下文范围在本机配置；没有这些信息时本轮调研仍可完成，但不能宣称正式功能已接通。
+后续先核对公司 Windows 微信完整版本号，再依据本报告选定并锁定候选；用户已经明确没有指定插件，不应反复要求用户寻找仓库。只有选择 Plus 路线时再核对对应授权。群身份、本人群昵称/微信 ID、上下文范围在本机配置；没有这些信息时本轮调研仍可完成，但不能宣称正式功能已接通。
 
 后续在明确的测试群验证：普通消息、真正 @ 我、@ 别人、@所有人、引用/手打 @ 文本、重名；前后文不足和持续补齐；群切换、重命名、断线重连及重启去重；指定文本仅发送一次、错误群拒发、发送超时不盲重试；演示完全隔离。随后才评估公司实际使用。当前未执行这些微信验收，也未调用公司 Wind/共享盘。
 
@@ -82,5 +108,7 @@
 | cluic/wxauto | main | `05e5a52379c99f401dc512acfdd811b3d701da8b` | false |
 | FreeWisdom/wxauto-4.0 | main | `bd7c5233e79c0a185638a325bf6d30607244dfa8` | false |
 | lich0821/WeChatFerry | master | `0f5c60a034fcac234cabd000b49c9200defa7f7d` | true |
+| Hello-Mr-Crab/pywechat | main | `8589baa049bb91d3a500602c167f07b2f8397a13` | false |
+| wechaty/python-wechaty | main | `a69851c448e2c845f807b62e12185d8dd9a06bec` | false |
 
 当前 `cluic/wxauto` 固定版目录包含文档与包元数据，未发现 `wxauto/` 实现目录；因此本报告没有把旧 GitHub 页面当作当前可直接集成的完整源码。WCF 在线文档标题仍为旧版本，接口细节优先与以上固定源码对照。

@@ -26,7 +26,7 @@ dashboard/                        # 公司 Git 仓库根目录
 | 项目目录 | 开发分支/安排 | 公司分支内的内容 |
 | --- | --- | --- |
 | index_strategy | 按具体任务开发后汇总 | 现有已提交的指数策略与采集模块 |
-| securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；新增个人微信接口调研，尚无微信收发入口 |
+| securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；微信调研涵盖官方渠道与 Python 候选，尚无微信收发入口 |
 | index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成 |
 | script_making | codex/script-making | 项目准备骨架；后续正式实现按同一流程发布 |
 
@@ -116,6 +116,12 @@ git pull --ff-only
 5. 确认 App 正常使用、配置与数据已恢复且路径不指向备份后，可自行删除备份。不要使用 reset/clean 清理目录。
 
 ## 验证记录
+
+### 微信官方渠道与 Python 候选补充（2026-10-15，开发提交 14b5aec）
+
+- 用户明确没有指定插件，要求主动搜索 GitHub、官方等渠道。补查腾讯云官方资料，区分公众号/企业微信群通知与现有个人群读写；新增 pyweixin、Python Wechaty 固定源码证据，说明监听批量返回、真实 @ 名单、网关依赖和发送返回值的限制。
+- 本次仅 3 份券单文档加本同步说明，保留此前全部项目；未增加运行代码、依赖、微信收发入口或本机数据。开发分支复核 35 处相对链接、9 个 PowerShell 示例、4 份 UTF-8 文档及 Git 差异；公司集成检查对应 36 处链接、12 个示例和 5 份文档，并确认 3 个 App 入口、script_making 说明、券单与开发分支一致及精确的 4 份文档变更范围。
+- 无业务/界面变更，未重跑 App 回归或演示；微信客户端、真实群聊、消息收发、公司 Wind/共享盘均未联调。微信开发者站部分页面未成功直读，报告已标明证据范围，不将第三方转述当官方确认。公司继续一次 pull，券单启动方式不变。
 
 ### 个人微信接口调研（2026-10-15，开发提交 488c3fc）
 
