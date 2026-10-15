@@ -18,7 +18,7 @@ from .analytics import (attach_dividends, fixed_tenor, historical_summary, read_
 from .config import ROOT, atomic_json, closed_date, load_config, resolve, timestamp, validate_config
 from .distributions import annualized_distributions, cross_index_basis, cross_index_distributions, distribution_rows
 from .store import Store
-from .sync import synchronize
+from .sync import Cancelled, synchronize
 from .wind import WindProvider
 
 ROOTS = ["IF", "IC", "IM"]
@@ -74,11 +74,9 @@ class BasisService:
             raw = snapshot()
             self.store.import_raw(raw, {"kind": "demo", "label": raw["source"]})
 
-    def window(self):
-        if self.mode == "wind":
-            end = closed_date(self.config)
-        else:
-            end = self.store.bounds()[1] or closed_date(self.config)
+    def window(self, end=None):
+        if end is None:
+            end = closed_date(self.config) if self.mode == "wind" else self.store.bounds()[1] or closed_date(self.config)
         start = str((pd.Timestamp(end) - pd.DateOffset(months=int(self.config["history_months"])) - pd.Timedelta(days=15)).date())
         return start, end
 
@@ -91,13 +89,13 @@ class BasisService:
                 "calendar_unknown_days": unknown, "database": str(self.store.path),
                 "runs": self.store.runs(), **coverage}
 
-    def sync(self, progress=lambda text: None, repair=None, provider=None):
+    def sync(self, progress=lambda text: None, repair=None, provider=None, end=None):
         if self.mode != "wind":
             raise ValueError("离线和演示模式不访问 Wind；请切换到 Wind 正式数据")
         self.cancel.clear()
         provider = provider or WindProvider(self.config)
         try:
-            return synchronize(self.store, provider, *self.window(), progress, self.cancel, repair)
+            return synchronize(self.store, provider, *self.window(end), progress, self.cancel, repair)
         finally:
             self._cache = None
             if hasattr(provider, "close"):
@@ -260,17 +258,87 @@ class BasisService:
                     continue
         return sorted(items, key=lambda item: item["created"], reverse=True)
 
+    def prepare_report(self, as_of=None, progress=lambda text: None):
+        """Refresh a frozen cutoff, verify it, or explicitly fall back one exchange session."""
+        eligible = closed_date(self.config)
+        cutoff = str(pd.Timestamp(as_of).date()) if as_of else eligible
+        if cutoff == "NaT" or cutoff > eligible:
+            raise ValueError(f"所选报告日期超过当前日线检查范围（截至{eligible}）；尚未到当日检查时间")
+        start, _ = self.window(cutoff)
+        hour, minute = self.config["close_hour"], self.config.get("close_minute", 0)
+        progress(f"生成报告前检查并补齐行情：截至{cutoff}（北京时间{hour:02d}:{minute:02d}后纳入当天）")
+        try:
+            outcome = self.sync(progress, end=cutoff)
+        except Cancelled:
+            raise
+        except Exception as exc:
+            outcome = {"state": "failed", "message": str(exc)}
+        if self.cancel.is_set():
+            raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
+        reason = (outcome["message"] or f"同步状态为{outcome['state']}") if outcome["state"] != "complete" else ""
+        with self.store.writer_lock():
+            calendar = self.store.calendar(start, cutoff)
+            unknown = [str(d.date()) for d in pd.date_range(start, cutoff) if str(d.date()) not in calendar]
+            opened = [day for day, is_open in calendar.items() if is_open]
+            target = (cutoff if as_of else max(opened, default=None)) if not unknown else None
+            coverage = self.store.coverage(start, cutoff)
+            latest = coverage["latest_complete"] or "暂无"
+            if not reason:
+                if unknown:
+                    reason = f"交易日历未核验：{unknown[-1]}等{len(unknown)}个日期"
+                elif not target or not calendar.get(target):
+                    reason = "目标日期不是已核验的交易日"
+                elif coverage["missing_fields"]:
+                    reason = f"仍缺{coverage['missing_fields']}个行情字段"
+                else:
+                    try:
+                        self.store.panel(start, target)
+                    except ValueError as exc:
+                        reason = str(exc)
+            actual = target
+            if reason:
+                context = f"报告更新未成功；目标截止{cutoff}，本地最新完整日{latest}。原因：{reason}"
+                if as_of:
+                    raise ValueError(context + "。指定历史日期不自动改期，请补齐后重试。")
+                # If today's calendar could not be fetched, only use a previously
+                # verified session, and require every intervening date to be known.
+                boundary = target or cutoff
+                previous = max((d for d in opened if d < boundary), default=None)
+                if not previous or any(previous <= d < boundary for d in unknown):
+                    raise ValueError(context + "。无法确认前一交易日，未生成报告；请检查Wind后重试。")
+                try:
+                    history_start = str((pd.Timestamp(previous) - pd.DateOffset(months=12) - pd.Timedelta(days=15)).date())
+                    self.store.panel(history_start, previous)
+                except ValueError as exc:
+                    raise ValueError(context + f"。前一交易日{previous}的数据也不完整：{exc}；未生成报告。") from exc
+                actual = previous
+        check = {"state": "fallback" if reason else "complete", "checked_at": timestamp(),
+                 "requested_cutoff": cutoff, "target_trade_date": target, "actual_end": actual,
+                 "daily_check_time": f"{hour:02d}:{minute:02d}", "sync_state": outcome["state"],
+                 "reason": reason, "sync_message": outcome["message"]}
+        check["message"] = (f"更新未成功，已回退至前一交易日{actual}；目标截止{cutoff}。原因：{reason}" if reason
+                            else f"行情已校验，截至{actual}（日历检查截至{cutoff}）")
+        progress(check["message"])
+        return actual, check
+
     def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None):
         from .report import plot_all, build_docx
-        a = self.analyze(as_of)
-        if a.panel.trade_date.min() > a.start:
-            raise ValueError("本地行情不足三个完整日历月，请先补齐后导出")
         if kind not in {"report", "figures", "data"}:
             raise ValueError("未知导出类型")
+        check = None
+        if kind == "report" and self.mode == "wind":
+            as_of, check = self.prepare_report(as_of, progress)
+        a = self.analyze(as_of)
+        if check and self.cancel.is_set():
+            raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
+        if a.panel.trade_date.min() > a.start:
+            raise ValueError("本地行情不足三个完整日历月，请先补齐后导出")
         name = timestamp().replace(":", "").replace("+", "_") + "_" + uuid.uuid4().hex[:6]
         output = self.exports_root / str(a.end.date()) / name
         output.mkdir(parents=True)
         provenance = {**a.provenance, "kind": kind, "generated_at": timestamp(), "selected_charts": selected}
+        if check:
+            provenance.update(market_update_check=check, requested_end=check["requested_cutoff"])
         if self.mode != "demo":
             shutil.copyfile(a.provenance["dividends"]["archived_input"], output / "dividend_input_snapshot.xlsx")
         if kind in {"report", "data"}:
@@ -287,6 +355,8 @@ class BasisService:
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":
+                if check and self.cancel.is_set():
+                    raise Cancelled("报告已取消，未生成Word；已下载行情和图片保留")
                 progress("正在生成 Word…")
                 target = output / ("股指基差分析_合成演示.docx" if self.mode == "demo" else "股指基差分析.docx")
                 template = ROOT / "assets/report_template.docx"

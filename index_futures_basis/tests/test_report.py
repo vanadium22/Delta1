@@ -25,7 +25,8 @@ class ReportTests(unittest.TestCase):
             panel.loc[mask, "days_to_expiry"] = 1
             panel.loc[mask, "expiry_date"] = analysis.end + pd.Timedelta(days=1)
             provenance = {**analysis.provenance, "requested_end": "2026-10-15",
-                          "generated_at": "2026-10-15T20:00:00+08:00"}
+                          "generated_at": "2026-10-15T20:00:00+08:00",
+                          "market_update_check": {"state": "fallback", "reason": "指数收盘价缺失"}}
             image = root / "chart.png"
             Image.new("RGB", (4, 4), "white").save(image)
             class Charts(dict):
@@ -45,8 +46,9 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(counts["figures"], 25)
             text = "\n".join(p.text for p in doc.paragraphs[:12])
             self.assertIn("行情日期：2026-10-08", text)
-            self.assertIn("完整日线截止目标为2026-10-15", text)
-            self.assertIn("本报告实际行情截至2026-10-08", text)
+            self.assertIn("更新未成功：目标截止2026-10-15", text)
+            self.assertIn("已回退至前一交易日2026-10-08", text)
+            self.assertIn("指数收盘价缺失", text)
             ic = front[1].rows[1].cells
             latest = panel.loc[mask].iloc[0]
             self.assertEqual(ic[0].text, "IC00/IC2610")

@@ -432,7 +432,17 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
     front_note(f"行情日期：{end:%Y-%m-%d}。报告生成时间：{provenance.get('generated_at', '未记录')}。"
       "下表均为该行情日的实际合约收盘数据。请先核对行情日期，再比较年化结果。")
     requested_end = provenance.get("requested_end")
-    if requested_end and pd.Timestamp(requested_end).normalize() > pd.Timestamp(end).normalize():
+    update_check = provenance.get("market_update_check", {})
+    if update_check.get("state") == "fallback":
+        reason = update_check.get("reason", "")
+        reason = reason[:90] + "…（完整原因见导出清单）" if len(reason) > 90 else reason
+        note = front_note(f"更新未成功：目标截止{requested_end}，已回退至前一交易日{end:%Y-%m-%d}。原因：{reason}")
+        for run in note.runs:
+            run.bold = True
+    elif update_check.get("state") == "complete":
+        front_note(f"生成前已补齐并校验行情，最新适用交易日为{end:%Y-%m-%d}。"
+                   f"按北京时间{update_check['daily_check_time']}纳入当日；交易日历检查截至{requested_end}。")
+    elif requested_end and pd.Timestamp(requested_end).normalize() > pd.Timestamp(end).normalize():
         front_note(f"本次完整日线截止目标为{requested_end}，本报告实际行情截至{end:%Y-%m-%d}。"
           "如需更新，在数据管理页检查并补齐行情后重新导出。")
     dividend_info = provenance.get("dividends", {})
