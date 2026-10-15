@@ -2,7 +2,7 @@
 
 更新日期：2026-10-15（北京时间）。本文是后续对话的快速上下文，详细操作见 [README.md](README.md)，环境与启动见 [COMPANY_SETUP.md](COMPANY_SETUP.md)。
 
-**本次修改基线：`6227fd6`，分支 `codex/securities-lending`。** 本文已记录随后加入的“启动优先读取当日本地券单”功能及持续提交约定；后续请先检查实际 Git 状态，不能回退到本文记录的基线，也不要把历史测试结果当成本次验证。
+**当前功能基线：`ff56d13`，分支 `codex/securities-lending`。** 已包含“启动优先读取当日本地券单”功能及持续提交约定；后续请先检查实际 Git 状态，不能回退到本文记录的基线，也不要把历史测试结果当成本次验证。
 
 **用户的持续工作约定：每次修改券单 App 后，同步更新本文件，完成适当验证，再把本次代码、测试和说明一起提交并推送到 `codex/securities-lending`。** 无需重复询问是否提交推送；后续用户明确要求暂不提交/推送时从其要求。约定也写入了本模块 [AGENTS.md](AGENTS.md)，供新对话先行读取。
 
@@ -98,6 +98,7 @@
 | `f79063f` | 精度、演示配置隔离、默认模板、工作台交互、复制导出及说明 |
 | `a7844a7` | 下载失败定位/校验、通配符提示、逐笔券源表、互换来源说明及测试 |
 | `6227fd6` | 新增本交接文档、README 入口及环境验证边界说明 |
+| `ff56d13` | 启动/跨日优先复用当日有效本地券单、保留强制同步、明确持续更新交接文档和提交推送约定 |
 
 以上功能已推送到 `origin/codex/securities-lending`。用户在公司执行 pull 返回 `Already up to date`；这说明当时没有需要合入的新提交，**不等于 Wind 或所有业务流程已验证通过**，也不能单凭这句判断当前所在分支。
 
@@ -195,4 +196,35 @@ git log -1 --oneline
 
 ## 9. 可直接用于新对话的开场
 
-> 请先读取仓库 `securities_lending/PROJECT_HANDOFF.md`、README 和适用的 AGENTS.md，核对实际 Git 状态及最新提交，保留未提交修改。此项目是 Python + PySide6 原生桌面券单 App；按交接文档中的已确认业务口径，在现有实现上继续修改。先概括本次问题，再实施并验证；每次修改后同步更新 PROJECT_HANDOFF.md，把本次代码、测试和说明一起提交推送到 codex/securities-lending。不要提交真实券单、本机配置或其他模块改动。我的本次需求是：……
+复制下面整段到新对话，再替换末尾的需求占位内容即可。
+
+```text
+请继续完善我现有的 Delta1 券单查询桌面 App。
+
+项目位置：
+- 家里仓库：P:\project\swhy\Delta1\project
+- 公司操作目录：D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+- Git 仓库：https://github.com/vanadium22/Delta1.git
+- 开发分支：codex/securities-lending
+- 核心模块：仓库根目录下的 securities_lending
+请根据当前机器确认实际路径，并用 git rev-parse --show-toplevel 确认仓库根目录。
+
+开始前：
+1. 先读取 securities_lending/PROJECT_HANDOFF.md，再读取适用的 AGENTS.md、README.md 和相关实现。
+2. 检查当前分支、最新提交及 Git 状态，以实际版本为准，不回退、不覆盖已有未提交修改。
+3. 这是 Python + PySide6 原生桌面 App，入口是 python -m securities_lending；不要因为目录名 dashboard 就判断为网页项目。
+
+工作要求：
+- 保留交接文档中已确认的业务口径、配置接口、演示模式和来源追溯。
+- 启动优先读取已校验的当日本地券单，无可用副本时才下载；F5/同步按钮可强制刷新。Wind 最新价仍每次重新请求。
+- 先简要说明本次问题和改进，再直接实施。普通界面细节自行决定，仅影响业务正确性的歧义才提问。
+- 为重要逻辑和受影响交互做适当验证，条件允许时启动演示并检查截图。公司共享盘和真实 Wind 未验证的部分如实说明。
+
+持续交付约定：
+每次修改券单 App 后，必须同步更新 securities_lending/PROJECT_HANDOFF.md，记录行为变化、实际测试结果及待验证事项；必要时更新其他使用说明。验证完成后，将本次代码、测试和说明一起提交并推送到 codex/securities-lending。这是持续授权，无需重复询问是否提交推送，除非我明确要求暂不提交。
+
+仅提交本次券单模块相关文件，不提交真实券单、缓存、导出、本机配置或其他模块改动；不使用强推或 reset/clean 覆盖已有工作。完成后告诉我改动内容、验证结果、提交号和公司同步方法。
+
+我的本次需求是：
+【在这里填写具体要求】
+```
