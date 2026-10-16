@@ -258,7 +258,11 @@ def read_continuous_snapshot(path, config):
 
 def attach_dividends(panel, dividends, plot_start, application="exact_date", allow_partial=False):
     p = panel.copy()
-    if dividends.empty and allow_partial:
+    if application == "not_applied":
+        p["dividend_points"] = np.nan  # No dividend file was read.
+        p["dividend_source_date"] = pd.NaT
+        p["dividend_application"] = "not_applied"
+    elif dividends.empty and allow_partial:
         p["dividend_points"] = np.nan
         p["dividend_source_date"] = pd.NaT
         p["dividend_application"] = "unavailable"
@@ -284,11 +288,12 @@ def attach_dividends(panel, dividends, plot_start, application="exact_date", all
     else:
         raise ValueError(f"未知分红匹配方式：{application}")
     missing = p.trade_date.ge(plot_start) & p.dividend_points.isna()
-    if missing.any() and not allow_partial:
+    if missing.any() and not allow_partial and application != "not_applied":
         rows = p.loc[missing, ["trade_date", "continuous_code", "instrument_id"]]
         raise ValueError(f"最近三个月缺少 {len(rows)} 条分红，不能用零或当前分红回填历史。示例：{rows.head(6).to_dict('records')}")
     p["raw_basis_points"] = p.futures_close - p.spot_close
-    p["adjusted_futures_close"] = p.futures_close + p.dividend_points
+    p["dividend_adjustment_points"] = 0.0 if application == "not_applied" else p.dividend_points
+    p["adjusted_futures_close"] = p.futures_close + p.dividend_adjustment_points
     p["basis_points"] = p.adjusted_futures_close - p.spot_close
     p["basis_rate"] = p.basis_points / p.spot_close
     p["annualized_basis_pct"] = (p.basis_rate * 36500 / p.days_to_expiry.replace(0, np.nan)).where(p.days_to_expiry.ge(5))
@@ -355,7 +360,7 @@ def spreads(panel):
             rows.append({"trade_date": date, "root": root, "spread": f"{root}0{slot-1}−{root}00",
                          "spread_points": g.loc[slot, "adjusted_futures_close"] - g.loc[1, "adjusted_futures_close"],
                          "raw_spread_points": g.loc[slot, "futures_close"] - g.loc[1, "futures_close"],
-                         "dividend_difference": g.loc[slot, "dividend_points"] - g.loc[1, "dividend_points"]})
+                         "dividend_difference": g.loc[slot, "dividend_adjustment_points"] - g.loc[1, "dividend_adjustment_points"]})
     return pd.DataFrame(rows)
 
 

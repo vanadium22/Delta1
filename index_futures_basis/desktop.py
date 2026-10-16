@@ -21,6 +21,8 @@ from .report import chart_catalog, fmt
 from .service import BasisService, METRICS, ROOTS
 from .windows import WINDOW_FIELDS, normalize_windows, window_summary, chart_window_label
 from .security_desktop import SecurityPage
+from .market_desktop import MarketDataPage
+from .valuation import VALUATIONS
 from shared_data.io import file_lock
 from shared_data.migration import copy_verified
 
@@ -218,7 +220,10 @@ class Window(QMainWindow):
         self.build_exports_tab()
         self.security_page = SecurityPage(self)
         self.tabs.addTab(self.security_page, "行情分析")
-        self.tabs.currentChanged.connect(lambda _: self.status_label.setVisible(self.tabs.currentWidget() is not self.security_page))
+        self.market_page = MarketDataPage(self)
+        self.tabs.addTab(self.market_page, "本地股指数据")
+        self.tabs.currentChanged.connect(lambda _: self.status_label.setVisible(
+            self.tabs.currentWidget() not in (self.security_page, self.market_page)))
         self.refresh_window_profiles()
         footer = QHBoxLayout()
         self.progress_label = self.hint("就绪")
@@ -250,6 +255,7 @@ class Window(QMainWindow):
         actions.addWidget(self.button("重取指定日期", self.repair))
         actions.addWidget(self.button("导入离线快照", self.import_snapshot))
         actions.addWidget(self.button("导入分红 Excel", self.import_dividend))
+        actions.addWidget(self.button("查看已下载股指", self.open_market_data))
         actions.addStretch()
         actions.addWidget(self.button("打开分红目录", self.open_inputs))
         layout.addLayout(actions)
@@ -279,7 +285,7 @@ class Window(QMainWindow):
         self.slot.setCurrentIndex(3)
         self.metric_combo = QComboBox()
         for key, (label, unit) in METRICS.items():
-            self.metric_combo.addItem(f"{label}（{unit}）", key)
+            self.metric_combo.addItem(f"{label.replace('分红调整后', '')}（{unit}）", key)
         self.latest = QCheckBox("最新完整日")
         self.latest.setChecked(True)
         self.date = QDateEdit(QDate.currentDate())
@@ -296,6 +302,13 @@ class Window(QMainWindow):
             controls.addWidget(w)
         controls.addWidget(self.button("查询", self.query, True))
         layout.addLayout(controls)
+        choices = QHBoxLayout()
+        choices.addWidget(self.hint("计算口径"))
+        self.query_valuation = self.valuation_selector("query")
+        choices.addWidget(self.query_valuation)
+        choices.addWidget(self.hint("价格、持仓及“未调整绝对基差”始终使用原始数据。"), 1)
+        choices.addWidget(self.button("查看已下载股指数据", self.open_market_data))
+        layout.addLayout(choices)
         self.current = QLabel("选择品种和指标，查看本地统计")
         self.current.setObjectName("metric")
         self.current.setWordWrap(True)
@@ -305,7 +318,7 @@ class Window(QMainWindow):
         self.stats = Table(["自然月窗口", "有效样本", "均值", "中位数", "当前百分位", "P5", "P25", "P75", "P95", "覆盖状态"], stretch=True)
         self.stats.setMaximumHeight(160)
         layout.addWidget(self.stats)
-        layout.addWidget(self.hint("历史窗口不含截止日。单合约年化剔除不足5天样本；固定期限不外推；跨期按两到期日间隔年化。统计不用画图填充值，固定分红快照应用于整个窗口。"))
+        layout.addWidget(self.hint("历史窗口不含截止日。单合约年化剔除不足5天样本；固定期限不外推；跨期按两到期日间隔年化。统计不用画图填充值；分红调整后使用固定快照，不调整分红使用原始价格。"))
         row = QHBoxLayout()
         row.addWidget(self.button("复制统计", self.stats.copy))
         row.addWidget(self.button("导出本次查询 CSV", self.export_query))
@@ -327,7 +340,12 @@ class Window(QMainWindow):
         row.addWidget(self.button("打开已有图片", self.choose_image))
         layout.addLayout(row)
         settings_row = QHBoxLayout()
+        settings_row.addWidget(self.hint("计算口径"))
+        self.chart_valuation = self.valuation_selector("figures")
+        settings_row.addWidget(self.chart_valuation)
         settings_row.addWidget(self.button("图片时间窗口…", lambda: self.edit_output_windows("figures")))
+        settings_row.addWidget(self.button("导出同口径计算 CSV", lambda: self.export(
+            "data", valuation=self.chart_valuation.currentData(), windows=self.service.output_windows("figures"))))
         self.chart_window_note = self.hint("")
         settings_row.addWidget(self.chart_window_note, 1)
         layout.addLayout(settings_row)
@@ -349,6 +367,32 @@ class Window(QMainWindow):
         self.scroll.setWidget(self.image_label)
         layout.addWidget(self.scroll, 1)
 
+    def valuation_selector(self, kind):
+        selector = QComboBox()
+        for key, label in VALUATIONS.items():
+            selector.addItem(label, key)
+        selector.setCurrentIndex(selector.findData(self.service.output_valuation(kind)))
+        def changed():
+            try:
+                self.service.save_valuation(kind, selector.currentData())
+            except Exception as exc:
+                selector.blockSignals(True)
+                selector.setCurrentIndex(selector.findData(self.service.output_valuation(kind)))
+                selector.blockSignals(False)
+                self.progress_label.setText(str(exc))
+                return
+            if kind == "query":
+                self.invalidate_query()
+            else:
+                self.image_note.setText("口径已改为“" + selector.currentText() + "”；重新生成后显示所选口径图片。")
+                self.update_chart_window_note()
+        selector.currentIndexChanged.connect(changed)
+        return selector
+
+    def open_market_data(self):
+        self.tabs.setCurrentWidget(self.market_page)
+        self.market_page.query()
+
     def build_exports_tab(self):
         layout = self.tab("报告与记录")
         row = QHBoxLayout()
@@ -369,10 +413,15 @@ class Window(QMainWindow):
 
     def update_chart_window_note(self):
         if hasattr(self, "chart_window_note"):
-            self.chart_window_note.setText(chart_window_label(self.chart.currentText(), self.service.output_windows("figures"))
-                                           + "。窗口修改后请重新生成；不影响Word。")
+            self.chart_window_note.setText(self.chart_valuation.currentText() + " · " +
+                chart_window_label(self.chart.currentText(), self.service.output_windows("figures"))
+                + "。口径/窗口修改后请重新生成；图片设置独立于Word。")
 
     def refresh_window_profiles(self):
+        for kind, selector in (("figures", self.chart_valuation), ("query", self.query_valuation)):
+            selector.blockSignals(True)
+            selector.setCurrentIndex(selector.findData(self.service.output_valuation(kind)))
+            selector.blockSignals(False)
         index = max(0, self.chart.currentIndex())
         self.chart.blockSignals(True)
         self.chart.clear()
@@ -380,7 +429,7 @@ class Window(QMainWindow):
         self.chart.setCurrentIndex(index)
         self.chart.blockSignals(False)
         self.update_chart_window_note()
-        self.report_window_note.setText("Word及计算CSV：" + window_summary(self.service.output_windows("report")))
+        self.report_window_note.setText("Word及本页CSV采用分红调整后口径：" + window_summary(self.service.output_windows("report")))
 
     def edit_output_windows(self, kind):
         if self.worker:
@@ -429,7 +478,9 @@ class Window(QMainWindow):
         self.security_page.set_busy(busy)
         for action in self.ui_actions:
             action.setEnabled(not busy)
-        for selector in [self.mode, self.root, self.slot, self.metric_combo, self.latest, self.chart]:
+        self.market_page.set_busy(busy)
+        for selector in [self.mode, self.root, self.slot, self.metric_combo, self.latest, self.chart,
+                         self.query_valuation, self.chart_valuation]:
             selector.setEnabled(not busy)
         self.date.setEnabled(not busy and not self.latest.isChecked())
         self.progress.setVisible(busy)
@@ -449,6 +500,7 @@ class Window(QMainWindow):
         try:
             self.service = BasisService(self.service.root, self.mode.currentData())
             self.security_page.change_identity()
+            self.market_page.clear()
             self.refresh_window_profiles()
             self.invalidate_query()
             self.dividend_label.setText("正在检查所选数据模式的分红来源…")
@@ -465,11 +517,11 @@ class Window(QMainWindow):
     def load_local(self, after=lambda: None):
         self.invalidate_query()
         # Capture widget state on the GUI thread; worker operations use plain values.
-        root, slot, metric, end = self.query_args()
+        args = self.query_args()
         def operation(progress):
             status = self.service.status()
             try:
-                result, error = self.service.query(root, slot, metric, end), None
+                result, error = self.service.query(*args), None
             except Exception as exc:
                 result, error = None, str(exc)
             return status, result, error
@@ -502,7 +554,8 @@ class Window(QMainWindow):
         return None if self.latest.isChecked() else self.date.date().toString("yyyy-MM-dd")
 
     def query_args(self):
-        return self.root.currentText(), self.slot.currentData(), self.metric_combo.currentData(), self.as_of()
+        return (self.root.currentText(), self.slot.currentData(), self.metric_combo.currentData(), self.as_of(),
+                self.query_valuation.currentData())
 
     def invalidate_query(self, *_args):
         self.query_result = None
@@ -526,12 +579,16 @@ class Window(QMainWindow):
     def refresh_active_page(self):
         if self.tabs.currentWidget() is self.security_page:
             self.security_page.query()
+        elif self.tabs.currentWidget() is self.market_page:
+            self.market_page.query()
         else:
             self.sync()
 
     def query_active_page(self):
         if self.tabs.currentWidget() is self.security_page:
             self.security_page.query()
+        elif self.tabs.currentWidget() is self.market_page:
+            self.market_page.query()
         else:
             self.query()
 
@@ -544,7 +601,8 @@ class Window(QMainWindow):
             "统计对象为同日实际合约跨期年化序列，分母为现货指数，按两到期日间隔年化。"
             if result["metric"] in {"calendar_02_00", "calendar_03_02"} else "统计对象为连续档位历史。")
         self.query_note.setText(f"行情截至 {result['actual_end']}　|　实际合约：{result['current_contract']}　|　到期日：{result['expiry']}\n"
-                               + explanation + "各窗口使用本次选中的固定分红假设。")
+                               + explanation + ("口径：不调整分红，直接使用期货/现货原始价格；未读取分红文件。"
+                                   if result["provenance"].get("valuation") == "raw" else "各窗口使用本次选中的固定分红假设。"))
         rows = []
         for r in result["statistics"].itertuples():
             rows.append([f"{r.months}个月", r.n, fmt(r.mean), fmt(r.p50), fmt(r.percentile, 1) + "%" if pd.notna(r.percentile) else "—",
@@ -646,11 +704,12 @@ class Window(QMainWindow):
             return str(dest)
         self.run_task("读取分红表…", operation, lambda result: self.load_local())
 
-    def export(self, kind, selected=None, refresh=True):
+    def export(self, kind, selected=None, refresh=True, valuation=None, windows=None):
         if self.worker:
             return
         end = self.as_of()
-        windows = self.service.output_windows(kind)
+        windows = windows if windows is not None else self.service.output_windows(kind)
+        valuation = valuation or (self.chart_valuation.currentData() if kind == "figures" else "adjusted")
         if kind == "report" and self.service.mode == "wind":
             self.invalidate_query()
         def done(folder):
@@ -673,7 +732,8 @@ class Window(QMainWindow):
                     QMessageBox.warning(self, "报告已使用本地可用数据生成", message)
             self.load_local(after=finish)
         self.run_task("检查行情并准备报告…" if kind == "report" and refresh else "使用本地数据准备导出…",
-            lambda progress: self.service.export(kind, selected, end, progress, windows=windows, refresh=refresh), done,
+            lambda progress: self.service.export(kind, selected, end, progress, windows=windows, refresh=refresh,
+                                                 valuation=valuation), done,
             cancellable=kind == "report" and self.service.mode == "wind",
             failure=(lambda error: QMessageBox.warning(self, "报告未生成", error)) if kind == "report" else None)
 
@@ -693,7 +753,7 @@ class Window(QMainWindow):
             frame["单位"] = result["unit"]
             frame["行情截止日"] = result["actual_end"]
             frame["分红日期"] = result["provenance"]["dividends"]["snapshot_date"]
-            frame["口径"] = "固定分红假设；历史不含截止日；连续档位"
+            frame["口径"] = ("不调整分红" if result["provenance"].get("valuation") == "raw" else "固定分红假设") + "；历史不含截止日；连续档位"
             frame["数据模式"] = self.service.mode
             frame["实际合约"] = result["current_contract"]
             frame["计算版本"] = result["fingerprint"]
@@ -733,10 +793,10 @@ class Window(QMainWindow):
             try:
                 info = json.loads(manifest.read_text(encoding="utf-8"))
                 label = (f"{self.image_path.name}　|　行情 {info['actual_end']}　|　分红 {info['dividends']['snapshot_date']}"
-                         f"　|　{info['mode']}　|　版本 {info['fingerprint'][:10]}")
+                         f"　|　{info.get('valuation_label', '分红调整后')}　|　{info['mode']}　|　版本 {info['fingerprint'][:10]}")
                 saved_windows = info.get("configuration", {}).get("windows")
                 if saved_windows:
-                    label += "\n生成时：" + chart_window_label(self.image_path.stem, saved_windows)
+                    label += "\n生成时：" + chart_window_label(self.image_path.stem.split('__')[0], saved_windows)
             except (ValueError, KeyError):
                 pass
         self.image_note.setText(label)

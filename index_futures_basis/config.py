@@ -8,6 +8,7 @@ from pathlib import Path
 import uuid
 
 from .windows import normalize_windows
+from .valuation import valuation_mode
 from shared_data import DataPaths
 
 ROOT = Path(__file__).resolve().parent
@@ -18,6 +19,7 @@ DEFAULTS = {
     "wind_mapping_field": "trade_hiscode", "wind_expiry_field": "lasttrade_date",
     "data_directory": "@shared", "exports_directory": "@shared", "auto_sync": True,
     "chart_windows": normalize_windows(), "report_windows": normalize_windows(),
+    "chart_valuation": "adjusted", "query_valuation": "adjusted",
     "dividends": {"selection": "latest_snapshot", "directories": ["@shared"],
                   "pattern": "*基差情况_*.xlsx", "sheet": "Sheet1", "header_row": 3,
                   "layout": "snapshot_continuous", "snapshot_date_cell": "B1",
@@ -71,6 +73,8 @@ def load_config(root=ROOT, demo=False):
 
 
 def validate_config(config):
+    for key in ("chart_valuation", "query_valuation"):
+        valuation_mode(config.get(key, "adjusted"))
     for key in ("chart_windows", "report_windows"):
         normalize_windows(config.get(key))
     if not 12 <= int(config["history_months"]) <= 36:

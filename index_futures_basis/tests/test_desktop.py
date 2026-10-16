@@ -178,6 +178,53 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(export.call_args.kwargs["refresh"])
         self.assertIn("缺失部分留空", self.window.progress_label.text())
 
+    def test_valuation_controls_keep_query_and_images_separate(self):
+        self.window.load_local()
+        self.wait_idle()
+        self.window.chart_valuation.setCurrentIndex(self.window.chart_valuation.findData("raw"))
+        self.assertEqual(self.window.query_valuation.currentData(), "adjusted")
+        self.window.query_valuation.setCurrentIndex(self.window.query_valuation.findData("raw"))
+        self.assertIsNone(self.window.query_result)
+        with patch.object(self.service, "dividend_input", side_effect=AssertionError("dividends")):
+            self.window.query()
+            self.wait_idle()
+        self.assertEqual(self.window.query_result["provenance"]["valuation"], "raw")
+        self.assertIn("不调整分红", self.window.query_note.text())
+        folder = Path(self.temp.name) / "raw_figures"
+        folder.mkdir()
+        (folder / "run_manifest.json").write_text(json.dumps({"actual_end": "2026-10-08", "valuation": "raw"}), encoding="utf-8")
+        with patch.object(self.service, "export", return_value=str(folder)) as export:
+            self.window.export("figures", ["跨期03-02_绝对基差"])
+            self.wait_idle()
+        self.assertEqual(export.call_args.kwargs["valuation"], "raw")
+        self.window.query_valuation.setCurrentIndex(self.window.query_valuation.findData("adjusted"))
+        self.assertIsNone(self.window.query_result)
+        self.assertEqual(self.window.chart_valuation.currentData(), "raw")
+
+    def test_local_market_page_reads_without_dividends_and_clears_stale_results(self):
+        page = self.window.market_page
+        self.window.tabs.setCurrentWidget(page)
+        page.root.setCurrentIndex(page.root.findData("IC"))
+        page.kind.setCurrentIndex(page.kind.findData("spot"))
+        with patch.object(self.service, "dividend_input", side_effect=AssertionError("dividends")), \
+             patch.object(self.service, "sync", side_effect=AssertionError("network")):
+            self.window.refresh_active_page()
+            self.wait_idle()
+            self.assertEqual(set(page.result["data"].code), {"000905.SH"})
+            page.table.copy()
+            self.assertIn("000905.SH", self.app.clipboard().text())
+            page.export()
+            self.wait_idle()
+        self.assertTrue(list(self.service.exports_root.glob("local_market_data/*/data.csv")))
+        page.code.setText("000300.SH")
+        self.assertIsNone(page.result)
+        self.assertEqual(page.table.model().rowCount(), 0)
+        self.assertFalse(page.export_button.isEnabled())
+        self.window.query_active_page()
+        self.wait_idle()
+        self.assertTrue(page.result["data"].empty)
+        self.assertIn("0条", page.info.text())
+
     def test_report_failure_explicitly_says_no_report_created(self):
         with patch.object(self.service, "export", side_effect=ValueError("前一交易日数据也不完整；未生成报告")), \
              patch("index_futures_basis.desktop.QMessageBox.warning") as warning:

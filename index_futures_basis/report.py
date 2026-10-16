@@ -10,13 +10,16 @@ import pandas as pd
 from .analytics import LABELS, NAMES, ROOTS
 from .term_structure import PAIRS, term_analysis, term_chart_catalog, term_distributions
 from .windows import normalize_windows, month_labels, chart_series_months
+from .valuation import VALUATIONS, valuation_mode
 
 COLORS = ["#28577B", "#288D87", "#C7813C", "#8D819E"]
 
 
 def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=None,
              cross=None, cross_quantiles=None, whiskers="p05_p95", selected=None, watermark="", terms=None,
-             windows=None, fixed_quantiles=None, calendar_point_quantiles=None, allow_partial=False):
+             windows=None, fixed_quantiles=None, calendar_point_quantiles=None, allow_partial=False,
+             valuation="adjusted"):
+    valuation_mode(valuation)
     windows = normalize_windows(windows)
     start = end - pd.DateOffset(months=windows["series_months"])
     os.environ.setdefault("MPLCONFIGDIR", str(Path(output) / ".mplconfig"))
@@ -75,7 +78,17 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
                 ax.text(.5, .5, "曲线数据缺失", transform=ax.transAxes, ha="center", color="#6F7780")
 
     def save(fig, name, include_in_doc=True):
-        path = output / f"{name}.png"
+        suffix = "__不调整分红" if valuation == "raw" else ""
+        path = output / f"{name}{suffix}.png"
+        if valuation == "raw":
+            # Every chart, including neutral term/quantile titles, identifies its inputs.
+            title = fig._suptitle if fig._suptitle is not None else fig.axes[0].title
+            text = title.get_text()
+            if not text:  # loc='left' titles are separate Matplotlib text objects.
+                title = fig.axes[0]._left_title
+                text = title.get_text()
+            text = text.replace("分红调整后", "不调整分红 · ")
+            title.set_text(text if "不调整分红" in text else "不调整分红 · " + text)
         if watermark:
             fig.text(.99, .99, watermark, ha="right", va="top", color="#B5473C", fontsize=11,
                      bbox={"facecolor": "white", "alpha": .85, "edgecolor": "none"})
