@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Delta1 券源工作台</title>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="#143B38"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#79DCC3" stroke-opacity=".24" stroke-width="2"/>
+
+  <path d="M66 70h120l-23-23m23 23-23 23M190 186H70l23-23m-23 23 23 23" fill="none" stroke="#79DCC3" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="67" y="102" width="122" height="52" rx="12" fill="#EFFCF7"/>
+  <path d="M94 114v28" stroke="#ACCFC4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M113 118h49m-49 20h30" stroke="#24554D" stroke-width="8" stroke-linecap="round"/>
+</svg>
