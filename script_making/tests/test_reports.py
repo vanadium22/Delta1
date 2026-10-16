@@ -241,7 +241,7 @@ class FileTests(unittest.TestCase):
             with urlopen(base+"/api/catalog",timeout=5) as response:
                 self.assertEqual(json.load(response)["dates"][0]["date"],"2026-10-14")
             with urlopen(base+"/api/settings",timeout=5) as response:
-                self.assertEqual(json.load(response)["settings"]["data_dir"], "data/reports")
+                self.assertEqual(json.load(response)["settings"]["data_dir"], "@shared")
             body=json.dumps({"kind":"swap","date":"2026-10-14","filters":[{"column":"c1","op":"fuzzy","value":"证投"}]}).encode()
             with urlopen(Request(base+"/api/query",data=body,headers={"Content-Type":"application/json"}),timeout=5) as response:
                 self.assertEqual(json.load(response)["matched"],1)
