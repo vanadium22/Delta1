@@ -70,6 +70,7 @@ class Analysis:
     calendar_annualized: pd.DataFrame
     calendar_quantiles: pd.DataFrame
     fixed_quantiles: pd.DataFrame
+    calendar_point_quantiles: pd.DataFrame
 
 
 class BasisService:
@@ -202,6 +203,8 @@ class BasisService:
         terms = term_analysis(adjusted, end, windows)
         fixed_quantiles = term_distributions(fixed, end, ["root"], "interpolable",
                                              windows=windows["fixed_60_quantile_months"])
+        calendar_point_quantiles = term_distributions(terms[2], end, ["root", "pair"],
+            windows=windows["calendar_quantile_months"], value="spread_points")
         provenance = {"generated_at": timestamp(), "mode": self.mode, "actual_end": str(end.date()),
             "requested_end": status["requested_end"], "plot_start": str(start.date()), "roots": ROOTS,
             "market_source": market_source, "raw_data_sha256": raw_digest, "dividends": info,
@@ -211,6 +214,7 @@ class BasisService:
             "annualized_formula": "basis_points / spot_close * 36500 / days_to_expiry; days>=5",
             "fixed_tenor_formula": "interpolate basis_rate between actual maturities, then *36500/target_days; no extrapolation",
             "calendar_annualized_formula": "((F_far+G_far)-(F_near+G_near))/spot_close*36500/(expiry_far-expiry_near).days",
+            "calendar_absolute_formula": "spread_points = (F_far+G_far)-(F_near+G_near); signed index points; no annualization",
             "term_quantile_windows": {"fixed60": windows["fixed_60_quantile_months"],
                 "fixed90": windows["fixed_90_quantile_months"], "calendar": windows["calendar_quantile_months"],
                 "rule": "calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded"},
@@ -219,7 +223,7 @@ class BasisService:
             historical_summary(adjusted, end, windows["annual_quantile_months"]),
             annualized_distributions(adjusted, end, windows["annual_quantile_months"]), cross,
             cross_index_distributions(cross, end, windows["cross_quantile_months"]),
-            start, end, key, provenance, dividends, *terms, fixed_quantiles)
+            start, end, key, provenance, dividends, *terms, fixed_quantiles, calendar_point_quantiles)
         return self._cache
 
     def query(self, root="IC", slot=4, metric="annualized_basis_pct", as_of=None):
@@ -416,7 +420,8 @@ class BasisService:
                 "total_open_interest": a.totals, "historical_statistics": a.history,
                 "annualized_quantiles": a.annual_quantiles, "im_ic_basis": a.cross, "im_ic_quantiles": a.cross_quantiles,
                 "fixed_60d_quantiles": a.fixed_quantiles, "fixed_90d": a.fixed90, "fixed_90d_quantiles": a.fixed90_quantiles,
-                "calendar_annualized": a.calendar_annualized, "calendar_annualized_quantiles": a.calendar_quantiles}
+                "calendar_annualized": a.calendar_annualized, "calendar_annualized_quantiles": a.calendar_quantiles,
+                "calendar_absolute_quantiles": a.calendar_point_quantiles}
             for label, frame in frames.items():
                 frame.to_csv(output / f"{label}.csv", index=False, encoding="utf-8-sig")
         if kind in {"report", "figures"}:
@@ -425,7 +430,7 @@ class BasisService:
                 a.annual_quantiles, a.cross, a.cross_quantiles, selected=selected if kind == "figures" else None,
                 watermark="合成演示" if self.mode == "demo" else "",
                 terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
-                windows=windows, fixed_quantiles=a.fixed_quantiles)
+                windows=windows, fixed_quantiles=a.fixed_quantiles, calendar_point_quantiles=a.calendar_point_quantiles)
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":
@@ -438,7 +443,7 @@ class BasisService:
                     a.start, a.end, ROOTS, provenance, preview=self.mode == "demo", annual_quantiles=a.annual_quantiles,
                     cross=a.cross, cross_quantiles=a.cross_quantiles,
                     terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
-                    windows=windows, fixed_quantiles=a.fixed_quantiles)
+                    windows=windows, fixed_quantiles=a.fixed_quantiles, calendar_point_quantiles=a.calendar_point_quantiles)
                 provenance.update(counts)
         provenance["files"] = [{"file": str(p.relative_to(output)), "sha256": sha256(p), "bytes": p.stat().st_size}
             for p in sorted(output.rglob("*")) if p.is_file() and ".mplconfig" not in p.parts]

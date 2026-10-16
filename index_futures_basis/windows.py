@@ -6,11 +6,11 @@ WINDOW_FIELDS = {
     "series_months": ("常规时序图", 3, 1),
     "fixed_60_months": ("60日固定期限曲线 两个窗口", [3, 1], 2),
     "fixed_90_months": ("90日固定期限曲线 两个窗口", [3, 1], 2),
-    "calendar_months": ("跨期年化曲线", 3, 1),
+    "calendar_months": ("跨期曲线（点数/年化）", 3, 1),
     "annual_quantile_months": ("单合约年化分位", [3, 6, 12], 3),
     "fixed_60_quantile_months": ("60日固定期限分位", [3, 6, 12], 3),
     "fixed_90_quantile_months": ("90日固定期限分位", [3, 6, 12], 3),
-    "calendar_quantile_months": ("跨期年化分位", [3, 6, 12], 3),
+    "calendar_quantile_months": ("跨期分位（点数/年化）", [3, 6, 12], 3),
     "cross_quantile_months": ("IM与IC基差差分位", [3, 6, 12], 3),
 }
 

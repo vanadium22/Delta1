@@ -47,8 +47,10 @@ class TermCalculationTests(unittest.TestCase):
         self.assertEqual(row.expiry_gap_days, 63)
         self.assertEqual(row.raw_spread_points, -20)
         self.assertEqual(row.dividend_difference, 30)
+        self.assertEqual(row.spread_points, 10)
         self.assertAlmostEqual(row.annualized_basis_pct, 10 / 4000 * 36500 / 63)
         other = result[result.pair.eq("03-02")].iloc[0]
+        self.assertEqual(other.spread_points, 5)
         self.assertAlmostEqual(other.annualized_basis_pct, 5 / 4000 * 36500 / 91)
         p = self.panel.copy()
         p.loc[p.slot.eq(1), "annualized_basis_pct"] = np.nan
@@ -56,6 +58,22 @@ class TermCalculationTests(unittest.TestCase):
         p.loc[p.slot.eq(1), "expiry_date"] = p.loc[p.slot.eq(1), "trade_date"]
         current = annualized_calendar_spreads(p).iloc[0]
         self.assertAlmostEqual(current.annualized_basis_pct, 10 / 4000 * 36500 / 74)
+
+    def test_calendar_point_statistics_keep_sign_and_rank_points_without_annualization(self):
+        p = self.panel.copy()
+        p.loc[p.slot.eq(4), "adjusted_futures_close"] -= 45
+        calendar = annualized_calendar_spreads(p)
+        self.assertTrue(calendar.loc[calendar.pair.eq("03-02"), "spread_points"].eq(-40).all())
+        g = pd.DataFrame({"root": "IF", "pair": "03-02", "trade_date": pd.to_datetime(
+            ["2025-10-01", "2026-07-16", "2026-09-01", "2026-10-15", "2026-10-16"]),
+            "spread_points": [-999, -20, 0, 20, 10], "annualized_basis_pct": [99, 30, 20, 10, 40]})
+        q = term_distributions(g, pd.Timestamp("2026-10-16"), ["root", "pair"],
+                              windows=[3], value="spread_points").iloc[0]
+        self.assertEqual(q.n, 3)
+        self.assertEqual(q.current, 10)
+        self.assertEqual(q.p50, 0)
+        self.assertAlmostEqual(q.percentile, 200 / 3)
+        self.assertEqual(q.sample_end, pd.Timestamp("2026-10-15"))
 
     def test_calendar_missing_pair_bad_expiry_and_spot_mismatch_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "缺少同日配对"):
@@ -101,4 +119,4 @@ class TermCalculationTests(unittest.TestCase):
                 chosen = "90天固定期限_近1个月"
                 folder = Path(service.export("figures", [chosen]))
             self.assertEqual([p.stem for p in (folder / "figures").glob("*.png")], [chosen])
-            self.assertEqual(len(term_chart_catalog()), 10)
+            self.assertEqual(len(term_chart_catalog()), 14)

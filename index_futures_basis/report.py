@@ -16,7 +16,7 @@ COLORS = ["#28577B", "#288D87", "#C7813C", "#8D819E"]
 
 def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=None,
              cross=None, cross_quantiles=None, whiskers="p05_p95", selected=None, watermark="", terms=None,
-             windows=None, fixed_quantiles=None):
+             windows=None, fixed_quantiles=None, calendar_point_quantiles=None):
     windows = normalize_windows(windows)
     start = end - pd.DateOffset(months=windows["series_months"])
     os.environ.setdefault("MPLCONFIGDIR", str(Path(output) / ".mplconfig"))
@@ -246,39 +246,58 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
             save(fig, "IM_IC_绝对基差差分位蜡烛图")
     if selected is None or selected.intersection(term_chart_catalog(windows)):
         fixed90, fixed90_quantiles, calendar, calendar_quantiles = terms if terms is not None else term_analysis(panel, end, windows)
+        if calendar_point_quantiles is None:
+            calendar_point_quantiles = term_distributions(calendar, end, ["root", "pair"],
+                windows=windows["calendar_quantile_months"], value="spread_points")
         if fixed_quantiles is None:
             fixed_quantiles = term_distributions(fixed, end, ["root"], "interpolable",
                                                  windows=windows["fixed_60_quantile_months"])
 
-        def term_lines(series, name, title, months, roll=False):
+        def term_lines(series, name, title, months, roll=False, value="annualized_basis_pct", unit="%"):
             left = end - pd.DateOffset(months=months)
-            fig, ax = plt.subplots(figsize=(12.8, 4.1), layout="constrained")
+            independent = value == "spread_points"
+            if independent:
+                grid_rows, grid_cols = (2, 2) if len(roots) == 4 else (1, len(roots))
+                fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12.8, 5.5),
+                                         squeeze=False, layout="constrained")
+            else:
+                fig, ax = plt.subplots(figsize=(12.8, 4.1), layout="constrained")
             for i, root in enumerate(roots):
+                if independent:
+                    ax = axes.flat[i]
                 g = series[series.root.eq(root) & series.trade_date.between(left, end)].sort_values("trade_date")
-                current = g.loc[g.trade_date.eq(end), "annualized_basis_pct"]
+                current = g.loc[g.trade_date.eq(end), value]
                 current = current.iloc[0] if len(current) else np.nan
-                ax.plot(g.trade_date, g.annualized_basis_pct, linewidth=2, color=COLORS[i],
-                        label=f"{root} 当前{fmt(current)}%")
+                ax.plot(g.trade_date, g[value], linewidth=2, color=COLORS[i],
+                        label=f"{root} 当前{fmt(current)}{unit}")
                 if np.isfinite(current):
                     ax.scatter([end], [current], color=COLORS[i], s=22, zorder=4)
                 if roll:
                     for day in g.loc[g.roll_day, "trade_date"]:
                         ax.axvline(day, color=COLORS[i], linestyle="--", alpha=.25, linewidth=.7)
-            ax.set_title(f"{title}  近{months}个自然月（{left:%Y-%m-%d}至{end:%Y-%m-%d}）",
-                         loc="left", fontsize=14, pad=35)
-            ax.legend(loc="lower right", bbox_to_anchor=(1, 1.01), ncol=len(roots), frameon=False, fontsize=12)
-            ax.set_ylabel("年化基差（%）")
-            ax.axhline(0, color="#A3ADB9", linewidth=.8)
-            style(ax, left)
+                if independent:
+                    ax.set_title(f"{root}  当前{fmt(current)}{unit}", loc="left", color=COLORS[i], fontsize=13)
+                    ax.set_ylabel("绝对基差（点）")
+                    ax.axhline(0, color="#A3ADB9", linewidth=.8)
+                    style(ax, left)
+            title = f"{title}  近{months}个自然月（{left:%Y-%m-%d}至{end:%Y-%m-%d}）"
+            if independent:
+                fig.suptitle(title + "  各品种独立纵轴", x=.02, ha="left", fontsize=14)
+            else:
+                ax.set_title(title, loc="left", fontsize=14, pad=35)
+                ax.legend(loc="lower right", bbox_to_anchor=(1, 1.01), ncol=len(roots), frameon=False, fontsize=12)
+                ax.set_ylabel("年化基差（%）")
+                ax.axhline(0, color="#A3ADB9", linewidth=.8)
+                style(ax, left)
             save(fig, name)
 
-        def term_quantiles(data, name, title):
+        def term_quantiles(data, name, title, unit="%"):
             grid_rows, grid_cols = (2, 2) if len(roots) == 4 else (1, len(roots))
             fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12.8, 9.0 if grid_rows == 2 else 5.8),
                                      squeeze=False, layout="constrained")
             fig.suptitle(f"{title}  截至{end:%Y-%m-%d}", x=.02, ha="left", fontsize=15)
             for i, (root, ax) in enumerate(zip(roots, axes.flat)):
-                quantile_panel(ax, data[data.root.eq(root)], root, COLORS[i], "%", show_percentile=True)
+                quantile_panel(ax, data[data.root.eq(root)], root, COLORS[i], unit, show_percentile=True)
             fig.legend(handles=[Patch(facecolor="#9EB6CB", alpha=.6, label="实体 P25—P75"),
                 Line2D([], [], color="#263238", label="横线 P50"),
                 Line2D([], [], color="#70889C", marker="_",
@@ -302,6 +321,13 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
             if want(f"跨期{pair}_年化分位蜡烛图"):
                 term_quantiles(calendar_quantiles[calendar_quantiles.pair.eq(pair)],
                                f"跨期{pair}_年化分位蜡烛图", f"{pair} 跨期年化基差历史分位")
+            if want(f"跨期{pair}_绝对基差"):
+                term_lines(calendar[calendar.pair.eq(pair)], f"跨期{pair}_绝对基差",
+                           f"{pair} 分红调整后跨期绝对基差", windows["calendar_months"],
+                           roll=True, value="spread_points", unit="点")
+            if want(f"跨期{pair}_绝对基差分位蜡烛图"):
+                term_quantiles(calendar_point_quantiles[calendar_point_quantiles.pair.eq(pair)],
+                               f"跨期{pair}_绝对基差分位蜡烛图", f"{pair} 分红调整后跨期绝对基差历史分位", "点")
     return charts
 
 
@@ -377,7 +403,8 @@ def quantile_description(label, data, unit):
 
 def build_docx(template, target, panel, fixed, spread, totals, history, charts,
                start, end, roots, provenance, preview=False, annual_quantiles=None,
-               cross=None, cross_quantiles=None, terms=None, windows=None, fixed_quantiles=None):
+               cross=None, cross_quantiles=None, terms=None, windows=None, fixed_quantiles=None,
+               calendar_point_quantiles=None):
     windows = normalize_windows(windows)
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
@@ -553,7 +580,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
           "这是一组固定分红假设下的调整结果，并非历史逐日可得的分红预测；跨期比较的两端均使用各自档位分红。")
     p("先将每个交易日、每个合约对应的剩余分红点数加到期货收盘价，再计算基差、年化值与跨期价差。"
       "绝对基差＝调整后期货价−现货指数收盘值，负值为贴水，正值为升水；年化基差＝绝对基差"
-      "÷现货指数收盘值×365÷剩余自然日数×100%。跨期价差取远月调整价减当月调整价。当前未另扣融资成本。")
+      "÷现货指数收盘值×365÷剩余自然日数×100%。跨期价差取指定远月调整价减近月调整价。当前未另扣融资成本。")
     picture("60天固定期限比较", f"各品种近{windows['series_months']}个月60天固定期限年化基差")
     rows = []
     for root in roots:
@@ -673,11 +700,11 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
           f"{windows[f'fixed_{days}_months'][0]}个月图用于观察阶段变化，"
           f"{windows[f'fixed_{days}_months'][1]}个月图突出近期变化；两图使用相同算法和同一分红快照。")
 
-    def term_table(caption, quantiles):
+    def term_table(caption, quantiles, unit="%"):
         windows = sorted(quantiles.months.unique())
-        headers = ["品种", "当前\n%"]
+        headers = ["品种", f"当前\n{unit}"]
         for months in windows:
-            headers += [f"{months}月当前\n百分位", f"{months}月中位\n%"]
+            headers += [f"{months}月当前\n百分位", f"{months}月中位\n{unit}"]
         rows = []
         for root in roots:
             q = quantiles[quantiles.root.eq(root)].set_index("months")
@@ -721,6 +748,38 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
         p(f"历史窗口为截止日前{month_labels(months)}个自然月，不含当日。" + term_guide)
         p("上述固定期限和跨期统计均沿用本次G列固定分红快照；跨期用远、近两档各自的分红，"
           "不能用当前假设下的历史分位代替当时可观察的分红预测。")
+    if calendar_point_quantiles is None:
+        calendar_point_quantiles = term_distributions(calendar, end, ["root", "pair"],
+            windows=windows["calendar_quantile_months"], value="spread_points")
+    for pair in PAIRS:
+        heading(f"{pair}分红调整后跨期绝对基差", page=True)
+        picture(f"跨期{pair}_绝对基差", f"{pair}分红调整后跨期绝对基差近{windows['calendar_months']}个月（点）")
+        p("跨期绝对基差＝（远月期货收盘价＋远月分红）−（近月期货收盘价＋近月分红），"
+          "也等于远月绝对基差减近月绝对基差，两端的同日现货项相抵。单位为指数点，保留正负号，"
+          "不取绝对值、不除以现货、不按到期日间隔年化。02−00为季月一减当月，03−02为最远月减季月一。")
+        p("正值表示分红调整后的远月价格高于近月，负值表示低于近月；曲线上行表示远月相对近月走强。"
+          "各品种采用独立纵轴，点数尺度不同，不宜直接按数值大小比较跨品种估值。"
+          "虚线标示任一端换月；实际配对变化可能带来跳变，近月不足5日仍使用当日点数。")
+        recent = calendar[calendar.pair.eq(pair) & calendar.trade_date.between(
+            end - pd.DateOffset(months=windows["calendar_months"]), end)]
+        for root in roots:
+            g = recent[recent.root.eq(root)].sort_values("trade_date")
+            row = g.iloc[-1]
+            p(f"{root}当前{fmt(row.spread_points, signed=True)}点，较窗口首日"
+              f"{fmt(row.spread_points - g.spread_points.iloc[0], signed=True)}点；"
+              f"配对为{row.far_contract}减{row.near_contract}，未调整价差{fmt(row.raw_spread_points, signed=True)}点"
+              f"＋远近月分红差{fmt(row.dividend_difference, signed=True)}点。")
+        months = windows["calendar_quantile_months"]
+        caption = f"{pair}跨期绝对基差{month_labels(months, '个月')}个月分位"
+        heading(caption, page=True)
+        picture(f"跨期{pair}_绝对基差分位蜡烛图", caption + "（点）")
+        term_table(f"{pair}跨期绝对基差当前水平及历史位置",
+                   calendar_point_quantiles[calendar_point_quantiles.pair.eq(pair)], unit="点")
+        p(f"历史窗口为截止日前{month_labels(months)}个自然月，不含当日。"
+          + term_guide.replace("当前年化值", "当前点数值"))
+        p("分位直接由每日分红调整后的跨期点数计算，年化分位不能直接换算成点数分位。"
+          "当前百分位越高，表示远月相对近月的调整价差在该窗口内越高，不代表后续必然回落。"
+          "历史两端均使用本次G列固定分红快照，不代表当时可观察的分红预测。")
     doc.core_properties.title = "晨会分析"
     doc.core_properties.author = ""
     doc.core_properties.last_modified_by = ""
