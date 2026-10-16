@@ -52,7 +52,7 @@ class InventoryRegressionTests(unittest.TestCase):
         source = self.workbook()
         first = self.service().status()
         source.unlink()
-        batch_root = self.root / "data" / "live" / self.day / "snapshots"
+        batch_root = self.service().data_root / self.day / "snapshots"
         batches = sorted(batch_root.iterdir())
         service = self.service()
         with patch("securities_lending.service.synchronize", side_effect=AssertionError("must not access shared drive")) as sync:
@@ -182,7 +182,7 @@ class InventoryRegressionTests(unittest.TestCase):
         original = module.parse_workbook
         checked = []
         def local_only(path, config):
-            self.assertTrue(path.resolve().is_relative_to((self.root / "data" / "live").resolve()))
+            self.assertTrue(path.resolve().is_relative_to(service.data_root.resolve()))
             self.assertEqual(path.read_bytes(), source.read_bytes())
             checked.append(path)
             return original(path, config)

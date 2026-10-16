@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 
 from .config import ROOT, atomic_json
+from shared_data import DataPaths
 
 
 def contacts_path(root: Path, demo: bool) -> Path:
-    return (root / "data" / "demo" if demo else root) / "trader_contacts.local.json"
+    return (DataPaths.for_module(root).demo("securities_lending") if demo else root) / "trader_contacts.local.json"
 
 
 def _text(value, field: str) -> str:

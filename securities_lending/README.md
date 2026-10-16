@@ -1,5 +1,9 @@
 # Delta1 券源工作台 · 原生桌面 App
 
+升级公共数据后，关闭 App，在公司统一分支 `git pull --ff-only`，双击仓库根目录 [一键迁移数据.cmd](../一键迁移数据.cmd)。自动复制校验并保留原件，重复运行安全。
+
+公共数据目录与看板扩展接口见 [SHARED_DATA.md](../SHARED_DATA.md)。正式券单统一保存在仓库根目录 `data/lending/live`，行业缓存位于 `data/reference/industry`。首次升级复制旧副本并校验、转换本地清单路径，原数据保留；启动仍优先复用当日有效券单，Wind 最新价仍每次请求。演示数据在 `data/demo/securities_lending`，不能冒充正式库存。
+
 Python + PySide6 原生 Windows 应用，默认入口为 python -m securities_lending。界面按公司 1920×1080 屏幕设计，支持 Windows 放大显示、小窗口横向滚动和可收起的券源明细。默认启动不打开浏览器。
 
 后续对话或继续开发，请先读 [项目交接与后续修改入口](PROJECT_HANDOFF.md)：包含已确认业务口径、代码索引、最近修复、验证边界和继续工作流程。
@@ -42,7 +46,7 @@ python -s -X utf8 -m securities_lending
 python -s -X utf8 -m securities_lending --demo
 ~~~
 
-演示模式始终使用合成券单与价格，不访问公司共享盘、不调用 Wind，窗口有固定演示标识。演示设置独立保存到 data/demo/config.local.json，即使正式配置损坏也可启动演示。正式/演示缓存和导出模式均有区分。
+演示模式始终使用合成券单与价格，不访问公司共享盘、不调用 Wind，窗口有固定演示标识。演示设置独立保存到 仓库根目录的 `data/demo/securities_lending/config.local.json`，即使正式配置损坏也可启动演示。正式/演示缓存和导出模式均有区分。
 
 ## 已确认的默认业务口径
 
@@ -126,7 +130,7 @@ python -s -X utf8 -m securities_lending --demo
 默认行业归组由 App 根据照片分组建立：机械/机械设备/硬件/计算机设备 → 机械/硬件；电子/软件/软件开发/汽车 → 电子/软件/汽车；煤炭/石油石化/有色金属/钢铁/基础化工/建筑材料 → 周期；食品饮料/家用电器/纺织服饰/商贸零售/社会服务/美容护理 → 消费。行业按去除首尾空格后的**完整名称精确匹配**，不做模糊推断；银行、医药生物、电力设备、计算机等未明确归组的行业和多个行业混合字符串先留空，可在「行业映射」里补充。交易台可留空；引用不存在的交易台或重复行业会拒绝保存并指出原因。
 
 - 默认模板：[trader_contacts.example.json](trader_contacts.example.json)。以后更新模板不会覆盖已有本机联系表。
-- 正式本机文件：`securities_lending/trader_contacts.local.json`；演示文件：`securities_lending/data/demo/trader_contacts.local.json`，互相隔离且不提交 Git。文件不存在时使用模板；文件损坏时显示错误并将联系人留空，不悄悄恢复成初稿。
+- 正式本机文件：`securities_lending/trader_contacts.local.json`；演示文件：`data/demo/securities_lending/trader_contacts.local.json`（相对仓库根目录），互相隔离且不提交 Git。文件不存在时使用模板；文件损坏时显示错误并将联系人留空，不悄悄恢复成初稿。
 - 也可直接编辑本机 JSON 后重启 App：`group` 是群名、`note` 是备注、`desks` 是交易台到姓名列表、`industries` 是行业名称到交易台名称；`schema_version` 保持 `1`。本机文件完整替代默认表，不自动合并新增分组。
 - 代码接口见 [trader_contacts.py](trader_contacts.py)：`contacts_path(root, demo)` 选择模式路径；`load_contacts(path)` 返回 `(联系表, 错误提示)`；`save_contacts(path, book)` 校验后原子保存；`contact_for(industry, book)` 查询映射。编辑窗口见 [desktop_contacts.py](desktop_contacts.py)。不需改券单配置或库存计算逻辑。
 
@@ -144,7 +148,7 @@ python -s -X utf8 -m securities_lending --demo
 
 导出包含：正式/演示模式、库存日期和状态、下载时间、本次价格和来源/时间、目标名本、需求、整百股上限、校验通过股数、取整名本和余量、最新库存市值、两列原始股数、原始券单市值/上限，以及逐笔费率、期限、来源、券源说明（互换=自有）、文件名、Excel 行号、本地快照和 SHA256。汇总表也单独列出券源笔数、逐笔期限及来源。
 
-CSV 汇总也有逐笔追溯文本。金额/原始数量保留精确值，Excel 超出可精确表示范围的数值用文本保存。库存不足时“校验通过股数”为空。原生保存对话框可另选位置，默认在项目 data/exports；导出在后台完成，先写临时文件，成功后才替换目标，失败不损坏已有导出。
+CSV 汇总也有逐笔追溯文本。金额/原始数量保留精确值，Excel 超出可精确表示范围的数值用文本保存。库存不足时“校验通过股数”为空。原生保存对话框可另选位置，默认在仓库根目录的 `outputs/securities_lending`；导出在后台完成，先写临时文件，成功后才替换目标，失败不损坏已有导出。
 
 汇总复制/导出同时保留标的识别及来源、库存提示、金额/股数输入方式、自有/其他来源上限、自有缺口/合计缺口、覆盖结论及最大可融估算金额。无库存与未识别输入均保留独立结果，便于核对。
 

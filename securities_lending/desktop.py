@@ -861,7 +861,7 @@ class Window(QMainWindow):
     def export(self):
         if not self.export_ready():
             return
-        default = self.service.root / "data" / "exports" / f"券源换算_{self.response['status']['mode']}_{self.current_date}.xlsx"
+        default = self.service.exports_root / f"券源换算_{self.response['status']['mode']}_{self.current_date}.xlsx"
         path, selected = QFileDialog.getSaveFileName(self, "导出结果与券源明细", str(default), "Excel 工作簿 (*.xlsx);;CSV 汇总 (*.csv);;CSV 券源明细 (*.csv)")
         if not path:
             return
