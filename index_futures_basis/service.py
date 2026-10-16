@@ -26,12 +26,15 @@ from .sync import Cancelled, synchronize
 from .wind import WindProvider
 from .term_structure import term_analysis, term_distributions
 from .windows import normalize_windows, required_history_months
+from .valuation import VALUATIONS, valuation_mode
 
 ROOTS = list(SPOT_CODES)
 METRICS = {
     "annualized_basis_pct": ("分红调整后年化基差", "%"),
     "basis_points": ("分红调整后绝对基差", "点"),
     "raw_basis_points": ("未调整绝对基差", "点"),
+    "futures_close": ("期货收盘价", "点"),
+    "spot_close": ("现货指数收盘值", "点"),
     "open_interest": ("持仓量", "手"),
     "oi_change": ("同合约持仓日变化", "手"),
     "fixed_60d": ("60天固定期限年化基差", "%"),
@@ -45,7 +48,7 @@ METRICS = {
 
 def calculation_version():
     digest = hashlib.sha256(__version__.encode())
-    for name in ("analytics.py", "distributions.py", "term_structure.py", "partial.py", "windows.py", "report.py", "service.py"):
+    for name in ("analytics.py", "distributions.py", "term_structure.py", "partial.py", "windows.py", "valuation.py", "report.py", "service.py"):
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
 
@@ -208,7 +211,8 @@ class BasisService:
                 return candidate, latest
         return self.store, None
 
-    def analyze(self, as_of=None, windows=None, allow_partial=False):
+    def analyze(self, as_of=None, windows=None, allow_partial=False, valuation="adjusted"):
+        valuation_mode(valuation)
         windows = normalize_windows(windows)
         availability = None
         if allow_partial:
@@ -240,10 +244,15 @@ class BasisService:
                 market_source = self.store.meta("source", {})
         if panel.trade_date.max() != end:
             raise ValueError("所选截止日不是本地完整交易日")
-        dividends, info = self.dividend_input(end, allow_partial=allow_partial)
+        if valuation == "raw":
+            dividends = pd.DataFrame(columns=["trade_date", "code", "dividend_points"])
+            info = {"path": "未使用分红文件", "sha256": "not_applied", "snapshot_date": "不适用",
+                    "application": "not_applied", "historical_type": "not_applied"}
+        else:
+            dividends, info = self.dividend_input(end, allow_partial=allow_partial)
         raw_digest = hashlib.sha256(pd.util.hash_pandas_object(panel, index=False).values.tobytes()).hexdigest()
         code_digest = calculation_version()
-        key = hashlib.sha256(json.dumps([raw_digest, info, str(end), code_digest, windows, availability],
+        key = hashlib.sha256(json.dumps([raw_digest, info, str(end), code_digest, windows, availability, valuation],
                                        ensure_ascii=False, default=str).encode()).hexdigest()
         if self._cache is not None and self._cache.fingerprint == key:
             return self._cache
@@ -257,6 +266,7 @@ class BasisService:
         calendar_point_quantiles = term_distributions(terms[2], end, ["root", "pair"],
             windows=windows["calendar_quantile_months"], value="spread_points")
         provenance = {"generated_at": timestamp(), "mode": self.mode, "actual_end": str(end.date()),
+            "valuation": valuation, "valuation_label": VALUATIONS[valuation],
             "requested_end": status["requested_end"], "plot_start": str(start.date()), "roots": ROOTS,
             "market_source": market_source, "raw_data_sha256": raw_digest, "dividends": info,
             "fingerprint": key, "app_version": __version__, "calculation_code_sha256": code_digest,
@@ -270,8 +280,14 @@ class BasisService:
                 "fixed90": windows["fixed_90_quantile_months"], "calendar": windows["calendar_quantile_months"],
                 "rule": "calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded"},
             "quantile_windows": "[end - N calendar months, end); exclude display fills; half-weight ties"}
+        if valuation == "raw":
+            provenance.update(basis_formula="futures_close - spot_close",
+                calendar_annualized_formula="(F_far-F_near)/spot_close*36500/(expiry_far-expiry_near).days",
+                calendar_absolute_formula="spread_points = F_far-F_near; signed index points; no annualization",
+                dividend_policy="Dividends not read or applied; dividend_adjustment_points=0 is an explicit calculation choice, not a claim about dividends.")
         if availability is not None:
-            availability["missing_fields"]["dividend_points"] = int(adjusted.dividend_points.isna().sum())
+            if valuation != "raw":
+                availability["missing_fields"]["dividend_points"] = int(adjusted.dividend_points.isna().sum())
             availability["dividend_note"] = info.get("fallback_reason", "")
             availability["partial"] = bool(any(availability["missing_fields"].values())
                 or availability["unknown_calendar_dates"] or panel.trade_date.min() > history_start + pd.Timedelta(days=15))
@@ -286,14 +302,19 @@ class BasisService:
             start, end, key, provenance, dividends, *terms, fixed_quantiles, calendar_point_quantiles)
         return self._cache
 
-    def query(self, root="IC", slot=4, metric="annualized_basis_pct", as_of=None):
+    def query(self, root="IC", slot=4, metric="annualized_basis_pct", as_of=None, valuation="adjusted"):
         if root not in ROOTS or slot not in range(1, 5) or metric not in METRICS:
             raise ValueError("品种、连续档位或指标无效")
-        a = self.analyze(as_of)
+        valuation_mode(valuation)
+        if metric in {"raw_basis_points", "futures_close", "spot_close", "open_interest", "oi_change"}:
+            valuation = "raw"
+        a = self.analyze(as_of, valuation=valuation)
         base = a.panel[a.panel.root.eq(root) & a.panel.slot.eq(slot)].copy()
         latest = base[base.trade_date.eq(a.end)].iloc[0]
         series = base.copy()
         label, unit = METRICS[metric]
+        if valuation == "raw":
+            label = label.replace("分红调整后", "未调整分红")
         if metric in {"fixed_60d", "fixed_90d"}:
             fixed = a.fixed if metric == "fixed_60d" else a.fixed90
             series = fixed[fixed.root.eq(root)].rename(columns={"annualized_basis_pct": "value"})
@@ -348,6 +369,22 @@ class BasisService:
                     if metric in {"calendar_02_00", "calendar_03_02"} else str(latest.expiry_date.date())),
                 "actual_end": str(a.end.date()), "fingerprint": a.fingerprint, "provenance": a.provenance,
                 "current": rows[0]["current"], "metric": metric, "root": root, "slot": slot}
+
+    def local_market_data(self, root=None, kind="all", code="", start=None, end=None):
+        """Browse downloaded quotes independently of calendar/dividend completeness."""
+        from .market_view import read_market_data
+        return read_market_data(self, root, kind, code, start, end)
+
+    def output_valuation(self, kind):
+        return valuation_mode(self.config.get("chart_valuation" if kind == "figures" else "query_valuation", "adjusted"))
+
+    def save_valuation(self, kind, value):
+        value = valuation_mode(value)
+        key = "chart_valuation" if kind == "figures" else "query_valuation"
+        updated = load_config(self.root, demo=self.mode == "demo")
+        updated[key] = value
+        atomic_json(config_path(self.root, self.mode == "demo"), updated)
+        self.config[key] = value
 
     def save_settings(self, patch):
         updated = {**self.config, **patch}
@@ -428,15 +465,19 @@ class BasisService:
         progress(check["message"])
         return actual, check
 
-    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None, windows=None, refresh=True):
+    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None, windows=None, refresh=True,
+               valuation=None):
         from .report import plot_all, build_docx
         if kind not in {"report", "figures", "data"}:
             raise ValueError("未知导出类型")
         windows = normalize_windows(windows if windows is not None else self.output_windows(kind))
+        valuation = valuation_mode(valuation or (self.output_valuation(kind) if kind == "figures" else "adjusted"))
+        if kind == "report" and valuation != "adjusted":
+            raise ValueError("Word沿用分红调整后口径；不调整分红可用于图片和计算CSV")
         check = None
         if kind == "report" and self.mode == "wind" and refresh:
             as_of, check = self.prepare_report(as_of, progress)
-        a = self.analyze(as_of, windows, allow_partial=True)
+        a = self.analyze(as_of, windows, allow_partial=True, valuation=valuation)
         if check and self.cancel.is_set():
             raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
         name = timestamp().replace(":", "").replace("+", "_") + "_" + uuid.uuid4().hex[:6]
@@ -468,7 +509,7 @@ class BasisService:
                 watermark="合成演示" if self.mode == "demo" else "",
                 terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
                 windows=windows, fixed_quantiles=a.fixed_quantiles, calendar_point_quantiles=a.calendar_point_quantiles,
-                allow_partial=True)
+                allow_partial=True, valuation=valuation)
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":

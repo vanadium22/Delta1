@@ -33,7 +33,8 @@ def annualized_calendar_spreads(panel, allow_partial=False):
                 "expiry_gap_days": gap, "spot_close": near.spot_close,
                 "near_adjusted_close": near.adjusted_futures_close, "far_adjusted_close": far.adjusted_futures_close,
                 "raw_spread_points": far.futures_close - near.futures_close,
-                "dividend_difference": far.dividend_points - near.dividend_points,
+                "dividend_difference": far.get("dividend_adjustment_points", far.dividend_points)
+                    - near.get("dividend_adjustment_points", near.dividend_points),
                 "spread_points": points, "annualized_basis_pct": points / near.spot_close * 36500 / gap
                     if valid_gap and valid_spot else np.nan,
                 "roll_day": bool(far.roll_day or near.roll_day)})
