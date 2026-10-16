@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Delta1 股指基差</title>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="#142A4A"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#60C5FF" stroke-opacity=".24" stroke-width="2"/>
+
+  <path d="M58 62v134h146" fill="none" stroke="#436184" stroke-width="10" stroke-linecap="round"/>
+  <path d="m70 114 38-28 37 17 47-42v57l-47 42-37-17-38 28Z" fill="#60C5FF" opacity=".16"/>
+  <path d="m70 114 38-28 37 17 47-42" fill="none" stroke="#F1F8FF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m70 171 38-28 37 17 47-42" fill="none" stroke="#60C5FF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
