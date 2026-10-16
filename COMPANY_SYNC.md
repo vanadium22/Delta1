@@ -12,7 +12,7 @@ dashboard/                        # 公司 Git 仓库根目录
   index_strategy/
   securities_lending/
   index_futures_basis/
-  script_making/                   # 准备中，暂时只有项目说明与同步约定
+  script_making/                   # 本地日报下载、查询与筛选
   config/
   tests/
 ```
@@ -21,14 +21,14 @@ dashboard/                        # 公司 Git 仓库根目录
 
 前次补充汇总（`bc15293`）：券单分支 `24875ce`（含 `298ed75` 行业联系表功能及公司同步说明修正）、基差分支 `a2cf6ae`（原业务实现及同步说明修正）均已合入。三个模块源码与入口同时保留；index_strategy 当次仅补公司更新说明，原已提交业务实现不变。尚未提交的其他开发工作继续留在原目录。
 
-本次新增 `script_making`（初始骨架提交 `20b12cd`）：正式纳入统一同步，当前发布说明和忽略规则，尚无业务运行入口。用户原目录中的真实材料与含本机设置的旧脚本保留在本机，未提交。
+`script_making` 初始骨架提交为 `20b12cd`；现已实现本地日报下载、查询和筛选，入口为 `script_making\start.cmd`。真实材料、旧脚本、本机配置与缓存仍保留本机，不进入 Git。
 
 | 项目目录 | 开发分支/安排 | 公司分支内的内容 |
 | --- | --- | --- |
 | index_strategy | 按具体任务开发后汇总 | 现有已提交的指数策略与采集模块 |
 | securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；微信 OCR 找群、样本上下文和一次发送已实测，群级未读 @ 提示通过正反对照；精确识别与持续采集未完成，尚无微信入口 |
 | index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成 |
-| script_making | codex/script-making | 项目准备骨架；后续正式实现按同一流程发布 |
+| script_making | codex/script-making | 本地日报查询；共享来源和保存目录可配置，默认读取存续合约估值与簿记要素，支持简称、数值范围及零容差筛选 |
 
 ## 当前状态与默认更新方式
 
@@ -49,9 +49,10 @@ git pull --ff-only
 .\securities_lending\start.cmd
 .\index_futures_basis\start.cmd
 .\index_strategy\start_app.cmd
+.\script_making\start.cmd
 ```
 
-`script_making` 暂时只有项目说明与后续开发约定，可打开 `script_making\README.md` 查看状态；实现入口后再补充启动方法。
+`script_making` 首次使用需要 Python 3.10+ 和 openpyxl，并在页面「数据与同步」中设置公司共享来源。具体接口与操作见 `script_making\README.md`；配置和报表文件不随 Git 传输。
 
 各模块公司说明、交接提示词现已统一为 **codex/company-apps**。公司保持此分支，按各 App 的入口启动；切换 Git 分支会改变整个仓库的源码集合。
 
@@ -116,6 +117,14 @@ git pull --ff-only
 5. 确认 App 正常使用、配置与数据已恢复且路径不指向备份后，可自行删除备份。不要使用 reset/clean 清理目录。
 
 ## 验证记录
+
+### script_making 本地日报查询（2026-10-16，开发提交 f1cd569）
+
+- 新增本地日报页面及 JSON 接口，默认读取「存续合约估值」和「簿记要素」。共享来源与保存目录可配置并立即生效；支持按交易日目录下载双文件、工作表切换、简称搜索、数值范围及零值 ε、分页、排序和全部字段详情。
+- 开发与公司集成分别通过 18 项合成/离线测试，覆盖双文件完整性、SHA256、已有文件保护、路径修改和后台同步等。开发侧浏览器实际读取 14,213 条存续合约和 53 条簿记要素；简称、范围、空值、非法容差、分页、详情、列选择、复核汇总、设置和手机布局检查通过，浏览器错误为 0。
+- 当前电脑无法访问原公司共享目录。用户确认稍后连接公司网络，尚未下载前一交易日的新日报；已保存并校验原有 2026-10-14 材料，页面明确标记实际日期和来源。公司共享盘、最新文件发布时间及实际 pull 尚待实连验证。
+- 变更仅包含本模块 15 份源码/测试/说明和本同步文件；模块与开发提交完全一致，其他模块与集成前 `04682c7` 一致，四个启动入口均在。真实 Excel、原材料、截图、缓存和本机路径配置均被忽略，不提交。
+- 公司在统一分支根目录执行一次 `git pull --ff-only`，随后运行 `script_making\start.cmd`。首次缺依赖时安装本模块 requirements，并在页面填写共享来源目录。本次不涉及交易新增或提交操作。
 
 ### 基差固定期限与跨期年化扩展（2026-10-16，开发提交854b400）
 
