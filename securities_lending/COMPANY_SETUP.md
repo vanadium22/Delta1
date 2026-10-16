@@ -2,6 +2,9 @@
 
 家中开发机已验证的环境为 `swhy_delta1`，Python 3.13.15（64 位），包含 PySide6-Essentials 6.11.2、openpyxl 3.1.5、xlrd 2.0.1，未安装 WindPy。公司建议环境路径为 `D:\conda\envs\swhy_delta1`；上述版本记录不代表公司实际环境与 Wind 已验证通过。项目现状和用户反馈见 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)。
 
+
+公司更新后可双击本目录 `create_desktop_shortcut.cmd`，自动在桌面生成带 `assets/app.ico` 图标的「Delta1 券源工作台」快捷方式。以后双击该快捷方式即通过 CMD 运行原 `start.cmd`；无需重建环境，移动项目后重新创建即可。详见 README 的桌面快捷方式说明。
+
 ## 首次建立环境
 
 公司统一使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新全部已发布模块；`codex/securities-lending` 仅用于开发。已有公司环境按下节使用，无需重建。
