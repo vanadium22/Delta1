@@ -1,5 +1,14 @@
 # Delta1 股指基差 App：项目交接
 
+## 2026-10-16 个股分钟返回兼容与诊断修正
+
+- 用户反馈指数可查、`600006.SH`分钟查询提示“不匹配”，未提供完整报错、周期、字段或时间窗口。本机未安装WindPy，因此尚不能确认公司那次原始响应及唯一根因，不能将本地模拟通过说成该股票已实连成功。
+- 核对[Wind官方Python包装源码](https://github.com/WindQuant/Official/blob/master/WAPIWrapper/WAPIWrapperPython/WindPy.py)及Wind《Python接口使用手册》2.0的WSI章节：当前函数和参数顺序正确，仍为`w.wsi(code, fields, start, end, "BarSize=N;PriceAdj=U;Fill=Blank")`。本次不改为日频或快照代替分钟，不变更复权及单位口径。
+- 旧适配器把代码与字段错误合并成一句，且只接受一种返回结构。新增WSI表式`time/windcode`列解析、分钟`amount`返回名映射为`amt`、字段空白清理；逐行证券身份及字段集合/重名/列长度/时间唯一性保持校验，表式不将Codes行号当证券代码。WSD/WSQ不应用分钟别名。缓存批次与导出清单同时记录请求字段、实际返回字段和结构，已有缓存可直接读取。
+- 错误显示函数、代码、字段、窗口、选项及返回Codes/Fields/TimesCount/DataLengths；Wind错误保留ErrorCode及其原始说明。仍不转成演示或旧数据冒充成功，错误不会写入本批行情缓存。
+- 先用模拟返回复现旧版在`amount`与表式结构上的拒绝；修复后31项受影响测试通过，覆盖新增8项适配/缓存测试、全部行情查询与Qt交互、原Wind进程协议。包含`600006.SH`合成量额的手算TWAP/VWAP、缓存零重复请求及导出来源、真实子进程传输成功与错误上下文；最终补充WSD正向断言的复验见公司发布记录。未修改界面布局、Word或基差业务，未连接真实Wind，需公司更新后重试；若仍失败，完整新错误可区分字段、结构与权限问题。
+- 本次日志位于忽略目录`.deps/security-wsi-fix-tests.log`。两个分支最外层`data/`继续忽略，未跟踪和提交任何行情、缓存或本机配置；发布提交及公司验证见`COMPANY_SYNC.md`。公司仍保持`codex/company-apps`，关闭App后在仓库根目录一次`git pull --ff-only`。
+
 ## 2026-10-16 单标的行情分析
 
 - 新增第五页签「行情分析」，在原PySide6工作台内查询沪深股票/ETF/指数的日频、1/5/15/30/60分钟和最新单值；字段close/open/high/low/volume/amt。代码位于`security_model.py`、`security_data.py`、`security_wind.py`、`security_worker.py`、`security_chart.py`、`security_desktop.py`。现有Wind传输只新增可选worker入口和可注入调度函数，基差计算/分红/报告口径不变。

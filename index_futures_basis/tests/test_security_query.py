@@ -127,6 +127,32 @@ class CacheTests(unittest.TestCase):
         self.assertIn("vwap", result.summary["metrics"])
         self.assertEqual(self.query(q).metadata["requests"], 0)
 
+    def test_stock_wsi_table_through_cache_metrics_and_export(self):
+        calls = []
+        def wsi(code, fields, start, end, options):
+            calls.append((code, fields, start, end, options))
+            return R(ErrorCode=0, Codes=["1", "2"], Times=[],
+                Fields=["time", "windcode", "amount", "close", "volume"],
+                Data=[[datetime(2026, 10, 14, 9, 35), datetime(2026, 10, 14, 9, 40)],
+                      [code, code], [2000., 3600.], [10., 12.], [200., 300.]])
+        wind = R(wsi=wsi,
+                 wss=lambda code, *args: R(ErrorCode=0, Codes=[code], Data=[["合成个股名称"]]),
+                 tdays=lambda *args: R(ErrorCode=0, Data=[[datetime(2026, 10, 14)]]))
+        provider = R(request=lambda operation, **args: perform(wind, {"operation": operation, **args}))
+        q = SecurityQuery("600006.SH", "5m", ("close",), "2026-10-14 09:30", "2026-10-14 09:40",
+                          True, True, "share", "yuan")
+        result = self.service.query(q, provider=provider, now=NOW)
+        self.assertEqual(result.metadata["missing_cells"], 0)
+        self.assertEqual(result.summary["metrics"]["twap"], 11.)
+        self.assertEqual(result.summary["metrics"]["vwap"], 11.2)
+        self.assertEqual(result.metadata["batches"][0]["returned_fields"]["amt"], "amount")
+        again = self.service.query(q, provider=provider, now=NOW)
+        self.assertEqual(again.metadata["requests"], 0)
+        self.assertEqual(len(calls), 1)
+        folder = export_result(again, Path(self.temp.name) / "table-export")
+        manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["batches"][0]["response_layout"], "table")
+
     def test_partial_bar_response_is_visible_and_retried(self):
         self.provider.omit = "09:32"
         q = SecurityQuery("600519.SH", "1m", ("close",), "2026-10-14 09:30", "2026-10-14 09:33", True)
@@ -240,6 +266,92 @@ class CacheTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def minute_request(self, **updates):
+        return dict(operation="history", code="600006.SH", fields=["close", "volume", "amt"],
+                    frequency="5m", start="2026-10-15 09:30:00", end="2026-10-15 09:40:00") | updates
+
+    def minute_result(self, **updates):
+        return R(**(dict(ErrorCode=0, Codes=["600006.SH"], Fields=["CLOSE", "VOLUME", "AMT"],
+                         Times=[datetime(2026, 10, 15, 9, 35), datetime(2026, 10, 15, 9, 40)],
+                         Data=[[10., 12.], [200., 300.], [2000., 3600.]]) | updates))
+
+    def test_wsi_arguments_and_amount_return_alias(self):
+        seen = []
+        def wsi(*args):
+            seen.append(args)
+            return self.minute_result(Fields=[" AMOUNT ", " Close ", "VOLUME"],
+                                      Data=[[2000., 3600.], [10., 12.], [200., 300.]])
+        data = perform(R(wsi=wsi), self.minute_request())
+        self.assertEqual(seen, [("600006.SH", "close,volume,amt", "2026-10-15 09:30:00",
+                                "2026-10-15 09:40:00", "BarSize=5;PriceAdj=U;Fill=Blank")])
+        self.assertEqual(data["rows"][1], {"time": "2026-10-15T09:40:00+08:00", "close": 12.,
+                                          "volume": 300., "amt": 3600.})
+        self.assertEqual(data["wind_fields"]["amt"], "amt")
+        self.assertEqual(data["returned_fields"]["amt"], " AMOUNT ")
+
+    def test_wsi_table_uses_explicit_row_codes_and_time_columns(self):
+        result = self.minute_result(Codes=["1", "2"], Times=[datetime(2026, 10, 16)],
+            Fields=["volume", "time", "amount", "windcode", "close"],
+            Data=[[200., 300.], [datetime(2026, 10, 15, 9, 35), datetime(2026, 10, 15, 9, 40)],
+                  [2000., 3600.], ["600006.SH", "600006.SH"], [10., 12.]])
+        data = perform(R(wsi=lambda *args: result), self.minute_request())
+        self.assertEqual(data["rows"][0]["time"], "2026-10-15T09:35:00+08:00")
+        self.assertEqual(data["rows"][1]["amt"], 3600.)
+        self.assertEqual(data["response_layout"], "table")
+        result.Data[3][1] = "600007.SH"
+        with self.assertRaisesRegex(ValueError, "证券代码.*600007.SH"):
+            perform(R(wsi=lambda *args: result), self.minute_request())
+
+    def test_wsi_rejects_missing_unknown_or_ambiguous_fields_with_context(self):
+        for names, values in [(["CLOSE", "VOLUME"], [[10., 12.], [200., 300.]]),
+                              (["CLOSE", "VOLUME", "turnover"], [[10., 12.], [200., 300.], [1., 2.]]),
+                              (["CLOSE", "VOLUME", "AMT", "AMOUNT"], [[10., 12.], [200., 300.], [1., 2.], [1., 2.]])]:
+            with self.subTest(names=names), self.assertRaises(ValueError) as raised:
+                perform(R(wsi=lambda *args: self.minute_result(Fields=names, Data=values)), self.minute_request())
+            message = str(raised.exception)
+            for text in ("WSI", "600006.SH", "字段", "2026-10-15 09:30:00", "BarSize=5", "Fields=", "DataLengths="):
+                self.assertIn(text, message)
+
+    def test_wsi_rejects_wrong_codes_and_ragged_columns(self):
+        for updates, expected in [({"Codes": ["600007.SH"]}, "证券代码"),
+                                   ({"Data": [[10., 12.], [200.], [2000., 3600.]]}, "长度")]:
+            with self.subTest(updates=updates), self.assertRaisesRegex(ValueError, expected):
+                perform(R(wsi=lambda *args: self.minute_result(**updates)), self.minute_request())
+
+    def test_wsi_table_does_not_accept_missing_identity_or_duplicate_times(self):
+        for names, values, expected in [
+            (["time", "close"], [[datetime(2026, 10, 15, 9, 35)], [10.]], "字段"),
+            (["time", "windcode", "close"], [[datetime(2026, 10, 15, 9, 35)] * 2,
+                                               ["600006.SH"] * 2, [10., 11.]], "重复"),
+            (["time", "windcode", "close"], [[datetime(2026, 10, 15, 9, 35)] * 2,
+                                               ["600006.SH"], [10., 11.]], "长度")]:
+            with self.subTest(names=names, expected=expected), self.assertRaisesRegex(ValueError, expected):
+                perform(R(wsi=lambda *args: self.minute_result(Fields=names, Data=values)),
+                        self.minute_request(fields=["close"]))
+
+    def test_daily_does_not_apply_minute_alias_and_keeps_wsd_options(self):
+        seen = []
+        result = self.minute_result(Fields=["AMOUNT"], Data=[[2000., 3600.]])
+        def wsd(*args):
+            seen.append(args)
+            return result
+        with self.assertRaisesRegex(ValueError, "WSD.*字段"):
+            perform(R(wsd=wsd), self.minute_request(frequency="1d", fields=["amt"],
+                                                    start="2026-10-14", end="2026-10-15"))
+        self.assertEqual(seen[0][-1], "Period=D;Days=Trading;Fill=Blank;PriceAdj=U")
+        result.Fields = ["AMT"]
+        result.Times = [datetime(2026, 10, 14), datetime(2026, 10, 15)]
+        data = perform(R(wsd=wsd), self.minute_request(frequency="1d", fields=["amt"],
+                                                     start="2026-10-14", end="2026-10-15"))
+        self.assertEqual(data["rows"], [{"time": "2026-10-14", "amt": 2000.}, {"time": "2026-10-15", "amt": 3600.}])
+
+    def test_wind_error_preserves_api_message_and_request_context(self):
+        result = self.minute_result(ErrorCode=-40520007, Fields=["ERROR"], Data=[["No authority"]])
+        with self.assertRaises(RuntimeError) as raised:
+            perform(R(wsi=lambda *args: result), self.minute_request())
+        for text in ("WSI", "600006.SH", "-40520007", "No authority", "BarSize=5"):
+            self.assertIn(text, str(raised.exception))
+
     def test_wsi_preserves_times_field_order_and_rejects_duplicates(self):
         result = R(ErrorCode=0, Codes=["600519.SH"], Fields=["VOLUME", "CLOSE"],
                    Times=[datetime(2026, 10, 14, 9, 31), datetime(2026, 10, 14, 9, 32)], Data=[[100, 200], [10, 11]])
@@ -271,7 +383,10 @@ class W:
     def start(self, **kwargs): return R(ErrorCode=0)
     def stop(self): pass
     def wsi(self, code, fields, start, end, options):
-        return R(ErrorCode=0, Codes=[code], Fields=['CLOSE'], Times=[datetime(2026,10,14,9,31)], Data=[[10.]])
+        if fields == 'volume':
+            return R(ErrorCode=-40520007, Codes=[], Fields=[], Times=[], Data=[['No authority']])
+        return R(ErrorCode=0, Codes=['1'], Fields=['time','windcode','amount','close'], Times=[],
+                 Data=[[datetime(2026,10,14,9,31)], [code], [2000.], [10.]])
 w=W()
 '''
         with tempfile.TemporaryDirectory() as folder:
@@ -279,9 +394,13 @@ w=W()
             with patch.dict(os.environ, {"PYTHONPATH": folder}):
                 provider = SecurityProvider(copy.deepcopy(DEFAULTS))
                 try:
-                    data = provider.request("history", code="600519.SH", fields=["close"], frequency="1m",
+                    data = provider.request("history", code="600006.SH", fields=["close", "amt"], frequency="1m",
                                             start="2026-10-14 09:30:00", end="2026-10-14 09:31:00")
                     self.assertEqual(data["rows"][0]["time"], "2026-10-14T09:31:00+08:00")
+                    self.assertEqual(data["rows"][0]["amt"], 2000.)
+                    with self.assertRaisesRegex(RuntimeError, "WSI.*600006.SH.*No authority"):
+                        provider.request("history", code="600006.SH", fields=["volume"], frequency="1m",
+                                         start="2026-10-14 09:30:00", end="2026-10-14 09:31:00")
                     process = provider.process
                 finally:
                     provider.close()
