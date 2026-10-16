@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import ROOT, atomic_json
+from shared_data.io import file_lock
 
 
 def wind_executable(config):
@@ -50,6 +51,13 @@ class IndustryProvider:
             return {}, [f"Wind 标的识别失败：{exc}；未识别不代表证券不存在"]
 
     def market(self, quote_codes, industry_codes, day, config):
+        try:
+            with file_lock(self.data_root / day / ".writer.lock"):
+                return self._market(quote_codes, industry_codes, day, config)
+        except TimeoutError as exc:
+            return {}, {}, [str(exc)]
+
+    def _market(self, quote_codes, industry_codes, day, config):
         if not quote_codes and not industry_codes:
             return {}, {}, []
         if not config["wind_enabled"]:

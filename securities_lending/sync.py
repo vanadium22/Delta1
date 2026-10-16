@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from .config import atomic_json, source_directory, timestamp
+from shared_data.io import portable_manifest, resolved_manifest
 
 
 def digest(path: Path) -> str:
@@ -57,14 +58,14 @@ def synchronize(config: dict, day: str, data_root: Path, progress=None):
 
 
 def save_manifest(data_root: Path, manifest: dict):
-    atomic_json(data_root / manifest["date"] / "latest.json", manifest)
+    atomic_json(data_root / manifest["date"] / "latest.json", portable_manifest(manifest, data_root))
 
 
 def cached_manifest(data_root: Path, day: str, config: dict):
     path = data_root / day / "latest.json"
     if not path.exists():
         return None
-    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest = resolved_manifest(json.loads(path.read_text(encoding="utf-8")), data_root)
     if manifest["date"] != day or manifest["source_dir"] != str(source_directory(config, day)):
         return None
     if manifest["selection"] != config["file_selection"] or manifest.get("file_glob") != config["file_glob"]:

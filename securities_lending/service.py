@@ -10,6 +10,9 @@ from .calculation import decimal_value, size_order, source_coverage
 from .inventory import MissingSheetError, normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
+from shared_data import Catalog, DataPaths, Dataset
+from shared_data.io import file_lock
+from shared_data.migration import ensure_migrated
 
 
 def demo_source(root: Path, day: str):
@@ -64,12 +67,18 @@ def summarize(code: str, rows: list[dict]):
 
 class InventoryService:
     def __init__(self, root: Path = settings.ROOT, demo=False, clock=None):
-        self.root, self.demo = root, demo
+        self.root, self.demo = Path(root).resolve(), demo
+        root = self.root
+        self.paths = DataPaths.for_module(root)
+        ensure_migrated("securities_lending", root, self.paths)
         self.clock = clock or settings.today
-        self.config_path = root / "data" / "demo" / "config.local.json" if demo else root / "config.local.json"
+        self.config_path = self.paths.demo("securities_lending") / "config.local.json" if demo else root / "config.local.json"
         self.config = load_config(self.config_path)
-        self.data_root = root / "data" / ("demo" if demo else "live")
-        self.provider = IndustryProvider(self.data_root)
+        self.data_root = self.paths.lending(demo)
+        self.demo_source_root = self.paths.demo("securities_lending") / "source"
+        self.exports_root = self.paths.export("securities_lending")
+        self.provider = IndustryProvider(self.paths.industries(demo))
+        Catalog(self.paths).register(Dataset("lending_inventory", "synthetic" if demo else "company_share", "snapshot", mode="demo" if demo else "live"), self.data_root)
         self.records = []
         self.lock = threading.RLock()
         self.state = {"date": self.clock(), "mode": "demo" if demo else "live", "state": "loading", "warnings": [], "files": [], "record_count": 0, "security_count": 0}
@@ -77,7 +86,7 @@ class InventoryService:
     def active_config(self):
         config = dict(self.config)
         if self.demo:
-            config.update(source_root=str(self.root / "data" / "demo_source"), wind_enabled=False, file_glob="*.xlsx", file_selection="latest", sheet_name="库存券单", columns={}, header_row=None, quantity_policy="minimum")
+            config.update(source_root=str(self.demo_source_root), wind_enabled=False, file_glob="*.xlsx", file_selection="latest", sheet_name="库存券单", columns={}, header_row=None, quantity_policy="minimum")
         return config
 
     def update_config(self, patch, progress=None):
@@ -119,7 +128,7 @@ class InventoryService:
         return self.refresh(progress, prefer_local=True)
 
     def refresh(self, progress=None, *, prefer_local=False):
-        with self.lock:
+        with self.lock, file_lock(self.data_root / ".writer.lock"):
             day, config = self.clock(), self.active_config()
             self.provider.failed_keys.clear()
             manifest, parsed, issue, downloaded = None, None, None, None
@@ -138,7 +147,7 @@ class InventoryService:
             if not using_local:
                 try:
                     if self.demo:
-                        demo_source(self.root / "data" / "demo_source", day)
+                        demo_source(self.demo_source_root, day)
                     manifest = synchronize(config, day, self.data_root, progress)
                     manifest["file_glob"] = config["file_glob"]
                     downloaded = manifest
