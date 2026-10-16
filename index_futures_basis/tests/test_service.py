@@ -67,7 +67,7 @@ class ServiceTests(unittest.TestCase):
             sheet.title = "Sheet1"
             sheet["B1"] = pd.Timestamp("2026-09-18").to_pydatetime()
             sheet["G3"] = "分红"
-            for i, code in enumerate([f"{root}0{s}.CFE" for root in ("IF", "IC", "IM") for s in range(4)], 4):
+            for i, code in enumerate([f"{root}0{s}.CFE" for root in ("IF", "IC", "IM", "IH") for s in range(4)], 4):
                 sheet.cell(i, 2, code)
                 sheet.cell(i, 7, value)
             book.save(self.root / "inputs/基差情况_2026-09-18.xlsx")

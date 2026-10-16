@@ -15,6 +15,7 @@ import pandas as pd
 
 from . import __version__
 from .analytics import (attach_dividends, fixed_tenor, historical_summary, read_dividends, sha256, spreads, total_oi)
+from .analytics import ROOTS as SPOT_CODES
 from .config import ROOT, atomic_json, closed_date, load_config, resolve, timestamp, validate_config
 from .distributions import annualized_distributions, cross_index_basis, cross_index_distributions, distribution_rows
 from .store import Store
@@ -22,7 +23,7 @@ from .sync import Cancelled, synchronize
 from .wind import WindProvider
 from .term_structure import term_analysis
 
-ROOTS = ["IF", "IC", "IM"]
+ROOTS = list(SPOT_CODES)
 METRICS = {
     "annualized_basis_pct": ("分红调整后年化基差", "%"),
     "basis_points": ("分红调整后绝对基差", "点"),
@@ -77,7 +78,8 @@ class BasisService:
         self.store = Store(self.data_root / "market.sqlite")
         self._cache = None
         self.cancel = threading.Event()
-        if mode == "demo" and not self.store.bounds()[0]:
+        if mode == "demo" and not set(ROOTS).issubset(self.store.roots()):
+            # Only regenerate synthetic data; real/offline caches are never fabricated.
             from .demo import snapshot
             raw = snapshot()
             self.store.import_raw(raw, {"kind": "demo", "label": raw["source"]})
@@ -161,7 +163,9 @@ class BasisService:
             status = self.status()
             end = pd.Timestamp(as_of or status["latest_complete"])
             if pd.isna(end):
-                raise ValueError("本地还没有 IF、IC、IM 共同完整的交易日，请先补齐行情")
+                missing = "、".join(row["root"] for row in status["rows"] if not row["complete_days"])
+                raise ValueError(f"本地还没有{'、'.join(ROOTS)}共同完整的交易日；待补齐品种：{missing}。"
+                                 "请增量更新行情或导入包含全部品种的离线快照")
             if str(end.date()) > status["requested_end"]:
                 raise ValueError("所选截止日超过当前可用完整日线范围")
             history_start = end - pd.DateOffset(months=12) - pd.Timedelta(days=15)
@@ -189,7 +193,7 @@ class BasisService:
             "annualized_formula": "basis_points / spot_close * 36500 / days_to_expiry; days>=5",
             "fixed_tenor_formula": "interpolate basis_rate between actual maturities, then *36500/target_days; no extrapolation",
             "calendar_annualized_formula": "((F_far+G_far)-(F_near+G_near))/spot_close*36500/(expiry_far-expiry_near).days",
-            "term_quantile_windows": "6/12 calendar months, exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded",
+            "term_quantile_windows": "fixed90: 6/12; calendar spreads: 3/6/12 calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded",
             "quantile_windows": "[end - N calendar months, end); exclude display fills; half-weight ties"}
         self._cache = Analysis(adjusted, fixed, spread, totals, historical_summary(adjusted, end),
             annualized_distributions(adjusted, end), cross, cross_index_distributions(cross, end),
@@ -232,7 +236,7 @@ class BasisService:
             # (e.g. a newly listed contract with no previous OI) are not zero samples.
             series["eligible"] = series.value.notna()
             eligible = "eligible"
-        windows = (6, 12) if metric in {"fixed_90d", "calendar_02_00", "calendar_03_02"} else (3, 6, 12)
+        windows = (6, 12) if metric == "fixed_90d" else (3, 6, 12)
         rows = distribution_rows(series, a.end, "value", eligible, windows=windows)
         for row in rows:
             g = series[series.trade_date.ge(row["window_start"]) & series.trade_date.lt(a.end)]

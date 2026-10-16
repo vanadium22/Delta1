@@ -60,6 +60,9 @@ def validate_panel(frame, roots, calendar=None):
     p = p[p.root.isin(roots)].copy()
     if p.empty:
         raise ValueError("行情为空")
+    absent_roots = set(roots) - set(p.root)
+    if absent_roots:
+        raise ValueError(f"行情不完整：缺少品种{'、'.join(sorted(absent_roots))}，请补齐行情或导入包含全部品种的快照")
     for col in ["slot", "futures_close", "spot_close", "open_interest"]:
         p[col] = pd.to_numeric(p[col], errors="coerce")
         if not np.isfinite(p[col]).all():

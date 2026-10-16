@@ -143,7 +143,11 @@ class Store:
             row = con.execute("SELECT min(day),max(day) FROM calendar WHERE is_open=1").fetchone()
         return tuple(row)
 
-    def coverage(self, start, end, roots=("IF", "IC", "IM")):
+    def roots(self):
+        with self.connection() as con:
+            return tuple(r[0] for r in con.execute("SELECT DISTINCT root FROM mapping ORDER BY root"))
+
+    def coverage(self, start, end, roots=tuple(ROOTS)):
         days = [d for d, opened in self.calendar(start, end).items() if opened]
         mappings, expiries, quotes = self.mappings(start, end), self.expiries(), self.quotes(start, end)
         rows = []
@@ -175,7 +179,7 @@ class Store:
         return {"rows": rows, "calendar_days": len(days), "latest_complete": max(complete_days) if complete_days else None,
                 "missing_fields": sum(len(m["fields"]) for r in rows for m in r["missing"])}
 
-    def panel(self, start, end, roots=("IF", "IC", "IM")):
+    def panel(self, start, end, roots=tuple(ROOTS)):
         calendar = self.calendar(start, end)
         first = self.bounds()[0]
         if first:
@@ -198,7 +202,7 @@ class Store:
         return validate_panel(pd.DataFrame(records), list(roots), days)
 
     def import_raw(self, raw, source):
-        panel = validate_panel(pd.DataFrame(raw["records"]), ["IF", "IC", "IM"], raw["calendar"])
+        panel = validate_panel(pd.DataFrame(raw["records"]), list(ROOTS), raw["calendar"])
         if panel.empty:
             raise ValueError("快照为空")
         if raw.get("actual_end") and pd.Timestamp(raw["actual_end"]) != panel.trade_date.max():

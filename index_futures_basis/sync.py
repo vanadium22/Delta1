@@ -75,7 +75,7 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
                 store.save_calendar(batch[0], batch[-1], set(opened))
             calendar = [d for d, opened in store.calendar(start, end).items() if opened]
             mapping = store.mappings(start, end)
-            for root in ("IF", "IC", "IM"):
+            for root in ROOTS:
                 for slot in range(1, 5):
                     alias = f"{root}0{slot-1}.CFE"
                     missing = [d for d in calendar if (d, root, slot) not in mapping or forced(d)]
@@ -126,7 +126,7 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
                 for field in ("close", "oi"):
                     if (code, day, field) not in quotes or forced(day):
                         required[code][day].add(field)
-            for root in ("IF", "IC", "IM"):
+            for root in ROOTS:
                 for day in calendar:
                     if (ROOTS[root], day, "close") not in quotes or forced(day):
                         required[ROOTS[root]][day].add("close")

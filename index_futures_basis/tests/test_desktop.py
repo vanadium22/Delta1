@@ -71,7 +71,8 @@ class DesktopTests(unittest.TestCase):
         self.window.export_query()
         self.assertEqual(self.window.progress_label.text(), "请先完成查询")
 
-    def test_term_metrics_disable_slot_and_show_two_history_windows(self):
+    def test_ih_term_metrics_disable_slot_and_show_matching_history_windows(self):
+        self.window.root.setCurrentText("IH")
         for metric in ("fixed_90d", "calendar_02_00", "calendar_03_02"):
             with self.subTest(metric=metric):
                 self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData(metric))
@@ -80,9 +81,11 @@ class DesktopTests(unittest.TestCase):
                 self.window.query()
                 self.wait_idle()
                 self.assertEqual(self.window.query_result["metric"], metric)
+                self.assertEqual(self.window.query_result["root"], "IH")
                 self.assertFalse(self.window.slot.isEnabled())
-                self.assertEqual([self.window.stats.item(i, 0).text() for i in range(2)], ["6个月", "12个月"])
-                self.assertEqual(self.window.stats.rowCount(), 2)
+                expected = ["6个月", "12个月"] if metric == "fixed_90d" else ["3个月", "6个月", "12个月"]
+                self.assertEqual([self.window.stats.item(i, 0).text() for i in range(len(expected))], expected)
+                self.assertEqual(self.window.stats.rowCount(), len(expected))
                 self.assertIn("插值" if metric == "fixed_90d" else "现货指数", self.window.query_note.text())
         self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData("annualized_basis_pct"))
         self.assertTrue(self.window.slot.isEnabled())

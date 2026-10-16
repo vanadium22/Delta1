@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 from .analytics import read_continuous_snapshot, sha256
 from .config import ROOT, resolve
 from .report import chart_catalog, fmt
-from .service import BasisService, METRICS
+from .service import BasisService, METRICS, ROOTS
 
 STYLE = """
 QMainWindow, QDialog {background:#f3f6fa; color:#1d3045;}
@@ -209,7 +209,7 @@ class Window(QMainWindow):
         layout = self.tab("基差查询")
         controls = QHBoxLayout()
         self.root = QComboBox()
-        self.root.addItems(["IF", "IC", "IM"])
+        self.root.addItems(ROOTS)
         self.root.setCurrentText("IC")
         self.slot = QComboBox()
         for i, name in enumerate(["00 当月", "01 次月", "02 季月一", "03 最远月"], 1):
@@ -264,7 +264,7 @@ class Window(QMainWindow):
         row.addWidget(self.button("打开已有图片", self.choose_image))
         layout.addLayout(row)
         row2 = QHBoxLayout()
-        self.image_note = self.hint("时序图为最新3个月，分位蜡烛图为3、6、12个月。图片基于当前查询的截止日。")
+        self.image_note = self.hint("时序图含近3个月及固定期限近1个月；跨期及单档分位为3、6、12个月，90日固定期限分位为6、12个月。图片采用所选截止日。")
         row2.addWidget(self.image_note, 1)
         self.zoom = QComboBox()
         self.zoom.addItems(["适应窗口", "50%", "75%", "100%", "150%"])

@@ -2,6 +2,8 @@
 import math
 import pandas as pd
 
+from .analytics import ROOTS
+
 
 def third_friday(month):
     start = pd.Timestamp(month).replace(day=1)
@@ -22,7 +24,7 @@ def snapshot():
             if probe.month in (3, 6, 9, 12):
                 quarters.append(probe)
             probe += pd.DateOffset(months=1)
-        for ri, (root, base) in enumerate([("IF", 4000), ("IC", 6200), ("IM", 6500)]):
+        for ri, (root, base) in enumerate([("IF", 4000), ("IC", 6200), ("IM", 6500), ("IH", 2700)]):
             spot = base + i * .8 + 80 * math.sin(i / 27 + ri)
             for slot, month in enumerate([front, next_month, *quarters], 1):
                 expiry = third_friday(month)
@@ -39,4 +41,4 @@ def snapshot():
 
 def dividends(end):
     return pd.DataFrame([{"trade_date": pd.Timestamp(end), "code": f"{root}0{slot}.CFE", "dividend_points": slot * 3.5}
-                         for root in ("IF", "IC", "IM") for slot in range(4)])
+                         for root in ROOTS for slot in range(4)])
