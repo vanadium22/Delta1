@@ -1,0 +1,5 @@
+{
+  "source_root": "",
+  "data_dir": "data/reports",
+  "epsilon": 1e-8
+}
