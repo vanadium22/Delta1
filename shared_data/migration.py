@@ -17,6 +17,10 @@ from .paths import DataPaths
 MODULES = ("index_futures_basis", "script_making", "securities_lending")
 
 
+class InvalidLegacyManifest(ValueError):
+    pass
+
+
 def linked(path):
     return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
 
@@ -64,15 +68,18 @@ def _copy_database(source, target):
             return {"logical_sha256": original, "copied": True}
 
 
-def copy_verified(source, target):
+def copy_verified(source, target, *, expected_sha256=None):
     source, target = Path(source).resolve(), Path(target).resolve()
     if source == target:
         return {"source": str(source), "destination": str(target), "copied": False}
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.suffix == ".sqlite":
-        detail = _copy_database(source, target)
+        with file_lock(target.with_suffix(".lock")):
+            detail = _copy_database(source, target)
     else:
         original = sha256(source)
+        if expected_sha256 is not None and original != expected_sha256:
+            raise ValueError(f"文件在读取后发生变化，请重试：{source}")
         if target.exists():
             if sha256(target) != original:
                 raise ValueError(f"迁移目标已存在不同内容，保留双方：{target}")
@@ -93,19 +100,22 @@ def copy_verified(source, target):
 
 
 def _manifest(source, target, old_base, new_base):
-    old = json.loads(source.read_text(encoding="utf-8-sig"))
-    value = resolved_manifest(old, old_base)
-    files = value.get("files", [])
-    entries = files.values() if isinstance(files, dict) else files
-    for entry in entries:
-        original = Path(entry["path"]).resolve()
-        # Reject a corrupt/foreign pointer rather than silently accepting a different file.
-        relative = original.relative_to(old_base.resolve())
-        local = (new_base / relative).resolve()
-        if not local.is_relative_to(new_base.resolve()) or not local.is_file() or sha256(local) != entry["sha256"]:
-            raise ValueError(f"旧清单文件校验失败：{source} -> {original}")
-        entry["path"] = str(local)
-    value = portable_manifest(value, new_base)
+    try:
+        old = json.loads(source.read_text(encoding="utf-8-sig"))
+        value = resolved_manifest(old, old_base)
+        files = value.get("files", [])
+        entries = files.values() if isinstance(files, dict) else files
+        for entry in entries:
+            original = Path(entry["path"]).resolve()
+            # Reject a corrupt/foreign pointer rather than accepting a different file.
+            relative = original.relative_to(old_base.resolve())
+            local = (new_base / relative).resolve()
+            if not local.is_relative_to(new_base.resolve()) or not local.is_file() or sha256(local) != entry["sha256"]:
+                raise ValueError(f"旧清单文件校验失败：{source} -> {original}")
+            entry["path"] = str(local)
+        value = portable_manifest(value, new_base)
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise InvalidLegacyManifest(str(exc)) from exc
     if target.exists():
         current = json.loads(target.read_text(encoding="utf-8-sig"))
         if current != value:
@@ -122,6 +132,8 @@ def migration_plan(module, root, paths):
     moves = []
     def tree(source, destination, *, manifest=None, industry=None):
         for file in _files(source):
+            if file.resolve().is_relative_to(destination.resolve()):
+                continue
             relative = file.relative_to(source)
             dest = destination / relative
             if industry is not None and file.name == "industries.json":
@@ -173,7 +185,12 @@ def ensure_migrated(module, root, paths=None):
         entries = []
         for move in migration_plan(module, root, paths):
             if move["manifest"]:
-                entries.append(_manifest(move["source"], move["destination"], move["old_base"], move["new_base"]))
+                try:
+                    entries.append(_manifest(move["source"], move["destination"], move["old_base"], move["new_base"]))
+                except InvalidLegacyManifest as exc:
+                    rejected = paths.root / "_migrations" / "rejected_manifests" / module / (sha256(move["source"]) + ".json")
+                    record = copy_verified(move["source"], rejected)
+                    entries.append({**record, "rejected_manifest": True, "reason": str(exc)})
             else:
                 entries.append(copy_verified(move["source"], move["destination"]))
         result = {"version": 1, "module": module, "original_root": str(root), "data_root": str(paths.root),
