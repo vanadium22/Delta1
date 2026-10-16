@@ -56,6 +56,28 @@ git pull --ff-only
 
 各模块公司说明、交接提示词现已统一为 **codex/company-apps**。公司保持此分支，按各 App 的入口启动；切换 Git 分支会改变整个仓库的源码集合。
 
+## 三个 App 的桌面快捷方式（2026-10-16）
+
+公司拉取更新后，在各项目文件夹分别双击 `create_desktop_shortcut.cmd`；也可在仓库根目录的 CMD 依次运行：
+
+```bat
+index_futures_basis\create_desktop_shortcut.cmd
+script_making\create_desktop_shortcut.cmd
+securities_lending\create_desktop_shortcut.cmd
+```
+
+| 项目 | 桌面名称 | 图标 |
+| --- | --- | --- |
+| index_futures_basis | Delta1 股指基差 | assets/app.ico，蓝色双曲线 |
+| script_making | Delta1 日报查询 | assets/app.ico，紫色日报 |
+| securities_lending | Delta1 券源工作台 | assets/app.ico，绿色券源流转 |
+
+脚本自动取得公司实际项目和桌面位置，创建 `.lnk` 并设置图标；快捷方式通过系统 CMD 调用原 `start.cmd`，沿用原环境配置。无需重建环境或管理员权限。以后直接双击桌面图标即可；移动项目后重新运行创建脚本。同名无关快捷方式会保留并报错。图标随各项目保存在 `assets`，包括九尺寸 ICO、256 px PNG 与 SVG 源文件；`.lnk` 属于本机文件，不通过 Git 同步。
+
+本次开发提交：基差 `1f05d53`、日报 `78ee014`、券源 `567277b`。三提交均只涉及快捷方式、图标和说明，业务代码与原 `start.cmd` 不变。Windows PowerShell 5.1 已验证三模块 CMD 创建入口、快捷方式属性回读及重复更新；合成目录实测中文、空格、`&`、括号、方括号路径和移动后重建，缺文件失败及同名无关快捷方式保护通过。ICO 九尺寸全部可解码，PNG 与小尺寸显示已检查。公司汇总后再次验证三模块创建入口、属性与资产一致性；原有 index_strategy 的 42 个跟踪文件保持不变。
+
+验证输出仅在本地 QA 目录，没有在家里桌面创建快捷方式，没有启动正式业务 App、连接 Wind 或下载日报/券单。公司实际桌面、脚本策略和正式启动待公司使用；公司若禁止 PowerShell/脚本宿主，按公司策略处理。家里主目录的其他未提交工作未纳入发布。
+
 ## 误切开发分支后的恢复
 
 用户曾执行券单旧说明中的 `git switch codex/securities-lending`，随后发现 `index_futures_basis` 只剩复制过来的数据文件夹。该开发分支未包含基差源码，因此 Git 移除了当前检出中的基差跟踪文件，忽略的本地数据仍保留。恢复无需删除数据、找回已删除备份或重新解压 ZIP。
