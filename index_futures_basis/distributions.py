@@ -7,14 +7,14 @@ import pandas as pd
 WINDOWS = (3, 6, 12)
 
 
-def distribution_rows(series, end, value_column, eligible_column=None):
+def distribution_rows(series, end, value_column, eligible_column=None, windows=WINDOWS):
     """Windows are [end - N calendar months, end), excluding the current observation."""
     end = pd.Timestamp(end)
     g = series.sort_values("trade_date")
     current_rows = g[g.trade_date.eq(end)]
     current = current_rows.iloc[0][value_column] if len(current_rows) else np.nan
     rows = []
-    for months in WINDOWS:
+    for months in windows:
         start = end - pd.DateOffset(months=months)
         history = g[g.trade_date.ge(start) & g.trade_date.lt(end)]
         eligible = history[eligible_column] if eligible_column else pd.Series(True, index=history.index)

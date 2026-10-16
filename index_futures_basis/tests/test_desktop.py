@@ -71,6 +71,23 @@ class DesktopTests(unittest.TestCase):
         self.window.export_query()
         self.assertEqual(self.window.progress_label.text(), "请先完成查询")
 
+    def test_term_metrics_disable_slot_and_show_two_history_windows(self):
+        for metric in ("fixed_90d", "calendar_02_00", "calendar_03_02"):
+            with self.subTest(metric=metric):
+                self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData(metric))
+                self.assertFalse(self.window.slot.isEnabled())
+                self.assertIsNone(self.window.query_result)
+                self.window.query()
+                self.wait_idle()
+                self.assertEqual(self.window.query_result["metric"], metric)
+                self.assertFalse(self.window.slot.isEnabled())
+                self.assertEqual([self.window.stats.item(i, 0).text() for i in range(2)], ["6个月", "12个月"])
+                self.assertEqual(self.window.stats.rowCount(), 2)
+                self.assertIn("插值" if metric == "fixed_90d" else "现货指数", self.window.query_note.text())
+        self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData("annualized_basis_pct"))
+        self.assertTrue(self.window.slot.isEnabled())
+        self.assertIsNone(self.window.query_result)
+
     def test_charts_run_in_worker_and_query_csv_preserves_source(self):
         self.window.export("figures", ["IC_年化基差分位蜡烛图"])
         self.wait_idle()
