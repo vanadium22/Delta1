@@ -13,6 +13,9 @@ from threading import RLock
 from zipfile import BadZipFile, ZipFile
 
 from openpyxl import load_workbook
+from shared_data import Catalog, DataPaths, Dataset
+from shared_data.io import file_lock, portable_manifest, resolved_manifest
+from shared_data.migration import ensure_migrated
 
 CHINA = timezone(timedelta(hours=8))
 REPORTS = {
@@ -82,12 +85,14 @@ def atomic_json(path: Path, value: dict) -> None:
 class Settings:
     def __init__(self, root: Path):
         self.root = root.resolve()
+        self.paths = DataPaths.for_module(self.root)
+        ensure_migrated("script_making", self.root, self.paths)
         self.path = self.root / "config.local.json"
         self.lock = RLock()
 
     def get(self) -> dict:
         with self.lock:
-            values = {"source_root": "", "data_dir": "data/reports", "epsilon": 1e-8}
+            values = {"source_root": "", "data_dir": "@shared", "epsilon": 1e-8}
             if self.path.exists():
                 try:
                     values.update(json.loads(self.path.read_text(encoding="utf-8-sig")))
@@ -98,8 +103,11 @@ class Settings:
             return values
 
     def data_path(self, values: dict | None = None) -> Path:
-        value = Path((values or self.get())["data_dir"]).expanduser()
-        return value.resolve() if value.is_absolute() else (self.root / value).resolve()
+        value = (values or self.get())["data_dir"]
+        path = self.paths.resolve_module_setting(self.root, value, self.paths.reports, ("data/reports",))
+        if path == self.paths.reports:
+            Catalog(self.paths).register(Dataset("swap_reports", "company_share", "snapshot"), path)
+        return path
 
     def update(self, incoming: dict) -> dict:
         from .query import parse_epsilon
@@ -142,13 +150,21 @@ def manifest_for(folder: Path) -> dict:
     path = folder / "manifest.json"
     if path.is_file():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            return resolved_manifest(json.loads(path.read_text(encoding="utf-8")), folder.parent)
         except (ValueError, OSError):
             pass
     return {"date": folder.name, "files": {}}
 
 
 def save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str) -> dict:
+    try:
+        with file_lock(data_dir / ".writer.lock"):
+            return _save_files(data_dir, sources, day, origin)
+    except TimeoutError as exc:
+        raise ReportError(str(exc)) from exc
+
+
+def _save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str) -> dict:
     """Stage and validate every input before touching the destination."""
     valid_date(day)
     if not sources or any(kind not in REPORTS for kind in sources):
@@ -193,7 +209,7 @@ def save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str) 
             else:
                 manifest["files"].setdefault(kind, entry)
         manifest["updated_at"] = timestamp()
-        atomic_json(folder / "manifest.json", manifest)
+        atomic_json(folder / "manifest.json", portable_manifest(manifest, data_dir))
     return {"date": day, "files": manifest["files"], "saved_dir": str(folder.resolve())}
 
 

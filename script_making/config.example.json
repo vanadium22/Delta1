@@ -1,5 +1,5 @@
 {
   "source_root": "",
-  "data_dir": "data/reports",
+  "data_dir": "@shared",
   "epsilon": 1e-8
 }

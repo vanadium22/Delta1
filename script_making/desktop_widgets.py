@@ -240,6 +240,7 @@ class SettingsDialog(QDialog):
         form.setSpacing(12)
         self.source = QLineEdit(values["source_root"])
         self.destination = QLineEdit(values["data_dir"])
+        self.destination.setToolTip(f"@shared 使用公共日报目录：{settings.paths.reports}")
         self.epsilon = QLineEdit(str(values["epsilon"]))
         self.source.setPlaceholderText("包含 YYYY-MM-DD 子文件夹的共享目录")
         for caption, field, env_key in (("共享来源目录", self.source, "SCRIPT_MAKING_SOURCE"),
