@@ -17,3 +17,5 @@
 __pycache__/
 *.py[cod]
 ~$*
+# Machine-specific Windows shortcuts.
+*.lnk
