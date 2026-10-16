@@ -1,0 +1,662 @@
+"""Native Windows report workspace. No browser, WebView or HTTP listener."""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Slot
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout,
+                              QLineEdit, QMainWindow, QProgressBar, QScrollArea,
+                              QStackedWidget, QVBoxLayout, QWidget, QComboBox)
+
+from .desktop_theme import STYLE
+from .desktop_widgets import (ColumnsDialog, CopyTable, DetailDialog, FilterRow,
+                              ReportModel, SettingsDialog, button, default_visible, label)
+from .service import ReportService
+from .storage import REPORTS, ReportError
+
+
+class Worker(QThread):
+    def __init__(self, job, parent=None):
+        super().__init__(parent)
+        self.job = job
+        self.outcome = None
+
+    def run(self):
+        try:
+            self.outcome = (True, self.job[1]())
+        except Exception as exc:
+            self.outcome = (False, str(exc) if isinstance(exc, ReportError) else
+                            f"操作未完成（{type(exc).__name__}）。请检查本地路径、文件和访问权限。")
+
+
+def app_icon():
+    canvas = QPixmap(64, 64)
+    canvas.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#152d49"))
+    painter.drawRoundedRect(0, 0, 64, 64, 14, 14)
+    painter.setPen(QColor("white"))
+    painter.setFont(QFont("Segoe UI", 23, QFont.Weight.Bold))
+    painter.drawText(canvas.rect(), Qt.AlignmentFlag.AlignCenter, "D1")
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#5fc4b0"))
+    painter.drawEllipse(48, 10, 8, 8)
+    painter.end()
+    return QIcon(canvas)
+
+
+class Window(QMainWindow):
+    def __init__(self, service: ReportService, auto_start=True):
+        super().__init__()
+        self.service = service
+        self.kind = "swap"
+        self.catalog_data = None
+        self.columns, self.visible, self.filters = [], [], []
+        self.result = None
+        self.page, self.sort = 1, None
+        self.worker, self._pending = None, None
+        self._generation = 0
+        self._closing = self._syncing = False
+        self._startup_done = self._startup_error = False
+        self.preferences = QSettings(str(service.settings.root / "ui.local.ini"), QSettings.Format.IniFormat)
+        self.setWindowTitle("D1 日报工作台")
+        self.setWindowIcon(app_icon())
+        self.resize(1480, 920)
+        self.setMinimumSize(1120, 720)
+        self.debounce = QTimer(self)
+        self.debounce.setSingleShot(True)
+        self.debounce.setInterval(350)
+        self.debounce.timeout.connect(self.query)
+        self.sync_timer = QTimer(self)
+        self.sync_timer.setInterval(250)
+        self.sync_timer.timeout.connect(self.poll_sync)
+        self._build()
+        geometry = self.preferences.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self._update_controls()
+        if auto_start:
+            QTimer.singleShot(0, self.refresh_catalog)
+
+    def _build(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        side = QFrame()
+        side.setObjectName("sidebar")
+        side.setFixedWidth(192)
+        sidebar = QVBoxLayout(side)
+        sidebar.setContentsMargins(16, 29, 16, 20)
+        sidebar.setSpacing(12)
+        sidebar.addWidget(label("D1 交易工作台", "brand"))
+        sidebar.addWidget(label("DELTA ONE", "brandCaption"))
+        sidebar.addSpacing(30)
+        sidebar.addWidget(label("日报工作区"))
+        self.nav = {}
+        for kind, caption in (("swap", "收益互换日报"), ("review", "日报复核表")):
+            control = button(caption, lambda checked=False, key=kind: self.switch_kind(key), "nav")
+            control.setCheckable(True)
+            control.setChecked(kind == self.kind)
+            self.nav[kind] = control
+            sidebar.addWidget(control)
+        sidebar.addStretch()
+        sidebar.addWidget(label("本地工作区\n\n按报表日期查阅\n原始文件保存在本机", wrap=True))
+        layout.addWidget(side)
+        body = QWidget()
+        outer = QVBoxLayout(body)
+        outer.setContentsMargins(24, 23, 24, 16)
+        outer.setSpacing(13)
+        heading = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title_box.setSpacing(5)
+        title_box.addWidget(label("DAILY REPORTS", "eyebrow"))
+        self.title = label("存续合约查询", "title")
+        title_box.addWidget(self.title)
+        title_box.addWidget(label("查阅合约、筛选交易要素，并核对每笔记录的原始值。", "muted"))
+        heading.addLayout(title_box, 1)
+        self.import_button = button("导入 Excel", self.choose_import)
+        self.settings_button = button("数据与同步", self.open_settings)
+        self.sync_button = button("同步前一交易日", self.start_sync, "primary")
+        for control in (self.import_button, self.settings_button, self.sync_button):
+            heading.addWidget(control)
+        outer.addLayout(heading)
+        self.notice = label("正在读取本地目录…", "notice", True)
+        outer.addWidget(self.notice)
+        dataset, line = self._card(QHBoxLayout)
+        line.setSpacing(12)
+        self.date_combo, self.sheet_combo = QComboBox(), QComboBox()
+        self.date_combo.setMinimumWidth(148)
+        self.sheet_combo.setMinimumWidth(170)
+        self.sheet_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.origin = label("", "muted")
+        self.epsilon = QLineEdit("1e-8")
+        self.epsilon.setFixedWidth(95)
+        self.epsilon.setToolTip("绝对容差：|x| ≤ ε 为近似零；范围和比较边界同样使用 ε。")
+        for control in (label("报表日期"), self.date_combo, label("工作表"), self.sheet_combo):
+            line.addWidget(control)
+        line.addStretch()
+        line.addWidget(self.origin)
+        line.addWidget(label("容差 ε"))
+        line.addWidget(self.epsilon)
+        outer.addWidget(dataset)
+        filters_card, filtering = self._card(QVBoxLayout)
+        filtering.setSpacing(9)
+        search_line = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("在全部字段中模糊搜索…")
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName("全字段模糊搜索")
+        self.clear_button = button("清空条件", self.clear_filters, "quiet")
+        search_line.addWidget(self.search, 1)
+        search_line.addWidget(self.clear_button)
+        filtering.addLayout(search_line)
+        filter_heading = QHBoxLayout()
+        filter_heading.addWidget(label("按列筛选", "sectionTitle"))
+        filter_heading.addWidget(label("选择列  →  内容格式  →  条件与数值", "muted"))
+        filter_heading.addStretch()
+        self.add_button = button("＋ 添加条件", self.add_filter, "quiet")
+        filter_heading.addWidget(self.add_button)
+        filtering.addLayout(filter_heading)
+        self.filter_scroll = QScrollArea()
+        self.filter_scroll.setWidgetResizable(True)
+        self.filter_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        holder = QWidget()
+        self.filter_layout = QVBoxLayout(holder)
+        self.filter_layout.setContentsMargins(0, 0, 0, 0)
+        self.filter_layout.setSpacing(6)
+        self.filter_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.filter_scroll.setWidget(holder)
+        self.filter_scroll.setFixedHeight(40)
+        filtering.addWidget(self.filter_scroll)
+        filtering.addWidget(label("文本支持简称与 / 备选词；数字支持范围与近似零。内容格式只影响当前条件，多个条件同时满足。", "muted", True))
+        outer.addWidget(filters_card)
+        self.error = label("", "error", True)
+        self.error.hide()
+        outer.addWidget(self.error)
+        results_card, results = self._card(QVBoxLayout)
+        results.setSpacing(9)
+        toolbar = QHBoxLayout()
+        self.table_title = label("存续合约估值", "sectionTitle")
+        self.count = label("等待读取", "count")
+        toolbar.addWidget(self.table_title)
+        toolbar.addWidget(self.count)
+        toolbar.addStretch()
+        self.selection_info = label("双击记录查看详情", "muted")
+        toolbar.addWidget(self.selection_info)
+        self.copy_button = button("复制选中", lambda: self.table.copy())
+        self.columns_button = button("显示列", self.choose_columns)
+        toolbar.addWidget(self.copy_button)
+        toolbar.addWidget(self.columns_button)
+        results.addLayout(toolbar)
+        self.table = CopyTable()
+        self.model = ReportModel(self.table)
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.horizontalHeader().sectionClicked.connect(self.sort_column)
+        self.table.doubleClicked.connect(self.show_detail)
+        self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.table)
+        empty = QWidget()
+        empty_layout = QVBoxLayout(empty)
+        empty_layout.addStretch()
+        self.empty = label("正在读取本地目录…", "muted", True)
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.empty)
+        empty_layout.addStretch()
+        self.stack.addWidget(empty)
+        self.stack.setCurrentIndex(1)
+        results.addWidget(self.stack, 1)
+        pagination = QHBoxLayout()
+        self.file_caption = label("", "muted")
+        pagination.addWidget(self.file_caption, 1)
+        self.refresh_button = button("刷新本地", self.refresh_catalog, "quiet")
+        pagination.addWidget(self.refresh_button)
+        pagination.addWidget(label("每页"))
+        self.page_size = QComboBox()
+        self.page_size.addItems(["50", "100", "200"])
+        pagination.addWidget(self.page_size)
+        self.previous = button("上一页", lambda: self.turn_page(-1))
+        self.page_label = label("1 / 1")
+        self.next = button("下一页", lambda: self.turn_page(1))
+        for control in (self.previous, self.page_label, self.next):
+            pagination.addWidget(control)
+        results.addLayout(pagination)
+        outer.addWidget(results_card, 1)
+        layout.addWidget(body, 1)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setFixedWidth(140)
+        self.progress.setTextVisible(False)
+        self.statusBar().addPermanentWidget(label("Excel 原始值读取 · 不重算公式", "muted"))
+        self.statusBar().addPermanentWidget(self.progress)
+        self.date_combo.currentIndexChanged.connect(self.load_report)
+        self.sheet_combo.currentIndexChanged.connect(self.change_sheet)
+        self.search.textChanged.connect(self.schedule_query)
+        self.epsilon.textChanged.connect(self.schedule_query)
+        self.page_size.currentIndexChanged.connect(self.schedule_query)
+
+    @staticmethod
+    def _card(layout_type):
+        frame = QFrame()
+        frame.setObjectName("card")
+        layout = layout_type(frame)
+        layout.setContentsMargins(13, 11, 13, 11)
+        return frame, layout
+
+    def _clear_result(self, message="正在查询…"):
+        self.result = None
+        self.model.set_result(columns=self.columns)
+        self.empty.setText(message)
+        self.stack.setCurrentIndex(1)
+        self.count.setText("等待查询")
+        self.page_label.setText("—")
+        self.previous.setEnabled(False)
+        self.next.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        self.selection_info.setText("双击记录查看详情")
+
+    def _invalidate(self):
+        self._generation += 1
+        self._pending = None
+        self._clear_result()
+
+    def _submit(self, operation, on_success, message, mutation=False):
+        self._generation += 1
+        job = (self._generation, operation, on_success, message, mutation)
+        self.error.hide()
+        if self.worker is not None:
+            self._pending = job
+        else:
+            self._start_job(job)
+
+    def _start_job(self, job):
+        self.worker = Worker(job, self)
+        self.worker.finished.connect(self._finish_job)
+        self.statusBar().showMessage(job[3])
+        self._update_controls()
+        self.worker.start()
+
+    @Slot()
+    def _finish_job(self):
+        worker = self.worker
+        self.worker = None
+        pending, self._pending = self._pending, None
+        if not self._closing and worker.job[0] == self._generation:
+            ok, value = worker.outcome
+            if ok:
+                worker.job[2](value)
+            else:
+                self._show_error(value)
+        worker.deleteLater()
+        if pending and pending[0] == self._generation and not self._closing:
+            self._start_job(pending)
+        self._update_controls()
+        self._finish_close()
+
+    def _show_error(self, message):
+        self._startup_done = self._startup_error = True
+        self._clear_result("操作未完成，请调整条件或检查本地文件后重试。")
+        self.error.setText(message)
+        self.error.show()
+        self.count.setText("查询未完成")
+        self.statusBar().showMessage(message)
+
+    def _update_controls(self):
+        busy = self.worker is not None
+        mutation = busy and self.worker.job[4]
+        self.progress.setVisible(busy or self._syncing)
+        for control in (self.settings_button, self.import_button, self.refresh_button):
+            control.setEnabled(not busy and not self._syncing and not self._closing)
+        self.sync_button.setEnabled(not busy and not self._syncing and not self._closing)
+        self.sync_button.setText("正在同步…" if self._syncing else "同步前一交易日")
+        for control in (self.search, self.add_button, self.clear_button, self.epsilon,
+                        self.filter_scroll, self.page_size, self.columns_button):
+            control.setEnabled(bool(self.columns) and not mutation and not self._closing)
+        self.date_combo.setEnabled(self.date_combo.count() > 0 and not mutation and not self._closing)
+        self.sheet_combo.setEnabled(self.sheet_combo.count() > 0 and not mutation and not self._closing)
+        for control in self.nav.values():
+            control.setEnabled(not mutation and not self._closing)
+
+    def refresh_catalog(self, *_args, preferred=None):
+        self.debounce.stop()
+        self._invalidate()
+        day = preferred or self.date_combo.currentData()
+        self._submit(self.service.catalog, lambda data: self._catalog_loaded(data, day), "正在读取本地目录…")
+
+    def _catalog_loaded(self, data, preferred):
+        self.catalog_data = data
+        self.epsilon.blockSignals(True)
+        self.epsilon.setText(str(data["settings"]["epsilon"]))
+        self.epsilon.blockSignals(False)
+        self._fill_dates(preferred)
+
+    def _fill_dates(self, preferred=None):
+        self.date_combo.blockSignals(True)
+        self.date_combo.clear()
+        for item in (self.catalog_data or {}).get("dates", []):
+            if self.kind in item["files"]:
+                self.date_combo.addItem(item["date"] + (" · 未齐" if not item["complete"] else ""), item["date"])
+        if preferred:
+            self.date_combo.setCurrentIndex(max(0, self.date_combo.findData(preferred)))
+        self.date_combo.blockSignals(False)
+        self.load_report()
+
+    def switch_kind(self, kind):
+        if self.kind == kind:
+            self.nav[kind].setChecked(True)
+            return
+        self.kind = kind
+        for key, control in self.nav.items():
+            control.setChecked(key == kind)
+        self.title.setText("存续合约查询" if kind == "swap" else "簿记要素复核")
+        if self.catalog_data is None:
+            self.refresh_catalog()
+        else:
+            self._fill_dates(self.date_combo.currentData())
+
+    def _remove_filters(self):
+        for row in self.filters:
+            self.filter_layout.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self.filters = []
+        self.filter_scroll.setFixedHeight(40)
+
+    def _reset_dataset(self):
+        self.debounce.stop()
+        self._invalidate()
+        self.columns, self.visible = [], []
+        self.page, self.sort = 1, None
+        self.search.blockSignals(True)
+        self.search.clear()
+        self.search.blockSignals(False)
+        self._remove_filters()
+        self.model.set_result()
+        self.table.horizontalHeader().setSortIndicatorShown(False)
+
+    def load_report(self, *_):
+        self._reset_dataset()
+        kind, day = self.kind, self.date_combo.currentData()
+        self.sheet_combo.blockSignals(True)
+        self.sheet_combo.clear()
+        self.sheet_combo.blockSignals(False)
+        self.table_title.setText(REPORTS[kind]["sheet"])
+        self._provenance()
+        if not day:
+            self._clear_result("尚未保存日报\n\n在「数据与同步」中配置路径并同步，或选择「导入 Excel」。")
+            self.count.setText("0 条记录")
+            self._startup_done = True
+            self._update_controls()
+            return
+        self._submit(lambda: self.service.sheets(kind, day), self._sheets_loaded, "正在读取工作表列表…")
+
+    def _sheets_loaded(self, names):
+        self.sheet_combo.blockSignals(True)
+        self.sheet_combo.addItems(names)
+        self.sheet_combo.setCurrentIndex(max(0, self.sheet_combo.findText(REPORTS[self.kind]["sheet"])))
+        self.sheet_combo.blockSignals(False)
+        self.query(first=True)
+
+    def change_sheet(self, *_):
+        self._reset_dataset()
+        self.query(first=True)
+
+    def _provenance(self):
+        day = self.date_combo.currentData()
+        item = next((d for d in (self.catalog_data or {}).get("dates", []) if d["date"] == day), None)
+        info = item["files"].get(self.kind) if item else None
+        self.origin.setText(info["origin"] if info else "等待本地数据")
+        self.file_caption.setText(info["name"] if info else "尚未保存报表")
+        self.file_caption.setToolTip(info["path"] if info else "")
+        if not info:
+            message = "尚未保存日报。请配置共享来源并同步，或导入已有 Excel。"
+        elif not item["complete"]:
+            message = f"当前显示 {day}，该日期仅保存了一份报表，请补齐另一份。"
+        elif info["origin"] != "共享目录下载":
+            message = f"当前显示 {day} 的{info['origin']}。连接公司网络后，可同步前一交易日报表。"
+        else:
+            message = f"当前显示 {day} 报表，来源为共享目录下载。同步选择早于今日的最新日期文件夹。"
+        self.notice.setText(message)
+
+    def add_filter(self, *_args, selected=None, schedule=True):
+        if not self.columns:
+            return
+        if len(self.filters) >= 30:
+            self.statusBar().showMessage("最多可组合 30 个列条件。")
+            return
+        if selected is None:
+            selected = next((c["id"] for c in self.columns if c["name"] in ("交易对手名称", "交易对手")), None)
+        row = FilterRow(self.columns, selected, self)
+        self.filters.append(row)
+        self.filter_layout.addWidget(row)
+        self._filter_height()
+        row.changed.connect(self.schedule_query)
+        row.removed.connect(self.remove_filter)
+        if schedule:
+            self.schedule_query()
+        return row
+
+    def remove_filter(self, row):
+        self.filters.remove(row)
+        self.filter_layout.removeWidget(row)
+        row.hide()
+        row.deleteLater()
+        self._filter_height()
+        self.schedule_query()
+
+    def _filter_height(self):
+        limit = 176 if self.height() >= 850 else 84
+        self.filter_scroll.setFixedHeight(min(limit, max(40, len(self.filters) * 42)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "filter_scroll"):
+            self._filter_height()
+
+    def clear_filters(self):
+        self._remove_filters()
+        self.search.blockSignals(True)
+        self.search.clear()
+        self.search.blockSignals(False)
+        self.sort = None
+        self.table.horizontalHeader().setSortIndicatorShown(False)
+        self.add_filter(schedule=False)
+        self.schedule_query()
+
+    def schedule_query(self, *_):
+        self.page = 1
+        self._invalidate()
+        if self.columns and not self._closing:
+            self.debounce.start()
+
+    def query(self, *_args, first=False):
+        self.debounce.stop()
+        day, sheet = self.date_combo.currentData(), self.sheet_combo.currentText()
+        if not day or not sheet or self._closing:
+            return
+        request = {"kind": self.kind, "date": day, "sheet": sheet,
+                   "filters": [row.condition() for row in self.filters],
+                   "search": self.search.text(), "epsilon": self.epsilon.text(),
+                   "sort": self.sort, "page": self.page, "page_size": int(self.page_size.currentText())}
+        self.table_title.setText(sheet)
+        self._clear_result("正在读取工作表…" if first else "正在查询…")
+        self._submit(lambda: self.service.query(request), lambda result: self._queried(result, first),
+                     "正在读取工作表…" if first else "正在筛选记录…")
+
+    def _queried(self, result, first):
+        self.result, self.page, self.columns = result, result["page"], result["columns"]
+        if first:
+            try:
+                stored = json.loads(self.preferences.value(self._columns_key(), "[]"))
+            except (ValueError, TypeError):
+                stored = []
+            self.visible = [c["id"] for c in self.columns if c["id"] in stored] if isinstance(stored, list) else []
+            if not self.visible:
+                self.visible = default_visible(self.columns, self.kind)
+            self.add_filter(schedule=False)
+        self.model.set_result(result)
+        self._apply_columns()
+        self.stack.setCurrentIndex(0 if result["matched"] else 1)
+        self.empty.setText("没有匹配的记录\n\n可缩短关键词，切换内容格式，或调整筛选范围。")
+        self.count.setText(f"匹配 {result['matched']:,} / 共 {result['total']:,} 条")
+        self.page_label.setText(f"{result['page']} / {result['pages']}")
+        self.previous.setEnabled(result["page"] > 1)
+        self.next.setEnabled(result["page"] < result["pages"])
+        self.statusBar().showMessage("查询完成 · Ctrl / Shift 可多选记录，Ctrl+C 复制选中记录")
+        self._startup_done = True
+        self._startup_error = False
+
+    def _columns_key(self):
+        return f"columns/{self.kind}/{self.sheet_combo.currentText()}"
+
+    def _apply_columns(self):
+        for index, column in enumerate(self.columns):
+            self.table.setColumnHidden(index, column["id"] not in self.visible)
+            self.table.setColumnWidth(index, min(280, max(130, len(column["name"]) * 15 + 30)))
+        self.columns_button.setText(f"显示列 {len(self.visible)} / {len(self.columns)}")
+
+    def choose_columns(self):
+        dialog = ColumnsDialog(self.columns, self.visible, self.kind, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.visible = dialog.selected()
+            self.preferences.setValue(self._columns_key(), json.dumps(self.visible))
+            self._apply_columns()
+
+    def turn_page(self, step):
+        if self.result:
+            self.page += step
+            self.query()
+
+    def sort_column(self, index):
+        if index >= len(self.columns):
+            return
+        column = self.columns[index]["id"]
+        direction = "desc" if self.sort == {"column": column, "direction": "asc"} else "asc"
+        self.sort = {"column": column, "direction": direction}
+        self.table.horizontalHeader().setSortIndicator(index, Qt.SortOrder.DescendingOrder if direction == "desc" else Qt.SortOrder.AscendingOrder)
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.schedule_query()
+
+    def _selection_changed(self, *_):
+        count = len(self.table.selectionModel().selectedRows()) if self.result else 0
+        self.selection_info.setText(f"已选 {count} 条 · Ctrl+C 复制" if count else "双击记录查看详情")
+        self.copy_button.setEnabled(count > 0)
+
+    def show_detail(self, index):
+        if self.result and index.isValid():
+            DetailDialog(self.columns, self.result["rows"][index.row()],
+                         f"{self.result['date']} · {self.result['sheet']}", self).exec()
+
+    def open_settings(self):
+        try:
+            dialog = SettingsDialog(self.service.settings, self)
+        except ReportError as exc:
+            self._show_error(str(exc))
+            return
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._invalidate()
+            self._submit(lambda: self.service.update_settings(dialog.values),
+                         lambda _: self.refresh_catalog(), "正在保存设置…", mutation=True)
+
+    def choose_import(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, "导入已有日报", str(self.service.settings.root), "Excel 日报 (*.xlsx)")
+        if paths:
+            self.import_paths([Path(path) for path in paths])
+
+    def import_paths(self, paths):
+        self._invalidate()
+        self._submit(lambda: self.service.import_files(paths),
+                     lambda results: self.refresh_catalog(preferred=max(item["date"] for item in results)),
+                     "正在校验并保存 Excel…", mutation=True)
+
+    def start_sync(self):
+        try:
+            self.service.start_sync()
+        except ReportError as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+            return
+        self.error.hide()
+        self._syncing = True
+        self.statusBar().showMessage("正在连接共享来源并校验两份报表…")
+        self.sync_timer.start()
+        self._update_controls()
+
+    def poll_sync(self):
+        state = self.service.sync_status()
+        if state["state"] == "running":
+            return
+        self._syncing = False
+        self.sync_timer.stop()
+        if not self._closing:
+            if state["state"] == "success":
+                self.refresh_catalog(preferred=state["result"]["date"])
+            else:
+                self.error.setText(state.get("error", "同步未完成，请重试。"))
+                self.error.show()
+                self.statusBar().showMessage("同步未完成，本地报表可继续查询。")
+        self._update_controls()
+        self._finish_close()
+
+    def closeEvent(self, event):
+        if self.worker is not None or self._syncing:
+            self._closing = True
+            self._generation += 1
+            self._pending = None
+            self.debounce.stop()
+            self.statusBar().showMessage("正在结束当前任务，完成后自动关闭…")
+            self._update_controls()
+            event.ignore()
+            return
+        self.debounce.stop()
+        self.sync_timer.stop()
+        self.preferences.setValue("window/geometry", self.saveGeometry())
+        self.preferences.sync()
+        event.accept()
+
+    def _finish_close(self):
+        if self._closing and self.worker is None and not self._syncing:
+            QTimer.singleShot(0, self.close)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="D1 日报工作台 · 原生桌面 App")
+    parser.add_argument("--root", type=Path, default=Path(__file__).parent,
+                        help="本机配置与数据所在的模块目录")
+    parser.add_argument("--startup-check", action="store_true", help="完成本地启动检查后退出")
+    args = parser.parse_args(argv)
+    application = QApplication.instance() or QApplication([])
+    application.setApplicationName("D1 日报工作台")
+    application.setStyle("Fusion")
+    application.setFont(QFont("Microsoft YaHei UI", 9))
+    application.setStyleSheet(STYLE)
+    window = Window(ReportService(args.root))
+    if args.startup_check:
+        window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    window.show()
+    if args.startup_check:
+        timer = QTimer(window)
+        timer.setInterval(100)
+
+        def check():
+            if window._startup_done and window.worker is None:
+                timer.stop()
+                window.close()
+                application.exit(1 if window._startup_error else 0)
+
+        timer.timeout.connect(check)
+        timer.start()
+    return application.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -249,7 +249,15 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
             upper = None
         if op == "lte":
             lower = None
-        return lambda x: not is_blank(x) and (not lower or str(x)[:10] >= lower) and (not upper or str(x)[:10] <= upper)
+        def date_matches(value):
+            if is_blank(value):
+                return False
+            try:
+                parsed = date.fromisoformat(str(value)[:10]).isoformat()
+            except (ValueError, TypeError):
+                return False
+            return (not lower or parsed >= lower) and (not upper or parsed <= upper)
+        return date_matches
     if op not in ("fuzzy", "contains", "eq", "ne"):
         raise ReportError("文本列的筛选方式无效。")
     if is_blank(raw):
@@ -273,7 +281,11 @@ def query_table(table: dict, request: dict) -> dict:
         if not isinstance(condition, dict) or condition.get("column") not in index:
             raise ReportError("筛选列不存在，请重新选择。")
         idx = index[condition["column"]]
-        predicates.append((idx, build_predicate(columns[idx], condition, epsilon)))
+        value_type = condition.get("value_type", columns[idx]["type"])
+        if value_type not in ("text", "number", "date"):
+            raise ReportError("内容格式应为文本、数字或日期。")
+        effective_column = {**columns[idx], "type": value_type}
+        predicates.append((idx, build_predicate(effective_column, condition, epsilon)))
     query = str(request.get("search", ""))[:500]
     matches = []
     for idx, row in enumerate(table["rows"]):

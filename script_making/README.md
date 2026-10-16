@@ -1,22 +1,24 @@
-# script_making：本地日报查询
+# script_making：D1 日报桌面 App
 
-下载两份日报到本机后，通过浏览器查询。默认读取收益互换日报的「存续合约估值」和日报复核表的「簿记要素」，工作表可切换。当前实现下载、读取和筛选；交易新增、提交和审批流程留待后续需求。
+下载两份日报到本机后，在 PySide6 原生桌面窗口中查询。默认读取收益互换日报的「存续合约估值」和日报复核表的「簿记要素」，工作表可切换。当前实现下载、读取和筛选；开平计划记录尚处于方案阶段，交易新增、提交和审批流程留待后续需求。
 
 ## 启动
 
-需要 Python 3.10+ 和 openpyxl。缺少依赖时，在本目录运行 `python -m pip install -r requirements.txt`，然后双击 `start.cmd`，浏览器打开 `http://127.0.0.1:8766`。关闭启动窗口或按 Ctrl+C 停止服务。
+需要 Python 3.10+、PySide6-Essentials 和 openpyxl。双击 `start.cmd` 打开独立桌面窗口；关闭窗口退出 App。默认不打开浏览器、不启动 HTTP 服务，也不占用固定端口。关闭时若仍在读取或同步，会等待当前任务结束后自动退出。
 
-端口被占用时运行 `start.cmd --port 8767`。指定 Python 时，将解释器完整路径写入本目录 `python.local.txt`（一行，不带引号）。也可从仓库根目录运行 `python -m script_making.app --open`。服务仅监听本机，不依赖 Node 构建或 CDN。
+沿用其他公司 App 的 `swhy_delta1` 环境；缺少依赖时先运行本目录 `install.cmd`。解释器依次从 `REPORT_APP_PYTHON`、`SWHY_DELTA1_PYTHON`、`python.local.txt`、公司默认 `D:\conda\envs\swhy_delta1\python.exe`、已登记的 `swhy_delta1` 环境及 PATH 查找。`python.local.txt` 写完整路径（一行、不带引号），保留本机。
+
+也可从仓库根目录运行 `python -m script_making`。`start.cmd --startup-check` 在读完本地目录/默认工作表后自动退出，用于检查启动；不触发共享目录同步。日常双击采用 `pythonw.exe`，无持续控制台窗口。读取和筛选在后台线程运行，共享目录复制在有 45 秒超时的独立进程运行。
 
 ## 来源路径与保存位置
 
-在「数据与同步」填写共享来源目录和本地保存目录，点击「保存设置」立即生效。共享来源应包含 `YYYY-MM-DD` 子目录，不包含最后一级具体日期。默认保存在本项目的 `data/reports`。
+在「数据与同步」填写共享来源目录和本地保存目录，也可点击「浏览」使用系统文件夹选择器，点击「保存设置」立即生效。共享来源应包含 `YYYY-MM-DD` 子目录，不包含最后一级具体日期。默认保存在本项目的 `data/reports`。
 
 - 设置保存在忽略的 `config.local.json`，配置模板见 [config.example.json](config.example.json)。
-- `SCRIPT_MAKING_SOURCE` 和 `SCRIPT_MAKING_DATA` 环境变量可覆盖上述目录；要通过页面修改对应设置，先移除环境变量覆盖。
+- `SCRIPT_MAKING_SOURCE` 和 `SCRIPT_MAKING_DATA` 环境变量可覆盖上述目录；覆盖时 App 显示来源并禁止修改对应输入框，移除覆盖后可修改。
 - 更换保存目录后读取新目录，原文件仍在旧目录，不自动搬移。
 - 每个日期目录的 `manifest.json` 记录来源、时间、大小、完整路径和 SHA256。
-- 支持在设置中选择已有 Excel 导入，文件名必须保留日期和 `-D1` 后缀。
+- 点击「导入 Excel」通过系统文件选择器导入已有日报，可同时选择两份；文件名必须保留日期和 `-D1` 后缀。
 
 「同步前一交易日」按北京时间选择**早于今日的最新有效日期文件夹**，下载：
 
@@ -31,16 +33,22 @@
 
 ## 搜索和筛选
 
+- 每个条件按「选择列 → 内容格式 → 条件与数值」操作。格式默认采用列识别结果，可手动选「文本」「数字」「日期」；每个条件独立解释，同一列也可添加不同格式的条件。
+- 选择「数字」可对文本保存的金额、含千分位或百分号的值按数字筛选；不能转换为数值的内容与空值不计作零。选择「文本」可对数字编号进行包含或简称搜索。手动日期格式采用 `YYYY-MM-DD`，无效日期不匹配。
+- 更换列或内容格式会重置该条件的操作与输入，避免沿用不兼容的条件；不会改写 Excel，也不会改变其他条件的格式。
 - 默认「模糊匹配」支持连续子串和顺序简称。例如「申万」「证投」均可匹配「申万宏源证券投资总部」。
 - `/`、逗号、竖线分隔可选词（OR），空格分隔同时需要的词（AND）。多个列条件按 AND 组合。
 - 可改用连续包含、精确等于、不等于、为空、不为空。
 - 数值列提供范围、大小比较、近似等于、近似零和非零。支持科学计数法、千分位和百分号；`5%` 表示原始数值 `0.05`。
-- 默认绝对容差 `ε = 1e-8`，页面可调整。`|x| ≤ ε` 为近似零，`|x| > ε` 为非零，空值不计作零。
+- 默认绝对容差 `ε = 1e-8`，窗口中可临时调整，在设置中保存默认值。`|x| ≤ ε` 为近似零，`|x| > ε` 为非零，空值不计作零。
 - 范围采用 `min - ε ≤ x ≤ max + ε`；大于为 `x > value + ε`，大于等于为 `x ≥ value - ε`。小于对称处理。
-- 日期列提供日期区间。支持表头排序、分页、显示列和全部字段详情，详情显示 Excel 原始行号。
+- 日期格式提供日期区间。支持表头排序、分页、显示列和双击查看全部字段详情，详情显示 Excel 原始行号。拖动表头边缘可调列宽。
+- Ctrl / Shift 多选当前页记录，Ctrl+C 复制选中行的可见列与列名，复制使用原始值。窗口大小及每个工作表的显示列保存在 `ui.local.ini`。更换筛选、日期、页码或工作表会清除当前表格选择；持久化开平计划尚未实现。
 - 读取 Excel 保存的缓存值，不调用 Wind 或重新计算公式。使用原始小数筛选，显示格式不影响比较。
 
 ## JSON 接口
+
+接口作为独立兼容入口保留，与桌面 App 共用本机配置与查询逻辑。需要接口时从仓库根目录单独运行 `python -m script_making.app --port 8766`，仅监听本机 `127.0.0.1`。桌面 App 直接调用 Python 服务层，不依赖该 HTTP 进程。默认桌面入口是 `python -m script_making`，不要使用旧的 `--open` 启动方式。
 
 | 方法与路径 | 用途 |
 | --- | --- |
@@ -61,8 +69,8 @@ JSON 请求使用 `Content-Type: application/json`。`kind` 为 `swap` 或 `revi
   "date": "2026-10-14",
   "sheet": "存续合约估值",
   "filters": [
-    {"column": "c2", "op": "fuzzy", "value": "证投"},
-    {"column": "c14", "op": "range", "min": "5000", "max": "10000"}
+    {"column": "c2", "value_type": "text", "op": "fuzzy", "value": "证投"},
+    {"column": "c14", "value_type": "number", "op": "range", "min": "5000", "max": "10000"}
   ],
   "epsilon": 1e-8,
   "sort": {"column": "c14", "direction": "desc"},
@@ -71,7 +79,7 @@ JSON 请求使用 `Content-Type: application/json`。`kind` 为 `swap` 或 `revi
 }
 ```
 
-文本操作：`fuzzy/contains/eq/ne/blank/not_blank`。数值：`range/gt/gte/lt/lte/eq/ne/zero/nonzero/blank/not_blank`。日期：`range/eq/gte/lte/blank/not_blank`。`search` 为全字段关键词，每页最多 200 条，最多 30 个条件。错误返回 HTTP 400 和错误信息，跨站访问返回 403。
+`value_type` 可选 `text/number/date`；省略时采用原识别类型，兼容旧请求。文本操作：`fuzzy/contains/eq/ne/blank/not_blank`。数值：`range/gt/gte/lt/lte/eq/ne/zero/nonzero/blank/not_blank`。日期：`range/eq/gte/lte/blank/not_blank`。`search` 为全字段关键词，每页最多 200 条，最多 30 个条件。错误返回 HTTP 400 和错误信息，跨站访问返回 403。
 
 ## 公司更新与验证
 
@@ -82,7 +90,7 @@ Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
 git pull --ff-only
 ```
 
-然后运行 `script_making\start.cmd`。首次使用需在页面配置共享来源；本机设置和原始数据不通过 Git 同步。
+然后运行 `script_making\start.cmd` 打开桌面 App。缺少依赖时运行 `script_making\install.cmd`；首次使用需在 App 中配置共享来源。已有 `config.local.json` 和已保存日报直接沿用，本机设置和原始数据不通过 Git 同步。
 
 离线测试（从仓库根目录）：
 
@@ -91,5 +99,7 @@ python -m unittest discover -s script_making/tests -v
 ```
 
 测试使用合成 Excel 和本机临时目录。实际公司共享盘验证状态见 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)。
+
+本次桌面实现沿用仓库其他 App 的 Qt Widgets，依赖安装方式可参考 [Qt for Python 官方文档](https://doc.qt.io/qtforpython-6/gettingstarted.html)。
 
 正式源码、测试和无真实数据的配置模板进入 Git。`materials` 原始文件、`data`、`cache`、导出和 `*.local.*` 保留本机。开发与交付遵循 [AGENTS.md](AGENTS.md)。
