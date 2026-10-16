@@ -108,5 +108,5 @@ def resolved_manifest(value, base):
     entries = entries.values() if isinstance(entries, dict) else entries
     for entry in entries:
         if "relative_path" in entry:
-            entry["path"] = str(contained(base, entry["relative_path"]))
+            entry["path"] = str(contained(base, entry.pop("relative_path")))
     return value

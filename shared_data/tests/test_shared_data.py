@@ -93,6 +93,15 @@ class SharedDataTests(unittest.TestCase):
         finally:
             con.close()
 
+    def test_archive_rejects_a_source_changed_since_parsing(self):
+        source, target = self.root / "source.xlsx", self.root / "archive.xlsx"
+        source.write_bytes(b"original")
+        expected = sha256(source)
+        source.write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "读取后发生变化"):
+            copy_verified(source, target, expected_sha256=expected)
+        self.assertFalse(target.exists())
+
     def test_report_migration_rebases_manifest_and_runs_only_once(self):
         app = self.root / "script_making"
         folder = app / "data/reports/2026-10-14"
@@ -124,6 +133,17 @@ class SharedDataTests(unittest.TestCase):
         self.assertEqual(catalog.get(minute.key)[0].retention, "persistent")
         with self.assertRaises(ValueError):
             catalog.register(Dataset("indices", "wind", "1m", retention="daily_cache", keep_days=1))
+
+    def test_invalid_old_inventory_manifest_does_not_become_valid_or_block_recovery(self):
+        app = self.root / "securities_lending"
+        old = app / "data/live/2026-10-14/latest.json"
+        old.parent.mkdir(parents=True)
+        old.write_text("not json", encoding="utf-8")
+        result = ensure_migrated("securities_lending", app)
+        self.assertTrue(result["files"][0]["rejected_manifest"])
+        self.assertTrue(old.is_file())
+        self.assertFalse((self.paths.lending() / "2026-10-14/latest.json").exists())
+        self.assertTrue(Path(result["files"][0]["destination"]).is_file())
 
     def test_prune_is_opt_in_and_cannot_touch_history_or_today(self):
         catalog = Catalog(self.paths)
@@ -176,3 +196,26 @@ class SharedDataTests(unittest.TestCase):
             self.assertIn(b"TimeoutError", result.stderr)
         with file_lock(path):
             pass
+
+    def test_migration_cli_preview_apply_and_repeat_from_another_directory(self):
+        source = self.root / "index_futures_basis/inputs/dividends.xlsx"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"old input")
+        target = self.paths.dividend_inputs / source.name
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2]))
+        command = [sys.executable, "-B", "-X", "utf8", "-m", "shared_data",
+                   "--repo-root", str(self.root), "migrate", "--summary"]
+        def run(*args):
+            return subprocess.run(command + list(args), cwd=self.root.parent, env=env,
+                                  capture_output=True, encoding="utf-8", timeout=30)
+        preview = run()
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertFalse(target.exists())
+        applied = run("--apply")
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertIn("迁移完成", applied.stdout)
+        self.assertEqual(target.read_bytes(), b"old input")
+        self.assertEqual(source.read_bytes(), b"old input")
+        source.write_bytes(b"changed legacy input")
+        self.assertEqual(run("--apply").returncode, 0)
+        self.assertEqual(target.read_bytes(), b"old input")
