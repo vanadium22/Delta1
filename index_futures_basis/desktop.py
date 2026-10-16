@@ -20,6 +20,7 @@ from .config import ROOT
 from .report import chart_catalog, fmt
 from .service import BasisService, METRICS, ROOTS
 from .windows import WINDOW_FIELDS, normalize_windows, window_summary, chart_window_label
+from .security_desktop import SecurityPage
 from shared_data.io import file_lock
 from shared_data.migration import copy_verified
 
@@ -167,8 +168,8 @@ class Window(QMainWindow):
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1600, screen.width() - 50), min(960, screen.height() - 70))
         self.build()
-        QShortcut(QKeySequence("F5"), self, activated=self.sync)
-        QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.query)
+        QShortcut(QKeySequence("F5"), self, activated=self.refresh_active_page)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.query_active_page)
         if auto_start:
             QTimer.singleShot(0, self.startup)
 
@@ -215,6 +216,9 @@ class Window(QMainWindow):
         self.build_query_tab()
         self.build_charts_tab()
         self.build_exports_tab()
+        self.security_page = SecurityPage(self)
+        self.tabs.addTab(self.security_page, "行情分析")
+        self.tabs.currentChanged.connect(lambda _: self.status_label.setVisible(self.tabs.currentWidget() is not self.security_page))
         self.refresh_window_profiles()
         footer = QHBoxLayout()
         self.progress_label = self.hint("就绪")
@@ -421,6 +425,7 @@ class Window(QMainWindow):
         worker.start()
 
     def set_busy(self, busy):
+        self.security_page.set_busy(busy)
         for action in self.ui_actions:
             action.setEnabled(not busy)
         for selector in [self.mode, self.root, self.slot, self.metric_combo, self.latest, self.chart]:
@@ -442,6 +447,7 @@ class Window(QMainWindow):
             return
         try:
             self.service = BasisService(self.service.root, self.mode.currentData())
+            self.security_page.change_identity()
             self.refresh_window_profiles()
             self.invalidate_query()
             self.dividend_label.setText("正在检查所选数据模式的分红来源…")
@@ -516,6 +522,18 @@ class Window(QMainWindow):
         self.invalidate_query()
         self.run_task("计算所选指标…", lambda progress: self.service.query(*args), self.show_query)
 
+    def refresh_active_page(self):
+        if self.tabs.currentWidget() is self.security_page:
+            self.security_page.query()
+        else:
+            self.sync()
+
+    def query_active_page(self):
+        if self.tabs.currentWidget() is self.security_page:
+            self.security_page.query()
+        else:
+            self.query()
+
     def show_query(self, result):
         self.query_result = result
         self.current.setText(f"{result['title']}　当前 {fmt(result['current'])}{result['unit']}")
@@ -583,6 +601,7 @@ class Window(QMainWindow):
         self.mode.setCurrentIndex(self.mode.findData("offline"))
         self.mode.blockSignals(False)
         self.service = BasisService(self.service.root, "offline")
+        self.security_page.change_identity()
         self.refresh_window_profiles()
         self.invalidate_query()
         self.status_label.setText("离线研究快照 · 正在校验导入文件")

@@ -10,6 +10,8 @@ import threading
 
 
 class WindProvider:
+    worker_filename = "wind_worker.py"
+
     def __init__(self, config):
         self.config, self.process = config, None
         self.responses = queue.Queue()
@@ -18,7 +20,7 @@ class WindProvider:
         executable = Path(self.config.get("wind_python") or sys.executable)
         if executable.name.lower() == "pythonw.exe":
             executable = executable.with_name("python.exe")
-        self.process = subprocess.Popen([str(executable), "-X", "utf8", str(Path(__file__).with_name("wind_worker.py"))],
+        self.process = subprocess.Popen([str(executable), "-X", "utf8", str(Path(__file__).with_name(self.worker_filename))],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, encoding="utf-8", bufsize=1, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
