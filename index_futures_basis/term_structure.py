@@ -37,13 +37,13 @@ def annualized_calendar_spreads(panel):
     return pd.DataFrame(rows)
 
 
-def term_distributions(series, end, keys, eligible=None, windows=(6, 12)):
+def term_distributions(series, end, keys, eligible=None, windows=(6, 12), value="annualized_basis_pct"):
     rows = []
     for key, group in series.groupby(keys, sort=False):
         key = key if isinstance(key, tuple) else (key,)
         labels = dict(zip(keys, key))
         rows.extend({**labels, **row} for row in distribution_rows(
-            group, end, "annualized_basis_pct", eligible, windows=windows))
+            group, end, value, eligible, windows=windows))
     return pd.DataFrame(rows)
 
 
@@ -60,4 +60,5 @@ def term_chart_catalog(windows=None):
     windows = normalize_windows(windows)
     return ([f"{days}天固定期限_近{months}个月" for days in (60, 90) for months in windows[f"fixed_{days}_months"]]
             + [f"{days}天固定期限_分位蜡烛图" for days in (60, 90)]
-            + [f"跨期{pair}_{kind}" for pair in PAIRS for kind in ("年化基差", "年化分位蜡烛图")])
+            + [f"跨期{pair}_{kind}" for pair in PAIRS for kind in
+               ("年化基差", "年化分位蜡烛图", "绝对基差", "绝对基差分位蜡烛图")])

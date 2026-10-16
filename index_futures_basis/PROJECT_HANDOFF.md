@@ -1,5 +1,13 @@
 # Delta1 股指基差 App：项目交接
 
+## 2026-10-16 跨期绝对基差图与Word补充
+
+- 在现有02−00、03−02跨期年化图之外，各增加分红调整后绝对基差走势图和点数分位图，共4图，IF/IC/IM/IH采用2×2独立纵轴。复用逐日`spread_points = (F远+G远)−(F近+G近)`，保留正负号、不取绝对值、不除现货、不年化；同日现货在两腿绝对基差相减时抵消。原Wind下载和年化计算不变。
+- 两类点数图沿用`calendar_months`及`calendar_quantile_months`，默认3个月曲线和3/6/12个月分位，图片/Word各自配置仍独立。点数分位直接按该序列计算，排除当日，并列值半权重；基差业务的缺输入/覆盖不足规则不变。
+- Word末尾新增四个章节、四图和两张当前点数/历史位置表，说明公式、正负号、实际配对、未调整价差与分红差、窗口变化及固定分红快照假设。全量50张PNG，Word46图17表；新增`calendar_absolute_quantiles.csv`后为14份CSV。逐日点数继续见`calendar_annualized.csv`中的`spread_points`，清单增加点数口径。
+- 按用户要求仅运行15项受影响验证，全部通过，覆盖跨期手算/负号/点数排名、历史窗口与当日排除、Word单位/章节及自定义CSV窗口。使用已保存的四品种真实离线行情（截至2026-10-15）与2026-09-18分红快照实际生成一份报告，最终34页，新增内容在31—34页；以本机Word只读导出并通过documents渲染器检查页面。未跑其他模块全量测试，没有新增Wind请求或依赖。
+- QA和报告位于忽略的`data/cache/verification/calendar_points_20261016`，测试日志`.deps/calendar-points-targeted.log`；原始行情与分红保留。公司运行与Wind实连未在本机复现，发布结果见根目录`COMPANY_SYNC.md`。两个分支都不跟踪data，仍在公司统一分支`git pull --ff-only`更新。
+
 ## 2026-10-16 名称核验、今日窗口与指标展示
 
 - 用户确认分钟数据现已能正确下载，追加四项要求：输入代码后自动Wind名称核验，分钟今日开收盘快捷选择，均值/TWAP/VWAP剔除NaN，明确展示指标。本轮仅改行情页及其名称线程关闭协作，保留基差/分红/报告业务。
@@ -158,7 +166,7 @@
 | store.py / sync.py | SQLite、日历及字段缺口、增量计划、续补/修订 |
 | wind.py / wind_worker.py | 本机 Python 与 Wind 隐藏进程协议 |
 | analytics.py / distributions.py / term_structure.py | 原报告口径、分位、IM−IC配对及固定期限/跨期年化 |
-| report.py / assets/report_template.docx | 46图、Word（42图15表）及图文解释 |
+| report.py / assets/report_template.docx | 50图、Word（46图17表）及图文解释 |
 | windows.py / config.py / config.example.json | 各类窗口、输入验证、默认配置、日期门槛、原子写设置 |
 | demo.py / tests/ | 独立合成模式与不访问真实 Wind 的测试 |
 | COMPANY_SETUP.md | 公司三步启动及更新 |
