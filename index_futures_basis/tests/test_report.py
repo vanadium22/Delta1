@@ -37,16 +37,21 @@ class ReportTests(unittest.TestCase):
             with patch("index_futures_basis.service.WindProvider", side_effect=AssertionError("network")):
                 counts = build_docx(Path(__file__).parents[1] / "assets/report_template.docx", output,
                     panel, analysis.fixed, analysis.spread, analysis.totals, analysis.history, Charts(),
-                    analysis.start, analysis.end, ["IF", "IC", "IM"], provenance, preview=True,
+                    analysis.start, analysis.end, ["IF", "IC", "IM", "IH"], provenance, preview=True,
                     annual_quantiles=analysis.annual_quantiles, cross=analysis.cross,
                     cross_quantiles=analysis.cross_quantiles)
             doc = Document(output)
-            front = doc.tables[:3]
-            self.assertEqual(counts["tables"], 12)
-            self.assertEqual(counts["figures"], 34)
+            front = doc.tables[:4]
+            self.assertEqual(counts["tables"], 14)
+            self.assertEqual(counts["figures"], 41)
+            self.assertTrue(front[3].rows[1].cells[0].text.startswith("IH00/"))
+            self.assertTrue(all(len(t.rows) == 5 for t in doc.tables[-3:]))
+            self.assertIn("3月当前", doc.tables[-1].rows[0].cells[2].text)
             all_text = "\n".join(p.text for p in doc.paragraphs)
             self.assertIn("90日固定期限当前水平与历史分位", all_text)
             self.assertIn("03-02跨期年化基差", all_text)
+            self.assertIn("上证50 IH 连续合约年化基差", all_text)
+            self.assertIn("跨期年化基差3个月6个月12个月分位", all_text)
             self.assertIn("不是两条单合约年化基差相减", all_text)
             text = "\n".join(p.text for p in doc.paragraphs[:12])
             self.assertIn("行情日期：2026-10-08", text)

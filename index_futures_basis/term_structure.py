@@ -36,13 +36,13 @@ def annualized_calendar_spreads(panel):
     return pd.DataFrame(rows)
 
 
-def term_distributions(series, end, keys, eligible=None):
+def term_distributions(series, end, keys, eligible=None, windows=(6, 12)):
     rows = []
     for key, group in series.groupby(keys, sort=False):
         key = key if isinstance(key, tuple) else (key,)
         labels = dict(zip(keys, key))
         rows.extend({**labels, **row} for row in distribution_rows(
-            group, end, "annualized_basis_pct", eligible, windows=(6, 12)))
+            group, end, "annualized_basis_pct", eligible, windows=windows))
     return pd.DataFrame(rows)
 
 
@@ -50,7 +50,7 @@ def term_analysis(panel, end):
     fixed90 = fixed_tenor(panel, 90)
     calendar = annualized_calendar_spreads(panel)
     return (fixed90, term_distributions(fixed90, end, ["root"], "interpolable"), calendar,
-            term_distributions(calendar, end, ["root", "pair"]))
+            term_distributions(calendar, end, ["root", "pair"], windows=(3, 6, 12)))
 
 
 def term_chart_catalog():

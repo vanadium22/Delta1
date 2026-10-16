@@ -70,7 +70,7 @@ class ReportUpdateTests(unittest.TestCase):
         sheet = book.active
         sheet.title = "Sheet1"
         sheet["B1"], sheet["G3"] = datetime(2026, 9, 18), "分红"
-        for row, code in enumerate([f"{root}0{s}.CFE" for root in ("IF", "IC", "IM") for s in range(4)], 4):
+        for row, code in enumerate([f"{root}0{s}.CFE" for root in ("IF", "IC", "IM", "IH") for s in range(4)], 4):
             sheet.cell(row, 2, code)
             sheet.cell(row, 7, 3.0)
         book.save(inputs / "基差情况_2026-09-18.xlsx")

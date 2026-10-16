@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .analytics import LABELS, NAMES
+from .analytics import LABELS, NAMES, ROOTS
 from .term_structure import PAIRS, term_analysis, term_chart_catalog
 
 COLORS = ["#28577B", "#288D87", "#C7813C", "#8D819E"]
@@ -262,7 +262,9 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
             save(fig, name)
 
         def term_quantiles(data, name, title):
-            fig, axes = plt.subplots(1, len(roots), figsize=(12.8, 5.8), squeeze=False, layout="constrained")
+            grid_rows, grid_cols = (2, 2) if len(roots) == 4 else (1, len(roots))
+            fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12.8, 9.0 if grid_rows == 2 else 5.8),
+                                     squeeze=False, layout="constrained")
             fig.suptitle(f"{title}  截至{end:%Y-%m-%d}", x=.02, ha="left", fontsize=15)
             for i, (root, ax) in enumerate(zip(roots, axes.flat)):
                 quantile_panel(ax, data[data.root.eq(root)], root, COLORS[i], "%", show_percentile=True)
@@ -506,7 +508,11 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
           "采用表格G列固定点数，按00—03档位匹配；不是行情日期，也不使用J列期间分红。")
     front_note("调整基差B＝期货收盘价F＋分红G−现货收盘值S；年化基差＝B÷S×365÷剩余自然日D×100%。"
       "D＝实际到期日−行情日期；D不足5天时年化留空，记为—。价格和基差单位均为指数点。")
-    for root in roots:
+    for root_index, root in enumerate(roots):
+        if len(roots) > 3 and root_index == 2:
+            heading("股指基差计算明细 续", page=True)
+            front_note(f"行情日期：{end:%Y-%m-%d}。分红快照日期：{dividend_info.get('snapshot_date', '未记录')}。"
+                       "年化基差＝（期货收盘价＋G列分红−现货收盘值）÷现货收盘值×365÷剩余自然日×100%。")
         latest = panel[panel.root.eq(root) & panel.trade_date.eq(end)].sort_values("slot")
         rows = [[f"{r.continuous_code.replace('.CFE', '')}/{r.instrument_id.replace('.CFE', '')}",
                  fmt(r.futures_close, 2), f"{r.expiry_date:%Y-%m-%d}", str(r.days_to_expiry),
@@ -616,7 +622,9 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
         v = g.open_interest
         rows.append([root, fmt(v.iloc[-1]/10000), fmt(delta(v, 1), 0, True), fmt(delta(v, 5), 0, True),
                      fmt((v.iloc[-1]/v.iloc[0]-1)*100, signed=True) if v.iloc[0] else "—"])
-    table("品种总持仓变化", ["品种", "持仓\n万手", "较1日前\n手", "较5日前\n手", "较窗口首日\n%"], rows)
+    summary_font = 10 if len(roots) > 3 else None
+    table("品种总持仓变化", ["品种", "持仓\n万手", "较1日前\n手", "较5日前\n手", "较窗口首日\n%"], rows,
+          font_size=summary_font)
     rows = []
     for root in roots:
         for slot in [1, 2, 3, 4]:
@@ -624,7 +632,8 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
             rows.append([f"{root}0{slot-1}", fmt(g.loc[3, "current"]), fmt(g.loc[3, "mean"]),
                          fmt(g.loc[3, "percentile"], 1), fmt(g.loc[6, "mean"]), fmt(g.loc[12, "mean"])])
     table("固定分红假设下的历史水平" if kind == "fixed_snapshot_scenario" else "同品种同期限档位的调整后历史水平",
-          ["连续档位", "当前\n%", "三月均值\n%", "三月分位\n%", "半年均值\n%", "一年均值\n%"], rows)
+          ["连续档位", "当前\n%", "三月均值\n%", "三月分位\n%", "半年均值\n%", "一年均值\n%"], rows,
+          font_size=summary_font)
     p("历史比较不包含当日，且剔除剩余期限不足5天的年化样本；分位采用并列值半权重。"
       "窗口内分红或行情覆盖不足时显示横线，不以未调整数据或短窗口冒充完整历史分布。"
       "不同档位仍受剩余期限变化影响，宜结合60天固定期限比较。")
@@ -634,7 +643,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
     fixed90, fixed90_quantiles, calendar, calendar_quantiles = terms if terms is not None else term_analysis(panel, end)
     for days, series in [(60, fixed), (90, fixed90)]:
         heading(f"{days}日固定期限年化基差", page=True)
-        p(f"对IF、IC、IM分别使用当日00—03四档实际合约，在包围{days}日的相邻到期日之间，"
+        p(f"对{'、'.join(roots)}分别使用当日00—03四档实际合约，在包围{days}日的相邻到期日之间，"
           f"先线性插值分红调整后的基差率，再乘365/{days}年化；每个品种得到一条固定期限曲线。"
           "剩余不足5日的合约不参与插值，无法包围目标期限时留空，不作外推。")
         for months in (3, 1):
@@ -644,21 +653,27 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
           "三个月图用于观察阶段变化，一个月图突出近期变化；两图使用相同算法和同一分红快照。")
 
     def term_table(caption, quantiles):
+        windows = sorted(quantiles.months.unique())
+        headers = ["品种", "当前\n%"]
+        for months in windows:
+            headers += [f"{months}月当前\n百分位", f"{months}月中位\n%"]
         rows = []
         for root in roots:
             q = quantiles[quantiles.root.eq(root)].set_index("months")
-            rows.append([root, fmt(q.loc[6, "current"]), fmt(q.loc[6, "percentile"], 1),
-                         fmt(q.loc[6, "p50"]), fmt(q.loc[12, "percentile"], 1), fmt(q.loc[12, "p50"])])
-        table(caption, ["品种", "当前\n%", "6月当前\n百分位", "6月中位\n%", "12月当前\n百分位", "12月中位\n%"], rows)
+            row = [root, fmt(q.iloc[0].current)]
+            for months in windows:
+                row += [fmt(q.loc[months, "percentile"], 1), fmt(q.loc[months, "p50"])]
+            rows.append(row)
+        table(caption, headers, rows, font_size=9.5 if len(windows) == 3 else None)
 
     term_ends = "P5—P95" if provenance.get("configuration", {}).get("quantile_whiskers", "p05_p95") == "p05_p95" else "最小—最大值"
-    term_guide = (f"历史窗口为截止日前6、12个自然月，不含当日。箱体为P25—P75，中线P50，上下须{term_ends}，"
+    term_guide = (f"箱体为P25—P75，中线P50，上下须{term_ends}，"
                   "红菱形为当前年化值；横轴同时列出有效样本数和当前百分位，并列值按半权重计入。"
                   "各品种纵轴独立，覆盖不足时不显示分位统计。")
     heading("90日固定期限当前水平与历史分位", page=True)
     picture("90天固定期限_分位蜡烛图", "90日固定期限年化基差6个月和12个月分位")
     term_table("90日固定期限当前水平及历史位置", fixed90_quantiles)
-    p(term_guide)
+    p("历史窗口为截止日前6、12个自然月，不含当日。" + term_guide)
     p("固定期限分位剔除无法包围90日的数学不可用日期；有插值合约但缺少分红等输入时，不当作可剔除样本。"
       "当前百分位衡量其在固定分红假设下的历史位置，不能据此判断未来必然回归。")
 
@@ -675,12 +690,12 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
             p(f"{row.root}当前配对：{row.far_contract}减{row.near_contract}，到期日间隔{row.expiry_gap_days}天，"
               f"调整价差{fmt(row.spread_points)}点，年化{fmt(row.annualized_basis_pct)}%。")
 
-    heading("跨期年化基差6个月和12个月分位", page=True)
     for pair in PAIRS:
-        picture(f"跨期{pair}_年化分位蜡烛图", f"{pair}跨期年化基差6个月和12个月分位")
-    p(term_guide)
-    p("上述固定期限和跨期统计均沿用本次G列固定分红快照；跨期用远、近两档各自的分红，"
-      "不能用当前假设下的历史分位代替当时可观察的分红预测。")
+        heading(f"{pair}跨期年化基差3个月6个月12个月分位", page=True)
+        picture(f"跨期{pair}_年化分位蜡烛图", f"{pair}跨期年化基差3个月6个月12个月分位")
+        p("历史窗口为截止日前3、6、12个自然月，不含当日。" + term_guide)
+        p("上述固定期限和跨期统计均沿用本次G列固定分红快照；跨期用远、近两档各自的分红，"
+          "不能用当前假设下的历史分位代替当时可观察的分红预测。")
     doc.core_properties.title = "晨会分析"
     doc.core_properties.author = ""
     doc.core_properties.last_modified_by = ""
@@ -694,7 +709,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
 
 def chart_catalog():
     names = []
-    for root in ("IF", "IC", "IM"):
+    for root in ROOTS:
         names += [f"{root}_{kind}" for kind in ("连续年化基差", "合并年化基差", "年化基差分位蜡烛图",
                   "连续绝对基差", "合并绝对基差", "基差与持仓变化", "跨期价差")]
     return names + ["60天固定期限比较", "IM_IC_绝对基差差分图", "IM_IC_绝对基差差合并图",

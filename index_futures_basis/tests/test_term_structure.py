@@ -92,7 +92,7 @@ class TermCalculationTests(unittest.TestCase):
                 a = service.analyze()
                 for metric in ("fixed_90d", "calendar_02_00", "calendar_03_02"):
                     q = service.query("IC", 1, metric)
-                    self.assertEqual(q["statistics"].months.tolist(), [6, 12])
+                    self.assertEqual(q["statistics"].months.tolist(), [6, 12] if metric == "fixed_90d" else [3, 6, 12])
                     self.assertAlmostEqual(q["current"], service.query("IC", 4, metric)["current"])
                     expected = (a.fixed90_quantiles if metric == "fixed_90d" else
                         a.calendar_quantiles[a.calendar_quantiles.pair.eq(metric.removeprefix("calendar_").replace("_", "-"))])

@@ -69,7 +69,7 @@ class IncrementalTests(unittest.TestCase):
     def test_second_sync_and_restart_make_no_provider_calls(self):
         result = self.sync()
         self.assertEqual(result["state"], "complete")
-        self.assertEqual(len(self.store.panel(self.start, self.end)), 60)
+        self.assertEqual(len(self.store.panel(self.start, self.end)), 80)
         self.provider.calls.clear()
         self.store = Store(self.store.path)
         self.assertEqual(self.sync()["requests"], 0)
@@ -109,7 +109,7 @@ class IncrementalTests(unittest.TestCase):
         self.provider.calls.clear()
         self.assertEqual(self.sync()["state"], "complete")
         self.assertEqual(self.provider.calls, [("calendar", "2026-07-08", "2026-07-08"), ("expiries", (code,))])
-        self.assertEqual(len(self.store.panel(self.start, self.end)), 60)
+        self.assertEqual(len(self.store.panel(self.start, self.end)), 80)
 
     def test_later_dates_only_and_new_contract_metadata(self):
         self.sync()
