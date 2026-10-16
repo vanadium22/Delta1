@@ -65,7 +65,7 @@ def json_safe(value):
     return value
 
 
-def main():
+def main(performer=perform):
     w = None
     try:
         for line in sys.stdin:
@@ -76,7 +76,7 @@ def main():
                         from WindPy import w as wind
                         check(wind.start(waitTime=15, showmenu=False), "连接 Wind")
                         w = wind
-                    data = perform(w, request)
+                    data = performer(w, request)
                 response = {"data": json_safe(data)}
             except Exception as exc:
                 response = {"error": f"{type(exc).__name__}: {exc}", "fatal": w is None}
