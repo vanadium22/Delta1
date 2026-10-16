@@ -139,6 +139,7 @@ class SecurityService:
                         raise ValueError("Wind未返回任何有效最新值，请核对代码、行情权限及市场状态")
                     metadata = self.metadata(query, name, root, now, request_count, payload["received_at"], [])
                     metadata.update(source=payload["source"], wind_fields=payload["wind_fields"],
+                                    returned_fields=payload.get("returned_fields"), response_layout=payload.get("response_layout"),
                                     time_semantics="Wind返回时间，非逐笔成交时间；received_at 为本机采集时间")
                     target = root / now.date().isoformat() / f"{query.code}-{uuid.uuid4().hex}.json"
                     write_document(target, {"schema_version": 1, "metadata": metadata, "payload": payload})
@@ -247,7 +248,9 @@ class SecurityService:
                         doc["received_at"] = payload["received_at"]
                         doc["finalized"] = not any(doc["unverified"].values())
                         doc["batches"].append({"start": begin, "end": finish, "fields": fields, "received_at": payload["received_at"],
-                                              "source": payload["source"], "wind_fields": payload["wind_fields"]})
+                                              "source": payload["source"], "wind_fields": payload["wind_fields"],
+                                              "returned_fields": payload.get("returned_fields"),
+                                              "response_layout": payload.get("response_layout")})
                         target = root / now.date().isoformat() / f"{query.code}-{day}.json"
                         write_document(target, doc)
                         used_files.append(str(target))
