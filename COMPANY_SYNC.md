@@ -31,8 +31,20 @@ dashboard/                        # 公司 Git 仓库根目录
 | --- | --- | --- |
 | index_strategy | 按具体任务开发后汇总 | 现有已提交的指数策略与采集模块 |
 | securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；微信 OCR 找群、样本上下文和一次发送已实测，群级未读 @ 提示通过正反对照；精确识别与持续采集未完成，尚无微信入口 |
-| index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成 |
+| index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成；新增单标的行情分析（日频/分钟/最新、临时缓存、TWAP/VWAP） |
 | script_making | codex/script-making | 原生桌面日报 App；共享来源和保存目录可配置，默认读取存续合约估值与簿记要素，可先选文本/数字/日期格式再筛选，支持简称、数值范围及零容差 |
+
+## 2026-10-16 行情分析本地集成（待推送）
+
+开发提交`ebd8c97`已在本地通过合并提交`e7f37a8`集成到`codex/company-apps`。本次仅修改`index_futures_basis`及本发布记录，原指数策略、券单、日报模块和公共层源码均保留。**尚未推送到GitHub**：自动审批拒绝开发分支推送，要求用户明确确认向`https://github.com/vanadium22/Delta1.git`上传代码；公司分支尚未尝试推送，需同次授权后发布两分支并核验远端。
+
+「行情分析」支持沪深股票/ETF/指数的日频、1/5/15/30/60分钟和最新单次快照，常用开高低收/成交量/成交额字段，分钟采样TWAP及股票/ETF区间VWAP，表格复制、统计、缩放图表与CSV/PNG/来源清单导出。无需分红Excel，沿用现有Python环境。量额原始单位需按Wind终端CG说明选择后才计算VWAP；切换标的或频率重置单位，防止量额混用。完整操作及计算口径见[index_futures_basis/README.md](index_futures_basis/README.md)。
+
+缓存位于公司实际仓库最外层`data/cache/market/security_query/wind/<频率>/<下载日期>/`，通过公共路径配置解析；历史只补缺日期/分钟/字段，盘中数据逐字段标记未定稿，失败不以旧值冒充新返回。最新每次主动查询重取；离线只读已缓存历史，演示独立合成。按下载日期预览并手动清理超过最近7个自然日的分区，不启动自动删除，永久基差行情及其他模块数据不受影响。本次无需数据迁移或重建环境。
+
+公司分支本地完整验证**119项通过、0跳过**：基差104项（含本次21项新测试）、公共数据层15项。覆盖新旧Qt交互、分钟/午休边界、手算TWAP/VWAP/单位、缓存补缺与逐字段定稿、缺失/失败/取消、离线及演示隔离、子进程协议、原报告和基差业务回归。1240×800及980×640日频/分钟/快照窗口、统计和原始PNG已目视检查。测试日志在家里主工作目录忽略的`.deps/security-query-company-*.log`，公司worktree的合成QA在`data/cache/verification/security_query_20261016`，均不提交。
+
+本轮未连接真实Wind，实盘字段单位、分钟权限/可取历史长度、各周期时间标签和公司实际窗口仍需现场验证。推送获准且远端核验通过后，公司仍保持`codex/company-apps`，关闭App后在仓库根目录执行一次`git pull --ff-only`，按原入口启动并打开「行情分析」。
 
 ## 2026-10-16 公共数据及一键迁移发布
 
