@@ -45,7 +45,7 @@ METRICS = {
 
 def calculation_version():
     digest = hashlib.sha256(__version__.encode())
-    for name in ("analytics.py", "distributions.py", "term_structure.py", "windows.py", "report.py", "service.py"):
+    for name in ("analytics.py", "distributions.py", "term_structure.py", "partial.py", "windows.py", "report.py", "service.py"):
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
 
@@ -155,7 +155,7 @@ class BasisService:
         return list(dict.fromkeys(self.paths.resolve_module_setting(self.root, folder, self.paths.dividend_inputs, ("inputs", "input"))
                                   for folder in self.config["dividends"]["directories"]))
 
-    def dividend_input(self, end):
+    def dividend_input(self, end, allow_partial=False):
         if self.mode == "demo":
             from .demo import dividends
             values = dividends(end)
@@ -163,44 +163,95 @@ class BasisService:
                 "historical_type": "fixed_snapshot_scenario", "application": "snapshot_continuous"}
         config = dict(self.config["dividends"])
         config["directories"] = [str(p) for p in self.dividend_directories()]
-        values, info = read_dividends(config, self.root)
+        config["allow_missing_values"] = allow_partial
+        try:
+            values, info = read_dividends(config, self.root)
+        except Exception as exc:
+            if not allow_partial:
+                raise
+            reason = str(exc)
+            try:
+                archived = {**config, "selection": "latest_snapshot", "layout": "snapshot_continuous",
+                            "directories": [str(self.dividend_archive)], "pattern": "*.xlsx"}
+                values, info = read_dividends(archived, self.root)
+                info["fallback_reason"] = "当前分红输入不可用，使用已归档快照：" + reason
+            except Exception as archive_exc:
+                return pd.DataFrame(columns=["trade_date", "code", "dividend_points"]), {
+                    "sha256": "unavailable", "historical_type": "unavailable", "application": "exact_date",
+                    "fallback_reason": f"分红不可用，相关指标留空：{reason}；归档：{archive_exc}"}
         snapshot = self.dividend_archive / (info["sha256"] + ".xlsx")
-        snapshot.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self.dividend_archive / ".writer.lock"):
-            copy_verified(info["path"], snapshot, expected_sha256=info["sha256"])
-        if sha256(snapshot) != info["sha256"]:
-            raise ValueError("分红文件读取期间发生变化，请保存后重试")
-        info["archived_input"] = str(snapshot)
+        try:
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            with file_lock(self.dividend_archive / ".writer.lock"):
+                copy_verified(info["path"], snapshot, expected_sha256=info["sha256"])
+            if sha256(snapshot) != info["sha256"]:
+                raise ValueError("分红文件读取期间发生变化，请保存后重试")
+            info["archived_input"] = str(snapshot)
+        except (OSError, ValueError) as exc:
+            if not allow_partial:
+                raise
+            info["fallback_reason"] = (info.get("fallback_reason", "") +
+                f"；分红已读取，但本次归档失败：{exc}").lstrip("；")
         return values, info
 
-    def analyze(self, as_of=None, windows=None):
+    def local_source(self, cutoff):
+        """Keep one market source per output; never fall back to synthetic data."""
+        latest = self.store.latest_available(cutoff)
+        if latest or self.mode == "demo":
+            return self.store, latest
+        other = "offline" if self.mode == "wind" else "wind"
+        path = self.data_root.parent / other / "market.sqlite"
+        if path.is_file():
+            candidate = Store(path)
+            latest = candidate.latest_available(cutoff)
+            if latest:
+                return candidate, latest
+        return self.store, None
+
+    def analyze(self, as_of=None, windows=None, allow_partial=False):
         windows = normalize_windows(windows)
-        # Another App window cannot change mappings/quotes between these reads.
-        with self.store.writer_lock():
-            status = self.status()
-            end = pd.Timestamp(as_of or status["latest_complete"])
-            if pd.isna(end):
-                missing = "、".join(row["root"] for row in status["rows"] if not row["complete_days"])
-                raise ValueError(f"本地还没有{'、'.join(ROOTS)}共同完整的交易日；待补齐品种：{missing}。"
-                                 "请增量更新行情或导入包含全部品种的离线快照")
-            if str(end.date()) > status["requested_end"]:
-                raise ValueError("所选截止日超过当前可用完整日线范围")
+        availability = None
+        if allow_partial:
+            from .partial import local_panel
+            cutoff = str(pd.Timestamp(as_of or (closed_date(self.config) if self.mode == "wind"
+                else self.store.latest_available("9999-12-31") or closed_date(self.config))).date())
+            if cutoff == "NaT":
+                raise ValueError("报告截止日无效")
+            store, latest = self.local_source(cutoff)
+            end = pd.Timestamp(cutoff if as_of else latest or cutoff)
             history_start = end - pd.DateOffset(months=max(12, required_history_months(windows))) - pd.Timedelta(days=15)
-            panel = self.store.panel(str(history_start.date()), str(end.date()))
-            market_source = self.store.meta("source", {})
+            with store.writer_lock():
+                panel, availability = local_panel(store, str(history_start.date()), str(end.date()))
+                market_source = store.meta("source", {})
+            status = {"requested_end": cutoff}
+        # Another App window cannot change mappings/quotes between these reads.
+        else:
+            with self.store.writer_lock():
+                status = self.status()
+                end = pd.Timestamp(as_of or status["latest_complete"])
+                if pd.isna(end):
+                    missing = "、".join(row["root"] for row in status["rows"] if not row["complete_days"])
+                    raise ValueError(f"本地还没有{'、'.join(ROOTS)}共同完整的交易日；待补齐品种：{missing}。"
+                                     "请增量更新行情或导入包含全部品种的离线快照")
+                if str(end.date()) > status["requested_end"]:
+                    raise ValueError("所选截止日超过当前可用完整日线范围")
+                history_start = end - pd.DateOffset(months=max(12, required_history_months(windows))) - pd.Timedelta(days=15)
+                panel = self.store.panel(str(history_start.date()), str(end.date()))
+                market_source = self.store.meta("source", {})
         if panel.trade_date.max() != end:
             raise ValueError("所选截止日不是本地完整交易日")
-        dividends, info = self.dividend_input(end)
+        dividends, info = self.dividend_input(end, allow_partial=allow_partial)
         raw_digest = hashlib.sha256(pd.util.hash_pandas_object(panel, index=False).values.tobytes()).hexdigest()
         code_digest = calculation_version()
-        key = hashlib.sha256(json.dumps([raw_digest, info["sha256"], str(end), code_digest, windows], ensure_ascii=False).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([raw_digest, info, str(end), code_digest, windows, availability],
+                                       ensure_ascii=False, default=str).encode()).hexdigest()
         if self._cache is not None and self._cache.fingerprint == key:
             return self._cache
         start = end - pd.DateOffset(months=windows["series_months"])
-        adjusted = attach_dividends(panel, dividends, start, info.get("application", "exact_date"))
+        adjusted = attach_dividends(panel, dividends, start, info.get("application", "exact_date"), allow_partial=allow_partial)
         fixed, spread, totals = fixed_tenor(adjusted), spreads(adjusted), total_oi(adjusted)
-        cross = cross_index_basis(adjusted)
-        terms = term_analysis(adjusted, end, windows)
+        cross = cross_index_basis(adjusted, allow_partial=allow_partial)
+        terms = term_analysis(adjusted, end, windows, allow_partial=allow_partial)
         fixed_quantiles = term_distributions(fixed, end, ["root"], "interpolable",
                                              windows=windows["fixed_60_quantile_months"])
         calendar_point_quantiles = term_distributions(terms[2], end, ["root", "pair"],
@@ -219,6 +270,15 @@ class BasisService:
                 "fixed90": windows["fixed_90_quantile_months"], "calendar": windows["calendar_quantile_months"],
                 "rule": "calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded"},
             "quantile_windows": "[end - N calendar months, end); exclude display fills; half-weight ties"}
+        if availability is not None:
+            availability["missing_fields"]["dividend_points"] = int(adjusted.dividend_points.isna().sum())
+            availability["dividend_note"] = info.get("fallback_reason", "")
+            availability["partial"] = bool(any(availability["missing_fields"].values())
+                or availability["unknown_calendar_dates"] or panel.trade_date.min() > history_start + pd.Timedelta(days=15))
+            availability["latest_by_root"] = {root: str(g.loc[
+                g.futures_close.notna(), "trade_date"].max().date()) if g.futures_close.notna().any() else None
+                for root, g in panel.groupby("root")}
+            provenance["data_availability"] = availability
         self._cache = Analysis(adjusted, fixed, spread, totals,
             historical_summary(adjusted, end, windows["annual_quantile_months"]),
             annualized_distributions(adjusted, end, windows["annual_quantile_months"]), cross,
@@ -332,7 +392,7 @@ class BasisService:
         return sorted(items, key=lambda item: item["created"], reverse=True)
 
     def prepare_report(self, as_of=None, progress=lambda text: None):
-        """Refresh a frozen cutoff, verify it, or explicitly fall back one exchange session."""
+        """Attempt refresh once; use available local data even when it is incomplete."""
         eligible = closed_date(self.config)
         cutoff = str(pd.Timestamp(as_of).date()) if as_of else eligible
         if cutoff == "NaT" or cutoff > eligible:
@@ -349,72 +409,49 @@ class BasisService:
         if self.cancel.is_set():
             raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
         reason = (outcome["message"] or f"同步状态为{outcome['state']}") if outcome["state"] != "complete" else ""
-        with self.store.writer_lock():
-            calendar = self.store.calendar(start, cutoff)
-            unknown = [str(d.date()) for d in pd.date_range(start, cutoff) if str(d.date()) not in calendar]
-            opened = [day for day, is_open in calendar.items() if is_open]
-            target = (cutoff if as_of else max(opened, default=None)) if not unknown else None
-            coverage = self.store.coverage(start, cutoff)
-            latest = coverage["latest_complete"] or "暂无"
-            if not reason:
-                if unknown:
-                    reason = f"交易日历未核验：{unknown[-1]}等{len(unknown)}个日期"
-                elif not target or not calendar.get(target):
-                    reason = "目标日期不是已核验的交易日"
-                elif coverage["missing_fields"]:
-                    reason = f"仍缺{coverage['missing_fields']}个行情字段"
-                else:
-                    try:
-                        self.store.panel(start, target)
-                    except ValueError as exc:
-                        reason = str(exc)
-            actual = target
-            if reason:
-                context = f"报告更新未成功；目标截止{cutoff}，本地最新完整日{latest}。原因：{reason}"
-                if as_of:
-                    raise ValueError(context + "。指定历史日期不自动改期，请补齐后重试。")
-                # If today's calendar could not be fetched, only use a previously
-                # verified session, and require every intervening date to be known.
-                boundary = target or cutoff
-                previous = max((d for d in opened if d < boundary), default=None)
-                if not previous or any(previous <= d < boundary for d in unknown):
-                    raise ValueError(context + "。无法确认前一交易日，未生成报告；请检查Wind后重试。")
-                try:
-                    history_start = str((pd.Timestamp(previous) - pd.DateOffset(months=12) - pd.Timedelta(days=15)).date())
-                    self.store.panel(history_start, previous)
-                except ValueError as exc:
-                    raise ValueError(context + f"。前一交易日{previous}的数据也不完整：{exc}；未生成报告。") from exc
-                actual = previous
+        calendar = self.store.calendar(start, cutoff)
+        unknown = [str(d.date()) for d in pd.date_range(start, cutoff) if str(d.date()) not in calendar]
+        opened = [day for day, is_open in calendar.items() if is_open]
+        target = (cutoff if as_of else max(opened, default=None)) if not unknown else None
+        store, latest = self.local_source(cutoff)
+        actual = cutoff if as_of else latest or cutoff
+        if not reason and (unknown or not latest):
+            reason = "本地交易日历覆盖不足" if unknown else "本地暂无行情"
         check = {"state": "fallback" if reason else "complete", "checked_at": timestamp(),
                  "requested_cutoff": cutoff, "target_trade_date": target, "actual_end": actual,
                  "daily_check_time": f"{hour:02d}:{minute:02d}", "sync_state": outcome["state"],
-                 "reason": reason, "sync_message": outcome["message"]}
-        check["message"] = (f"更新未成功，已回退至前一交易日{actual}；目标截止{cutoff}。原因：{reason}" if reason
+                 "reason": reason, "sync_message": outcome["message"], "source_database": str(store.path),
+                 "latest_local_date": latest, "fallback_policy": "available_local_data"}
+        check["message"] = (f"更新未完成，使用本地可用数据（最新{latest or '暂无'}）；报告截止{actual}，"
+                            f"目标截止{cutoff}，缺失部分留空。原因：{reason}" if reason
                             else f"行情已校验，截至{actual}（日历检查截至{cutoff}）")
         progress(check["message"])
         return actual, check
 
-    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None, windows=None):
+    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None, windows=None, refresh=True):
         from .report import plot_all, build_docx
         if kind not in {"report", "figures", "data"}:
             raise ValueError("未知导出类型")
         windows = normalize_windows(windows if windows is not None else self.output_windows(kind))
         check = None
-        if kind == "report" and self.mode == "wind":
+        if kind == "report" and self.mode == "wind" and refresh:
             as_of, check = self.prepare_report(as_of, progress)
-        a = self.analyze(as_of, windows)
+        a = self.analyze(as_of, windows, allow_partial=True)
         if check and self.cancel.is_set():
             raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
-        if kind == "report" and a.panel.trade_date.min() > a.start:
-            raise ValueError(f"本地行情不足所选{windows['series_months']}个完整日历月，请先补齐后导出")
         name = timestamp().replace(":", "").replace("+", "_") + "_" + uuid.uuid4().hex[:6]
         output = self.exports_root / str(a.end.date()) / name
         output.mkdir(parents=True)
         provenance = {**a.provenance, "kind": kind, "generated_at": timestamp(), "selected_charts": selected}
         if check:
             provenance.update(market_update_check=check, requested_end=check["requested_cutoff"])
-        if self.mode != "demo":
-            shutil.copyfile(a.provenance["dividends"]["archived_input"], output / "dividend_input_snapshot.xlsx")
+        provenance["local_only"] = not (kind == "report" and self.mode == "wind" and refresh)
+        archived_input = a.provenance["dividends"].get("archived_input")
+        if archived_input:
+            try:
+                shutil.copyfile(archived_input, output / "dividend_input_snapshot.xlsx")
+            except OSError as exc:
+                provenance["dividend_copy_warning"] = str(exc)
         if kind in {"report", "data"}:
             frames = {"adjusted_panel": a.panel, "fixed_60d": a.fixed, "calendar_spreads": a.spread,
                 "total_open_interest": a.totals, "historical_statistics": a.history,
@@ -430,7 +467,8 @@ class BasisService:
                 a.annual_quantiles, a.cross, a.cross_quantiles, selected=selected if kind == "figures" else None,
                 watermark="合成演示" if self.mode == "demo" else "",
                 terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
-                windows=windows, fixed_quantiles=a.fixed_quantiles, calendar_point_quantiles=a.calendar_point_quantiles)
+                windows=windows, fixed_quantiles=a.fixed_quantiles, calendar_point_quantiles=a.calendar_point_quantiles,
+                allow_partial=True)
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":

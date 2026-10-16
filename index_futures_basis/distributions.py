@@ -21,6 +21,8 @@ def distribution_rows(series, end, value_column, eligible_column=None, windows=W
         values = history.loc[eligible, value_column].dropna()
         complete = bool(len(g) and g.trade_date.min() <= start and len(values) > 0
                         and len(values) == int(eligible.sum()))
+        if "calendar_known" in history:
+            complete = bool(complete and history.calendar_known.all())
         row = {"months": months, "window_start": start, "window_end_exclusive": end,
                "current": current, "n": len(values), "eligible_n": int(eligible.sum()),
                "complete": complete, "sample_start": history.loc[values.index, "trade_date"].min() if len(values) else pd.NaT,
@@ -38,13 +40,13 @@ def annualized_distributions(panel, end, windows=WINDOWS):
     records = []
     for (root, slot), g in panel.groupby(["root", "slot"], sort=False):
         g = g.copy()
-        g["eligible"] = g.days_to_expiry.ge(5)
+        g["eligible"] = g.days_to_expiry.ge(5) | g.days_to_expiry.isna()
         for row in distribution_rows(g, end, "annualized_basis_pct", "eligible", windows=windows):
             records.append({"root": root, "slot": slot, **row})
     return pd.DataFrame(records)
 
 
-def cross_index_basis(panel):
+def cross_index_basis(panel, allow_partial=False):
     if not {"IM", "IC"}.issubset(set(panel.root)):
         return pd.DataFrame()
     columns = ["trade_date", "slot", "instrument_id", "expiry_date", "basis_points", "roll_day"]
@@ -53,14 +55,17 @@ def cross_index_basis(panel):
                     validate="one_to_one", indicator=True)
     if not pair["_merge"].eq("both").all():
         raise ValueError("IM−IC 缺少同日同期限配对，不能使用不同日期的数据")
-    if not pair.expiry_date_im.eq(pair.expiry_date_ic).all():
+    matched = pair.expiry_date_im.notna() & pair.expiry_date_im.eq(pair.expiry_date_ic)
+    if not matched.all() and not allow_partial:
         raise ValueError("IM−IC 同期限实际到期日不一致，不能只按连续代码序号相减")
     result = pd.DataFrame({"trade_date": pair.trade_date, "slot": pair.slot,
         "im_contract": pair.instrument_id_im, "ic_contract": pair.instrument_id_ic,
         "expiry_date": pair.expiry_date_im, "im_basis_points": pair.basis_points_im,
         "ic_basis_points": pair.basis_points_ic,
-        "basis_difference_points": pair.basis_points_im - pair.basis_points_ic,
+        "basis_difference_points": (pair.basis_points_im - pair.basis_points_ic).where(matched),
         "roll_day": pair.roll_day_im | pair.roll_day_ic})
+    if "calendar_known" in panel:
+        result["calendar_known"] = result.trade_date.map(panel.groupby("trade_date").calendar_known.all())
     return result.sort_values(["trade_date", "slot"]).reset_index(drop=True)
 
 
