@@ -143,6 +143,14 @@ class Store:
             row = con.execute("SELECT min(day),max(day) FROM calendar WHERE is_open=1").fetchone()
         return tuple(row)
 
+    def latest_available(self, end):
+        """Last cached observation at/before cutoff, without an all-roots requirement."""
+        with self.connection() as con:
+            row = con.execute("""SELECT max(day) FROM quotes WHERE day<=? AND value<1e308
+                AND ((field='close' AND value>0) OR
+                     (field='oi' AND value>=0 AND value=CAST(value AS INTEGER)))""", (str(end),)).fetchone()
+        return row[0]
+
     def roots(self):
         with self.connection() as con:
             return tuple(r[0] for r in con.execute("SELECT DISTINCT root FROM mapping ORDER BY root"))

@@ -9,7 +9,7 @@ from .windows import normalize_windows
 PAIRS = {"02-00": (3, 1), "03-02": (4, 3)}
 
 
-def annualized_calendar_spreads(panel):
+def annualized_calendar_spreads(panel, allow_partial=False):
     unique(panel, ["trade_date", "root", "slot"], "跨期合约")
     rows = []
     for (day, root), group in panel.groupby(["trade_date", "root"]):
@@ -19,10 +19,12 @@ def annualized_calendar_spreads(panel):
                 raise ValueError(f"{day} {root} {pair}缺少同日配对合约")
             far, near = group.loc[far_slot], group.loc[near_slot]
             gap = (far.expiry_date - near.expiry_date).days
-            if gap <= 0 or near.expiry_date < day:
+            valid_gap = pd.notna(gap) and gap > 0 and near.expiry_date >= day
+            if not valid_gap and not allow_partial:
                 raise ValueError(f"{day} {root} {pair}实际到期日顺序无效")
-            if not np.isfinite(near.spot_close) or near.spot_close <= 0 or not np.isclose(
-                    near.spot_close, far.spot_close, rtol=0, atol=1e-8):
+            valid_spot = np.isfinite(near.spot_close) and near.spot_close > 0 and np.isclose(
+                    near.spot_close, far.spot_close, rtol=0, atol=1e-8)
+            if not valid_spot and not allow_partial:
                 raise ValueError(f"{day} {root} {pair}现货收盘值无效或不一致")
             points = far.adjusted_futures_close - near.adjusted_futures_close
             rows.append({"trade_date": day, "root": root, "pair": pair,
@@ -32,14 +34,20 @@ def annualized_calendar_spreads(panel):
                 "near_adjusted_close": near.adjusted_futures_close, "far_adjusted_close": far.adjusted_futures_close,
                 "raw_spread_points": far.futures_close - near.futures_close,
                 "dividend_difference": far.dividend_points - near.dividend_points,
-                "spread_points": points, "annualized_basis_pct": points / near.spot_close * 36500 / gap,
+                "spread_points": points, "annualized_basis_pct": points / near.spot_close * 36500 / gap
+                    if valid_gap and valid_spot else np.nan,
                 "roll_day": bool(far.roll_day or near.roll_day)})
+            if "calendar_known" in panel:
+                rows[-1]["calendar_known"] = bool(far.calendar_known and near.calendar_known)
     return pd.DataFrame(rows)
 
 
 def term_distributions(series, end, keys, eligible=None, windows=(6, 12), value="annualized_basis_pct"):
     rows = []
     for key, group in series.groupby(keys, sort=False):
+        if eligible and "inputs_missing" in group:
+            group = group.copy()
+            group[eligible] = group[eligible] | group.inputs_missing.fillna(False)
         key = key if isinstance(key, tuple) else (key,)
         labels = dict(zip(keys, key))
         rows.extend({**labels, **row} for row in distribution_rows(
@@ -47,10 +55,10 @@ def term_distributions(series, end, keys, eligible=None, windows=(6, 12), value=
     return pd.DataFrame(rows)
 
 
-def term_analysis(panel, end, windows=None):
+def term_analysis(panel, end, windows=None, allow_partial=False):
     windows = normalize_windows(windows)
     fixed90 = fixed_tenor(panel, 90)
-    calendar = annualized_calendar_spreads(panel)
+    calendar = annualized_calendar_spreads(panel, allow_partial=allow_partial)
     return (fixed90, term_distributions(fixed90, end, ["root"], "interpolable",
                                       windows=windows["fixed_90_quantile_months"]), calendar,
             term_distributions(calendar, end, ["root", "pair"], windows=windows["calendar_quantile_months"]))

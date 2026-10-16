@@ -1,4 +1,4 @@
-"""Report freshness, one-session fallback, and the Shanghai 15:05 cutoff."""
+"""Report freshness, available-local-data fallback, and the Shanghai 15:05 cutoff."""
 import copy
 from datetime import datetime, timezone
 import json
@@ -94,15 +94,16 @@ class ReportUpdateTests(unittest.TestCase):
         self.service.prepare_report()
         self.assertEqual(self.provider.calls, [])
 
-    def test_missing_today_spot_falls_back_and_records_exact_reason(self):
+    def test_missing_today_spot_keeps_available_today_data_and_exact_reason(self):
         self.provider.missing.add(("000905.SH", "2026-10-08", "close"))
         manifest, builder = self.export()
         check = manifest["market_update_check"]
         self.assertEqual(check["state"], "fallback")
         self.assertEqual(check["target_trade_date"], "2026-10-08")
-        self.assertEqual(manifest["actual_end"], "2026-10-07")
+        self.assertEqual(manifest["actual_end"], "2026-10-08")
         self.assertIn("000905.SH.close", check["reason"])
-        self.assertEqual(str(builder.call_args.args[9].date()), "2026-10-07")
+        self.assertEqual(str(builder.call_args.args[9].date()), "2026-10-08")
+        self.assertTrue(manifest["data_availability"]["partial"])
         self.assertNotIn(("000905.SH", "2026-10-08", "close"), self.service.store.quotes("2026-10-08", "2026-10-08"))
 
     def test_failed_calendar_request_uses_verified_previous_session(self):
@@ -113,13 +114,13 @@ class ReportUpdateTests(unittest.TestCase):
         self.assertIn("模拟网络中断", check["message"])
         self.assertIsNone(check["target_trade_date"])
 
-    def test_fallback_does_not_skip_an_incomplete_previous_session(self):
+    def test_incomplete_previous_session_does_not_stop_export(self):
         self.provider.missing.update({("000905.SH", "2026-10-08", "close"), ("000905.SH", "2026-10-07", "close")})
         with self.service.store.connection() as con:
             con.execute("DELETE FROM quotes WHERE day='2026-10-07' AND code='000905.SH'")
-        with self.assertRaisesRegex(ValueError, "前一交易日2026-10-07的数据也不完整"):
-            self.service.export("report")
-        self.assertFalse(self.service.exports_root.exists())
+        manifest, _ = self.export()
+        self.assertTrue(manifest["data_availability"]["partial"])
+        self.assertEqual(manifest["actual_end"], "2026-10-08")
 
     def test_weekend_uses_latest_exchange_session_without_fallback_warning(self):
         self.seed("2026-10-08")
@@ -137,19 +138,20 @@ class ReportUpdateTests(unittest.TestCase):
         self.assertEqual(check["state"], "complete")
         self.assertEqual(self.provider.calls, [])
         self.provider.missing.add(("000905.SH", "2026-10-08", "close"))
-        with self.assertRaisesRegex(ValueError, "指定历史日期不自动改期"):
-            self.service.prepare_report("2026-10-08")
+        actual, check = self.service.prepare_report("2026-10-08")
+        self.assertEqual(actual, "2026-10-08")
+        self.assertEqual(check["state"], "fallback")
 
-    def test_cancellation_and_unknown_previous_calendar_do_not_export(self):
+    def test_cancellation_stops_but_unknown_previous_calendar_can_export(self):
         with patch.object(self.service, "sync", side_effect=Cancelled("用户取消")):
             with self.assertRaises(Cancelled):
                 self.service.export("report")
         self.provider.fail_after = 1
         with self.service.store.connection() as con:
             con.execute("DELETE FROM calendar WHERE day='2026-10-07'")
-        with self.assertRaisesRegex(ValueError, "无法确认前一交易日"):
-            self.service.export("report")
-        self.assertFalse(self.service.exports_root.exists())
+        manifest, _ = self.export()
+        self.assertEqual(manifest["actual_end"], "2026-10-07")
+        self.assertGreater(manifest["data_availability"]["unknown_calendar_dates"], 0)
 
     def test_offline_report_does_not_call_wind_or_freshness_check(self):
         self.service = BasisService(self.root, "offline")

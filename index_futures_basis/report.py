@@ -16,7 +16,7 @@ COLORS = ["#28577B", "#288D87", "#C7813C", "#8D819E"]
 
 def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=None,
              cross=None, cross_quantiles=None, whiskers="p05_p95", selected=None, watermark="", terms=None,
-             windows=None, fixed_quantiles=None, calendar_point_quantiles=None):
+             windows=None, fixed_quantiles=None, calendar_point_quantiles=None, allow_partial=False):
     windows = normalize_windows(windows)
     start = end - pd.DateOffset(months=windows["series_months"])
     os.environ.setdefault("MPLCONFIGDIR", str(Path(output) / ".mplconfig"))
@@ -52,7 +52,7 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
         raise ValueError("请选择有效图表")
     for name in selected if selected is not None else chart_catalog(windows):
         months = chart_series_months(name, windows)
-        if months and panel.trade_date.min() > end - pd.DateOffset(months=months):
+        if not allow_partial and months and panel.trade_date.min() > end - pd.DateOffset(months=months):
             raise ValueError(f"{name}所选{months}个月曲线历史不足；本地始于{panel.trade_date.min():%Y-%m-%d}，请先补齐行情")
     def want(name):
         return selected is None or name in selected
@@ -69,6 +69,10 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
         ax.spines["bottom"].set_color("#CAD2DB")
         ax.tick_params(length=0, pad=6, labelcolor="#52606D")
         ax.margins(y=.14)
+        if allow_partial:
+            lines = [line for line in ax.lines if line.get_transform() == ax.transData]
+            if lines and not any(np.isfinite(np.asarray(line.get_ydata(), dtype=float)).any() for line in lines):
+                ax.text(.5, .5, "曲线数据缺失", transform=ax.transAxes, ha="center", color="#6F7780")
 
     def save(fig, name, include_in_doc=True):
         path = output / f"{name}.png"
@@ -337,6 +341,10 @@ def fmt(value, decimals=2, signed=False):
     return format(value, ("+" if signed else "") + f",.{decimals}f").replace("-", "−")
 
 
+def fmt_date(value):
+    return "—" if pd.isna(value) else f"{value:%Y-%m-%d}"
+
+
 def delta(series, periods):
     return series.iloc[-1] - series.iloc[-periods-1] if len(series) > periods else np.nan
 
@@ -353,11 +361,15 @@ def root_analysis(root, panel, fixed, spread, totals, start, end):
             f"累计{trend}{fmt(abs(f1-f0))}个百分点，近5个交易日变动{fmt(change5, signed=True)}个百分点。"
             f"当月连续的最新绝对基差为{fmt(latest.iloc[0].basis_points)}点；其分红调整幅度为"
             f"{fmt(latest.iloc[0].dividend_points)}点。")
-    maxrow = latest.loc[latest.open_interest.idxmax()]
+    if not np.isfinite(f0) or not np.isfinite(f1):
+        lead = (f"{NAMES[root]} {root}。60天固定期限当前{fmt(f1)}%，窗口首尾可用数据不足，区间变化留空。"
+                f"当月绝对基差{fmt(latest.iloc[0].basis_points)}点；缺失行情、期限或分红不按零处理。")
+    maxrow = latest.loc[latest.open_interest.idxmax()] if latest.open_interest.notna().any() else None
     last_oi = oi.open_interest.iloc[-1]
     oi5 = delta(oi.open_interest, 5)
     holdings = (f"品种总持仓为{fmt(last_oi/10000)}万手，近5个交易日变动{fmt(oi5, 0, True)}手。"
-                f"持仓最多的是{maxrow.instrument_id.replace('.CFE','')}，占比{fmt(maxrow.open_interest/last_oi*100) if last_oi else '—'}%。"
+                + (f"持仓最多的是{maxrow.instrument_id.replace('.CFE','')}，占比{fmt(maxrow.open_interest/last_oi*100) if last_oi else '—'}%。"
+                   if maxrow is not None and latest.open_interest.notna().all() else "持仓覆盖不足，总量、排名或占比留空。") +
                 "各期限柱形为同一具体合约较上一交易日的持仓变化；换月日依据新合约自身前值计算，"
                 "新挂牌合约无前值时留空。品种总持仓变化另按四合约合计计算。")
     s = spread[(spread.root == root) & spread.trade_date.between(start, end)]
@@ -396,7 +408,12 @@ def quantile_description(label, data, unit):
     positions = [f"{fmt(row.percentile, 1)}分位" if np.isfinite(row.percentile)
                  else ("覆盖不足" if not row.complete else "当日值缺失") for row in data.itertuples()]
     if not np.isfinite(current):
-        return f"{label}当前值留空；{months}个月的历史分布仍按各自有效样本展示。"
+        if data.complete.all():
+            return f"{label}当前值留空；{months}个月的历史分布仍按各自有效样本展示。"
+        if not data.complete.any():
+            return f"{label}当前值留空；{months}个月历史覆盖不足，分布留空。"
+        coverage = "、".join(f"{r.months}月{'完整' if r.complete else '不足'}" for r in data.itertuples())
+        return f"{label}当前值留空；{coverage}，仅展示完整窗口。"
     return (f"{label}当前{fmt(current)}{unit}；{months}个月依次为"
             + "、".join(positions) + "。")
 
@@ -527,14 +544,17 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
 
     if preview:
         front_note("本报告全部使用合成行情及合成分红，仅用于演示应用功能，不是真实市场研究结果。")
+    availability = provenance.get("data_availability", {})
     front_note(f"行情日期：{end:%Y-%m-%d}。报告生成时间：{provenance.get('generated_at', '未记录')}。"
-      "下表均为该行情日的实际合约收盘数据。请先核对行情日期，再比较年化结果。")
+      "下表展示该截止日可用的实际合约数据；缺失项留空。请先核对行情日期，再比较年化结果。")
     requested_end = provenance.get("requested_end")
     update_check = provenance.get("market_update_check", {})
     if update_check.get("state") == "fallback":
         reason = update_check.get("reason", "")
         reason = reason[:90] + "…（完整原因见导出清单）" if len(reason) > 90 else reason
-        note = front_note(f"更新未成功：目标截止{requested_end}，已回退至前一交易日{end:%Y-%m-%d}。原因：{reason}")
+        note = front_note((f"更新未完成：目标截止{requested_end}，已使用本地可用数据，报告截止{end:%Y-%m-%d}。"
+                           if update_check.get("fallback_policy") == "available_local_data" else
+                           f"更新未成功：目标截止{requested_end}，已回退至前一交易日{end:%Y-%m-%d}。") + f"原因：{reason}")
         for run in note.runs:
             run.bold = True
     elif update_check.get("state") == "complete":
@@ -543,7 +563,16 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
     elif requested_end and pd.Timestamp(requested_end).normalize() > pd.Timestamp(end).normalize():
         front_note(f"本次完整日线截止目标为{requested_end}，本报告实际行情截至{end:%Y-%m-%d}。"
           "如需更新，在数据管理页检查并补齐行情后重新导出。")
+    if provenance.get("local_only"):
+        front_note("本次仅使用本地缓存生成，未请求Wind；生成时间不代表数据已更新到当天。")
+    if availability.get("partial"):
+        latest = "；".join(f"{root} {day or '暂无'}" for root, day in availability.get("latest_by_root", {}).items())
+        front_note(f"数据覆盖不完整，按可用部分输出。各品种期货缓存最新日期：{latest}。"
+                   "缺行情、映射、到期日或分红的相关指标留空；历史不足的分位不冒充完整窗口。")
     dividend_info = provenance.get("dividends", {})
+    if dividend_info.get("fallback_reason"):
+        note = dividend_info["fallback_reason"]
+        front_note(note[:130] + ("…（详情见来源清单）" if len(note) > 130 else ""))
     if dividend_info.get("historical_type") == "fixed_snapshot_scenario":
         front_note(f"分红快照日期：{dividend_info.get('snapshot_date', '未记录')}。"
           "采用表格G列固定点数，按00—03档位匹配；不是行情日期，也不使用J列期间分红。")
@@ -555,8 +584,8 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
             front_note(f"行情日期：{end:%Y-%m-%d}。分红快照日期：{dividend_info.get('snapshot_date', '未记录')}。"
                        "年化基差＝（期货收盘价＋G列分红−现货收盘值）÷现货收盘值×365÷剩余自然日×100%。")
         latest = panel[panel.root.eq(root) & panel.trade_date.eq(end)].sort_values("slot")
-        rows = [[f"{r.continuous_code.replace('.CFE', '')}/{r.instrument_id.replace('.CFE', '')}",
-                 fmt(r.futures_close, 2), f"{r.expiry_date:%Y-%m-%d}", str(r.days_to_expiry),
+        rows = [[f"{r.continuous_code.replace('.CFE', '')}/{r.instrument_id.replace('.CFE', '') or '—'}",
+                 fmt(r.futures_close, 2), fmt_date(r.expiry_date), fmt(r.days_to_expiry, 0),
                  fmt(r.dividend_points, 5), fmt(r.basis_points, 4), fmt(r.annualized_basis_pct, 3)]
                 for r in latest.itertuples()]
         proportions = [2.3, 2.1, 2.4, 1.0, 2.5, 2.5, 1.8]
@@ -572,7 +601,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
     p(f"本期覆盖{'、'.join(NAMES[r] for r in roots)}，行情截至{end:%Y年%m月%d日}。"
       f"常规时序图展示{start:%Y年%m月%d日}至{end:%Y年%m月%d日}最近{windows['series_months']}个日历月，"
       "固定期限和跨期图的窗口在各章节标明，"
-      f"首个实际交易日为{actual_start:%m月%d日}。分红调整后的60天固定期限年化基差，{overview}。")
+      f"图表可用记录范围自{actual_start:%m月%d日}起，缺失部分留空。分红调整后的60天固定期限年化基差，{overview}。")
     kind = provenance.get("dividends", {}).get("historical_type", "user_supplied_unverified")
     if kind == "fixed_snapshot_scenario":
         snapshot = provenance["dividends"]["snapshot_date"]
@@ -600,6 +629,8 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
         p("本次使用合成演示数据；正式报告必须使用实际行情与分红输入。")
     elif kind == "fixed_snapshot_scenario":
         pass  # The source and assumption are prominent above the first chart.
+    elif kind == "unavailable":
+        p("没有可用分红输入，分红调整后的基差、跨期和相关分位留空；原始价格与持仓按实际可用数据展示。")
     else:
         p("分红采用所提供表格的历史列值。其是否属于当时可得预测尚未核实，相关历史分位只作该输入口径下的描述。")
 
@@ -624,8 +655,8 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
         picture(f"{root}_连续绝对基差", f"{root}各期限绝对基差分图")
         picture(f"{root}_合并绝对基差", f"{root}各期限绝对基差合并比较")
         latest = panel[panel.root.eq(root) & panel.trade_date.eq(end)].sort_values("slot")
-        rows = [[r.continuous_code.replace(".CFE", ""), r.instrument_id.replace(".CFE", ""),
-                 str(r.days_to_expiry), fmt(r.dividend_points), fmt(r.basis_points), fmt(r.annualized_basis_pct)] for r in latest.itertuples()]
+        rows = [[r.continuous_code.replace(".CFE", ""), r.instrument_id.replace(".CFE", "") or "—",
+                 fmt(r.days_to_expiry, 0), fmt(r.dividend_points), fmt(r.basis_points), fmt(r.annualized_basis_pct)] for r in latest.itertuples()]
         table(f"{root}最新期限与分红调整结果", ["连续档位", "实际合约", "剩余天数", "分红\n点", "绝对基差\n点", "年化基差\n%"], rows)
         heading(f"{NAMES[root]} {root} 持仓与跨期价差", page=True)
         picture(f"{root}_基差与持仓变化", f"{root}绝对基差与持仓日变化双坐标轴")
@@ -737,7 +768,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
           "不是两条单合约年化基差相减，近月不足5日也不沿用旧值。虚线表示任一端换月，换月会改变实际配对和期限。")
         current = calendar[calendar.pair.eq(pair) & calendar.trade_date.eq(end)]
         for row in current.itertuples():
-            p(f"{row.root}当前配对：{row.far_contract}减{row.near_contract}，到期日间隔{row.expiry_gap_days}天，"
+            p(f"{row.root}当前配对：{row.far_contract or '—'}减{row.near_contract or '—'}，到期日间隔{fmt(row.expiry_gap_days, 0)}天，"
               f"调整价差{fmt(row.spread_points)}点，年化{fmt(row.annualized_basis_pct)}%。")
 
     for pair in PAIRS:
@@ -767,7 +798,7 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
             row = g.iloc[-1]
             p(f"{root}当前{fmt(row.spread_points, signed=True)}点，较窗口首日"
               f"{fmt(row.spread_points - g.spread_points.iloc[0], signed=True)}点；"
-              f"配对为{row.far_contract}减{row.near_contract}，未调整价差{fmt(row.raw_spread_points, signed=True)}点"
+              f"配对为{row.far_contract or '—'}减{row.near_contract or '—'}，未调整价差{fmt(row.raw_spread_points, signed=True)}点"
               f"＋远近月分红差{fmt(row.dividend_difference, signed=True)}点。")
         months = windows["calendar_quantile_months"]
         caption = f"{pair}跨期绝对基差{month_labels(months, '个月')}个月分位"

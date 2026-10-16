@@ -17,7 +17,8 @@ def main():
     parser.add_argument("--mode", choices=["wind", "offline", "demo"], default="wind")
     parser.add_argument("--import-snapshot", type=Path, help="导入 JSON/CSV 并切换离线模式")
     parser.add_argument("--export", choices=["report", "figures", "data"], help="导出后退出；正式Word先更新校验，图片/CSV只读本地")
-    parser.add_argument("--as-of", help="指定历史截止日；正式Word默认检查最新日线，失败回退前一交易日并提示")
+    parser.add_argument("--as-of", help="指定报告截止日；缺失部分留空，不自动改写指定日期")
+    parser.add_argument("--local-only", action="store_true", help="导出仅用本地缓存，不等待Wind；缺数据也尽力生成")
     parser.add_argument("--sync", action="store_true", help="检查并补齐 Wind 行情后退出")
     parser.add_argument("--diagnose", action="store_true", help="只检查当前解释器依赖，不调用 Wind")
     parser.add_argument("--capture", type=Path, help="演示/离线窗口截图后退出")
@@ -37,7 +38,7 @@ def main():
         print(outcome)
         return 0 if outcome["state"] == "complete" else 2
     elif args.export:
-        print(service.export(args.export, as_of=args.as_of, progress=print))
+        print(service.export(args.export, as_of=args.as_of, progress=print, refresh=not args.local_only))
     else:
         if (args.capture or args.startup_check) and mode == "wind":
             raise ValueError("截图/启动检查请使用 --demo 或 --mode offline，避免意外访问 Wind")

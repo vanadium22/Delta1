@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from index_futures_basis.desktop import Window, WindowProfileDialog
 from index_futures_basis.service import BasisService
@@ -165,6 +165,18 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(warning.call_count, 1)
         self.assertIn(message, warning.call_args.args[2])
         self.assertIn(message, self.window.progress_label.text())
+
+    def test_local_report_button_skips_refresh_and_shows_partial_completion(self):
+        folder = Path(self.temp.name) / "partial_report"
+        folder.mkdir()
+        (folder / "run_manifest.json").write_text(json.dumps({"actual_end": "2026-10-08",
+            "data_availability": {"partial": True}, "local_only": True}), encoding="utf-8")
+        with patch.object(self.service, "export", return_value=str(folder)) as export:
+            button = next(b for b in self.window.findChildren(QPushButton) if b.text() == "仅用本地生成 Word")
+            button.click()
+            self.wait_idle()
+        self.assertFalse(export.call_args.kwargs["refresh"])
+        self.assertIn("缺失部分留空", self.window.progress_label.text())
 
     def test_report_failure_explicitly_says_no_report_created(self):
         with patch.object(self.service, "export", side_effect=ValueError("前一交易日数据也不完整；未生成报告")), \

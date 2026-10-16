@@ -352,7 +352,8 @@ class Window(QMainWindow):
     def build_exports_tab(self):
         layout = self.tab("报告与记录")
         row = QHBoxLayout()
-        row.addWidget(self.button("生成完整 Word 报告", lambda: self.export("report"), True))
+        row.addWidget(self.button("生成 Word（尝试更新）", lambda: self.export("report"), True))
+        row.addWidget(self.button("仅用本地生成 Word", lambda: self.export("report", refresh=False)))
         row.addWidget(self.button("导出全部计算数据 CSV", lambda: self.export("data")))
         row.addWidget(self.button("报告时间窗口…", lambda: self.edit_output_windows("report")))
         row.addWidget(self.button("刷新记录", self.refresh_artifacts))
@@ -361,7 +362,7 @@ class Window(QMainWindow):
         layout.addLayout(row)
         self.report_window_note = self.hint("")
         layout.addWidget(self.report_window_note)
-        layout.addWidget(self.hint("正式 Word 生成前自动补齐并校验行情；默认15:05后尝试当天，未取全则明确提示并回退前一交易日。离线/演示不联网；双击记录打开文件夹。"))
+        layout.addWidget(self.hint("Wind超时或缺数据时按本地缓存尽力生成，缺失图表/数值留空并注明数据日期。仅用本地生成不等待Wind；离线/演示也不联网。双击记录打开文件夹。"))
         self.export_table = Table(["生成时间", "行情截止日", "分红日期", "类型", "版本状态", "保存位置"])
         self.export_table.cellDoubleClicked.connect(self.open_artifact)
         layout.addWidget(self.export_table, 1)
@@ -645,7 +646,7 @@ class Window(QMainWindow):
             return str(dest)
         self.run_task("读取分红表…", operation, lambda result: self.load_local())
 
-    def export(self, kind, selected=None):
+    def export(self, kind, selected=None, refresh=True):
         if self.worker:
             return
         end = self.as_of()
@@ -658,6 +659,8 @@ class Window(QMainWindow):
             message = f"已保存（行情截至{manifest['actual_end']}）：{folder}"
             if check.get("state") == "fallback":
                 message = check["message"] + "；" + message
+            if manifest.get("data_availability", {}).get("partial"):
+                message = "已按可用数据输出，缺失部分留空；" + message
             self.refresh_artifacts()
             pictures = sorted((Path(folder) / "figures").glob("*.png"))
             if pictures:
@@ -667,10 +670,10 @@ class Window(QMainWindow):
             def finish():
                 self.progress_label.setText(message)
                 if check.get("state") == "fallback" and not self.closing:
-                    QMessageBox.warning(self, "当日更新未成功，报告已使用前一交易日", message)
+                    QMessageBox.warning(self, "报告已使用本地可用数据生成", message)
             self.load_local(after=finish)
-        self.run_task("检查行情并准备报告…" if kind == "report" else "准备导出…",
-            lambda progress: self.service.export(kind, selected, end, progress, windows=windows), done,
+        self.run_task("检查行情并准备报告…" if kind == "report" and refresh else "使用本地数据准备导出…",
+            lambda progress: self.service.export(kind, selected, end, progress, windows=windows, refresh=refresh), done,
             cancellable=kind == "report" and self.service.mode == "wind",
             failure=(lambda error: QMessageBox.warning(self, "报告未生成", error)) if kind == "report" else None)
 

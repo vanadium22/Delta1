@@ -172,11 +172,18 @@ def read_latest_snapshot(config, base):
                 priority[resolved] = rank
     if not paths:
         raise ValueError(f"未找到分红表：{directories}。请在 inputs 放入 基差情况_日期.xlsx（也兼容指数基差情况_日期.xlsx）")
-    candidates = []
+    candidates, unreadable = [], []
     for path in paths:
-        # Invalid candidate files are surfaced, never silently bypassed for an older file.
-        data, info = read_continuous_snapshot(path, config)
+        try:
+            data, info = read_continuous_snapshot(path, config)
+        except Exception as exc:
+            if not config.get("allow_missing_values"):
+                raise
+            unreadable.append(f"{path.name}: {exc}")
+            continue
         candidates.append((data, info))
+    if not candidates:
+        raise ValueError("分红文件均无法读取：" + "；".join(unreadable))
     latest_date = max(info["snapshot_date"] for _, info in candidates)
     newest = [(data, info) for data, info in candidates if info["snapshot_date"] == latest_date]
     # On the same source date, the primary input folder supersedes legacy copies.
@@ -191,6 +198,8 @@ def read_latest_snapshot(config, base):
     info["same_date_directory_rule"] = "earlier directory wins; conflicting files within that directory fail"
     info["candidates"] = [{"path": i["path"], "snapshot_date": i["snapshot_date"], "sha256": i["sha256"]}
                           for _, i in candidates]
+    if unreadable:
+        info["fallback_reason"] = "部分分红文件不可读，已使用可读文件中最新快照：" + "；".join(unreadable)
     return data, info
 
 
@@ -220,8 +229,10 @@ def read_continuous_snapshot(path, config):
             if not re.fullmatch(r"(?:IF|IC|IM|IH)0[0-3]\.CFE", code):
                 continue
             value = sheet[f"{dividend_col}{row}"].value
-            if isinstance(value, bool):
+            if isinstance(value, bool) and not config.get("allow_missing_values"):
                 raise ValueError(f"{sheet.title}!{dividend_col}{row} 不是有效分红点数")
+            if isinstance(value, bool):
+                value = np.nan
             records.append({"trade_date": snapshot_date, "code": code, "dividend_points": value})
             cells[code] = f"{sheet.title}!{dividend_col}{row}"
         if not records:
@@ -229,8 +240,11 @@ def read_continuous_snapshot(path, config):
         d = pd.DataFrame(records)
         unique(d, ["code"], "固定分红快照")
         d["dividend_points"] = pd.to_numeric(d.dividend_points, errors="coerce")
-        if not np.isfinite(d.dividend_points).all() or d.dividend_points.lt(0).any():
-            raise ValueError("快照分红须为非负有限点数，空白或公式缓存缺失不能当零")
+        invalid = ~np.isfinite(d.dividend_points) | d.dividend_points.lt(0)
+        if invalid.any():
+            if not config.get("allow_missing_values"):
+                raise ValueError("快照分红须为非负有限点数，空白或公式缓存缺失不能当零")
+            d.loc[invalid, "dividend_points"] = np.nan
         info = {"path": str(path.resolve()), "sha256": hashlib.sha256(source_bytes).hexdigest(), "rows": len(d),
                 "unit": "index_points", "semantics": "fixed_remaining_dividend_by_continuous_slot",
                 "historical_type": "fixed_snapshot_scenario", "application": "snapshot_continuous",
@@ -242,9 +256,13 @@ def read_continuous_snapshot(path, config):
         workbook.close()
 
 
-def attach_dividends(panel, dividends, plot_start, application="exact_date"):
+def attach_dividends(panel, dividends, plot_start, application="exact_date", allow_partial=False):
     p = panel.copy()
-    if application == "snapshot_continuous":
+    if dividends.empty and allow_partial:
+        p["dividend_points"] = np.nan
+        p["dividend_source_date"] = pd.NaT
+        p["dividend_application"] = "unavailable"
+    elif application == "snapshot_continuous":
         unique(dividends, ["code"], "固定分红快照")
         if dividends.trade_date.nunique() != 1 or not dividends.code.str.fullmatch(r"(?:IF|IC|IM|IH)0[0-3]\.CFE").all():
             raise ValueError("固定分红模式要求单一快照日期和 00—03 连续代码")
@@ -256,15 +274,17 @@ def attach_dividends(panel, dividends, plot_start, application="exact_date"):
         concrete = lookup.reindex(pd.MultiIndex.from_arrays([p.trade_date, p.instrument_id])).to_numpy()
         continuous = lookup.reindex(pd.MultiIndex.from_arrays([p.trade_date, p.continuous_code])).to_numpy()
         both = np.isfinite(concrete) & np.isfinite(continuous)
-        if not np.allclose(concrete[both], continuous[both], rtol=0, atol=1e-8):
+        conflict = both & ~np.isclose(concrete, continuous, rtol=0, atol=1e-8)
+        if conflict.any() and not allow_partial:
             raise ValueError("同日具体合约与连续合约分红冲突")
         p["dividend_points"] = np.where(np.isfinite(concrete), concrete, continuous)
+        p.loc[conflict, "dividend_points"] = np.nan
         p["dividend_source_date"] = p.trade_date.where(p.dividend_points.notna())
         p["dividend_application"] = "exact_date"
     else:
         raise ValueError(f"未知分红匹配方式：{application}")
     missing = p.trade_date.ge(plot_start) & p.dividend_points.isna()
-    if missing.any():
+    if missing.any() and not allow_partial:
         rows = p.loc[missing, ["trade_date", "continuous_code", "instrument_id"]]
         raise ValueError(f"最近三个月缺少 {len(rows)} 条分红，不能用零或当前分红回填历史。示例：{rows.head(6).to_dict('records')}")
     p["raw_basis_points"] = p.futures_close - p.spot_close
@@ -284,7 +304,7 @@ def attach_dividends(panel, dividends, plot_start, application="exact_date"):
     p["roll_day"] = p.groupby(["root", "slot"]).instrument_id.transform(lambda s: s.ne(s.shift()) & s.shift().notna())
     # Same concrete contract versus previous exchange trading day, including rolls.
     previous_dates = dict(zip(sorted(p.trade_date.unique())[1:], sorted(p.trade_date.unique())[:-1]))
-    oi = p.set_index(["trade_date", "instrument_id"]).open_interest
+    oi = p[p.instrument_id.ne("")].set_index(["trade_date", "instrument_id"]).open_interest
     prev = oi.reindex(pd.MultiIndex.from_arrays([p.trade_date.map(previous_dates), p.instrument_id])).to_numpy()
     p["oi_change"] = p.open_interest - prev
     return p
@@ -295,6 +315,8 @@ def fixed_tenor(panel, days=60):
         raise ValueError("固定期限须为正自然日数")
     records = []
     for (date, root), g in panel.groupby(["trade_date", "root"]):
+        missing_expiry = g.days_to_expiry.isna().any()
+        calendar_known = bool(g.calendar_known.all()) if "calendar_known" in g else None
         g = g[g.days_to_expiry.ge(5)].sort_values("days_to_expiry")
         exact = g[g.days_to_expiry.eq(days)]
         value = np.nan
@@ -312,11 +334,16 @@ def fixed_tenor(panel, days=60):
                 value = (weight * left.basis_rate + (1 - weight) * right.basis_rate) * 36500 / days
         records.append({"trade_date": date, "root": root, "annualized_basis_pct": value,
                         "target_days": days, "interpolable": left is not None,
+                        "inputs_missing": bool(missing_expiry),
                         "left_contract": left.instrument_id if left is not None else None,
                         "right_contract": right.instrument_id if right is not None else None,
                         "left_days": left.days_to_expiry if left is not None else np.nan,
                         "right_days": right.days_to_expiry if right is not None else np.nan,
                         "left_weight": weight})
+        if calendar_known is not None:
+            records[-1]["calendar_known"] = calendar_known
+        if missing_expiry:
+            records[-1].update(annualized_basis_pct=np.nan, inputs_missing=True)
     return pd.DataFrame(records)
 
 
@@ -333,7 +360,7 @@ def spreads(panel):
 
 
 def total_oi(panel):
-    totals = panel.groupby(["trade_date", "root"], as_index=False).open_interest.sum()
+    totals = panel.groupby(["trade_date", "root"], as_index=False).open_interest.sum(min_count=4)
     totals["oi_change"] = totals.groupby("root").open_interest.diff()
     return totals
 
@@ -346,11 +373,13 @@ def historical_summary(panel, end, windows=(3, 6, 12)):
             start = end - pd.DateOffset(months=months)
             history = panel[(panel.root == row.root) & (panel.slot == row.slot) &
                             panel.trade_date.ge(start) & panel.trade_date.lt(end)]
-            eligible = history.days_to_expiry.ge(5)
+            eligible = history.days_to_expiry.ge(5) | history.days_to_expiry.isna()
             values = history.loc[eligible, "annualized_basis_pct"].dropna()
             # A 3-month data slice must never be labelled a full-year distribution.
             available_start = panel.trade_date.min()
             complete = available_start <= start and len(values) == int(eligible.sum()) and len(values) > 0
+            if "calendar_known" in history:
+                complete = complete and history.calendar_known.all()
             current = row.annualized_basis_pct
             percentile = 100 * ((values < current).sum() + .5 * (values == current).sum()) / len(values) if complete and np.isfinite(current) else np.nan
             records.append({"root": row.root, "slot": row.slot, "months": months,
