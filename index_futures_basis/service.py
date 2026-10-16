@@ -21,7 +21,8 @@ from .distributions import annualized_distributions, cross_index_basis, cross_in
 from .store import Store
 from .sync import Cancelled, synchronize
 from .wind import WindProvider
-from .term_structure import term_analysis
+from .term_structure import term_analysis, term_distributions
+from .windows import normalize_windows, required_history_months
 
 ROOTS = list(SPOT_CODES)
 METRICS = {
@@ -41,7 +42,7 @@ METRICS = {
 
 def calculation_version():
     digest = hashlib.sha256(__version__.encode())
-    for name in ("analytics.py", "distributions.py", "term_structure.py", "report.py", "service.py"):
+    for name in ("analytics.py", "distributions.py", "term_structure.py", "windows.py", "report.py", "service.py"):
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
 
@@ -65,6 +66,7 @@ class Analysis:
     fixed90_quantiles: pd.DataFrame
     calendar_annualized: pd.DataFrame
     calendar_quantiles: pd.DataFrame
+    fixed_quantiles: pd.DataFrame
 
 
 class BasisService:
@@ -87,7 +89,9 @@ class BasisService:
     def window(self, end=None):
         if end is None:
             end = closed_date(self.config) if self.mode == "wind" else self.store.bounds()[1] or closed_date(self.config)
-        start = str((pd.Timestamp(end) - pd.DateOffset(months=int(self.config["history_months"])) - pd.Timedelta(days=15)).date())
+        months = max(int(self.config["history_months"]), *(required_history_months(self.config.get(key))
+                     for key in ("chart_windows", "report_windows")))
+        start = str((pd.Timestamp(end) - pd.DateOffset(months=months) - pd.Timedelta(days=15)).date())
         return start, end
 
     def status(self):
@@ -157,7 +161,8 @@ class BasisService:
         info["archived_input"] = str(snapshot)
         return values, info
 
-    def analyze(self, as_of=None):
+    def analyze(self, as_of=None, windows=None):
+        windows = normalize_windows(windows)
         # Another App window cannot change mappings/quotes between these reads.
         with self.store.writer_lock():
             status = self.status()
@@ -168,7 +173,7 @@ class BasisService:
                                  "请增量更新行情或导入包含全部品种的离线快照")
             if str(end.date()) > status["requested_end"]:
                 raise ValueError("所选截止日超过当前可用完整日线范围")
-            history_start = end - pd.DateOffset(months=12) - pd.Timedelta(days=15)
+            history_start = end - pd.DateOffset(months=max(12, required_history_months(windows))) - pd.Timedelta(days=15)
             panel = self.store.panel(str(history_start.date()), str(end.date()))
             market_source = self.store.meta("source", {})
         if panel.trade_date.max() != end:
@@ -176,28 +181,34 @@ class BasisService:
         dividends, info = self.dividend_input(end)
         raw_digest = hashlib.sha256(pd.util.hash_pandas_object(panel, index=False).values.tobytes()).hexdigest()
         code_digest = calculation_version()
-        key = hashlib.sha256(json.dumps([raw_digest, info["sha256"], str(end), code_digest], ensure_ascii=False).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([raw_digest, info["sha256"], str(end), code_digest, windows], ensure_ascii=False).encode()).hexdigest()
         if self._cache is not None and self._cache.fingerprint == key:
             return self._cache
-        start = end - pd.DateOffset(months=3)
+        start = end - pd.DateOffset(months=windows["series_months"])
         adjusted = attach_dividends(panel, dividends, start, info.get("application", "exact_date"))
         fixed, spread, totals = fixed_tenor(adjusted), spreads(adjusted), total_oi(adjusted)
         cross = cross_index_basis(adjusted)
-        terms = term_analysis(adjusted, end)
+        terms = term_analysis(adjusted, end, windows)
+        fixed_quantiles = term_distributions(fixed, end, ["root"], "interpolable",
+                                             windows=windows["fixed_60_quantile_months"])
         provenance = {"generated_at": timestamp(), "mode": self.mode, "actual_end": str(end.date()),
             "requested_end": status["requested_end"], "plot_start": str(start.date()), "roots": ROOTS,
             "market_source": market_source, "raw_data_sha256": raw_digest, "dividends": info,
             "fingerprint": key, "app_version": __version__, "calculation_code_sha256": code_digest,
-            "configuration": {"quantile_whiskers": "p05_p95"},
+            "configuration": {"quantile_whiskers": "p05_p95", "windows": windows},
             "basis_formula": "futures_close + dividend_points - spot_close",
             "annualized_formula": "basis_points / spot_close * 36500 / days_to_expiry; days>=5",
             "fixed_tenor_formula": "interpolate basis_rate between actual maturities, then *36500/target_days; no extrapolation",
             "calendar_annualized_formula": "((F_far+G_far)-(F_near+G_near))/spot_close*36500/(expiry_far-expiry_near).days",
-            "term_quantile_windows": "fixed90: 6/12; calendar spreads: 3/6/12 calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded",
+            "term_quantile_windows": {"fixed60": windows["fixed_60_quantile_months"],
+                "fixed90": windows["fixed_90_quantile_months"], "calendar": windows["calendar_quantile_months"],
+                "rule": "calendar months; exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded"},
             "quantile_windows": "[end - N calendar months, end); exclude display fills; half-weight ties"}
-        self._cache = Analysis(adjusted, fixed, spread, totals, historical_summary(adjusted, end),
-            annualized_distributions(adjusted, end), cross, cross_index_distributions(cross, end),
-            start, end, key, provenance, dividends, *terms)
+        self._cache = Analysis(adjusted, fixed, spread, totals,
+            historical_summary(adjusted, end, windows["annual_quantile_months"]),
+            annualized_distributions(adjusted, end, windows["annual_quantile_months"]), cross,
+            cross_index_distributions(cross, end, windows["cross_quantile_months"]),
+            start, end, key, provenance, dividends, *terms, fixed_quantiles)
         return self._cache
 
     def query(self, root="IC", slot=4, metric="annualized_basis_pct", as_of=None):
@@ -236,7 +247,7 @@ class BasisService:
             # (e.g. a newly listed contract with no previous OI) are not zero samples.
             series["eligible"] = series.value.notna()
             eligible = "eligible"
-        windows = (6, 12) if metric == "fixed_90d" else (3, 6, 12)
+        windows = (3, 6, 12)
         rows = distribution_rows(series, a.end, "value", eligible, windows=windows)
         for row in rows:
             g = series[series.trade_date.ge(row["window_start"]) & series.trade_date.lt(a.end)]
@@ -269,6 +280,21 @@ class BasisService:
         path = self.root / ("data/demo/config.local.json" if self.mode == "demo" else "config.local.json")
         atomic_json(path, updated)
         return "设置已保存；重新打开应用后生效"
+
+    def output_windows(self, kind):
+        return normalize_windows(self.config.get("chart_windows" if kind == "figures" else "report_windows"))
+
+    def save_output_windows(self, kind, values):
+        if kind not in {"figures", "report"}:
+            raise ValueError("请选择图片或报告时间窗口")
+        key = "chart_windows" if kind == "figures" else "report_windows"
+        values = normalize_windows(values)
+        updated = load_config(self.root, demo=self.mode == "demo")
+        updated[key] = values
+        path = self.root / ("data/demo/config.local.json" if self.mode == "demo" else "config.local.json")
+        atomic_json(path, updated)
+        self.config[key] = values
+        return "时间窗口已保存，下次生成立即生效"
 
     def artifacts(self, fingerprint=None):
         roots = [self.exports_root]
@@ -353,18 +379,19 @@ class BasisService:
         progress(check["message"])
         return actual, check
 
-    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None):
+    def export(self, kind="report", selected=None, as_of=None, progress=lambda text: None, windows=None):
         from .report import plot_all, build_docx
         if kind not in {"report", "figures", "data"}:
             raise ValueError("未知导出类型")
+        windows = normalize_windows(windows if windows is not None else self.output_windows(kind))
         check = None
         if kind == "report" and self.mode == "wind":
             as_of, check = self.prepare_report(as_of, progress)
-        a = self.analyze(as_of)
+        a = self.analyze(as_of, windows)
         if check and self.cancel.is_set():
             raise Cancelled("报告已取消，未生成新报告；已下载行情保留")
-        if a.panel.trade_date.min() > a.start:
-            raise ValueError("本地行情不足三个完整日历月，请先补齐后导出")
+        if kind == "report" and a.panel.trade_date.min() > a.start:
+            raise ValueError(f"本地行情不足所选{windows['series_months']}个完整日历月，请先补齐后导出")
         name = timestamp().replace(":", "").replace("+", "_") + "_" + uuid.uuid4().hex[:6]
         output = self.exports_root / str(a.end.date()) / name
         output.mkdir(parents=True)
@@ -377,7 +404,7 @@ class BasisService:
             frames = {"adjusted_panel": a.panel, "fixed_60d": a.fixed, "calendar_spreads": a.spread,
                 "total_open_interest": a.totals, "historical_statistics": a.history,
                 "annualized_quantiles": a.annual_quantiles, "im_ic_basis": a.cross, "im_ic_quantiles": a.cross_quantiles,
-                "fixed_90d": a.fixed90, "fixed_90d_quantiles": a.fixed90_quantiles,
+                "fixed_60d_quantiles": a.fixed_quantiles, "fixed_90d": a.fixed90, "fixed_90d_quantiles": a.fixed90_quantiles,
                 "calendar_annualized": a.calendar_annualized, "calendar_annualized_quantiles": a.calendar_quantiles}
             for label, frame in frames.items():
                 frame.to_csv(output / f"{label}.csv", index=False, encoding="utf-8-sig")
@@ -386,7 +413,8 @@ class BasisService:
             charts = plot_all(a.panel, a.fixed, a.spread, a.start, a.end, output / "figures", ROOTS,
                 a.annual_quantiles, a.cross, a.cross_quantiles, selected=selected if kind == "figures" else None,
                 watermark="合成演示" if self.mode == "demo" else "",
-                terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles))
+                terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
+                windows=windows, fixed_quantiles=a.fixed_quantiles)
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":
@@ -398,7 +426,8 @@ class BasisService:
                 counts = build_docx(template, target, a.panel, a.fixed, a.spread, a.totals, a.history, charts,
                     a.start, a.end, ROOTS, provenance, preview=self.mode == "demo", annual_quantiles=a.annual_quantiles,
                     cross=a.cross, cross_quantiles=a.cross_quantiles,
-                    terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles))
+                    terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles),
+                    windows=windows, fixed_quantiles=a.fixed_quantiles)
                 provenance.update(counts)
         provenance["files"] = [{"file": str(p.relative_to(output)), "sha256": sha256(p), "bytes": p.stat().st_size}
             for p in sorted(output.rglob("*")) if p.is_file() and ".mplconfig" not in p.parts]
