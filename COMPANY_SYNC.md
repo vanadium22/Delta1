@@ -12,7 +12,7 @@ dashboard/                        # 公司 Git 仓库根目录
   index_strategy/
   securities_lending/
   index_futures_basis/
-  script_making/                   # 本地日报下载、查询与筛选
+  script_making/                   # 原生桌面日报下载、查询与筛选
   config/
   tests/
 ```
@@ -21,14 +21,14 @@ dashboard/                        # 公司 Git 仓库根目录
 
 前次补充汇总（`bc15293`）：券单分支 `24875ce`（含 `298ed75` 行业联系表功能及公司同步说明修正）、基差分支 `a2cf6ae`（原业务实现及同步说明修正）均已合入。三个模块源码与入口同时保留；index_strategy 当次仅补公司更新说明，原已提交业务实现不变。尚未提交的其他开发工作继续留在原目录。
 
-`script_making` 初始骨架提交为 `20b12cd`；现已实现本地日报下载、查询和筛选，入口为 `script_making\start.cmd`。真实材料、旧脚本、本机配置与缓存仍保留本机，不进入 Git。
+`script_making` 初始骨架提交为 `20b12cd`；现已实现 PySide6 原生桌面日报下载、查询和筛选，入口为 `script_making\start.cmd`。真实材料、旧脚本、本机配置与缓存仍保留本机，不进入 Git。
 
 | 项目目录 | 开发分支/安排 | 公司分支内的内容 |
 | --- | --- | --- |
 | index_strategy | 按具体任务开发后汇总 | 现有已提交的指数策略与采集模块 |
 | securities_lending | codex/securities-lending | 券单桌面 App，含行业联系表；微信 OCR 找群、样本上下文和一次发送已实测，群级未读 @ 提示通过正反对照；精确识别与持续采集未完成，尚无微信入口 |
 | index_futures_basis | codex/index-futures-basis | 基差桌面 App、图表及 Word 生成 |
-| script_making | codex/script-making | 本地日报查询；共享来源和保存目录可配置，默认读取存续合约估值与簿记要素，支持简称、数值范围及零容差筛选 |
+| script_making | codex/script-making | 原生桌面日报 App；共享来源和保存目录可配置，默认读取存续合约估值与簿记要素，可先选文本/数字/日期格式再筛选，支持简称、数值范围及零容差 |
 
 ## 当前状态与默认更新方式
 
@@ -52,7 +52,7 @@ git pull --ff-only
 .\script_making\start.cmd
 ```
 
-`script_making` 首次使用需要 Python 3.10+ 和 openpyxl，并在页面「数据与同步」中设置公司共享来源。具体接口与操作见 `script_making\README.md`；配置和报表文件不随 Git 传输。
+`script_making` 沿用其他公司 App 的 `swhy_delta1` 环境，依赖 PySide6-Essentials 和 openpyxl；缺少时先运行 `script_making\install.cmd`。`start.cmd` 打开独立原生窗口，在「数据与同步」设置公司共享来源，已有本机配置与日报直接沿用。具体接口与操作见 `script_making\README.md`；配置和报表文件不随 Git 传输。
 
 各模块公司说明、交接提示词现已统一为 **codex/company-apps**。公司保持此分支，按各 App 的入口启动；切换 Git 分支会改变整个仓库的源码集合。
 
@@ -117,6 +117,14 @@ git pull --ff-only
 5. 确认 App 正常使用、配置与数据已恢复且路径不指向备份后，可自行删除备份。不要使用 reset/clean 清理目录。
 
 ## 验证记录
+
+### script_making 原生桌面 App 与内容格式筛选（2026-10-16，开发提交 a4c3607）
+
+- 合入开发提交 `a4c3607`，集成提交 `13731c8`。默认入口改为 PySide6 Qt Widgets 原生桌面窗口，不启动浏览器或 HTTP 服务。加入系统文件/文件夹选择器、后台读取、分页排序、列选择、Ctrl+C 复制和双击详情；沿用原配置、已保存日报和同步规则。
+- 每个列条件先选择文本/数字/日期格式，再显示对应操作。文本存储的金额可按数字范围和 ε 筛选，数字编号可按文本搜索；不修改原始值。开平计划记录按用户要求仅提供方案，未实现录入、持久化选择或交易操作。
+- 开发侧 **33 项测试通过，0 跳过，7.201 秒**；公司集成侧 **33 项通过，0 跳过，7.224 秒**。覆盖手动格式、错误恢复、慢查询结果隔离、原生导入/目录、路径持久化、复制详情、后台同步与退出等待，保留 18 项原核心/API 测试。
+- Windows 原生启动检查在开发入口、用户原目录及公司集成入口通过；本机真实历史日报读取仍为存续合约 14,213 条/60 列、簿记要素 53 条/28 列，简称 691 条、数量范围 177 条、复核汇总 23 条已核验。中文界面、详情、设置和缩窗截图已检查。历史材料日期为 2026-10-14，最新共享盘下载仍待连接公司网络。
+- 本次仅 `script_making` 的 18 份源码/测试/说明及根目录 README、公司同步说明更新。其他模块与合入前 `c9057ab` 完全一致，保留并行完成的基差 IH 更新；四个 App 启动入口均在。发布不含真实 Excel、本机配置、缓存或截图。公司保持统一分支，一次 `git pull --ff-only` 后双击 `script_making\start.cmd`。
 
 ### 基差IH与跨期3个月分位（2026-10-16，开发提交ecceb0f）
 
