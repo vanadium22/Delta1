@@ -7,8 +7,8 @@
   "wind_timeout_seconds": 90,
   "wind_mapping_field": "trade_hiscode",
   "wind_expiry_field": "lasttrade_date",
-  "data_directory": "data",
-  "exports_directory": "exports",
+  "data_directory": "@shared",
+  "exports_directory": "@shared",
   "auto_sync": true,
   "chart_windows": {
     "series_months": 3,
@@ -34,7 +34,7 @@
   },
   "dividends": {
     "selection": "latest_snapshot",
-    "directories": ["inputs", "input"],
+    "directories": ["@shared"],
     "pattern": "*基差情况_*.xlsx",
     "sheet": "Sheet1",
     "header_row": 3,

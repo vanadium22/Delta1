@@ -8,6 +8,7 @@ from pathlib import Path
 import uuid
 
 from .windows import normalize_windows
+from shared_data import DataPaths
 
 ROOT = Path(__file__).resolve().parent
 SHANGHAI = timezone(timedelta(hours=8))
@@ -15,9 +16,9 @@ DEFAULTS = {
     "version": 2, "history_months": 12, "close_hour": 15, "close_minute": 5,
     "wind_python": "", "wind_timeout_seconds": 90,
     "wind_mapping_field": "trade_hiscode", "wind_expiry_field": "lasttrade_date",
-    "data_directory": "data", "exports_directory": "exports", "auto_sync": True,
+    "data_directory": "@shared", "exports_directory": "@shared", "auto_sync": True,
     "chart_windows": normalize_windows(), "report_windows": normalize_windows(),
-    "dividends": {"selection": "latest_snapshot", "directories": ["inputs", "input"],
+    "dividends": {"selection": "latest_snapshot", "directories": ["@shared"],
                   "pattern": "*基差情况_*.xlsx", "sheet": "Sheet1", "header_row": 3,
                   "layout": "snapshot_continuous", "snapshot_date_cell": "B1",
                   "code_column": "B", "dividend_column": "G"},
@@ -46,9 +47,13 @@ def atomic_json(path, data):
         tmp.unlink(missing_ok=True)
 
 
+def config_path(root=ROOT, demo=False):
+    return DataPaths.for_module(root).demo("index_futures_basis") / "config.local.json" if demo else Path(root) / "config.local.json"
+
+
 def load_config(root=ROOT, demo=False):
     config = copy.deepcopy(DEFAULTS)
-    path = Path(root) / ("data/demo/config.local.json" if demo else "config.local.json")
+    path = config_path(root, demo)
     if path.exists():
         saved = json.loads(path.read_text(encoding="utf-8-sig"))
         # Migrate the old default; preserve deliberately customized later times.

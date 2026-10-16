@@ -59,7 +59,7 @@ class ServiceTests(unittest.TestCase):
     def test_excel_refresh_invalidates_derived_results_without_touching_market(self):
         service = BasisService(self.root, "offline")
         service.store.import_raw(snapshot(), {"kind": "offline"})
-        (self.root / "inputs").mkdir()
+        service.dividend_directories()[0].mkdir(parents=True)
         from openpyxl import Workbook
         def workbook(value):
             book = Workbook()
@@ -70,7 +70,7 @@ class ServiceTests(unittest.TestCase):
             for i, code in enumerate([f"{root}0{s}.CFE" for root in ("IF", "IC", "IM", "IH") for s in range(4)], 4):
                 sheet.cell(i, 2, code)
                 sheet.cell(i, 7, value)
-            book.save(self.root / "inputs/基差情况_2026-09-18.xlsx")
+            book.save(service.dividend_directories()[0] / "基差情况_2026-09-18.xlsx")
             book.close()
         workbook(5)
         a = service.analyze()
@@ -80,7 +80,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotEqual(a.fingerprint, b.fingerprint)
         np.testing.assert_allclose(b.panel.basis_points - a.panel.basis_points, 10)
         self.assertEqual(service.store.quotes("2025-07-01", "2026-10-08"), market)
-        self.assertEqual(len(list((service.data_root / "dividends").glob("*.xlsx"))), 2)
+        self.assertEqual(len(list(service.dividend_archive.glob("*.xlsx"))), 2)
 
     def test_asof_and_interior_gap_are_not_silently_relabelled(self):
         with self.assertRaises(ValueError):

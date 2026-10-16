@@ -16,7 +16,10 @@ import pandas as pd
 from . import __version__
 from .analytics import (attach_dividends, fixed_tenor, historical_summary, read_dividends, sha256, spreads, total_oi)
 from .analytics import ROOTS as SPOT_CODES
-from .config import ROOT, atomic_json, closed_date, load_config, resolve, timestamp, validate_config
+from .config import ROOT, atomic_json, closed_date, config_path, load_config, resolve, timestamp, validate_config
+from shared_data import Catalog, DataPaths, Dataset
+from shared_data.migration import copy_verified, ensure_migrated
+from shared_data.io import file_lock
 from .distributions import annualized_distributions, cross_index_basis, cross_index_distributions, distribution_rows
 from .store import Store
 from .sync import Cancelled, synchronize
@@ -74,10 +77,18 @@ class BasisService:
         if mode not in {"wind", "offline", "demo"}:
             raise ValueError("未知数据模式")
         self.root, self.mode = Path(root).resolve(), mode
+        self.paths = DataPaths.for_module(self.root)
+        ensure_migrated("index_futures_basis", self.root, self.paths)
         self.config = config or load_config(self.root, demo=mode == "demo")
-        self.data_root = resolve(self.root, self.config["data_directory"]) / mode
-        self.exports_root = resolve(self.root, self.config["exports_directory"]) / mode
+        market = self.paths.root / "market" / "index_futures"
+        base = self.paths.resolve_module_setting(self.root, self.config["data_directory"], market, ("data",))
+        self.data_root = self.paths.basis(mode) if base == market else base / mode
+        self.exports_root = self.paths.resolve_module_setting(self.root, self.config["exports_directory"], self.paths.export("index_futures_basis"), ("exports",)) / mode
+        self.dividend_archive = self.paths.demo("index_futures_basis") / "dividends" if mode == "demo" else self.paths.dividend_archive
         self.store = Store(self.data_root / "market.sqlite")
+        if self.store.path == self.paths.basis(mode) / "market.sqlite":
+            Catalog(self.paths).register(Dataset("index_futures", "wind" if mode == "wind" else "imported" if mode == "offline" else "synthetic",
+                                                "1d", mode="live" if mode == "wind" else mode, storage="sqlite"), self.store.path)
         self._cache = None
         self.cancel = threading.Event()
         if mode == "demo" and not set(ROOTS).issubset(self.store.roots()):
@@ -139,6 +150,10 @@ class BasisService:
         self._cache = None
         return f"已导入{count}条离线记录；与 Wind 正式库分开保存"
 
+    def dividend_directories(self):
+        return list(dict.fromkeys(self.paths.resolve_module_setting(self.root, folder, self.paths.dividend_inputs, ("inputs", "input"))
+                                  for folder in self.config["dividends"]["directories"]))
+
     def dividend_input(self, end):
         if self.mode == "demo":
             from .demo import dividends
@@ -146,16 +161,12 @@ class BasisService:
             return values, {"path": "合成演示分红", "sha256": "synthetic-v1", "snapshot_date": str(end.date()),
                 "historical_type": "fixed_snapshot_scenario", "application": "snapshot_continuous"}
         config = dict(self.config["dividends"])
-        folders = [resolve(self.root, p) for p in config["directories"]]
-        # Compatibility bridge for existing users; a new inputs folder takes priority on equal dates.
-        legacy = self.root.parent / "research/index_futures_basis"
-        folders += [legacy / "inputs", legacy / "input"]
-        config["directories"] = [str(p) for p in dict.fromkeys(folders)]
+        config["directories"] = [str(p) for p in self.dividend_directories()]
         values, info = read_dividends(config, self.root)
-        snapshot = self.data_root / "dividends" / (info["sha256"] + ".xlsx")
+        snapshot = self.dividend_archive / (info["sha256"] + ".xlsx")
         snapshot.parent.mkdir(parents=True, exist_ok=True)
-        if not snapshot.exists():
-            shutil.copyfile(info["path"], snapshot)
+        with file_lock(self.dividend_archive / ".writer.lock"):
+            copy_verified(info["path"], snapshot, expected_sha256=info["sha256"])
         if sha256(snapshot) != info["sha256"]:
             raise ValueError("分红文件读取期间发生变化，请保存后重试")
         info["archived_input"] = str(snapshot)
@@ -277,7 +288,7 @@ class BasisService:
     def save_settings(self, patch):
         updated = {**self.config, **patch}
         validate_config(updated)
-        path = self.root / ("data/demo/config.local.json" if self.mode == "demo" else "config.local.json")
+        path = config_path(self.root, self.mode == "demo")
         atomic_json(path, updated)
         return "设置已保存；重新打开应用后生效"
 
@@ -291,13 +302,13 @@ class BasisService:
         values = normalize_windows(values)
         updated = load_config(self.root, demo=self.mode == "demo")
         updated[key] = values
-        path = self.root / ("data/demo/config.local.json" if self.mode == "demo" else "config.local.json")
+        path = config_path(self.root, self.mode == "demo")
         atomic_json(path, updated)
         self.config[key] = values
         return "时间窗口已保存，下次生成立即生效"
 
     def artifacts(self, fingerprint=None):
-        roots = [self.exports_root]
+        roots = list(dict.fromkeys([self.exports_root, self.root / "exports" / self.mode]))
         if self.mode == "offline":
             roots.append(self.root.parent / "research/index_futures_basis/outputs")
         items = []

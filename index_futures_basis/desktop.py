@@ -16,10 +16,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
     QScrollArea, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTimeEdit, QVBoxLayout, QWidget)
 
 from .analytics import read_continuous_snapshot, sha256
-from .config import ROOT, resolve
+from .config import ROOT
 from .report import chart_catalog, fmt
 from .service import BasisService, METRICS, ROOTS
 from .windows import WINDOW_FIELDS, normalize_windows, window_summary, chart_window_label
+from shared_data.io import file_lock
+from shared_data.migration import copy_verified
 
 STYLE = """
 QMainWindow, QDialog {background:#f3f6fa; color:#1d3045;}
@@ -245,13 +247,13 @@ class Window(QMainWindow):
         actions.addWidget(self.button("导入离线快照", self.import_snapshot))
         actions.addWidget(self.button("导入分红 Excel", self.import_dividend))
         actions.addStretch()
-        actions.addWidget(self.button("打开 inputs", self.open_inputs))
+        actions.addWidget(self.button("打开分红目录", self.open_inputs))
         layout.addLayout(actions)
         layout.addWidget(self.hint("日线优先使用本地数据；检查并补齐只请求缺失部分。历史窗口默认12个月，已有历史长期保留。"))
         self.coverage = Table(["品种", "目标交易日数", "完整交易日数", "首个完整日期", "最新完整日期", "缺失日期数"], stretch=True)
         self.coverage.setMaximumHeight(200)
         layout.addWidget(self.coverage)
-        self.dividend_label = self.hint("分红：读取 inputs 中表内日期最新的 Excel；查询和导出时自动重新检查。")
+        self.dividend_label = self.hint("分红：读取公共分红目录中表内日期最新的 Excel；查询和导出时自动重新检查。")
         layout.addWidget(self.dividend_label)
         self.missing = Table(["日期", "品种", "缺失字段"])
         layout.addWidget(self.missing, 1)
@@ -590,7 +592,7 @@ class Window(QMainWindow):
         self.run_task("导入并校验离线行情…", lambda progress: self.service.import_snapshot(path), lambda result: self.load_local())
 
     def open_inputs(self):
-        path = resolve(self.service.root, self.service.config["dividends"]["directories"][0])
+        path = self.service.dividend_directories()[0]
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -598,7 +600,7 @@ class Window(QMainWindow):
         if self.service.mode == "demo":
             self.progress_label.setText("演示使用独立合成分红；请切换正式或离线模式后导入")
             return
-        path, _ = QFileDialog.getOpenFileName(self, "选择分红表", str(self.service.root / "inputs"), "分红表 (*.xlsx)")
+        path, _ = QFileDialog.getOpenFileName(self, "选择分红表", str(self.service.dividend_directories()[0]), "分红表 (*.xlsx)")
         if not path:
             return
         self.invalidate_query()
@@ -607,19 +609,20 @@ class Window(QMainWindow):
             if not fnmatch.fnmatch(source.name, "*基差情况_*.xlsx"):
                 raise ValueError("文件名应为 基差情况_日期.xlsx 或 指数基差情况_日期.xlsx")
             _, info = read_continuous_snapshot(source, self.service.config["dividends"])
-            dest = resolve(self.service.root, self.service.config["dividends"]["directories"][0]) / source.name
+            dest = self.service.dividend_directories()[0] / source.name
             dest.parent.mkdir(parents=True, exist_ok=True)
             if source.resolve() != dest.resolve():
-                if dest.exists():
-                    archive = self.service.data_root / "dividends" / (sha256(dest) + ".xlsx")
-                    archive.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(dest, archive)
-                tmp = dest.with_suffix(".importing")
-                shutil.copyfile(source, tmp)
-                if sha256(tmp) != info["sha256"]:
-                    tmp.unlink()
-                    raise ValueError("分红源文件正在变化，请保存后重试")
-                tmp.replace(dest)
+                with file_lock(dest.parent / ".writer.lock"):
+                    if dest.exists():
+                        archive = self.service.dividend_archive / (sha256(dest) + ".xlsx")
+                        with file_lock(self.service.dividend_archive / ".writer.lock"):
+                            copy_verified(dest, archive)
+                    tmp = dest.with_name(dest.name + "." + uuid.uuid4().hex + ".tmp")
+                    try:
+                        copy_verified(source, tmp, expected_sha256=info["sha256"])
+                        tmp.replace(dest)
+                    finally:
+                        tmp.unlink(missing_ok=True)
             return str(dest)
         self.run_task("读取分红表…", operation, lambda result: self.load_local())
 
@@ -755,6 +758,9 @@ class Window(QMainWindow):
         wind.setPlaceholderText("留空：使用当前 swhy_delta1 Python")
         data = QLineEdit(config["data_directory"])
         exports = QLineEdit(config["exports_directory"])
+        inputs.setToolTip(f"@shared 使用公共分红目录：{self.service.paths.dividend_inputs}")
+        data.setToolTip(f"@shared 使用公共行情目录：{self.service.paths.root / 'market/index_futures'}")
+        exports.setToolTip(f"@shared 使用公共导出目录：{self.service.paths.export('index_futures_basis')}")
         months = QSpinBox()
         months.setRange(12, 36)
         months.setValue(config["history_months"])
@@ -777,7 +783,7 @@ class Window(QMainWindow):
                 message = self.service.save_settings({"wind_python": wind.text().strip(), "data_directory": data.text().strip(),
                     "exports_directory": exports.text().strip(), "history_months": months.value(),
                     "close_hour": daily_time.time().hour(), "close_minute": daily_time.time().minute(),
-                    "auto_sync": auto.isChecked(), "dividends": {**config["dividends"], "directories": [inputs.text().strip(), "input"]}})
+                    "auto_sync": auto.isChecked(), "dividends": {**config["dividends"], "directories": [inputs.text().strip()]}})
                 self.progress_label.setText(message)
             except Exception as exc:
                 self.progress_label.setText(str(exc))

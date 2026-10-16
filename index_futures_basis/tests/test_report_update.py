@@ -64,8 +64,8 @@ class ReportUpdateTests(unittest.TestCase):
         self.service.store.import_raw(raw, {"kind": "wind", "label": "synthetic test fixture"})
 
     def export(self):
-        inputs = self.root / "inputs"
-        inputs.mkdir(exist_ok=True)
+        inputs = self.service.dividend_directories()[0]
+        inputs.mkdir(parents=True, exist_ok=True)
         book = Workbook()
         sheet = book.active
         sheet.title = "Sheet1"

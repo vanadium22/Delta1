@@ -1,5 +1,9 @@
 # Delta1 股指基差工作台
 
+升级公共数据后，关闭 App，在公司统一分支 `git pull --ff-only`，双击仓库根目录 [一键迁移数据.cmd](../一键迁移数据.cmd)。自动复制校验并保留原件，重复运行安全。
+
+公共数据目录与看板扩展接口见 [SHARED_DATA.md](../SHARED_DATA.md)。`@shared` 使用公共默认目录，旧默认设置自动兼容；显式自定义路径保留。迁移不联网、只复制和校验，原文件保留；查询、分红、增量补缺与报告口径不变。
+
 与 `securities_lending` 并列的 Python + PySide6 原生桌面 App。入口为 `python -m index_futures_basis`，开发分支为 `codex/index-futures-basis`。
 
 **公司统一使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新基差、券单及指数策略等全部已发布模块。** 公司保持此分支；开发分支更新完成后，须将本次已验证提交汇总并推送到公司分支。切换 Git 分支会影响整个仓库，可能使其他模块源码退出当前检出。
@@ -26,7 +30,7 @@ create_desktop_shortcut.cmd -OutputDirectory "D:\Shortcuts"
 ## 平时怎么用
 
 1. 登录 Wind，双击 `start.cmd`。先读本地行情，正式模式默认随后检查并补齐缺口。
-2. 新分红 Excel 放进 **本模块的 `inputs`**，文件名为 `基差情况_日期.xlsx` 或 `指数基差情况_日期.xlsx`；也可点「导入分红 Excel」。查询和导出会自动重读。
+2. 新分红 Excel 放进 **仓库根目录的 `data/dividends/index_futures/inputs`**，文件名为 `基差情况_日期.xlsx` 或 `指数基差情况_日期.xlsx`；也可点「导入分红 Excel」。查询和导出会自动重读。
 3. 在「基差查询」选择品种、00—03 档位、指标。默认就是 **IC → 03 最远月 → 分红调整后年化基差**，一次显示 3、6、12 个自然月的均值、中位数、当前百分位和分位点，可复制进 Excel 或导出 CSV。
 4. 「图表浏览」可只生成一张 PNG，也可生成全部 46 张图；支持缩放、复制、另存。「报告与记录」生成完整 Word（42图、15表）或导出 13 类计算数据 CSV，双击记录打开目录。
 
@@ -56,7 +60,7 @@ Word最前面列出实际行情日期、报告生成时间、分红快照日期�
 ## 本地增量更新
 
 - 首次同步建立中金所交易日历、IF/IC/IM/IH 的 00—03 历史实际合约映射、实际到期日、期货 `close/oi` 和对应现货指数 `close`（IH为`000016.SH`）。默认下载 12 个月外加 15 天缓冲，供自然月统计和日变化计算使用。
-- 原始记录保存到 `data/wind/market.sqlite`，以日期、实际代码、字段判断缺口。缺口可以在历史中间，不能只看最大日期向后追加。日历、映射、到期日也分别缓存。
+- 原始记录保存到 仓库根目录的 `data/market/index_futures/wind/market.sqlite`，以日期、实际代码、字段判断缺口。缺口可以在历史中间，不能只看最大日期向后追加。日历、映射、到期日也分别缓存。
 - 同一范围完整时再次检查是 **0 次 Wind 请求**；有新交易日只取新数据，单个字段缺失只补该字段。旧历史不随窗口滚动删除。基础历史窗口可在设置中调为12—36个月；实际增量检查范围取基础历史、图片窗口、报告窗口的最大值，再加15天缓冲。
 - 请求按连续缺失交易日分段，成功批次立即入库；中断后保留，下次续补。错误、空值、非法价格/OI 不会当零写入，也不用前值填行情。同步记录显示请求批数、错误和未完成缺口。
 - 日线默认在北京时间 **15:05** 后包含当天，之前取上一自然日，再依交易日历确定实际截止日。周末、节假日采用最近交易日，不误报更新失败。时间门槛不保证数据商已发布全部字段，仍须逐项校验。
@@ -87,28 +91,26 @@ Word最前面列出实际行情日期、报告生成时间、分红快照日期�
 
 G 列是**本次固定分红假设，应用于整个连续档位历史窗口**，不代表历史逐日可得预测，也不向 Wind 下载分红。切换行情截止日仍使用当前最新 Excel。每次查询/导出重新读取 Excel 内容及 SHA256，变化后重新计算，旧报告保留。
 
-兼容读取 `input` 以及旧 `research/index_futures_basis/inputs`、`input`，比较日期后选最新；同日按配置目录顺序优先。建议后续统一放新 App 的 `inputs`。无可用分红时，仍能同步原始行情，但不能生成调整后的统计和报告。
+首次升级会复制原 `inputs/input` 和旧研究分红目录到公共分红目录，校验哈希并保留原件；完成后仅扫描公共目录或显式自定义目录。以后请使用「导入分红 Excel」或放入公共目录。无可用分红时，仍能同步原始行情，但不能生成调整后的统计和报告。
 
 ## 数据、文件与模式
 
 ```text
-index_futures_basis/
-  start.cmd / start_demo.cmd / install.cmd
-  inputs/                         # 用户放分红 Excel
-  python.local.txt                 # 本机 Python 路径（可选）
-  config.local.json                # 本机设置（可选）
-  data/wind/market.sqlite          # Wind 正式行情
-  data/offline/market.sqlite       # 用户导入的离线快照
-  data/demo/market.sqlite          # 合成演示
-  data/<模式>/dividends/           # 按内容哈希归档的分红快照
-  exports/<模式>/<行情日>/<批次>/   # PNG、DOCX、CSV、来源清单
+仓库根目录/
+  index_futures_basis/             # 源码、启动入口、本机正式配置
+  data/market/index_futures/wind/market.sqlite
+  data/market/index_futures/offline/market.sqlite
+  data/dividends/index_futures/inputs/
+  data/dividends/index_futures/archive/
+  data/demo/index_futures_basis/   # 合成行情、独立演示配置
+  outputs/index_futures_basis/<模式>/<行情日>/<批次>/
 ```
 
 三种模式完全分库、分导出目录。演示模式始终使用合成行情/分红，图片与 Word 有标识，不访问 Wind，也不使用正式配置。离线导入支持原项目的 `raw_market.json` 或包含 `trade_date,root,slot,instrument_id,expiry_date,futures_close,spot_close,open_interest` 的 CSV；验证通过后替换离线库，正式库不受影响。离线的交易日覆盖依导入文件声明，不能替代 Wind 校验交易日历。
 
 导出清单 `run_manifest.json` 记录实际行情日、分红表日期/路径/哈希、原始数据哈希、计算代码哈希、文件哈希、模式及`configuration.windows`中的实际窗口。窗口参与计算版本指纹；自定义窗口的导出不会标成与默认查询一致。导出会保留本次分红 Excel。已有图片显示其自己的日期、窗口与版本，不会因设置或新 Excel 更新而被原地改写。原研究输出也可在离线模式的记录页打开。
 
-模板 `assets/report_template.docx` 只保留原报告的 A4、字体、页边距和页脚版式，已移除正文及旧图。代码不依赖券单 App 或旧研究目录；旧目录只用于兼容查找已有分红和输出。旧研究命令不改动，其全量下载方式也不会自动变成新 App 的增量模式。
+模板 `assets/report_template.docx` 只保留原报告的 A4、字体、页边距和页脚版式，已移除正文及旧图。代码不依赖券单 App 或旧研究目录；旧分红目录只参与首次复制迁移；旧输出仍可在记录页查阅。旧研究命令不改动，其全量下载方式也不会自动变成新 App 的增量模式。
 
 ## 命令行与开发
 
