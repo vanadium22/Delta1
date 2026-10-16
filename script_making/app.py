@@ -3,57 +3,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import tempfile
-import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .query import query_table, read_table, sheet_names
-from .storage import (REPORTS, ReportError, Settings, catalog, identify, report_path,
-                      save_files, sync_reports, timestamp)
+from .service import ReportService as Application
+from .storage import (REPORTS, ReportError, catalog, identify, report_path,
+                      save_files, sync_reports)
 
 STATIC = Path(__file__).parent / "static"
-
-
-class Application:
-    def __init__(self, root: Path):
-        self.settings = Settings(root)
-        self.lock = threading.Lock()
-        self.job = {"state": "idle"}
-
-    def start_sync(self):
-        with self.lock:
-            if self.job["state"] == "running":
-                return dict(self.job)
-            if not self.settings.get().get("source_root"):
-                raise ReportError("请先设置共享来源目录。")
-            self.job = {"state": "running", "started_at": timestamp()}
-        threading.Thread(target=self._sync, daemon=True).start()
-        return dict(self.job)
-
-    def _sync(self):
-        try:
-            completed = subprocess.run(
-                [sys.executable, "-X", "utf8", "-m", "script_making.app",
-                 "--root", str(self.settings.root), "--sync-once"],
-                cwd=Path(__file__).parent.parent, capture_output=True,
-                text=True, encoding="utf-8", timeout=45,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            result = json.loads(completed.stdout)
-            if not result.get("ok"):
-                raise ReportError(result.get("error", "同步失败。"))
-            state = {"state": "success", "result": result["result"], "finished_at": timestamp()}
-        except subprocess.TimeoutExpired:
-            state = {"state": "error", "error": "共享目录访问超过 45 秒。请连接公司网络后重试，本地文件仍可查询。"}
-        except (ReportError, OSError, ValueError) as exc:
-            state = {"state": "error", "error": str(exc) if isinstance(exc, ReportError) else "同步进程失败，请检查 Python 环境和来源目录。"}
-        with self.lock:
-            self.job = state
 
 
 def handler_for(application: Application):
