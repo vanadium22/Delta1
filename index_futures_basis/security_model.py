@@ -124,35 +124,50 @@ def expected_times(query, days):
 
 
 def calculate(query, frame):
+    # Apply the same validity rules to calculations and downloaded/cache values.
+    # VWAP uses paired observations, never two independently filtered sums.
+    clean = pd.DataFrame({f: [numeric(v, f) for v in frame[f]] for f in query.required_fields},
+                         index=frame.index, dtype=float)
     stats = []
     for field in query.required_fields:
-        values = pd.to_numeric(frame[field], errors="coerce")
+        values = clean[field]
         valid = values.dropna()
         stats.append({"field": field, "label": field_label(field, query.frequency), "n": int(valid.size),
                       "missing": int(values.isna().sum()), "mean": float(valid.mean()) if len(valid) else None,
                       "median": float(valid.median()) if len(valid) else None,
                       "min": float(valid.min()) if len(valid) else None, "max": float(valid.max()) if len(valid) else None,
                       "sum": float(valid.sum()) if len(valid) and field in {"volume", "amt"} else None})
-    metrics, notes = {}, []
+    metrics, notes, details = {}, [], {}
     if query.twap:
-        if len(frame) and frame.close.notna().all():
-            metrics["twap"] = float(frame.close.mean())
+        valid = clean.close.dropna()
+        details["twap"] = {"n": len(valid), "excluded": len(frame) - len(valid), "total": len(frame)}
+        if len(valid):
+            metrics["twap"] = float(valid.mean())
+            if len(valid) != len(frame):
+                notes.append(f"TWAP 已剔除 {len(frame) - len(valid)} 个无效收盘价，仅代表 {len(valid)} 个有效分钟样本。")
         else:
-            notes.append("分钟收盘价覆盖不完整，未计算窗口 TWAP；不补零或沿用前值。")
+            details["twap"]["reason"] = "没有有效收盘价"
+            notes.append("TWAP 无有效分钟收盘价；不补零或沿用前值。")
     if query.vwap:
         volume_factor = VOLUME_UNITS[query.volume_unit][1]
         amount_factor = AMOUNT_UNITS[query.amount_unit][1]
+        paired = clean.volume.notna() & clean.amt.notna() & (clean.volume > 0)
+        valid = clean.loc[paired, ["volume", "amt"]]
+        details["vwap"] = {"n": len(valid), "excluded": len(frame) - len(valid), "total": len(frame)}
+        inconsistent = int(((clean.volume == 0) & (clean.amt > 0)).sum())
+        if inconsistent:
+            notes.append(f"VWAP 已剔除 {inconsistent} 行零成交量但非零成交额的异常样本。")
         if volume_factor is None or amount_factor is None:
+            details["vwap"]["reason"] = "请先选择成交量、成交额单位"
             notes.append("VWAP 待确认原始成交量 / 成交额单位；可按 Wind 代码生成器字段说明选择后重新计算。")
-        elif not len(frame) or frame[["volume", "amt"]].isna().any().any():
-            notes.append("成交量 / 成交额覆盖不完整，未计算窗口 VWAP。")
-        elif ((frame.volume == 0) & (frame.amt != 0)).any():
-            notes.append("存在零成交量但非零成交额，未计算 VWAP，请核对原始字段。")
-        elif frame.volume.sum() <= 0:
-            notes.append("窗口无成交，VWAP 不可用。")
+        elif valid.empty:
+            details["vwap"]["reason"] = "没有量额均有效且成交量大于零的样本"
+            notes.append("VWAP 无有效成交样本，不提供数值。")
         else:
-            metrics["vwap"] = float(frame.amt.sum() * amount_factor / (frame.volume.sum() * volume_factor))
-    return {"statistics": stats, "metrics": metrics, "notes": notes}
+            metrics["vwap"] = float(valid.amt.sum() * amount_factor / (valid.volume.sum() * volume_factor))
+            if len(valid) != len(frame):
+                notes.append(f"VWAP 量额成对剔除无效或零成交量行：有效 {len(valid)}/{len(frame)}，仅代表有效成交样本。")
+    return {"statistics": stats, "metrics": metrics, "metric_details": details, "notes": notes}
 
 
 def numeric(value, field):

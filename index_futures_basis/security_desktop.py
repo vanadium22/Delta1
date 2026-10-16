@@ -6,7 +6,7 @@ from pathlib import Path
 import uuid
 
 import pandas as pd
-from PySide6.QtCore import QAbstractTableModel, QDateTime, QModelIndex, Qt, QUrl
+from PySide6.QtCore import QAbstractTableModel, QDateTime, QModelIndex, QThread, QTimer, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit,
     QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
@@ -73,18 +73,54 @@ class FrameTable(QTableView):
         QApplication.clipboard().setText(frame.to_csv(index=False, sep="\t", header=model.headers))
 
 
+class NameLookup(QThread):
+    def __init__(self, service, code, frequency, parent):
+        super().__init__(parent)
+        self.service, self.code, self.frequency = service, code, frequency
+        self.result, self.error = None, None
+
+    def run(self):
+        try:
+            self.result = self.service.lookup_name(self.code, self.frequency)
+        except Exception as exc:
+            self.error = str(exc)
+
+
 class SecurityPage(QWidget):
     def __init__(self, window):
         super().__init__()
         self.window, self.result, self.png = window, None, b""
+        self.name_worker, self.name_key, self.verified_name_key, self.pending_query = None, None, None, None
+        self.name_timer = QTimer(self)
+        self.name_timer.setSingleShot(True)
+        self.name_timer.setInterval(600)
+        self.name_timer.timeout.connect(self.lookup_name)
         self.pixmap = QPixmap()
-        layout = QVBoxLayout(self)
+        # Keep the form and result cards legible on short laptop windows.
+        # The page scrolls as a whole instead of squeezing input controls flat.
+        body = QWidget()
+        body.setObjectName("securityBody")
+        body.setStyleSheet("QWidget#securityBody { background:white; }")
+        body.setMinimumHeight(650)
+        layout = QVBoxLayout(body)
+        self.page_scroll = QScrollArea(self)
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.page_scroll.setWidget(body)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.page_scroll)
         self.controls = QWidget()
         grid = QGridLayout(self.controls)
         grid.setContentsMargins(0, 0, 0, 0)
         self.code = QLineEdit("600519.SH")
         self.code.setPlaceholderText("沪深股票 / ETF / 指数 Wind代码")
         self.code.setMaximumWidth(180)
+        self.security_name = QLabel("输入完整代码后自动核验名称")
+        self.security_name.setTextFormat(Qt.TextFormat.PlainText)
+        self.security_name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.security_name.setStyleSheet("color:#246c60; font-weight:600;")
+        self.security_name.setWordWrap(True)
         self.frequency = QComboBox()
         for label, key in (("日频", "1d"), ("分钟频", "minute"), ("最新（单值）", "snapshot")):
             self.frequency.addItem(label, key)
@@ -98,14 +134,19 @@ class SecurityPage(QWidget):
             control.setCalendarPopup(True)
             control.setMinimumWidth(205)
         top_row = QHBoxLayout()
-        for control in (QLabel("标的"), self.code, self.frequency, self.bar):
+        for control in (QLabel("标的"), self.code, self.security_name, self.frequency, self.bar):
             top_row.addWidget(control)
-        top_row.addStretch()
-        top_row.addWidget(QLabel("沪深股票 / ETF / 指数"))
+        top_row.setStretch(2, 1)
         grid.addLayout(top_row, 0, 0)
         time_row = QHBoxLayout()
         for control in (QLabel("开始"), self.start, QLabel("结束"), self.end):
             time_row.addWidget(control)
+        self.today_button = QPushButton("今日 (Ctrl+T)")
+        self.today_button.setToolTip("北京时间今日 09:30–15:00；盘中只查询已完成周期")
+        self.today_button.clicked.connect(self.select_today)
+        self.today_shortcut = QShortcut(QKeySequence("Ctrl+T"), self, activated=self.select_today)
+        self.today_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        time_row.addWidget(self.today_button)
         time_row.addStretch()
         grid.addLayout(time_row, 1, 0)
         fields_row = QHBoxLayout()
@@ -160,6 +201,25 @@ class SecurityPage(QWidget):
         self.metrics.setWordWrap(True)
         self.metrics.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.metrics)
+        cards = QHBoxLayout()
+        self.metric_titles, self.metric_values, self.metric_hints = {}, {}, {}
+        for key, title in (("mean", "均值"), ("twap", "TWAP · 分钟采样"), ("vwap", "VWAP · 成交量加权")):
+            card = QWidget()
+            card.setStyleSheet("background:#eaf1f7; border-radius:5px;")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 7, 10, 7)
+            card_layout.setSpacing(2)
+            labels = (QLabel(title), QLabel("—"), QLabel("查询后显示"))
+            for label in labels:
+                label.setTextFormat(Qt.TextFormat.PlainText)
+                label.setWordWrap(True)
+                label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                card_layout.addWidget(label)
+            labels[1].setStyleSheet("font-size:20px; font-weight:600; color:#174b65;")
+            labels[2].setStyleSheet("font-size:11px; color:#52667a;")
+            self.metric_titles[key], self.metric_values[key], self.metric_hints[key] = labels
+            cards.addWidget(card, 1)
+        layout.addLayout(cards)
         self.tabs = QTabWidget()
         self.data_table, self.stats_table = FrameTable(), FrameTable()
         self.tabs.addTab(self.data_table, "原始数据")
@@ -197,6 +257,7 @@ class SecurityPage(QWidget):
         self.start.dateTimeChanged.connect(self.invalidate)
         self.end.dateTimeChanged.connect(self.invalidate)
         self.code.textChanged.connect(self.change_identity)
+        self.code.editingFinished.connect(self.schedule_name)
         self.tabs.currentChanged.connect(self.scale_image)
         self.change_frequency()
 
@@ -208,15 +269,90 @@ class SecurityPage(QWidget):
     def frequency_key(self):
         return self.bar.currentData() if self.frequency.currentData() == "minute" else self.frequency.currentData()
 
+    def identity_key(self):
+        basis = self.window.service
+        return (self.code.text().strip().upper(), basis.mode, str(basis.paths.root),
+                basis.config.get("wind_python", ""), self.frequency_key())
+
+    def schedule_name(self):
+        if self.window.closing or self.identity_key() == self.verified_name_key:
+            return
+        try:
+            SecurityQuery(self.code.text(), "snapshot")
+        except ValueError:
+            self.name_timer.stop()
+            self.security_name.setText("请输入完整沪深代码，如 600006.SH")
+            return
+        self.name_timer.start()
+
+    def lookup_name(self):
+        if self.window.closing or not self.isVisible() or self.name_worker:
+            return
+        if self.window.worker:
+            self.name_timer.start()
+            return
+        key = self.identity_key()
+        if key == self.verified_name_key:
+            return
+        try:
+            code = SecurityQuery(key[0], "snapshot").code
+        except ValueError:
+            return
+        self.security_name.setText(f"{code} · 正在核验名称…")
+        worker = NameLookup(self.service, code, self.frequency_key(), self)
+        self.name_worker = worker
+
+        def finished():
+            self.name_worker = None
+            if self.window.closing:
+                worker.deleteLater()
+                self.window.close()
+                return
+            if key == self.identity_key():
+                if worker.error:
+                    self.security_name.setText("名称未核验成功（详情见提示）")
+                    self.security_name.setToolTip(worker.error)
+                    self.info.setText("名称核验失败：" + worker.error)
+                    self.window.log.appendPlainText(worker.error)
+                    self.pending_query = None
+                else:
+                    self.show_name(worker.result, key)
+                    if self.pending_query is not None:
+                        force, self.pending_query = self.pending_query, None
+                        self.query(force)
+            else:
+                self.schedule_name()
+            worker.deleteLater()
+        worker.finished.connect(finished)
+        worker.start()
+
+    def show_name(self, result, key):
+        self.verified_name_key = key
+        text = f"{result['code']} · {result['name']} · {result['source']}"
+        self.security_name.setText(text)
+        self.security_name.setToolTip(text)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.schedule_name()
+
+    def select_today(self):
+        if self.window.worker or self.frequency.currentData() != "minute":
+            return
+        today = datetime.now(SHANGHAI).replace(tzinfo=None, second=0, microsecond=0)
+        self.start.setDateTime(QDateTime(today.replace(hour=9, minute=30)))
+        self.end.setDateTime(QDateTime(today.replace(hour=15, minute=0)))
+
     def change_frequency(self, *_):
         minute, snapshot = self.frequency.currentData() == "minute", self.frequency.currentData() == "snapshot"
         self.bar.setVisible(minute)
+        self.today_button.setVisible(minute)
+        self.today_shortcut.setEnabled(minute)
         self.start.setEnabled(not snapshot)
         self.end.setEnabled(not snapshot)
         for control in (self.start, self.end):
             control.setDisplayFormat("yyyy-MM-dd HH:mm" if minute else "yyyy-MM-dd")
-        if not minute:
-            self.twap.setChecked(False)
+        self.twap.setChecked(minute)
         self.twap.setEnabled(minute)
         if snapshot:
             self.vwap.setChecked(False)
@@ -224,21 +360,43 @@ class SecurityPage(QWidget):
         for field, control in self.fields.items():
             control.setText(f"{field_label(field, self.frequency_key())} {field}")
         self.change_identity()
+        self.vwap.setChecked(minute and self.vwap.isEnabled())
 
     def change_identity(self, *_):
         # Do not silently carry WSD units to WSI/WSQ or to another instrument.
         self.volume_unit.setCurrentIndex(0)
         self.amount_unit.setCurrentIndex(0)
         self.invalidate()
+        key = self.identity_key()
+        try:
+            equity = SecurityQuery(key[0], "snapshot").is_equity
+        except ValueError:
+            equity = False
+        eligible = equity and self.frequency.currentData() != "snapshot"
+        self.vwap.setEnabled(eligible)
+        if not eligible:
+            self.vwap.setChecked(False)
+        if key != self.name_key:
+            self.name_key, self.verified_name_key = key, None
+            self.security_name.setText("等待核验代码与名称…")
+            self.security_name.setToolTip("")
+            if eligible and self.frequency.currentData() == "minute":
+                self.vwap.setChecked(True)
+            self.schedule_name()
 
     def invalidate(self, *_):
+        self.pending_query = None
         self.result, self.png = None, b""
         self.pixmap = QPixmap()
         self.data_table.fill(pd.DataFrame())
         self.stats_table.fill(pd.DataFrame())
         self.image.clear()
         self.image.setText("查询后显示图表")
-        self.metrics.clear()
+        self.metrics.setText("计算结果 · 均值 / TWAP / VWAP（剔除 NaN 等无效样本）")
+        self.metric_titles["mean"].setText("均值")
+        for key in self.metric_values:
+            self.metric_values[key].setText("—")
+            self.metric_hints[key].setText("查询后显示数值及有效样本数")
         self.info.setText("输入沪深证券 Wind 代码并查询。离线可读已有历史查询缓存，演示使用独立合成数据。")
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
@@ -255,6 +413,11 @@ class SecurityPage(QWidget):
         if self.window.worker:
             return
         self.invalidate()
+        self.name_timer.stop()
+        if self.name_worker:
+            self.pending_query = force
+            self.info.setText("正在核验证券名称，完成后自动查询当前条件。")
+            return
         try:
             query = SecurityQuery(self.code.text(), self.frequency_key(),
                 tuple(f for f, checkbox in self.fields.items() if checkbox.isChecked()),
@@ -275,6 +438,7 @@ class SecurityPage(QWidget):
         result, self.png = payload
         self.result = result
         q, meta = result.query, result.metadata
+        self.show_name({"code": q.code, "name": meta["name"], "source": meta["source"]}, self.identity_key())
         headers = ["时间 / Wind返回时间"]
         for f in q.required_fields:
             unit = VOLUME_UNITS[q.volume_unit][0] if f == "volume" else AMOUNT_UNITS[q.amount_unit][0] if f == "amt" else "原始报价"
@@ -287,12 +451,33 @@ class SecurityPage(QWidget):
         coverage = f"{meta['complete_rows']:,}/{len(result.frame):,}完整行" if q.frequency != "snapshot" else "1行"
         self.info.setText(f"{q.code} · {meta['name']} · {meta['source']} | {actual} | {coverage}\n"
                           f"本次接口请求 {meta['requests']} 次 | 最近采集 {meta['received_at']} | 不复权")
-        metric_text = "    ".join(f"{key.upper()} {value:.6f}" for key, value in result.summary["metrics"].items())
+        mean_field = "close" if "close" in q.required_fields else q.fields[0]
+        mean_stat = next(s for s in result.summary["statistics"] if s["field"] == mean_field)
+        self.metric_titles["mean"].setText(field_label(mean_field, q.frequency) + "均值")
+        self.metric_values["mean"].setText(display(mean_stat["mean"]))
+        self.metric_hints["mean"].setText(f"有效 {mean_stat['n']}/{len(result.frame)} · 剔除 {mean_stat['missing']}；其他字段见统计")
+        for key in ("twap", "vwap"):
+            detail = result.summary.get("metric_details", {}).get(key, {})
+            self.metric_values[key].setText(display(result.summary["metrics"].get(key)))
+            if key in result.summary["metrics"]:
+                text = f"有效 {detail['n']}/{detail['total']} · 剔除 {detail['excluded']}"
+                if key == "twap":
+                    text += " · 分钟收盘价采样近似"
+            else:
+                text = detail.get("reason", "未勾选计算")
+                if q.frequency == "snapshot":
+                    text = "最新快照不计算区间指标"
+                elif key == "twap" and not q.bar_minutes:
+                    text = "切换分钟频后计算"
+                elif key == "vwap" and not q.is_equity:
+                    text = "指数不适用，仅股票 / ETF"
+            self.metric_hints[key].setText(text)
         notes = list(dict.fromkeys(result.summary["notes"] + meta["notes"]))
         if q.frequency == "snapshot":
-            metric_text = "    ".join(f"{field_label(f, q.frequency)}  {display(result.frame.iloc[0][f])}" for f in q.fields)
+            self.metrics.setText("最新单次快照 · " + " / ".join(field_label(f, q.frequency) for f in q.fields))
+            self.metric_titles["mean"].setText(field_label(mean_field, q.frequency))
+            self.metric_hints["mean"].setText("单个快照值；全部所选字段见下方数据表")
             notes.append("显示Wind返回时间及采集时间；不代表逐笔成交时间，休市/停牌时可能为上次报价。")
-        self.metrics.setText(metric_text or "统计见下方页签；成交量及成交额保留 Wind 原始单位。")
         self.note.setText("\n".join(notes) if notes else "数据已缓存。图表与统计仅使用本次窗口；单位选择会写入导出清单。")
         self.pixmap = QPixmap()
         if self.png:

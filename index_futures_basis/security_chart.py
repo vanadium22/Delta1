@@ -49,8 +49,9 @@ def plot_result(result):
     axes[-1].set_xticks(ticks)
     axes[-1].set_xticklabels([str(frame.time.iloc[i])[:16].replace("T", "\n") for i in ticks], fontsize=9)
     axes[-1].set_xlabel("交易周期顺序（午休及非交易时段不占横轴）", fontproperties=font)
+    cutoff = f" · 实际截至 {result.metadata['grid_end'][11:16]}" if result.metadata.get("pending_rows") else ""
     figure.suptitle(f"{query.code} · {result.metadata['name']} · {query.frequency}\n"
-                   f"{query.start[:16]} — {query.end[:16]} · {result.metadata['source']}", fontproperties=font, fontsize=13)
+                   f"{query.start[:16]} — {query.end[:16]}{cutoff} · {result.metadata['source']}", fontproperties=font, fontsize=13)
     note = "；".join(result.summary["notes"])
     if result.metadata.get("missing_cells"):
         note = "存在缺失值，缺口不填充；" + note

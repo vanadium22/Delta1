@@ -72,7 +72,8 @@ class ContractTests(unittest.TestCase):
         missing = frame.copy()
         missing.loc[0, ["volume", "close"]] = float("nan")
         result = calculate(q, missing)
-        self.assertEqual(result["metrics"], {})
+        self.assertEqual(result["metrics"], {"twap": 12., "vwap": 12.})
+        self.assertEqual(result["metric_details"]["vwap"], {"n": 1, "excluded": 1, "total": 2})
         self.assertEqual(len(result["notes"]), 2)
         unknown = calculate(replace(q, volume_unit="unknown"), frame)
         self.assertNotIn("vwap", unknown["metrics"])
@@ -80,6 +81,22 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("vwap", calculate(q, frame)["metrics"])
         frame.loc[0, "amt"] = 1
         self.assertIn("零成交量", "".join(calculate(q, frame)["notes"]))
+
+    def test_calculations_exclude_nonfinite_and_pair_volume_amount(self):
+        q = SecurityQuery("600006.SH", "1m", ("close",), "2026-10-14 09:30", "2026-10-14 09:40",
+                          True, True, "share", "yuan")
+        frame = pd.DataFrame({"close": [10, 12, float("nan"), float("inf"), "bad", None, 0, -2],
+                              "volume": [200, 300, None, 500, 0, -2, float("inf"), 0],
+                              "amt": [2000, 3600, 100000, float("nan"), 800, 20, 400, 0]})
+        result = calculate(q, frame)
+        self.assertEqual(result["statistics"][0]["mean"], 11)
+        self.assertEqual(result["statistics"][0]["missing"], 6)
+        self.assertEqual(result["metrics"], {"twap": 11., "vwap": 11.2})
+        self.assertEqual(result["metric_details"]["vwap"]["n"], 2)
+        empty = calculate(q, frame.assign(close=float("nan"), volume=float("nan"), amt=float("inf")))
+        self.assertEqual(empty["metrics"], {})
+        self.assertIsNone(empty["statistics"][0]["mean"])
+        json.dumps(empty, allow_nan=False)
 
 
 class CacheTests(unittest.TestCase):
@@ -158,11 +175,49 @@ class CacheTests(unittest.TestCase):
         q = SecurityQuery("600519.SH", "1m", ("close",), "2026-10-14 09:30", "2026-10-14 09:33", True)
         result = self.query(q)
         self.assertEqual(result.metadata["missing_cells"], 1)
-        self.assertNotIn("twap", result.summary["metrics"])
+        self.assertIn("twap", result.summary["metrics"])
+        self.assertEqual(result.summary["metric_details"]["twap"], {"n": 2, "excluded": 1, "total": 3})
         self.provider.omit = None
         result = self.query(q)
         self.assertEqual(result.metadata["missing_cells"], 0)
         self.assertIn("twap", result.summary["metrics"])
+
+    def test_today_window_downloads_only_completed_bars_and_preserves_requested_window(self):
+        q = SecurityQuery("600006.SH", "5m", ("close",), "2026-10-16 09:30", "2026-10-16 15:00", True)
+        for now, count, endpoint in [("2026-10-16 10:02:59+08:00", 6, "10:00"),
+                                      ("2026-10-16 12:30:00+08:00", 24, "11:30"),
+                                      ("2026-10-16 15:10:00+08:00", 48, "15:00")]:
+            with self.subTest(now=now):
+                self.provider.calls.clear()
+                result = self.service.query(q, provider=self.provider, now=now)
+                self.assertEqual(len(result.frame), count)
+                self.assertEqual(result.metadata["pending_rows"], 48 - count)
+                self.assertEqual(result.metadata["missing_cells"], 0)
+                self.assertEqual(result.metadata["query"]["end"], "2026-10-16T15:00:00+08:00")
+                self.assertEqual(result.metadata["grid_end"][11:16], endpoint)
+                for operation, args in self.provider.calls:
+                    if operation == "history":
+                        self.assertLessEqual(pd.Timestamp(args["end"]), pd.Timestamp(now).tz_localize(None))
+        with self.assertRaisesRegex(ValueError, "没有已完成"):
+            self.service.query(q, provider=self.provider, now="2026-10-16 09:32:00+08:00")
+        with self.assertRaisesRegex(ValueError, "结束时间"):
+            self.service.query(replace(q, end="2026-10-17 15:00"), provider=self.provider, now=NOW)
+
+    def test_name_lookup_refreshes_wind_and_offline_only_reads_cached_pair(self):
+        name = self.service.lookup_name(" 600006.sh ", "5m", provider=self.provider)
+        self.assertEqual(name["code"], "600006.SH")
+        self.assertEqual(name["source"], "Wind")
+        self.assertEqual([op for op, _ in self.provider.calls], ["info"])
+        self.service.lookup_name("600006.SH", "5m", provider=self.provider)
+        self.assertEqual(len(self.provider.calls), 2)
+        offline = SecurityService(self.paths, DEFAULTS, "offline")
+        with patch("index_futures_basis.security_data.SecurityProvider", side_effect=AssertionError("network")):
+            self.assertEqual(offline.lookup_name("600006.SH")["name"], name["name"])
+            self.assertIn("离线", offline.lookup_name("600006.SH")["source"])
+            with self.assertRaisesRegex(ValueError, "没有"):
+                offline.lookup_name("600007.SH")
+        with self.assertRaisesRegex(ValueError, "完整沪深"):
+            self.service.lookup_name("600006", provider=self.provider)
 
     def test_empty_response_does_not_claim_requested_dates_as_actual_coverage(self):
         self.provider.omit = "2026-10-"
