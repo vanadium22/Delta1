@@ -6,6 +6,23 @@
 
 公司第一次使用请看 [三步启动说明](COMPANY_SETUP.md)。继续开发请先读 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) 和 [AGENTS.md](AGENTS.md)。
 
+
+## 公司桌面快捷方式（2026-10-16）
+
+公司保持 `codex/company-apps`，在仓库根目录 `git pull --ff-only` 后，双击本目录 **`create_desktop_shortcut.cmd`**。它会在公司当前用户的实际桌面创建 **「Delta1 股指基差」** 快捷方式，并自动使用 `assets/app.ico`，无需手动更换图标。只在需要快捷方式的电脑执行；无需新建 Python 环境或管理员权限。
+
+快捷方式通过 Windows CMD 运行本目录现有的 `start.cmd`，沿用其正式模式及解释器选择。路径取自运行脚本所在目录，没有写死家里或公司的盘符；桌面位置使用 Windows 系统配置，兼容重定向桌面。正常启动后控制台随现有 `start.cmd` 结束，报错仍按原入口显示。
+
+移动项目目录后，从新位置再次运行创建脚本即可更新同名快捷方式。若同名快捷方式属于其他程序，脚本报错并保留它；先自行重命名原快捷方式后再创建。不要把创建脚本单独复制到桌面，也不要删除或移动项目内的 `assets/app.ico`。生成的 `.lnk` 包含该电脑的绝对路径，不通过 Git 分发。
+
+需要把快捷方式先生成到指定文件夹时，可在 CMD 使用：
+
+```bat
+create_desktop_shortcut.cmd -OutputDirectory "D:\Shortcuts"
+```
+
+`-NoPause` 可用于自动化检查。创建过程只依赖 Windows PowerShell 和 WScript.Shell，不启动 App、不读取业务数据；公司若限制 PowerShell/脚本宿主，需按公司策略处理。本机已验证生成、回读、重复更新、中文及特殊字符路径与模拟 CMD 启动，公司实际桌面及策略尚未实测。
+
 ## 平时怎么用
 
 1. 登录 Wind，双击 `start.cmd`。先读本地行情，正式模式默认随后检查并补齐缺口。

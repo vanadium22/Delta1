@@ -2,6 +2,9 @@
 
 你已经有 `swhy_delta1\python.exe` 和 Wind 包，**不用新建环境**。
 
+
+公司更新后可双击本目录 `create_desktop_shortcut.cmd`，自动在桌面生成带 `assets/app.ico` 图标的「Delta1 股指基差」快捷方式。以后双击该快捷方式即通过 CMD 运行原 `start.cmd`；无需重建环境，移动项目后重新创建即可。详见 README 的桌面快捷方式说明。
+
 ## 第一次使用
 
 1. **确认 App 文件夹。** 公司统一分支 `codex/company-apps` 已包含 `index_futures_basis`，与 `securities_lending` 并排。公司 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身就是仓库根目录，可用 `git rev-parse --show-toplevel` 确认，无需再建一层 dashboard 或重新解压。

@@ -9,3 +9,5 @@ python.local.txt
 __pycache__/
 *.pyc
 .mplconfig/
+# Machine-specific Windows shortcuts.
+*.lnk
