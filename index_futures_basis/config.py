@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import uuid
 
+from .windows import normalize_windows
+
 ROOT = Path(__file__).resolve().parent
 SHANGHAI = timezone(timedelta(hours=8))
 DEFAULTS = {
@@ -14,6 +16,7 @@ DEFAULTS = {
     "wind_python": "", "wind_timeout_seconds": 90,
     "wind_mapping_field": "trade_hiscode", "wind_expiry_field": "lasttrade_date",
     "data_directory": "data", "exports_directory": "exports", "auto_sync": True,
+    "chart_windows": normalize_windows(), "report_windows": normalize_windows(),
     "dividends": {"selection": "latest_snapshot", "directories": ["inputs", "input"],
                   "pattern": "*基差情况_*.xlsx", "sheet": "Sheet1", "header_row": 3,
                   "layout": "snapshot_continuous", "snapshot_date_cell": "B1",
@@ -63,6 +66,8 @@ def load_config(root=ROOT, demo=False):
 
 
 def validate_config(config):
+    for key in ("chart_windows", "report_windows"):
+        normalize_windows(config.get(key))
     if not 12 <= int(config["history_months"]) <= 36:
         raise ValueError("历史窗口须为12至36个月")
     hour, minute = int(config["close_hour"]), int(config.get("close_minute", 0))

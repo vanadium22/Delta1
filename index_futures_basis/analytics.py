@@ -338,11 +338,11 @@ def total_oi(panel):
     return totals
 
 
-def historical_summary(panel, end):
+def historical_summary(panel, end, windows=(3, 6, 12)):
     records = []
     latest = panel[panel.trade_date.eq(end)]
     for row in latest.itertuples():
-        for months in [3, 6, 12]:
+        for months in windows:
             start = end - pd.DateOffset(months=months)
             history = panel[(panel.root == row.root) & (panel.slot == row.slot) &
                             panel.trade_date.ge(start) & panel.trade_date.lt(end)]

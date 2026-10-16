@@ -19,6 +19,7 @@ from .analytics import read_continuous_snapshot, sha256
 from .config import ROOT, resolve
 from .report import chart_catalog, fmt
 from .service import BasisService, METRICS, ROOTS
+from .windows import WINDOW_FIELDS, normalize_windows, window_summary, chart_window_label
 
 STYLE = """
 QMainWindow, QDialog {background:#f3f6fa; color:#1d3045;}
@@ -92,6 +93,60 @@ class Task(QThread):
             self.error = str(exc)
 
 
+class WindowProfileDialog(QDialog):
+    def __init__(self, values, kind, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("图片时间窗口" if kind == "figures" else "Word及计算CSV时间窗口")
+        self.setMinimumWidth(650)
+        form = QFormLayout(self)
+        hint = QLabel("单位：自然月，范围1—36。曲线填写显示月数；分位填写1—3个不同月数，用逗号分隔。\n"
+                      "图片和Word分别保存。加长窗口后，F5或正式Word会增量补齐所需历史；绘图本身只读本地。")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        self.fields = {}
+        for key, (label, default, count) in WINDOW_FIELDS.items():
+            field = QSpinBox() if count == 1 else QLineEdit()
+            if count == 1:
+                field.setRange(1, 36)
+                field.setSuffix(" 个月")
+            self.fields[key] = field
+            form.addRow(label, field)
+        self.error = QLabel("")
+        self.error.setWordWrap(True)
+        self.error.setStyleSheet("color:#A83F31;")
+        form.addRow(self.error)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+                                  | QDialogButtonBox.StandardButton.RestoreDefaults)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("保存")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).setText("恢复默认")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(lambda: self.set_values(None))
+        form.addRow(buttons)
+        self.set_values(values)
+
+    def set_values(self, values):
+        for key, value in normalize_windows(values).items():
+            if isinstance(value, int):
+                self.fields[key].setValue(value)
+            else:
+                self.fields[key].setText(", ".join(map(str, value)))
+        self.error.clear()
+
+    def values(self):
+        return normalize_windows({key: field.value() if isinstance(field, QSpinBox) else field.text()
+                                  for key, field in self.fields.items()})
+
+    def accept(self):
+        try:
+            self.values()
+        except ValueError as exc:
+            self.error.setText(str(exc))
+            return
+        super().accept()
+
+
 class Window(QMainWindow):
     ready = Signal()
 
@@ -158,6 +213,7 @@ class Window(QMainWindow):
         self.build_query_tab()
         self.build_charts_tab()
         self.build_exports_tab()
+        self.refresh_window_profiles()
         footer = QHBoxLayout()
         self.progress_label = self.hint("就绪")
         footer.addWidget(self.progress_label, 1)
@@ -257,14 +313,20 @@ class Window(QMainWindow):
         layout = self.tab("图表浏览")
         row = QHBoxLayout()
         self.chart = QComboBox()
-        self.chart.addItems(chart_catalog())
+        self.chart.addItems(chart_catalog(self.service.output_windows("figures")))
+        self.chart.currentTextChanged.connect(self.update_chart_window_note)
         row.addWidget(self.chart, 1)
         row.addWidget(self.button("生成所选图", lambda: self.export("figures", [self.chart.currentText()]), True))
         row.addWidget(self.button("生成全部图片", lambda: self.export("figures")))
         row.addWidget(self.button("打开已有图片", self.choose_image))
         layout.addLayout(row)
+        settings_row = QHBoxLayout()
+        settings_row.addWidget(self.button("图片时间窗口…", lambda: self.edit_output_windows("figures")))
+        self.chart_window_note = self.hint("")
+        settings_row.addWidget(self.chart_window_note, 1)
+        layout.addLayout(settings_row)
         row2 = QHBoxLayout()
-        self.image_note = self.hint("时序图含近3个月及固定期限近1个月；跨期及单档分位为3、6、12个月，90日固定期限分位为6、12个月。图片采用所选截止日。")
+        self.image_note = self.hint("选择图表和时间窗口后生成；已有图片保留生成时的日期与窗口。")
         row2.addWidget(self.image_note, 1)
         self.zoom = QComboBox()
         self.zoom.addItems(["适应窗口", "50%", "75%", "100%", "150%"])
@@ -286,14 +348,44 @@ class Window(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(self.button("生成完整 Word 报告", lambda: self.export("report"), True))
         row.addWidget(self.button("导出全部计算数据 CSV", lambda: self.export("data")))
+        row.addWidget(self.button("报告时间窗口…", lambda: self.edit_output_windows("report")))
         row.addWidget(self.button("刷新记录", self.refresh_artifacts))
         row.addStretch()
         row.addWidget(self.button("打开导出目录", self.open_exports))
         layout.addLayout(row)
+        self.report_window_note = self.hint("")
+        layout.addWidget(self.report_window_note)
         layout.addWidget(self.hint("正式 Word 生成前自动补齐并校验行情；默认15:05后尝试当天，未取全则明确提示并回退前一交易日。离线/演示不联网；双击记录打开文件夹。"))
         self.export_table = Table(["生成时间", "行情截止日", "分红日期", "类型", "版本状态", "保存位置"])
         self.export_table.cellDoubleClicked.connect(self.open_artifact)
         layout.addWidget(self.export_table, 1)
+
+    def update_chart_window_note(self):
+        if hasattr(self, "chart_window_note"):
+            self.chart_window_note.setText(chart_window_label(self.chart.currentText(), self.service.output_windows("figures"))
+                                           + "。窗口修改后请重新生成；不影响Word。")
+
+    def refresh_window_profiles(self):
+        index = max(0, self.chart.currentIndex())
+        self.chart.blockSignals(True)
+        self.chart.clear()
+        self.chart.addItems(chart_catalog(self.service.output_windows("figures")))
+        self.chart.setCurrentIndex(index)
+        self.chart.blockSignals(False)
+        self.update_chart_window_note()
+        self.report_window_note.setText("Word及计算CSV：" + window_summary(self.service.output_windows("report")))
+
+    def edit_output_windows(self, kind):
+        if self.worker:
+            return
+        dialog = WindowProfileDialog(self.service.output_windows(kind), kind, self)
+        if dialog.exec():
+            try:
+                message = self.service.save_output_windows(kind, dialog.values())
+                self.refresh_window_profiles()
+                self.progress_label.setText(message)
+            except (ValueError, OSError) as exc:
+                self.progress_label.setText(str(exc))
 
     def run_task(self, text, operation, success, cancellable=False, failure=None):
         if self.worker is not None:
@@ -348,6 +440,7 @@ class Window(QMainWindow):
             return
         try:
             self.service = BasisService(self.service.root, self.mode.currentData())
+            self.refresh_window_profiles()
             self.invalidate_query()
             self.dividend_label.setText("正在检查所选数据模式的分红来源…")
             self.image_pixmap = QPixmap()
@@ -488,6 +581,7 @@ class Window(QMainWindow):
         self.mode.setCurrentIndex(self.mode.findData("offline"))
         self.mode.blockSignals(False)
         self.service = BasisService(self.service.root, "offline")
+        self.refresh_window_profiles()
         self.invalidate_query()
         self.status_label.setText("离线研究快照 · 正在校验导入文件")
         self.dividend_label.setText("查询后显示离线分红来源")
@@ -533,6 +627,7 @@ class Window(QMainWindow):
         if self.worker:
             return
         end = self.as_of()
+        windows = self.service.output_windows(kind)
         if kind == "report" and self.service.mode == "wind":
             self.invalidate_query()
         def done(folder):
@@ -553,7 +648,7 @@ class Window(QMainWindow):
                     QMessageBox.warning(self, "当日更新未成功，报告已使用前一交易日", message)
             self.load_local(after=finish)
         self.run_task("检查行情并准备报告…" if kind == "report" else "准备导出…",
-            lambda progress: self.service.export(kind, selected, end, progress), done,
+            lambda progress: self.service.export(kind, selected, end, progress, windows=windows), done,
             cancellable=kind == "report" and self.service.mode == "wind",
             failure=(lambda error: QMessageBox.warning(self, "报告未生成", error)) if kind == "report" else None)
 
@@ -614,6 +709,9 @@ class Window(QMainWindow):
                 info = json.loads(manifest.read_text(encoding="utf-8"))
                 label = (f"{self.image_path.name}　|　行情 {info['actual_end']}　|　分红 {info['dividends']['snapshot_date']}"
                          f"　|　{info['mode']}　|　版本 {info['fingerprint'][:10]}")
+                saved_windows = info.get("configuration", {}).get("windows")
+                if saved_windows:
+                    label += "\n生成时：" + chart_window_label(self.image_path.stem, saved_windows)
             except (ValueError, KeyError):
                 pass
         self.image_note.setText(label)

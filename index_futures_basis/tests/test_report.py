@@ -42,13 +42,16 @@ class ReportTests(unittest.TestCase):
                     cross_quantiles=analysis.cross_quantiles)
             doc = Document(output)
             front = doc.tables[:4]
-            self.assertEqual(counts["tables"], 14)
-            self.assertEqual(counts["figures"], 41)
+            self.assertEqual(counts["tables"], 15)
+            self.assertEqual(counts["figures"], 42)
             self.assertTrue(front[3].rows[1].cells[0].text.startswith("IH00/"))
             self.assertTrue(all(len(t.rows) == 5 for t in doc.tables[-3:]))
             self.assertIn("3月当前", doc.tables[-1].rows[0].cells[2].text)
             all_text = "\n".join(p.text for p in doc.paragraphs)
             self.assertIn("90日固定期限当前水平与历史分位", all_text)
+            self.assertIn("60日固定期限当前水平与历史分位", all_text)
+            for table in doc.tables[-4:]:
+                self.assertIn("3月当前", table.rows[0].cells[2].text)
             self.assertIn("03-02跨期年化基差", all_text)
             self.assertIn("上证50 IH 连续合约年化基差", all_text)
             self.assertIn("跨期年化基差3个月6个月12个月分位", all_text)

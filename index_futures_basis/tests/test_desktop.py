@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QApplication
 
-from index_futures_basis.desktop import Window
+from index_futures_basis.desktop import Window, WindowProfileDialog
 from index_futures_basis.service import BasisService
 
 
@@ -73,7 +73,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_ih_term_metrics_disable_slot_and_show_matching_history_windows(self):
         self.window.root.setCurrentText("IH")
-        for metric in ("fixed_90d", "calendar_02_00", "calendar_03_02"):
+        for metric in ("fixed_60d", "fixed_90d", "calendar_02_00", "calendar_03_02"):
             with self.subTest(metric=metric):
                 self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData(metric))
                 self.assertFalse(self.window.slot.isEnabled())
@@ -83,10 +83,10 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(self.window.query_result["metric"], metric)
                 self.assertEqual(self.window.query_result["root"], "IH")
                 self.assertFalse(self.window.slot.isEnabled())
-                expected = ["6个月", "12个月"] if metric == "fixed_90d" else ["3个月", "6个月", "12个月"]
+                expected = ["3个月", "6个月", "12个月"]
                 self.assertEqual([self.window.stats.item(i, 0).text() for i in range(len(expected))], expected)
                 self.assertEqual(self.window.stats.rowCount(), len(expected))
-                self.assertIn("插值" if metric == "fixed_90d" else "现货指数", self.window.query_note.text())
+                self.assertIn("插值" if metric.startswith("fixed_") else "现货指数", self.window.query_note.text())
         self.window.metric_combo.setCurrentIndex(self.window.metric_combo.findData("annualized_basis_pct"))
         self.assertTrue(self.window.slot.isEnabled())
         self.assertIsNone(self.window.query_result)
@@ -152,3 +152,31 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(warning.call_args.args[1], "报告未生成")
         self.assertIn("数据也不完整", warning.call_args.args[2])
         self.assertIn("未生成报告", self.window.progress_label.text())
+
+    def test_window_dialog_rejects_invalid_input_and_saves_figures_separately(self):
+        dialog = WindowProfileDialog(None, "figures", self.window)
+        dialog.fields["fixed_60_quantile_months"].setText("3, 3, 12")
+        dialog.accept()
+        self.assertIn("不能重复", dialog.error.text())
+        self.assertEqual(dialog.result(), 0)
+        dialog.set_values(None)
+        self.assertEqual(dialog.values()["fixed_90_quantile_months"], [3, 6, 12])
+        dialog.deleteLater()
+        def edit(dialog):
+            dialog.fields["fixed_60_months"].setText("6, 2")
+            dialog.fields["fixed_60_quantile_months"].setText("1, 4, 9")
+            dialog.accept()
+            return dialog.result()
+        with patch.object(WindowProfileDialog, "exec", edit):
+            self.window.edit_output_windows("figures")
+        self.assertNotEqual(self.service.output_windows("figures"), self.service.output_windows("report"))
+        self.assertGreaterEqual(self.window.chart.findText("60天固定期限_近2个月"), 0)
+        self.window.chart.setCurrentText("60天固定期限_分位蜡烛图")
+        self.assertIn("1/4/9", self.window.chart_window_note.text())
+        self.window.export("figures", [self.window.chart.currentText()])
+        self.wait_idle()
+        self.assertFalse(self.window.image_pixmap.isNull())
+        self.assertIn("1/4/9", self.window.image_note.text())
+        saved = BasisService(self.service.root, "demo")
+        self.assertEqual(saved.output_windows("figures")["fixed_60_quantile_months"], [1, 4, 9])
+        self.assertEqual(saved.output_windows("report")["fixed_60_quantile_months"], [3, 6, 12])

@@ -10,6 +10,28 @@
   "data_directory": "data",
   "exports_directory": "exports",
   "auto_sync": true,
+  "chart_windows": {
+    "series_months": 3,
+    "fixed_60_months": [3, 1],
+    "fixed_90_months": [3, 1],
+    "calendar_months": 3,
+    "annual_quantile_months": [3, 6, 12],
+    "fixed_60_quantile_months": [3, 6, 12],
+    "fixed_90_quantile_months": [3, 6, 12],
+    "calendar_quantile_months": [3, 6, 12],
+    "cross_quantile_months": [3, 6, 12]
+  },
+  "report_windows": {
+    "series_months": 3,
+    "fixed_60_months": [3, 1],
+    "fixed_90_months": [3, 1],
+    "calendar_months": 3,
+    "annual_quantile_months": [3, 6, 12],
+    "fixed_60_quantile_months": [3, 6, 12],
+    "fixed_90_quantile_months": [3, 6, 12],
+    "calendar_quantile_months": [3, 6, 12],
+    "cross_quantile_months": [3, 6, 12]
+  },
   "dividends": {
     "selection": "latest_snapshot",
     "directories": ["inputs", "input"],

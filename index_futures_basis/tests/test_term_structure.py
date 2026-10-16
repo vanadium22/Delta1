@@ -90,15 +90,15 @@ class TermCalculationTests(unittest.TestCase):
             service = BasisService(Path(directory), "demo")
             with patch("index_futures_basis.service.WindProvider", side_effect=AssertionError("network")):
                 a = service.analyze()
-                for metric in ("fixed_90d", "calendar_02_00", "calendar_03_02"):
+                for metric in ("fixed_60d", "fixed_90d", "calendar_02_00", "calendar_03_02"):
                     q = service.query("IC", 1, metric)
-                    self.assertEqual(q["statistics"].months.tolist(), [6, 12] if metric == "fixed_90d" else [3, 6, 12])
+                    self.assertEqual(q["statistics"].months.tolist(), [3, 6, 12])
                     self.assertAlmostEqual(q["current"], service.query("IC", 4, metric)["current"])
-                    expected = (a.fixed90_quantiles if metric == "fixed_90d" else
+                    expected = (a.fixed_quantiles if metric == "fixed_60d" else a.fixed90_quantiles if metric == "fixed_90d" else
                         a.calendar_quantiles[a.calendar_quantiles.pair.eq(metric.removeprefix("calendar_").replace("_", "-"))])
                     expected = expected[expected.root.eq("IC")]
                     np.testing.assert_allclose(q["statistics"].percentile, expected.percentile)
                 chosen = "90天固定期限_近1个月"
                 folder = Path(service.export("figures", [chosen]))
             self.assertEqual([p.stem for p in (folder / "figures").glob("*.png")], [chosen])
-            self.assertEqual(len(term_chart_catalog()), 9)
+            self.assertEqual(len(term_chart_catalog()), 10)

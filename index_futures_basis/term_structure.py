@@ -4,6 +4,7 @@ import pandas as pd
 
 from .analytics import fixed_tenor, unique
 from .distributions import distribution_rows
+from .windows import normalize_windows
 
 PAIRS = {"02-00": (3, 1), "03-02": (4, 3)}
 
@@ -46,14 +47,17 @@ def term_distributions(series, end, keys, eligible=None, windows=(6, 12)):
     return pd.DataFrame(rows)
 
 
-def term_analysis(panel, end):
+def term_analysis(panel, end, windows=None):
+    windows = normalize_windows(windows)
     fixed90 = fixed_tenor(panel, 90)
     calendar = annualized_calendar_spreads(panel)
-    return (fixed90, term_distributions(fixed90, end, ["root"], "interpolable"), calendar,
-            term_distributions(calendar, end, ["root", "pair"], windows=(3, 6, 12)))
+    return (fixed90, term_distributions(fixed90, end, ["root"], "interpolable",
+                                      windows=windows["fixed_90_quantile_months"]), calendar,
+            term_distributions(calendar, end, ["root", "pair"], windows=windows["calendar_quantile_months"]))
 
 
-def term_chart_catalog():
-    return ([f"{days}天固定期限_近{months}个月" for days in (60, 90) for months in (3, 1)]
-            + ["90天固定期限_分位蜡烛图"]
+def term_chart_catalog(windows=None):
+    windows = normalize_windows(windows)
+    return ([f"{days}天固定期限_近{months}个月" for days in (60, 90) for months in windows[f"fixed_{days}_months"]]
+            + [f"{days}天固定期限_分位蜡烛图" for days in (60, 90)]
             + [f"跨期{pair}_{kind}" for pair in PAIRS for kind in ("年化基差", "年化分位蜡烛图")])

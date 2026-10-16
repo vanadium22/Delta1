@@ -34,12 +34,12 @@ def distribution_rows(series, end, value_column, eligible_column=None, windows=W
     return rows
 
 
-def annualized_distributions(panel, end):
+def annualized_distributions(panel, end, windows=WINDOWS):
     records = []
     for (root, slot), g in panel.groupby(["root", "slot"], sort=False):
         g = g.copy()
         g["eligible"] = g.days_to_expiry.ge(5)
-        for row in distribution_rows(g, end, "annualized_basis_pct", "eligible"):
+        for row in distribution_rows(g, end, "annualized_basis_pct", "eligible", windows=windows):
             records.append({"root": root, "slot": slot, **row})
     return pd.DataFrame(records)
 
@@ -64,10 +64,10 @@ def cross_index_basis(panel):
     return result.sort_values(["trade_date", "slot"]).reset_index(drop=True)
 
 
-def cross_index_distributions(cross, end):
+def cross_index_distributions(cross, end, windows=WINDOWS):
     rows = []
     if cross.empty:
         return pd.DataFrame()
     for slot, g in cross.groupby("slot"):
-        rows.extend({"slot": slot, **row} for row in distribution_rows(g, end, "basis_difference_points"))
+        rows.extend({"slot": slot, **row} for row in distribution_rows(g, end, "basis_difference_points", windows=windows))
     return pd.DataFrame(rows)

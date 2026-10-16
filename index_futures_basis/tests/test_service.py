@@ -38,7 +38,7 @@ class ServiceTests(unittest.TestCase):
                 q = self.service.query("IC", 4, metric)
                 self.assertEqual(len(q["statistics"]), 3)
             folder = Path(self.service.export("data"))
-            self.assertEqual(len(list(folder.glob("*.csv"))), 12)
+            self.assertEqual(len(list(folder.glob("*.csv"))), 13)
             manifest = json.loads((folder / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["mode"], "demo")
         with self.assertRaisesRegex(ValueError, "不访问 Wind"):
