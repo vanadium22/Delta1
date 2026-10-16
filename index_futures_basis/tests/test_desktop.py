@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from index_futures_basis.desktop import Window, WindowProfileDialog
 from index_futures_basis.service import BasisService
+from shared_data.io import sha256
 
 
 class DesktopTests(unittest.TestCase):
@@ -57,6 +58,27 @@ class DesktopTests(unittest.TestCase):
             self.window.query()
             self.wait_idle()
             self.assertEqual(self.window.query_result["root"], "IM")
+
+    def test_import_to_shared_dividends_preserves_archive_and_rejects_changed_source(self):
+        self.service.mode = "offline"
+        source = Path(self.temp.name) / "基差情况_2026-10-16.xlsx"
+        source.write_bytes(b"validated source")
+        expected = sha256(source)
+        target = self.service.dividend_directories()[0] / source.name
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"previous snapshot")
+        previous_hash = sha256(target)
+        with patch("index_futures_basis.desktop.QFileDialog.getOpenFileName", return_value=(str(source), "")), \
+             patch("index_futures_basis.desktop.read_continuous_snapshot", return_value=(None, {"sha256": expected})), \
+             patch.object(self.window, "run_task", side_effect=lambda label, operation, done: operation(None)):
+            self.window.import_dividend()
+            self.assertEqual(target.read_bytes(), b"validated source")
+            self.assertEqual((self.service.dividend_archive / f"{previous_hash}.xlsx").read_bytes(), b"previous snapshot")
+            source.write_bytes(b"changed after validation")
+            with self.assertRaisesRegex(ValueError, "读取后发生变化"):
+                self.window.import_dividend()
+            self.assertEqual(target.read_bytes(), b"validated source")
+            self.assertEqual(list(target.parent.glob("*.tmp")), [])
 
     def test_failed_query_does_not_leave_exportable_previous_result(self):
         self.window.load_local()
