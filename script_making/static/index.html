@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>D1 · 日报查询</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D1<span></span></span><div>交易工作台<small>DELTA ONE</small></div></div>
+    <div class="nav-caption">日报工作区</div>
+    <nav aria-label="报表选择">
+      <button class="nav-item active" data-kind="swap"><span class="nav-icon">▤</span><span>收益互换日报<small>存续合约与交易明细</small></span><span class="nav-dot"></span></button>
+      <button class="nav-item" data-kind="review"><span class="nav-icon">☑</span><span>日报复核表<small>簿记要素与复核汇总</small></span><span class="nav-dot"></span></button>
+    </nav>
+    <div class="sidebar-note"><span class="local-dot"></span> 本地工作区<p>数据保存在本机<br>按报表日期查阅</p></div>
+    <button id="side-settings" class="side-settings">⚙<span>数据与同步设置</span></button>
+  </aside>
+  <main>
+    <header class="topbar"><div>交易运营 <span>/</span> <strong>日报查询</strong></div><span class="connection"><i></i> 本地服务已连接</span></header>
+    <section class="workspace">
+      <div class="page-heading">
+        <div><div class="eyebrow">DAILY REPORTS</div><h1 id="page-title">存续合约查询</h1><p id="page-description">按交易对手、标的和交易要素，快速找到需要的记录。</p></div>
+        <div class="heading-actions"><button id="open-settings" class="button secondary">数据与同步</button><button id="sync-button" class="button primary"><span class="sync-icon">↻</span><span>同步前一交易日</span></button></div>
+      </div>
+      <div id="source-notice" class="source-notice" role="status" hidden></div>
+      <div class="dataset-bar">
+        <label>报表日期<select id="report-date" aria-label="报表日期"></select></label>
+        <div class="bar-divider"></div>
+        <label class="sheet-select">工作表<select id="report-sheet" aria-label="工作表"></select></label>
+        <div id="dataset-origin" class="origin-info">等待读取本地数据</div>
+        <label class="epsilon-control" title="绝对容差：|x| ≤ ε 视为近似零。比较和范围边界也使用 ε。">数值容差 ε<input id="epsilon" value="1e-8" aria-label="数值容差 epsilon" spellcheck="false"></label>
+      </div>
+      <section class="query-card" aria-label="搜索与筛选">
+        <div class="search-line">
+          <div class="global-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg><input id="global-search" placeholder="在全部字段中搜索…" aria-label="全字段模糊搜索" autocomplete="off"><kbd>/</kbd></div>
+          <button id="clear-filters" class="text-button">清空条件</button>
+        </div>
+        <div class="filters-header"><span>按列筛选 <small>多个条件同时满足</small></span><button id="add-filter" class="text-button accent">＋ 添加条件</button></div>
+        <div id="filter-list"></div>
+        <div class="filter-tip"><span>⌕</span> 支持中文简称：「证投」可匹配「证券投资」。使用 / 分隔多个可选词。</div>
+      </section>
+      <section class="table-card" aria-label="查询结果">
+        <div class="table-toolbar">
+          <div><h2 id="table-title">存续合约估值</h2><span id="result-count" aria-live="polite">正在加载…</span></div>
+          <div class="table-actions"><span class="table-hint">点击表头排序 · 点击记录查看全部字段</span><button id="column-button" class="button compact">显示列 <span id="column-count"></span></button></div>
+        </div>
+        <div id="query-error" class="inline-error" role="alert" hidden></div>
+        <div id="table-scroll" class="table-scroll"><table id="report-table"><thead></thead><tbody></tbody></table></div>
+        <div id="empty-state" class="empty-state" hidden><div class="empty-symbol">⌕</div><h3>没有匹配的记录</h3><p>试试缩短关键词，或调整列筛选条件。</p><button id="empty-reset" class="button secondary">清空筛选</button></div>
+        <div id="loading" class="loading" hidden><span class="spinner"></span><span>正在读取工作表…</span></div>
+        <footer class="table-footer"><div id="record-range">—</div><div class="pagination"><label>每页 <select id="page-size" aria-label="每页记录数"><option>50</option><option>100</option><option>200</option></select> 条</label><button id="prev-page" class="page-button" aria-label="上一页">‹</button><span id="page-number">1 / 1</span><button id="next-page" class="page-button" aria-label="下一页">›</button></div></footer>
+      </section>
+      <div class="workspace-footer"><span id="file-caption"></span><span>Excel 原始值读取 · 不重算公式</span></div>
+    </section>
+  </main>
+  <dialog id="settings-dialog">
+    <form id="settings-form">
+      <div class="dialog-heading"><div><h2>数据与同步</h2><p>修改路径后立即生效，设置仅保存在本机。</p></div><button type="button" class="icon-button close-dialog" aria-label="关闭设置">×</button></div>
+      <label class="field-label">共享来源目录<input id="source-root" placeholder="填写包含 YYYY-MM-DD 子文件夹的共享目录" autocomplete="off"></label>
+      <p class="field-help">选择早于今日的最新日期文件夹，并核验两份同日期 Excel 齐全。依赖上游按交易日生成文件夹，不自动回退缺失日期。</p>
+      <label class="field-label">本地保存目录<input id="data-dir" placeholder="data/reports" autocomplete="off"></label>
+      <p class="field-help">相对路径以本项目为基准。更换目录后读取新目录，已有文件保留在原位置。</p>
+      <div class="path-preview"><span>当前实际保存位置</span><code id="resolved-path"></code></div>
+      <div class="local-import"><div><strong>导入已有日报</strong><p>支持选择两份 Excel；日期从文件名识别。</p></div><button type="button" id="import-button" class="button secondary">选择 Excel</button><input id="import-files" type="file" multiple accept=".xlsx" hidden></div>
+      <div id="settings-message" class="settings-message" role="status" hidden></div>
+      <div class="dialog-footer"><button type="button" class="button secondary close-dialog">关闭</button><button type="submit" id="save-settings" class="button primary">保存设置</button></div>
+    </form>
+  </dialog>
+  <dialog id="columns-dialog">
+    <div class="dialog-heading"><div><h2>显示列</h2><p>隐藏列仍然可以搜索和筛选。</p></div><button class="icon-button close-columns" aria-label="关闭显示列">×</button></div>
+    <div class="column-tools"><button id="all-columns" class="text-button accent">全选</button><button id="default-columns" class="text-button">恢复常用列</button></div>
+    <div id="column-options" class="column-options"></div>
+    <div class="dialog-footer"><button class="button primary close-columns">完成</button></div>
+  </dialog>
+  <dialog id="detail-dialog" class="detail-dialog">
+    <div class="dialog-heading"><div><div class="eyebrow">RECORD DETAILS</div><h2>记录详情</h2><p id="detail-caption"></p></div><button id="close-detail" class="icon-button" aria-label="关闭详情">×</button></div>
+    <dl id="detail-fields"></dl>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

@@ -1,0 +1,1 @@
+"""Local daily report browser."""
