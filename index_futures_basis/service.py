@@ -20,6 +20,7 @@ from .distributions import annualized_distributions, cross_index_basis, cross_in
 from .store import Store
 from .sync import Cancelled, synchronize
 from .wind import WindProvider
+from .term_structure import term_analysis
 
 ROOTS = ["IF", "IC", "IM"]
 METRICS = {
@@ -29,6 +30,9 @@ METRICS = {
     "open_interest": ("持仓量", "手"),
     "oi_change": ("同合约持仓日变化", "手"),
     "fixed_60d": ("60天固定期限年化基差", "%"),
+    "fixed_90d": ("90天固定期限年化基差", "%"),
+    "calendar_02_00": ("02−00 跨期年化基差", "%"),
+    "calendar_03_02": ("03−02 跨期年化基差", "%"),
     "calendar_spread": ("所选远月减当月价差", "点"),
     "im_ic": ("同期限 IM−IC 绝对基差差", "点"),
 }
@@ -36,7 +40,7 @@ METRICS = {
 
 def calculation_version():
     digest = hashlib.sha256(__version__.encode())
-    for name in ("analytics.py", "distributions.py", "report.py", "service.py"):
+    for name in ("analytics.py", "distributions.py", "term_structure.py", "report.py", "service.py"):
         digest.update((ROOT / name).read_bytes())
     return digest.hexdigest()
 
@@ -56,6 +60,10 @@ class Analysis:
     fingerprint: str
     provenance: dict
     dividends: pd.DataFrame
+    fixed90: pd.DataFrame
+    fixed90_quantiles: pd.DataFrame
+    calendar_annualized: pd.DataFrame
+    calendar_quantiles: pd.DataFrame
 
 
 class BasisService:
@@ -171,6 +179,7 @@ class BasisService:
         adjusted = attach_dividends(panel, dividends, start, info.get("application", "exact_date"))
         fixed, spread, totals = fixed_tenor(adjusted), spreads(adjusted), total_oi(adjusted)
         cross = cross_index_basis(adjusted)
+        terms = term_analysis(adjusted, end)
         provenance = {"generated_at": timestamp(), "mode": self.mode, "actual_end": str(end.date()),
             "requested_end": status["requested_end"], "plot_start": str(start.date()), "roots": ROOTS,
             "market_source": market_source, "raw_data_sha256": raw_digest, "dividends": info,
@@ -178,10 +187,13 @@ class BasisService:
             "configuration": {"quantile_whiskers": "p05_p95"},
             "basis_formula": "futures_close + dividend_points - spot_close",
             "annualized_formula": "basis_points / spot_close * 36500 / days_to_expiry; days>=5",
+            "fixed_tenor_formula": "interpolate basis_rate between actual maturities, then *36500/target_days; no extrapolation",
+            "calendar_annualized_formula": "((F_far+G_far)-(F_near+G_near))/spot_close*36500/(expiry_far-expiry_near).days",
+            "term_quantile_windows": "6/12 calendar months, exclude current day; fixed-tenor unbracketed dates excluded, missing inputs not excluded",
             "quantile_windows": "[end - N calendar months, end); exclude display fills; half-weight ties"}
         self._cache = Analysis(adjusted, fixed, spread, totals, historical_summary(adjusted, end),
             annualized_distributions(adjusted, end), cross, cross_index_distributions(cross, end),
-            start, end, key, provenance, dividends)
+            start, end, key, provenance, dividends, *terms)
         return self._cache
 
     def query(self, root="IC", slot=4, metric="annualized_basis_pct", as_of=None):
@@ -192,8 +204,15 @@ class BasisService:
         latest = base[base.trade_date.eq(a.end)].iloc[0]
         series = base.copy()
         label, unit = METRICS[metric]
-        if metric == "fixed_60d":
-            series = a.fixed[a.fixed.root.eq(root)].rename(columns={"annualized_basis_pct": "value"})
+        if metric in {"fixed_60d", "fixed_90d"}:
+            fixed = a.fixed if metric == "fixed_60d" else a.fixed90
+            series = fixed[fixed.root.eq(root)].rename(columns={"annualized_basis_pct": "value"})
+        elif metric in {"calendar_02_00", "calendar_03_02"}:
+            pair_name = metric.removeprefix("calendar_").replace("_", "-")
+            series = a.calendar_annualized[a.calendar_annualized.root.eq(root)
+                & a.calendar_annualized.pair.eq(pair_name)].rename(columns={"annualized_basis_pct": "value"})
+            series["instrument_id"] = series.far_contract + " − " + series.near_contract
+            series["expiry_date"] = series.far_expiry
         elif metric == "calendar_spread":
             if slot == 1:
                 raise ValueError("跨期价差请选择次月、季月一或最远月")
@@ -206,12 +225,15 @@ class BasisService:
         if metric == "annualized_basis_pct":
             series["eligible"] = series.days_to_expiry.ge(5)
             eligible = "eligible"
-        elif metric in {"oi_change", "fixed_60d"}:
+        elif metric in {"fixed_60d", "fixed_90d"}:
+            eligible = "interpolable"
+        elif metric == "oi_change":
             # Raw coverage is checked separately; mathematically undefined observations
             # (e.g. a newly listed contract with no previous OI) are not zero samples.
             series["eligible"] = series.value.notna()
             eligible = "eligible"
-        rows = distribution_rows(series, a.end, "value", eligible)
+        windows = (6, 12) if metric in {"fixed_90d", "calendar_02_00", "calendar_03_02"} else (3, 6, 12)
+        rows = distribution_rows(series, a.end, "value", eligible, windows=windows)
         for row in rows:
             g = series[series.trade_date.ge(row["window_start"]) & series.trade_date.lt(a.end)]
             if eligible:
@@ -223,11 +245,17 @@ class BasisService:
             title = f"IM0{slot-1}−IC0{slot-1} · {label}"
             pair = a.cross[a.cross.slot.eq(slot) & a.cross.trade_date.eq(a.end)].iloc[0]
             contract = f"{pair.im_contract} / {pair.ic_contract}"
-        elif metric == "fixed_60d":
+        elif metric in {"fixed_60d", "fixed_90d"}:
             title = f"{root} · {label}"
-            contract = "60天插值（不对应单一合约）"
+            contract = f"{60 if metric == 'fixed_60d' else 90}天插值（使用00—03实际合约）"
+        elif metric in {"calendar_02_00", "calendar_03_02"}:
+            title = f"{root} · {label}"
+            current_pair = series[series.trade_date.eq(a.end)].iloc[0]
+            contract = f"{current_pair.far_contract} − {current_pair.near_contract}"
         return {"title": title, "unit": unit, "statistics": pd.DataFrame(rows), "series": series,
-                "current_contract": contract, "expiry": str(latest.expiry_date.date()) if metric != "fixed_60d" else "—",
+                "current_contract": contract, "expiry": ("—" if metric.startswith("fixed_") else
+                    f"{current_pair.near_expiry:%Y-%m-%d} → {current_pair.far_expiry:%Y-%m-%d}"
+                    if metric in {"calendar_02_00", "calendar_03_02"} else str(latest.expiry_date.date())),
                 "actual_end": str(a.end.date()), "fingerprint": a.fingerprint, "provenance": a.provenance,
                 "current": rows[0]["current"], "metric": metric, "root": root, "slot": slot}
 
@@ -344,14 +372,17 @@ class BasisService:
         if kind in {"report", "data"}:
             frames = {"adjusted_panel": a.panel, "fixed_60d": a.fixed, "calendar_spreads": a.spread,
                 "total_open_interest": a.totals, "historical_statistics": a.history,
-                "annualized_quantiles": a.annual_quantiles, "im_ic_basis": a.cross, "im_ic_quantiles": a.cross_quantiles}
+                "annualized_quantiles": a.annual_quantiles, "im_ic_basis": a.cross, "im_ic_quantiles": a.cross_quantiles,
+                "fixed_90d": a.fixed90, "fixed_90d_quantiles": a.fixed90_quantiles,
+                "calendar_annualized": a.calendar_annualized, "calendar_annualized_quantiles": a.calendar_quantiles}
             for label, frame in frames.items():
                 frame.to_csv(output / f"{label}.csv", index=False, encoding="utf-8-sig")
         if kind in {"report", "figures"}:
             progress("正在绘制图片…")
             charts = plot_all(a.panel, a.fixed, a.spread, a.start, a.end, output / "figures", ROOTS,
                 a.annual_quantiles, a.cross, a.cross_quantiles, selected=selected if kind == "figures" else None,
-                watermark="合成演示" if self.mode == "demo" else "")
+                watermark="合成演示" if self.mode == "demo" else "",
+                terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles))
             if self.mode == "demo":
                 provenance["demo_notice"] = "合成演示，非真实行情和分红"
             if kind == "report":
@@ -362,7 +393,8 @@ class BasisService:
                 template = ROOT / "assets/report_template.docx"
                 counts = build_docx(template, target, a.panel, a.fixed, a.spread, a.totals, a.history, charts,
                     a.start, a.end, ROOTS, provenance, preview=self.mode == "demo", annual_quantiles=a.annual_quantiles,
-                    cross=a.cross, cross_quantiles=a.cross_quantiles)
+                    cross=a.cross, cross_quantiles=a.cross_quantiles,
+                    terms=(a.fixed90, a.fixed90_quantiles, a.calendar_annualized, a.calendar_quantiles))
                 provenance.update(counts)
         provenance["files"] = [{"file": str(p.relative_to(output)), "sha256": sha256(p), "bytes": p.stat().st_size}
             for p in sorted(output.rglob("*")) if p.is_file() and ".mplconfig" not in p.parts]

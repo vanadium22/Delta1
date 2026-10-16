@@ -225,8 +225,9 @@ class Window(QMainWindow):
         self.date.setDisplayFormat("yyyy-MM-dd")
         self.date.setEnabled(False)
         self.latest.toggled.connect(lambda checked: self.date.setEnabled(not checked))
-        for selector in (self.root, self.slot, self.metric_combo):
+        for selector in (self.root, self.slot):
             selector.currentIndexChanged.connect(self.invalidate_query)
+        self.metric_combo.currentIndexChanged.connect(self.change_metric)
         self.latest.toggled.connect(self.invalidate_query)
         self.date.dateChanged.connect(self.invalidate_query)
         for w in [self.root, self.slot, self.metric_combo, self.latest, self.date]:
@@ -242,7 +243,7 @@ class Window(QMainWindow):
         self.stats = Table(["自然月窗口", "有效样本", "均值", "中位数", "当前百分位", "P5", "P25", "P75", "P95", "覆盖状态"], stretch=True)
         self.stats.setMaximumHeight(160)
         layout.addWidget(self.stats)
-        layout.addWidget(self.hint("历史窗口不含截止日。年化统计剔除剩余不足5天及作图填充值；覆盖不足时统计留空。固定分红快照会应用于整个窗口。"))
+        layout.addWidget(self.hint("历史窗口不含截止日。单合约年化剔除不足5天样本；固定期限不外推；跨期按两到期日间隔年化。统计不用画图填充值，固定分红快照应用于整个窗口。"))
         row = QHBoxLayout()
         row.addWidget(self.button("复制统计", self.stats.copy))
         row.addWidget(self.button("导出本次查询 CSV", self.export_query))
@@ -335,6 +336,8 @@ class Window(QMainWindow):
         if not busy:
             self.cancel_button.hide()
             self.sync_button.setEnabled(self.service.mode == "wind")
+            self.slot.setEnabled(self.metric_combo.currentData() not in
+                {"fixed_60d", "fixed_90d", "calendar_02_00", "calendar_03_02"})
 
     def startup(self):
         auto = self.service.mode == "wind" and self.service.config["auto_sync"]
@@ -406,6 +409,11 @@ class Window(QMainWindow):
         self.history.fill([])
         self.query_note.setText("重新查询后显示当前值、均值、中位数和分位点。")
 
+    def change_metric(self, *_args):
+        self.invalidate_query()
+        self.slot.setEnabled(not self.worker and self.metric_combo.currentData() not in
+            {"fixed_60d", "fixed_90d", "calendar_02_00", "calendar_03_02"})
+
     def query(self):
         if self.worker:
             return
@@ -418,8 +426,11 @@ class Window(QMainWindow):
         self.current.setText(f"{result['title']}　当前 {fmt(result['current'])}{result['unit']}")
         info = result["provenance"]["dividends"]
         self.dividend_label.setText(f"分红日期：{info['snapshot_date']}　|　{info['path']}")
+        explanation = ("统计对象为按实际到期日插值的固定期限序列。" if result["metric"].startswith("fixed_") else
+            "统计对象为同日实际合约跨期年化序列，分母为现货指数，按两到期日间隔年化。"
+            if result["metric"] in {"calendar_02_00", "calendar_03_02"} else "统计对象为连续档位历史。")
         self.query_note.setText(f"行情截至 {result['actual_end']}　|　实际合约：{result['current_contract']}　|　到期日：{result['expiry']}\n"
-                               "统计对象为连续档位历史；各窗口使用本次选中的固定分红假设。")
+                               + explanation + "各窗口使用本次选中的固定分红假设。")
         rows = []
         for r in result["statistics"].itertuples():
             rows.append([f"{r.months}个月", r.n, fmt(r.mean), fmt(r.p50), fmt(r.percentile, 1) + "%" if pd.notna(r.percentile) else "—",

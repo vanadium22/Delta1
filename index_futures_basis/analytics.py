@@ -288,20 +288,32 @@ def attach_dividends(panel, dividends, plot_start, application="exact_date"):
 
 
 def fixed_tenor(panel, days=60):
+    if days <= 0:
+        raise ValueError("固定期限须为正自然日数")
     records = []
     for (date, root), g in panel.groupby(["trade_date", "root"]):
         g = g[g.days_to_expiry.ge(5)].sort_values("days_to_expiry")
         exact = g[g.days_to_expiry.eq(days)]
         value = np.nan
+        left = right = None
+        weight = np.nan
         if not exact.empty:
-            value = exact.iloc[0].basis_rate * 36500 / days
+            left = right = exact.iloc[0]
+            weight = 1.0
+            value = left.basis_rate * 36500 / days
         else:
             low, high = g[g.days_to_expiry.lt(days)], g[g.days_to_expiry.gt(days)]
             if not low.empty and not high.empty:
                 left, right = low.iloc[-1], high.iloc[0]
                 weight = (right.days_to_expiry - days) / (right.days_to_expiry - left.days_to_expiry)
                 value = (weight * left.basis_rate + (1 - weight) * right.basis_rate) * 36500 / days
-        records.append({"trade_date": date, "root": root, "annualized_basis_pct": value})
+        records.append({"trade_date": date, "root": root, "annualized_basis_pct": value,
+                        "target_days": days, "interpolable": left is not None,
+                        "left_contract": left.instrument_id if left is not None else None,
+                        "right_contract": right.instrument_id if right is not None else None,
+                        "left_days": left.days_to_expiry if left is not None else np.nan,
+                        "right_days": right.days_to_expiry if right is not None else np.nan,
+                        "left_weight": weight})
     return pd.DataFrame(records)
 
 

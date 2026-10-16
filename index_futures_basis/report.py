@@ -8,12 +8,13 @@ import numpy as np
 import pandas as pd
 
 from .analytics import LABELS, NAMES
+from .term_structure import PAIRS, term_analysis, term_chart_catalog
 
 COLORS = ["#28577B", "#288D87", "#C7813C", "#8D819E"]
 
 
 def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=None,
-             cross=None, cross_quantiles=None, whiskers="p05_p95", selected=None, watermark=""):
+             cross=None, cross_quantiles=None, whiskers="p05_p95", selected=None, watermark="", terms=None):
     os.environ.setdefault("MPLCONFIGDIR", str(Path(output) / ".mplconfig"))
     import matplotlib
     matplotlib.use("Agg")
@@ -49,8 +50,8 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
         return selected is None or name in selected
     visible = panel[panel.trade_date.between(start, end)]
 
-    def style(ax):
-        ax.set_xlim(start, end)
+    def style(ax, window_start=None):
+        ax.set_xlim(start if window_start is None else window_start, end)
         ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
@@ -71,7 +72,7 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
         if include_in_doc:
             charts[name] = path
 
-    def quantile_panel(ax, data, title, color, unit):
+    def quantile_panel(ax, data, title, color, unit, show_percentile=False):
         current = data.current.iloc[0]
         y_values = [current] if np.isfinite(current) else []
         for position, row in enumerate(data.sort_values("months").itertuples(), 1):
@@ -91,8 +92,10 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
             if np.isfinite(current):
                 ax.scatter(position, current, color="#B5473C", marker="D", s=44, zorder=5)
         ax.set_title(f"{title}  当前 {fmt(current)}{unit}", loc="left", color=color, fontsize=13)
-        ax.set_xticks([1, 2, 3], [f"{int(r.months)}个月\nn={int(r.n)}" for r in data.sort_values("months").itertuples()])
-        ax.set_xlim(.45, 3.55)
+        ax.set_xticks(list(range(1, len(data) + 1)), [f"{int(r.months)}个月\nn={int(r.n)}"
+            + (f"\n当前{fmt(r.percentile, 1)}分位" if show_percentile else "")
+            for r in data.sort_values("months").itertuples()])
+        ax.set_xlim(.45, len(data) + .55)
         ax.set_ylabel(unit)
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
         ax.grid(axis="y", color="#E1E7ED", linewidth=.7)
@@ -233,6 +236,58 @@ def plot_all(panel, fixed, spread, start, end, output, roots, annual_quantiles=N
             fig = quantile_figure(cross_quantiles, "IM−IC 绝对基差差历史分位",
                                  lambda slot: f"IM0{slot-1}−IC0{slot-1} {LABELS[slot]}", "点")
             save(fig, "IM_IC_绝对基差差分位蜡烛图")
+    if selected is None or selected.intersection(term_chart_catalog()):
+        fixed90, fixed90_quantiles, calendar, calendar_quantiles = terms if terms is not None else term_analysis(panel, end)
+
+        def term_lines(series, name, title, months, roll=False):
+            left = end - pd.DateOffset(months=months)
+            fig, ax = plt.subplots(figsize=(12.8, 4.1), layout="constrained")
+            for i, root in enumerate(roots):
+                g = series[series.root.eq(root) & series.trade_date.between(left, end)].sort_values("trade_date")
+                current = g.loc[g.trade_date.eq(end), "annualized_basis_pct"]
+                current = current.iloc[0] if len(current) else np.nan
+                ax.plot(g.trade_date, g.annualized_basis_pct, linewidth=2, color=COLORS[i],
+                        label=f"{root} 当前{fmt(current)}%")
+                if np.isfinite(current):
+                    ax.scatter([end], [current], color=COLORS[i], s=22, zorder=4)
+                if roll:
+                    for day in g.loc[g.roll_day, "trade_date"]:
+                        ax.axvline(day, color=COLORS[i], linestyle="--", alpha=.25, linewidth=.7)
+            ax.set_title(f"{title}  近{months}个自然月（{left:%Y-%m-%d}至{end:%Y-%m-%d}）",
+                         loc="left", fontsize=14, pad=35)
+            ax.legend(loc="lower right", bbox_to_anchor=(1, 1.01), ncol=len(roots), frameon=False, fontsize=12)
+            ax.set_ylabel("年化基差（%）")
+            ax.axhline(0, color="#A3ADB9", linewidth=.8)
+            style(ax, left)
+            save(fig, name)
+
+        def term_quantiles(data, name, title):
+            fig, axes = plt.subplots(1, len(roots), figsize=(12.8, 5.8), squeeze=False, layout="constrained")
+            fig.suptitle(f"{title}  截至{end:%Y-%m-%d}", x=.02, ha="left", fontsize=15)
+            for i, (root, ax) in enumerate(zip(roots, axes.flat)):
+                quantile_panel(ax, data[data.root.eq(root)], root, COLORS[i], "%", show_percentile=True)
+            fig.legend(handles=[Patch(facecolor="#9EB6CB", alpha=.6, label="实体 P25—P75"),
+                Line2D([], [], color="#263238", label="横线 P50"),
+                Line2D([], [], color="#70889C", marker="_",
+                       label="上下须 P5—P95" if whiskers == "p05_p95" else "上下须 最小—最大"),
+                Line2D([], [], color="#B5473C", marker="D", linestyle="None", label="当日值")],
+                loc="outside lower center", ncol=4, frameon=False, fontsize=12)
+            save(fig, name)
+
+        for days, series in [(60, fixed), (90, fixed90)]:
+            for months in (3, 1):
+                name = f"{days}天固定期限_近{months}个月"
+                if want(name):
+                    term_lines(series, name, f"分红调整后{days}天固定期限年化基差", months)
+        if want("90天固定期限_分位蜡烛图"):
+            term_quantiles(fixed90_quantiles, "90天固定期限_分位蜡烛图", "90天固定期限年化基差历史分位")
+        for pair in PAIRS:
+            if want(f"跨期{pair}_年化基差"):
+                term_lines(calendar[calendar.pair.eq(pair)], f"跨期{pair}_年化基差",
+                           f"{pair} 跨期年化基差（现货分母）", 3, roll=True)
+            if want(f"跨期{pair}_年化分位蜡烛图"):
+                term_quantiles(calendar_quantiles[calendar_quantiles.pair.eq(pair)],
+                               f"跨期{pair}_年化分位蜡烛图", f"{pair} 跨期年化基差历史分位")
     return charts
 
 
@@ -307,7 +362,7 @@ def quantile_description(label, data, unit):
 
 def build_docx(template, target, panel, fixed, spread, totals, history, charts,
                start, end, roots, provenance, preview=False, annual_quantiles=None,
-               cross=None, cross_quantiles=None):
+               cross=None, cross_quantiles=None, terms=None):
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
     from docx.oxml import OxmlElement
@@ -575,6 +630,57 @@ def build_docx(template, target, panel, fixed, spread, totals, history, charts,
       "不同档位仍受剩余期限变化影响，宜结合60天固定期限比较。")
     if kind == "fixed_snapshot_scenario":
         p("表中历史值均加回同一组固定档位分红，用于该假设下的横向比较，不代表当时可观察的估值分位。")
+
+    fixed90, fixed90_quantiles, calendar, calendar_quantiles = terms if terms is not None else term_analysis(panel, end)
+    for days, series in [(60, fixed), (90, fixed90)]:
+        heading(f"{days}日固定期限年化基差", page=True)
+        p(f"对IF、IC、IM分别使用当日00—03四档实际合约，在包围{days}日的相邻到期日之间，"
+          f"先线性插值分红调整后的基差率，再乘365/{days}年化；每个品种得到一条固定期限曲线。"
+          "剩余不足5日的合约不参与插值，无法包围目标期限时留空，不作外推。")
+        for months in (3, 1):
+            picture(f"{days}天固定期限_近{months}个月", f"{days}日固定期限年化基差近{months}个月")
+        current = series[series.trade_date.eq(end)].set_index("root").annualized_basis_pct
+        p("当前水平：" + "；".join(f"{root} {fmt(current.get(root))}%" for root in roots) + "。"
+          "三个月图用于观察阶段变化，一个月图突出近期变化；两图使用相同算法和同一分红快照。")
+
+    def term_table(caption, quantiles):
+        rows = []
+        for root in roots:
+            q = quantiles[quantiles.root.eq(root)].set_index("months")
+            rows.append([root, fmt(q.loc[6, "current"]), fmt(q.loc[6, "percentile"], 1),
+                         fmt(q.loc[6, "p50"]), fmt(q.loc[12, "percentile"], 1), fmt(q.loc[12, "p50"])])
+        table(caption, ["品种", "当前\n%", "6月当前\n百分位", "6月中位\n%", "12月当前\n百分位", "12月中位\n%"], rows)
+
+    term_ends = "P5—P95" if provenance.get("configuration", {}).get("quantile_whiskers", "p05_p95") == "p05_p95" else "最小—最大值"
+    term_guide = (f"历史窗口为截止日前6、12个自然月，不含当日。箱体为P25—P75，中线P50，上下须{term_ends}，"
+                  "红菱形为当前年化值；横轴同时列出有效样本数和当前百分位，并列值按半权重计入。"
+                  "各品种纵轴独立，覆盖不足时不显示分位统计。")
+    heading("90日固定期限当前水平与历史分位", page=True)
+    picture("90天固定期限_分位蜡烛图", "90日固定期限年化基差6个月和12个月分位")
+    term_table("90日固定期限当前水平及历史位置", fixed90_quantiles)
+    p(term_guide)
+    p("固定期限分位剔除无法包围90日的数学不可用日期；有插值合约但缺少分红等输入时，不当作可剔除样本。"
+      "当前百分位衡量其在固定分红假设下的历史位置，不能据此判断未来必然回归。")
+
+    for pair in PAIRS:
+        heading(f"{pair}跨期年化基差", page=True)
+        picture(f"跨期{pair}_年化基差", f"{pair}跨期年化基差近3个月")
+        term_table(f"{pair}跨期年化基差当前水平及历史位置", calendar_quantiles[calendar_quantiles.pair.eq(pair)])
+        p("跨期年化＝［远月期货收盘价＋远月分红−近月期货收盘价−近月分红］÷现货指数收盘值"
+          "×365÷两合约实际到期日的自然日间隔×100%。02−00是季月一减当月，03−02是最远月减季月一。")
+        p("取同日实际合约配对；符号保留，负值表示调整后远月价格更低。该指标按两到期日间隔年化，"
+          "不是两条单合约年化基差相减，近月不足5日也不沿用旧值。虚线表示任一端换月，换月会改变实际配对和期限。")
+        current = calendar[calendar.pair.eq(pair) & calendar.trade_date.eq(end)]
+        for row in current.itertuples():
+            p(f"{row.root}当前配对：{row.far_contract}减{row.near_contract}，到期日间隔{row.expiry_gap_days}天，"
+              f"调整价差{fmt(row.spread_points)}点，年化{fmt(row.annualized_basis_pct)}%。")
+
+    heading("跨期年化基差6个月和12个月分位", page=True)
+    for pair in PAIRS:
+        picture(f"跨期{pair}_年化分位蜡烛图", f"{pair}跨期年化基差6个月和12个月分位")
+    p(term_guide)
+    p("上述固定期限和跨期统计均沿用本次G列固定分红快照；跨期用远、近两档各自的分红，"
+      "不能用当前假设下的历史分位代替当时可观察的分红预测。")
     doc.core_properties.title = "晨会分析"
     doc.core_properties.author = ""
     doc.core_properties.last_modified_by = ""
@@ -592,4 +698,4 @@ def chart_catalog():
         names += [f"{root}_{kind}" for kind in ("连续年化基差", "合并年化基差", "年化基差分位蜡烛图",
                   "连续绝对基差", "合并绝对基差", "基差与持仓变化", "跨期价差")]
     return names + ["60天固定期限比较", "IM_IC_绝对基差差分图", "IM_IC_绝对基差差合并图",
-                    "IM_IC_绝对基差差分位蜡烛图"] + [f"IM0{i}_IC0{i}_绝对基差差" for i in range(4)]
+                    "IM_IC_绝对基差差分位蜡烛图"] + [f"IM0{i}_IC0{i}_绝对基差差" for i in range(4)] + term_chart_catalog()
