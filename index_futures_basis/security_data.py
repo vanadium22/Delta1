@@ -94,11 +94,41 @@ class SecurityService:
         if self.cancel.is_set():
             raise Cancelled("行情查询已取消，已完成批次保留在缓存")
 
+    def lookup_name(self, code, frequency="1d", *, provider=None):
+        """Resolve one complete code with WSS; offline may only show a labelled cached name."""
+        code = SecurityQuery(code, "snapshot").code
+        _, root = self.cache(frequency)
+        reference_file = root / "reference.json"
+        if self.mode == "offline":
+            candidates = [reference_file, *sorted(root.parent.glob("*/reference.json"))]
+            for path in dict.fromkeys(candidates):
+                if path.exists():
+                    name = read_document(path).get("names", {}).get(code)
+                    if isinstance(name, str) and name.strip():
+                        return {"code": code, "name": name, "source": "离线缓存，非实时核验"}
+            raise ValueError("离线缓存没有该代码的名称，请切回 Wind 核验")
+        owned = provider is None
+        provider = provider or (DemoSecurityProvider() if self.mode == "demo" else SecurityProvider(self.config))
+        try:
+            name = provider.request("info", code=code)["name"]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Wind 未返回有效证券名称")
+            with file_lock(root / ".writer.lock"):
+                reference = read_document(reference_file) if reference_file.exists() else {
+                    "schema_version": 1, "names": {}, "calendar": {}}
+                reference["names"][code] = name.strip()
+                write_document(reference_file, reference)
+            return {"code": code, "name": name.strip(), "source": "合成演示" if self.mode == "demo" else "Wind"}
+        finally:
+            if owned:
+                provider.close()
+
     def query(self, query, progress=lambda text: None, *, force=False, provider=None, now=None):
         if not isinstance(query, SecurityQuery):
             raise TypeError("需要 SecurityQuery")
         now = local_time(now or datetime.now(SHANGHAI))
-        if query.frequency != "snapshot" and local_time(query.end) > now:
+        if (query.frequency != "snapshot" and local_time(query.end) > now
+                and not (query.bar_minutes and local_time(query.end).date() == now.date())):
             raise ValueError("结束时间不能晚于当前北京时间")
         if self.mode == "offline" and (force or query.frequency == "snapshot"):
             raise ValueError("离线模式只读历史查询缓存；最新值需要切回 Wind 正式数据")
@@ -157,9 +187,11 @@ class SecurityService:
                         key = day.date().isoformat()
                         calendar[key] = key in open_days
                     write_document(reference_file, reference)
-                expected = expected_times(query, [d for d in dates if calendar[d]])
+                scheduled = expected_times(query, [d for d in dates if calendar[d]])
+                expected = [t for t in scheduled if not query.bar_minutes or local_time(t) <= now]
+                pending = len(scheduled) - len(expected)
                 if not expected:
-                    raise ValueError("所选窗口没有完整交易周期；分钟窗口不包含午休和09:30集合竞价点")
+                    raise ValueError("截至当前北京时间，所选窗口没有已完成的完整交易周期；分钟不包含午休和09:30集合竞价点")
                 by_day = {}
                 for value in expected:
                     by_day.setdefault(value[:10], []).append(value)
@@ -269,10 +301,13 @@ class SecurityService:
                     notes.append("部分缓存采自未定稿时段或最新批次不完整；离线值仅作回看，联网查询会重新校验。")
                 if query.bar_minutes:
                     notes.append("分钟按右端点标记，窗口为(开始,结束]；仅09:30—11:30、13:00—15:00完整周期，09:30竞价点不计入。")
+                if pending:
+                    notes.append(f"盘中查询仅取截至 {expected[-1][11:16]} 的已完成周期；所选窗口另有 {pending} 个未完成周期，未计入缺失及统计。")
                 received = sorted({d["received_at"] for d in docs.values() if d["received_at"]})
                 metadata = self.metadata(query, name, root, now, request_count, received[-1] if received else None, notes)
                 valid_times = frame.loc[frame[query.required_fields].notna().any(axis=1), "time"]
                 metadata.update(cache_files=sorted(set(used_files)), expected_rows=len(frame), missing_cells=missing,
+                                requested_rows=len(scheduled), pending_rows=pending,
                                 complete_rows=int(frame[query.required_fields].notna().all(axis=1).sum()),
                                 grid_start=frame.time.iloc[0], grid_end=frame.time.iloc[-1],
                                 actual_start=valid_times.iloc[0] if len(valid_times) else None,

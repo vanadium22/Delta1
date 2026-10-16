@@ -808,8 +808,9 @@ class Window(QMainWindow):
                 self.progress_label.setText(str(exc))
 
     def closeEvent(self, event):
-        if self.worker is not None:
-            self.closing = True
+        self.closing = True
+        self.security_page.name_timer.stop()
+        if self.worker is not None or self.security_page.name_worker is not None:
             self.service.cancel.set()
             self.progress_label.setText("等待当前批次结束后关闭；已保存数据保留")
             event.ignore()
