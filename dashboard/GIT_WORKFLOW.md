@@ -4,6 +4,8 @@
 分支：`codex/dashboard-history-release-20261019`。
 功能基线：`29cc1e1`、`b518a94`。后续文档整理提交跟随同一分支。
 
+本轮维护/诊断代码提交：`9e91d6e77fb60658ba68b0b9650663306b0bc70a`（2026-10-19），父提交 `77f716b`。该提交新增双VPN启动向导、进程退出确认、网络互斥、独立分位诊断和必要回归；新两版前端没有进入提交。本文及交接说明随后作为单独文档提交；离线包最终文档HEAD以 `git bundle list-heads` 和本机 `runtime/release_git.json` 为准。
+
 最新决定（2026-10-19）：用户明确选择“暂不推送，只保留本地提交和离线包”。远程尚无本分支，公司现在应使用下方离线 bundle 导入流程。本文远程命令只供以后明确授权推送时使用，不代表已执行。
 
 ## 公司电脑首次获取远程分支
@@ -45,8 +47,9 @@ git diff --cached --stat
 git diff --cached --check
 # 审核暂存差异及敏感内容，完成相应验证后：
 # git commit -m "具体修改说明"
-git push -u origin codex/dashboard-history-release-20261019
-git ls-remote --heads origin codex/dashboard-history-release-20261019
+# 仅以后获得用户对该远程的明确推送授权后执行：
+# git push -u origin codex/dashboard-history-release-20261019
+# git ls-remote --heads origin codex/dashboard-history-release-20261019
 ```
 
 推送成功后核对远程 SHA 与 `git rev-parse HEAD` 相同。只推该分支，不改 main、不强推、不合并其他业务模块修改。
@@ -80,6 +83,22 @@ git switch -c codex/dashboard-history-release-20261019 refs/remotes/offline/dash
 
 ## 发布状态
 
-文档整理提交 `ccc2c07` 已在本地完成，后续状态说明提交包含在更新后的离线包。
+本轮已本地提交维护代码 `9e91d6e`。对候选源码按Git基线加12个维护/测试白名单建立隔离目录，剥离 `current.py` 的前端窗口注入、标题/图标及冻结/展示参数，且不存在 `editions_current.py` 或 `numeric_snapshot.py`。303项回归覆盖均通过：完整运行302项，五个旧打包场景因子进程缺第三方pyqtgraph失败，补齐标准依赖位置后复测39项通过，其中含新增历史0%定位回归。沙箱本地IPC/回环限制用受控测试权限解决；没有因此改动计算口径或跳过失败场景。隔离目录使用现有第三方依赖，未引入工作区未提交应用代码。暂存内容逐文件与验证源码一致。
 
-首次推送被自动审批阻止：未确认具体外部仓库授权和归属；未发送成功。随后用户明确选择暂不推送，因此本轮不再尝试推送。公司不能通过远程 pull 取得本分支，现阶段使用 `dashboard-code-20261019.bundle`；需要以后推送时须先明确授权具体目标仓库。离线包内容用 `git bundle verify` 核对，本机更新记录在 `runtime/release_git.json`。
+新两版前端、图标、入口、Excel及导出器继续保留本地，**未add、未commit、未push**。`dashboard/current.py` 仅共同启动部分已提交，前端接入参数仍为未暂存差异；完整清单见 [PHASE4_DELIVERY.md](PHASE4_DELIVERY.md)。已有其他业务模块和研究材料修改未混入。
+
+本轮没有执行push，也没有重新尝试此前被拒绝的推送；未查询远程最新引用，不能声称远程已有本分支。代码bundle按显式分支 `codex/dashboard-history-release-20261019 ^003c2e3` 更新、核验；不使用 `--all`。公司获得共同入口和向导，不含未提交的新两版前端。历史数据zip单独保留，SHA256未变。
+
+可在项目根目录核对：
+
+```powershell
+git show --stat 9e91d6e
+git status --short
+git diff -- dashboard/current.py
+git bundle verify dashboard/runtime/distribution/dashboard-code-20261019.bundle
+git bundle list-heads dashboard/runtime/distribution/dashboard-code-20261019.bundle
+```
+
+遇到冲突或无法快进，先执行 `git status`、`git log --oneline --left-right HEAD...refs/remotes/offline/dashboard-history-release-20261019` 和 `git diff`。保留公司未提交修改和数据，手工复核冲突或另建隔离目录处理；不要reset --hard、git clean、强推或整目录覆盖。确认冲突处理后再单独提交，不能顺手混入其他模块。
+
+此前首次推送曾因外部仓库授权和归属未确认被自动审批阻止，未发送成功；随后用户选择暂不推送。该历史记录不是本轮发起的新审批。本机精确交付头、包哈希及保留文件清单见 `runtime/release_git.json`。
