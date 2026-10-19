@@ -1,0 +1,6 @@
+# Standalone numeric feed; no Qt, Node, artifact-tool or VBA at runtime.
+pandas>=2.2,<3
+numpy>=1.26,<3
+pyarrow>=18
+requests>=2.32
+openpyxl>=3.1

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import base64
+import hashlib
 import math
 from pathlib import Path
 import time
@@ -12,6 +14,11 @@ import requests
 DEFAULT_URL = (
     "https://otcderivatives.swhysc.com:11443"
     "/market-cache-app/v1/market-cache/post/latest-market-data"
+)
+
+VPN_CONNECTION_HINT = (
+    "请确认已登录实时行情对应的 SSLVPN；DDB 历史下载使用另一套 VPN。"
+    "刚切换时可稍候再点“检查连接”，以行情接口实际可用为准。"
 )
 
 
@@ -55,6 +62,18 @@ class MarketDataClient:
             )
             try:
                 result["http_status"] = response.status_code
+                # Preserve the decoded HTTP body before JSON parsing, including
+                # invalid JSON; no authentication, request/response headers or URL.
+                body = getattr(response, "content", None)
+                representation = "decoded_http_body_bytes"
+                if not isinstance(body, bytes):
+                    body = response.text.encode("utf-8")
+                    representation = "response_text_utf8_fallback"
+                result["response_body"] = {
+                    "base64": base64.b64encode(body).decode("ascii"),
+                    "sha256": hashlib.sha256(body).hexdigest(), "bytes": len(body),
+                    "representation": representation,
+                }
                 try:
                     payload = response.json()
                 except ValueError:
@@ -71,13 +90,13 @@ class MarketDataClient:
             finally:
                 response.close()
         except requests.exceptions.SSLError as exc:
-            result.update(status="tls_error", error=str(exc))
+            result.update(status="tls_error", error=str(exc), hint="TLS 证书校验失败，请检查公司可信 CA 配置。")
         except requests.exceptions.ProxyError as exc:
-            result.update(status="proxy_error", error=str(exc))
+            result.update(status="proxy_error", error=str(exc), hint="本机代理连接失败，实时行情默认使用内网直连。")
         except requests.exceptions.Timeout as exc:
-            result.update(status="timeout", error=str(exc))
+            result.update(status="timeout", error=str(exc), hint=VPN_CONNECTION_HINT)
         except requests.exceptions.ConnectionError as exc:
-            result.update(status="connection_error", error=str(exc))
+            result.update(status="connection_error", error=str(exc), hint=VPN_CONNECTION_HINT)
         except requests.exceptions.RequestException as exc:
             result.update(status="request_error", error=str(exc))
         result["received_at"] = datetime.now().astimezone().isoformat()

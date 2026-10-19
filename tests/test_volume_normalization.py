@@ -28,13 +28,13 @@ class VolumeObservationTests(unittest.TestCase):
         for name in ("volume", *VOLUME_COLUMNS):
             self.assertIsNone(row[name], name)
 
-    def test_first_sample_is_unknown_and_precision_stays_internal(self):
+    def test_first_sample_is_unknown_and_receipt_precision_is_preserved(self):
         row = observe()
         self.assert_unmeasured(row)
         self.assertTrue(row["quality_flags"] & 16)
         self.assertEqual(row["volume_total"], 1000)
         self.assertEqual(row["received_at"], "2026-09-18T21:00:00.200000+08:00")
-        self.assertNotIn("received_at", QUOTE_COLUMNS)
+        self.assertIn("received_at", QUOTE_COLUMNS)
         self.assertTrue(set(VOLUME_COLUMNS).issubset(QUOTE_COLUMNS))
 
     def test_precise_interval_and_quantities_do_not_change_units(self):
@@ -50,7 +50,7 @@ class VolumeObservationTests(unittest.TestCase):
 
     def test_zero_increment_is_valid_with_a_measured_interval(self):
         previous = observe()
-        row = observe(1000, "2026-09-18T21:00:01.200000+08:00", previous)
+        row = observe(1000, "2026-09-18T21:00:01.200000+08:00", previous, clock=210001)
         self.assertEqual(row["volume"], 0)
         self.assertEqual(row["volume_interval_seconds"], 1)
         self.assertEqual(row["volume_start"], previous["timestamp"])

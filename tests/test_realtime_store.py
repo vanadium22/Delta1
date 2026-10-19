@@ -126,7 +126,8 @@ class RealtimeStorageTests(unittest.TestCase):
         self.assertTrue(pd.isna(frame.loc[0, "volume"]))
         self.assertEqual(str(frame["timestamp"].dt.tz), "UTC")
         self.assertEqual(frame.loc[0, "timestamp"].microsecond, 0)
-        self.assertFalse(list(self.root.rglob("*.json*")))
+        self.assertFalse(list((self.root / "data").rglob("*.json*")))
+        self.assertEqual(len(list((self.root / "raw/http").rglob("*.json"))), 1)
 
     def test_live_data_is_immediate_archive_flushes_on_stop_and_files_stay_immutable(self):
         self.store.batch(batch())

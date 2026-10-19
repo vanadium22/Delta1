@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -13,7 +14,8 @@ import uuid
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, normalize_quote, update_volume
+from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, MARKET_NUMERIC, MARKET_TEXT, normalize_quote, update_volume
+from .raw_store import publish_raw_batch
 
 DEFAULT_OUTPUT = Path("Z:/Project_data/realtime_market")
 DB_RELATIVE = Path("live/quotes.sqlite3")
@@ -24,8 +26,11 @@ SCHEMA = pa.schema([
     *[pa.field(name, pa.float64()) for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS]],
     pa.field("volume_start", pa.timestamp("ms", tz="UTC")),
     pa.field("volume_interval_seconds", pa.float64()),
+    *[pa.field(name, pa.float64()) for name in MARKET_NUMERIC],
+    *[pa.field(name, pa.string()) for name in MARKET_TEXT],
+    pa.field("is_final", pa.bool_()), pa.field("received_at", pa.string()),
     pa.field("quality_flags", pa.uint16()),
-], metadata={b"schema_version": b"swhy_realtime_v3", b"timestamp_semantics": b"capture_time_floor_second_UTC",
+], metadata={b"schema_version": b"swhy_realtime_v4", b"timestamp_semantics": b"capture_time_floor_second_UTC",
              b"quote_time_semantics": b"source_HHMMSS_exchange_date_unavailable",
              b"source_symbol": b"actual_requested_contract;symbol_is_maintained_alias",
              b"mapping_date": b"completed_session_date_used_for_main_contract_mapping",
@@ -141,9 +146,9 @@ class RealtimeStore:
 
     def _create_schema(self):
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3):
+        if version not in (0, 1, 2, 3, 4):
             raise ValueError(f"不支持的实时库版本：{version}")
-        if version in (1, 2):
+        if version in (1, 2, 3):
             backup = self.root / "live" / "backups" / f"quotes.pre-volume-v3.{self.run_id}.sqlite3"
             backup.parent.mkdir(parents=True, exist_ok=True)
             destination = sqlite3.connect(backup)
@@ -198,14 +203,15 @@ class RealtimeStore:
                     definition = "TEXT NOT NULL DEFAULT ''" if name == "source_symbol" else "TEXT"
                     self.connection.execute(f"ALTER TABLE quotes ADD COLUMN {name} {definition}")
             for name, definition in (("volume_start", "INTEGER"), ("volume_interval_seconds", "REAL"),
-                                     ("received_at", "TEXT")):
+                                     ("received_at", "TEXT"), ("is_final", "INTEGER"),
+                                     *[(n, "REAL") for n in MARKET_NUMERIC], *[(n, "TEXT") for n in MARKET_TEXT]):
                 if name not in existing:
                     self.connection.execute(f"ALTER TABLE quotes ADD COLUMN {name} {definition}")
             if version < 2 or not set(IDENTITY_COLUMNS).issubset(existing):
                 self.connection.execute("UPDATE quotes SET source_symbol=symbol WHERE source_symbol IS NULL OR source_symbol=''")
             if version in (1, 2):
                 self._repair_legacy_volumes()
-            self.connection.execute("PRAGMA user_version=3")
+            self.connection.execute("PRAGMA user_version=4")
             self.connection.commit()
         except BaseException:
             self.connection.rollback()
@@ -215,7 +221,8 @@ class RealtimeStore:
     def _archive_table(records):
         normalized = []
         for record in records:
-            row = {name: record[name] for name in QUOTE_COLUMNS}
+            row = {name: record[name] if name in record.keys() else None for name in QUOTE_COLUMNS}
+            if row["is_final"] is not None: row["is_final"] = bool(row["is_final"])
             for name in ("timestamp", "volume_start"):
                 if row[name] is not None:
                     row[name] = datetime.fromtimestamp(row[name], timezone.utc)
@@ -301,6 +308,8 @@ class RealtimeStore:
                  "; ".join(f"{key}={value}" for key, value in details.items())))
 
     def batch(self, record: dict):
+        # Archive before normalization; on failure no quote transaction is started.
+        raw_reference = publish_raw_batch(self.root, self.run_id, record)
         rows, failures = [], {}
         payload = record.get("response")
         data = payload.get("data", {}) if isinstance(payload, dict) else {}
@@ -340,9 +349,13 @@ class RealtimeStore:
             description += f"；{gaps} 个标的观测间隔过长，区间成交量已留空并重建基准"
         columns = ["timestamp", "received_at", "capture_date", "symbol", *IDENTITY_COLUMNS, "quote_time", "close", "volume", "volume_total",
                    "volume_start", "volume_interval_seconds",
-                   *DEPTH_COLUMNS, "quality_flags"]
+                   *DEPTH_COLUMNS, *MARKET_NUMERIC, *MARKET_TEXT, "is_final", "quality_flags"]
         sql = f"INSERT INTO quotes ({','.join(columns)},run_id,poll,batch) VALUES ({','.join('?' for _ in range(len(columns)+3))})"
         with self.connection:
+            self.connection.execute("INSERT INTO events(run_id,timestamp,kind,description) VALUES (?,?,?,?)",
+                (self.run_id, record["received_at"], "raw_http_batch",
+                 json.dumps({"poll": record["poll"], "batch": record["batch"], **raw_reference},
+                            ensure_ascii=False, allow_nan=False, sort_keys=True)))
             for row in rows:
                 inserted = self.connection.execute(sql, [row[name] for name in columns] +
                                                    [self.run_id, record["poll"], record["batch"]])
@@ -357,6 +370,7 @@ class RealtimeStore:
         self._continuous_symbols.update(row["symbol"] for row in rows)
         self.last_report = {"timestamp": record["received_at"], "status": status,
                             "description": description, "failed_symbols": list(failures)}
+        record["raw_response_reference"] = raw_reference
         record["storage_status"] = status
         record["failed_symbols"] = list(failures)
         if acceptable and status != "success":

@@ -1,0 +1,9 @@
+{
+  "schema_version": "cn_index_reference_v1",
+  "source_id": "REPLACE_WITH_NEW_DOWNLOADED_SOURCE",
+  "status": "empty_template_not_verified_listing",
+  "contracts": [],
+  "aliases": [],
+  "contract_fields": ["instrument_id", "listing_date", "expiry_date", "known_at", "underlying_id", "multiplier", "source_id"],
+  "alias_fields": ["alias", "trade_date", "concrete_instrument_id", "valid_from", "valid_to", "known_at", "mapping_source", "mapping_version"]
+}

@@ -6,6 +6,8 @@
 
 **公司 Wind 检查请打开 [test/Wind诊断.md](test/Wind诊断.md)**，可直接复制运行诊断和复制结果的 PowerShell 命令。
 
+**数字 Excel 看板请打开 [dashboard/COMPANY_SETUP.md](dashboard/COMPANY_SETUP.md)**：沿用公司统一分支，先检查历史数据和独立配置副本，再打开自动更新的无图表 Excel；新看板前端暂不发布。
+
 以后关闭 App，在 PowerShell 运行以下命令，即可一次更新整个项目中已发布的模块和公共文件：
 
 ```powershell

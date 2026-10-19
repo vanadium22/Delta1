@@ -34,7 +34,7 @@ def legacy_database(root):
     """Build the previously published v1 format without running new writer code."""
     path = root / DB_RELATIVE
     path.parent.mkdir(parents=True)
-    old_columns = [name for name in QUOTE_COLUMNS if name not in IDENTITY_COLUMNS + VOLUME_COLUMNS]
+    old_columns = ["sequence", "timestamp", "symbol", "quote_time", "close", "volume", "volume_total", *DEPTH_COLUMNS, "quality_flags"]
     row = normalize_quote("AU.SHF", {**quote(), "securityId": None}, "2026-09-18T09:30:01+08:00")
     row.update(sequence=1, run_id="old", poll=1, batch=1)
     numeric = ",".join(f"{name} REAL" for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS])
@@ -54,7 +54,7 @@ def legacy_database(root):
         columns = [*old_columns, "capture_date", "run_id", "poll", "batch"]
         connection.execute(f"INSERT INTO quotes ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
                            [row[name] for name in columns])
-        old_schema = pa.schema([field for field in SCHEMA if field.name not in IDENTITY_COLUMNS + VOLUME_COLUMNS],
+        old_schema = pa.schema([field for field in SCHEMA if field.name in old_columns],
                                metadata={b"schema_version": b"swhy_realtime_v1"})
         archived = {name: row[name] for name in old_columns}
         archived["timestamp"] = datetime.fromtimestamp(row["timestamp"], timezone.utc)
@@ -145,7 +145,7 @@ class ContractStorageTests(unittest.TestCase):
         part = legacy_database(self.root)
         original_bytes = part.read_bytes()
         with RealtimeStore(self.root) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 4)
             old = store.connection.execute("SELECT * FROM quotes WHERE sequence=1").fetchone()
             self.assertEqual(old["source_symbol"], old["symbol"])
             self.assertIsNone(old["mapping_date"])

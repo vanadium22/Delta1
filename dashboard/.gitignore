@@ -1,0 +1,10 @@
+runtime/
+localsetting/
+analysis/**/raw/
+*.xlsx
+!excel_numeric/template.xlsx
+*.xls
+*.xlsm
+*.csv
+*.zip
+*.bundle

@@ -9,8 +9,12 @@ DEPTH_COLUMNS = [f"{side}_{field}_{level}" for side in ("bid", "ask")
                  for level in range(1, 6) for field in ("price", "volume")]
 IDENTITY_COLUMNS = ["source_symbol", "mapping_date", "trading_date"]
 VOLUME_COLUMNS = ["volume_start", "volume_interval_seconds"]
+MARKET_NUMERIC = ["open", "high", "low", "prev_close", "closing_price_raw",
+                  "open_interest", "open_interest_raw", "pre_settlement_raw"]
+MARKET_TEXT = ["oi_status", "oi_reason", "date_status", "source_event_time", "snapshot_status"]
+MARKET_COLUMNS = [*MARKET_NUMERIC, *MARKET_TEXT, "is_final"]
 QUOTE_COLUMNS = ["sequence", "timestamp", "symbol", *IDENTITY_COLUMNS, "quote_time", "close", "volume", "volume_total",
-                 *VOLUME_COLUMNS, *DEPTH_COLUMNS, "quality_flags"]
+                 *VOLUME_COLUMNS, *DEPTH_COLUMNS, *MARKET_COLUMNS, "received_at", "quality_flags"]
 MISSING_PRICE_SENTINEL = (2**63 - 1) / 1_000_000
 # Bit flags: 1 missing cumulative volume, 2 incomplete depth, 4 missing source
 # time, 8 cumulative reset/time reversal, 16 no previous observation,
@@ -26,7 +30,7 @@ def number(value):
 
 def price_number(value):
     parsed = number(value)
-    if parsed is None or parsed == 0 or parsed == MISSING_PRICE_SENTINEL:
+    if parsed is None or parsed == 0 or parsed >= 1e10:
         return None
     return parsed
 
@@ -36,6 +40,8 @@ def source_time(value) -> str | None:
     if type(value) is not int and not isinstance(value, str):
         return None
     text = str(value).strip()
+    if len(text) == 8 and text[2] == ":" and text[5] == ":":
+        text = text.replace(":", "")
     if not text.isdigit() or len(text) > 6:
         return None
     text = text.zfill(6)
@@ -99,8 +105,11 @@ def update_volume(row: dict, previous: dict | None, *, reset_volume: bool = Fals
         if (total is None or previous_total is None or total < previous_total or backwards
                 or (seconds is not None and seconds < 0)):
             flags |= 8
-        elif not gap:
+        elif not gap and seconds != 0:
             row.update(volume=total - previous_total, volume_start=start, volume_interval_seconds=seconds)
+        if market_time and market_time == previous.get("quote_time") and total == previous_total:
+            row.update(volume=0.0, volume_start=None, volume_interval_seconds=None,
+                       snapshot_status="duplicate_source_snapshot")
     row["quality_flags"] = flags
 
 
@@ -125,6 +134,21 @@ def normalize_quote(symbol: str, quote: dict, received_at: str, previous: dict |
            "capture_date": capture_date, "symbol": symbol,
            "source_symbol": source_symbol, "mapping_date": mapping_date, "trading_date": trading_date,
            "quote_time": market_time, "close": price, "volume": None, "volume_total": total}
+    row.update({name: price_number(quote.get(source)) for name, source in
+                (("open", "openingPrice"), ("high", "highPrice"), ("low", "lowPrice"),
+                 ("prev_close", "yesterdayClosePrice"))})
+    raw_oi = number(quote.get("openInterest"))
+    # This policy is specific to the company HTTP source. Historical sources
+    # retain legitimate zero OI (for example an expired contract).
+    unavailable = raw_oi is None or raw_oi == 0 or not source_symbol.endswith(".CFE")
+    row.update(open_interest_raw=raw_oi, open_interest=None if unavailable else raw_oi,
+               oi_status="unavailable" if unavailable else "source_reported",
+               oi_reason="公司HTTP零持仓未经验证" if raw_oi == 0 else "源未提供有效期货持仓" if unavailable else "",
+               closing_price_raw=number(quote.get("closingPrice")),
+               pre_settlement_raw=number(quote.get("preSettlementPrice")),
+               is_final=quote.get("final") is True, date_status="receipt_date_inferred_unverified",
+               source_event_time=(capture_date+"T"+market_time+"+08:00") if market_time else None,
+               snapshot_status="observed")
     for side, source in (("bid", "b"), ("ask", "s")):
         for level in range(1, 6):
             for field, suffix in (("price", "Price"), ("volume", "Stocks")):

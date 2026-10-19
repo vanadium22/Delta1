@@ -44,7 +44,9 @@ def build_v2(root):
     database = root / DB_RELATIVE
     database.parent.mkdir(parents=True)
     numeric = ",".join(f"{name} REAL" for name in ["close", "volume", "volume_total", *DEPTH_COLUMNS])
-    old_columns = [name for name in QUOTE_COLUMNS if name not in VOLUME_COLUMNS]
+    # Freeze the actual v2 format; the current v4 schema includes newer fields.
+    old_columns = ["sequence", "timestamp", "symbol", "source_symbol", "mapping_date", "trading_date",
+                   "quote_time", "close", "volume", "volume_total", *DEPTH_COLUMNS, "quality_flags"]
     records = []
     for sequence, elapsed, total, delta, run, poll in (
         (1, 0, 1000, None, "before_restart", 1),
@@ -89,7 +91,7 @@ def build_v2(root):
                                [row[name] for name in columns])
             connection.execute("INSERT INTO batches(run_id,timestamp,poll,batch,status,requested,saved) "
                                "VALUES (?,?,?,?,?,?,?)", (row["run_id"], row["batch_received_at"], row["poll"], 1, "success", 1, 1))
-        old_schema = pa.schema([field for field in SCHEMA if field.name not in VOLUME_COLUMNS],
+        old_schema = pa.schema([field for field in SCHEMA if field.name in old_columns],
                                metadata={b"schema_version": b"swhy_realtime_v2"})
         archived = [{**row, "timestamp": datetime.fromtimestamp(row["timestamp"], timezone.utc)} for row in records]
         part = publish_parquet(pa.Table.from_pylist(archived, schema=old_schema), root / "data/AU.SHF/2026/09", "2026-09-18")
@@ -124,7 +126,7 @@ class VolumeStorageTests(unittest.TestCase):
         part = build_v2(self.root)
         old_bytes = part.read_bytes()
         with RealtimeStore(self.root) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 4)
             retired = store.connection.execute("SELECT path,reason FROM retired_parquet_parts").fetchall()
             self.assertEqual([(row[0], row[1]) for row in retired],
                              [(part.relative_to(self.root).as_posix(), "volume_interval_v3")])
@@ -141,7 +143,7 @@ class VolumeStorageTests(unittest.TestCase):
         active = reader.parquet_files("AU.SHF", "2026-09-18")
         self.assertEqual(len(active), 1)
         self.assertNotIn(part, active)
-        self.assertEqual(pq.ParquetFile(active[0]).schema_arrow.metadata[b"schema_version"], b"swhy_realtime_v3")
+        self.assertEqual(pq.ParquetFile(active[0]).schema_arrow.metadata[b"schema_version"], b"swhy_realtime_v4")
         self.assertEqual(part.read_bytes(), old_bytes)
         backups = list((self.root / "live/backups").glob("*.sqlite3"))
         self.assertEqual(len(backups), 1)

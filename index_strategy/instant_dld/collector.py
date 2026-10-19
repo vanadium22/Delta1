@@ -108,6 +108,9 @@ def collect(
                 if actual:
                     result = client.fetch(actual)
                     payload = result.get("response")
+                    if "response" in result:
+                        # Keep original actual-contract keys before logical alias expansion.
+                        result["source_response"] = payload
                     if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
                         data = payload["data"]
                         result["response"] = {**payload, "data": {
