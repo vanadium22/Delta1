@@ -27,7 +27,9 @@
 
 私有证据仅在 `dashboard/runtime/diagnosis_20261019/`：`IF_诊断报告.md`、`diagnosis.json`、`IF_20d_daily.csv`、`IF_20d_historical_marker.csv`、`snapshot.json`。原始业务数据不进Git或代码bundle。可运行 `python -m dashboard.percentile_audit --output <项目内目录>` 重新冻结；该命令只读本地行情和已发布历史，不下载。
 
-## 两版与无图 Excel：仅本地保留
+## 首阶段两版与静态 Excel 记录
+
+下列静态Excel说明是首阶段归档。后续已实现独立自动刷新数字版和指标，使用方式及当前发布范围以 [NUMERIC_EXCEL.md](NUMERIC_EXCEL.md) 为准；新两版前端仍仅本地。
 
 - 展示版：`start_presentation.cmd` / `Delta1 展示版.lnk`，青色 Δ 图标。最新连续档位计算的四品种数字、分位、有效n及数据状态；无账号、连接地址或维护路径入口。
 - 开发版：`start_development.cmd` / `Delta1 开发版.lnk`，蓝色 D 图标。保留最新研究页面、指标解释、数据管理、维护和本机凭据设置，新增导出快照。
@@ -36,16 +38,14 @@
 - 数字快照由窗口导出；`export_numeric.cmd <snapshot.json> <输出.xlsx>` 重复生成Excel。本机导出依赖 Node 与 `@oai/artifact-tool`；公司电脑没有此运行库时不能直接使用导出器。无需在公司联网读取本次Excel。
 - Excel在生成库重新打开逐值核对，并在Microsoft Excel独立隐藏实例中只读打开核验；界面及各表已截图检查。
 
-未提交文件清单：
+当前前端未提交清单（数字模块已另行纳入白名单）：
 
 ```
 dashboard/current.py（仅窗口注入、标题/图标及冻结/展示入口参数这些增量；共同启动修改单独提交）
 dashboard/native/editions_current.py
-dashboard/numeric_snapshot.py
 dashboard/start_presentation.cmd
 dashboard/start_development.cmd
 dashboard/create_edition_shortcuts.ps1
-dashboard/export_numeric.cmd
 dashboard/assets/presentation_current.ico
 dashboard/assets/development_current.ico
 dashboard/Delta1 展示版.lnk（忽略）
@@ -62,4 +62,4 @@ dashboard/runtime/数字看板_20261019.xlsx、快照、诊断及截图（忽略
 
 本轮没有切换两套VPN，也没有为了验收重新登录公司或DDB；真实VPN切换端到端需用户在客户端操作。程序流程及关闭顺序已有自动测试，不能将其描述成实际VPN切换验收。本轮没有安装到公司目录；既有增量安装器与Wind保留回归继续验证，原数据zip哈希未变。
 
-本轮不推送远程。离线bundle仅含共同启动、维护互斥、独立诊断、测试与说明，不含两版新前端、Excel或私有数据；公司用bundle获得的是共同研究入口及向导。
+最新授权允许推送数字Excel及必要后台，并更新离线bundle。两版新前端、实际业务Excel、历史/实时数据和凭据仍不进入Git或代码bundle；唯一Excel例外是无业务数据的空白数字模板。

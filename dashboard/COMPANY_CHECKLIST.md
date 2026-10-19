@@ -6,7 +6,7 @@
 
 - [ ] 正常关闭旧看板并等待任务退出；备份公司data、dashboard/localsetting、业务分红Excel及未提交代码。
 - [ ] `git status` 核对修改。不要清理工作区、强制重置、覆盖整目录。
-- [ ] 按 [GIT_WORKFLOW.md](GIT_WORKFLOW.md) 验证并导入 `dashboard-code-20261019.bundle`；本轮没有推送远程，不能假设fetch/pull能取得本分支。
+- [ ] 按 [GIT_WORKFLOW.md](GIT_WORKFLOW.md) 获取指定远程分支，或验证并导入最新 `dashboard-code-20261019.bundle`。先核对远程 SHA / bundle 头，不以旧离线包替代新数字版。
 - [ ] 核对分支 `codex/dashboard-history-release-20261019` 和交付文档记录的维护提交。
 
 ## 2. 环境和独立数据包
@@ -54,6 +54,10 @@ python -m venv .venv
 
 本轮程序关闭顺序和异常路径已有测试；实际切换VPN的端到端验收仍需在客户端完成。公司Wind保留以增量安装规则和安装回归为依据，本轮没有改动公司原文件。
 
-## 5. 仅开发机本地成果
+## 5. 数字 Excel 与本地前端
 
-新展示版/开发版入口及Excel见 [PHASE4_DELIVERY.md](PHASE4_DELIVERY.md)。两版暂不进入Git或公司bundle；不能把共同入口的离线交付误认为已交付两版。Excel是可离线打开的冻结快照，重新导出需要本机Node和artifact-tool依赖。
+数字版现单独交付：安装桌面 Microsoft Excel，复用 Python 环境或安装 `dashboard/requirements-numeric.txt`，运行 `dashboard/start_numeric_excel.cmd`。运行端不需要 Node、artifact-tool、VBA。关闭该工作簿停止刷新；直接打开 xlsx 查看最后保存值。只读共享缓存可加 `-ReadOnlyCache`。具体命令和指标说明见 [NUMERIC_EXCEL.md](NUMERIC_EXCEL.md)。
+
+09:29前、15:01起及休市日默认不接入实时；展示最新历史或最后有效保存行情。逐行数据时点与缓存标记必须保留，缓存不保证是收盘最终价。日线/OI指标不会因为刷新按钮而变成实时指标。每日计算缓存和实际Excel成品留在 `data/cache/dashboard/numeric`。
+
+新展示版/开发版仍只在开发机本地：展示版增加六项常用指标，但界面文件、入口、图标及 `current.py` 前端接入增量不进入Git或公司bundle。远程只含空白Excel模板、数字服务和必要公共后台，真实数据另行增量迁移，保留公司Wind文件和凭据保护。

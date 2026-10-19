@@ -4,7 +4,7 @@
 
 ## 已完成与交付边界
 
-历史功能基线提交为 `29cc1e1`、`b518a94`；本轮双VPN/诊断交付见 [PHASE4_DELIVERY.md](PHASE4_DELIVERY.md)，提交及隔离验证见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)。分支 `codex/dashboard-history-release-20261019`。功能和文档仅本地提交；最新用户决定为暂不推送、保留离线包。公司现在使用 bundle 导入，不能从远程 pull 到本分支，详见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)。
+历史功能基线提交为 `29cc1e1`、`b518a94`；本轮双VPN/诊断交付见 [PHASE4_DELIVERY.md](PHASE4_DELIVERY.md)，提交及隔离验证见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)。分支 `codex/dashboard-history-release-20261019`。最新用户授权已更新：完成后推送数字 Excel 及必要后台，继续排除新展示版/开发版前端。数字入口、时段和缓存规则见 [NUMERIC_EXCEL.md](NUMERIC_EXCEL.md)，远程与离线交付边界见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)。此前“暂不推送”是上一阶段决定，已被本次授权覆盖。
 
 1. 自动合约换月：官方挂牌/到期参考 + 实时具体代码交叉验证；支持新增 2706，不把过期月份继续当作当前订阅。
 2. 连续档位历史分位：使用 00—03 每日具体合约映射；具体合约研究仍不拼接价格；上市前不存在的历史不误报成应补缺口。

@@ -18,6 +18,10 @@ class LaunchTests(unittest.TestCase):
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
 
     def setUp(self):
+        # Network behavior tests run in an explicitly open session, independent
+        # of the workstation clock; boundary refusal has separate tests.
+        clock=patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='test session'))
+        clock.start();self.addCleanup(clock.stop)
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
         self.model=SimpleNamespace(local_root=self.root,config={'history_roots':[]})
 

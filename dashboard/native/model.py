@@ -80,6 +80,10 @@ class NativeModel:
 
     def sync_contract_reference(self, *, force=False):
         """Explicit UI/collector action; snapshot() remains offline and read-only."""
+        from dashboard.session_clock import session_policy
+        policy = session_policy()
+        if not policy['allowed']:
+            return dict(status='offline', message=policy['reason'], reference_file=self.config.get('reference_file'))
         from dashboard.marketdata.contract_reference import synchronize
         status=synchronize(self.config.get('reference_file'),self.local_root/'contract_reference',force=force)
         candidate=deepcopy(self.config)

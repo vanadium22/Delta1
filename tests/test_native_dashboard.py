@@ -217,7 +217,9 @@ class NativeBackendTests(unittest.TestCase):
         self.assertIn("月份",errors["IC2613.CFE"])
         job=CollectionJob(self.root/"settings")
         def fail(**kwargs): raise RuntimeError("mock initialization failure")
-        job.start(self.root/"new_live",["IC2610.CFE"],["000905.SH"],once=True,client_factory=fail)
+        from unittest.mock import patch
+        with patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='test session')):
+            job.start(self.root/"new_live",["IC2610.CFE"],["000905.SH"],once=True,client_factory=fail)
         job.worker.join(timeout=5)
         self.assertEqual(job.state()["status"],"failed")
         self.assertIn("mock initialization failure",job.state()["error"])

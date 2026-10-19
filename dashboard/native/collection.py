@@ -87,6 +87,11 @@ class CollectionJob:
         return self.worker is not None and self.worker.is_alive()
 
     def start(self,root,symbols,index_ids,reference_file=None,once=False,client_factory=MarketDataClient,auto_roll=False):
+        from dashboard.session_clock import session_policy, SessionStop
+        policy = session_policy()
+        if not policy['allowed']:
+            self.status.update(status='offline', error=None, note=policy['reason'])
+            return
         if self.running():
             raise ValueError("采集任务正在运行")
         if not str(root).strip():
@@ -116,6 +121,13 @@ class CollectionJob:
                 lease.__enter__()
                 leased=True
                 client=client_factory(connect_timeout=5,read_timeout=10)
+                raw_fetch=client.fetch
+                def guarded_fetch(symbols):
+                    if not session_policy()['allowed']:
+                        self.stop_event.set()
+                        return dict(status='session_closed', received_at=datetime.now(timezone.utc).isoformat(), elapsed_seconds=0)
+                    return raw_fetch(symbols)
+                client.fetch=guarded_fetch
                 with DualIdentityStore(Path(root)) as store:
                     original=store.batch
                     def batch(record):
@@ -129,7 +141,7 @@ class CollectionJob:
                             self.status['reference']=getattr(resolver,'status',{})
                     store.batch=batch
                     collect(client,store,[symbols_file],interval=2,max_polls=1 if once else 0,
-                            stop=self.stop_event,resolver=resolver)
+                            stop=SessionStop(self.stop_event, session_policy),resolver=resolver)
                 with self.lock: self.status["status"]="stopped" if not self.status.get("error") else "failed"
             except Exception as exc:
                 with self.lock: self.status.update(status="failed",error=str(exc))

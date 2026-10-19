@@ -16,6 +16,10 @@ def network_lease(config):
 
 def probe_realtime(config, client_factory=None):
     """One bounded request, no persistence, no credentials or endpoint in result."""
+    from dashboard.session_clock import session_policy
+    policy = session_policy()
+    if not policy['allowed']:
+        return dict(ok=False, offline=True, message=policy['reason'])
     from index_strategy.instant_dld.client import MarketDataClient
     from dashboard.marketdata.contract_reference import active_contracts
     from dashboard.marketdata.repository import ReferenceBook
@@ -27,8 +31,13 @@ def probe_realtime(config, client_factory=None):
         return dict(ok=False, message='当前合约参考不足，先在开发版更新合约；可离线进入')
     try:
         with network_lease(config):
+            policy = session_policy()
+            if not policy['allowed']:
+                return dict(ok=False, offline=True, message=policy['reason'])
             client = (client_factory or MarketDataClient)(connect_timeout=3, read_timeout=5)
             try:
+                if not session_policy()['allowed']:
+                    return dict(ok=False, offline=True, message='时段结束，仅使用本地数据')
                 result = client.fetch(symbols)
                 ok = result.get('status') == 'success' and not result.get('missing_symbols')
                 from math import isfinite
