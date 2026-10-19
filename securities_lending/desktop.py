@@ -220,7 +220,15 @@ class Window(QMainWindow):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(7)
         self.splitter.addWidget(self.table)
-        layout.addWidget(self.splitter, 1)
+        workspace = QHBoxLayout()
+        workspace.addWidget(self.splitter, 1)
+        self.fallback_contacts = QPlainTextEdit()
+        self.fallback_contacts.setReadOnly(True)
+        self.fallback_contacts.setMinimumWidth(230)
+        self.fallback_contacts.setMaximumWidth(320)
+        self.fallback_contacts.hide()
+        workspace.addWidget(self.fallback_contacts)
+        layout.addLayout(workspace, 1)
 
         self.detail_panel = QWidget()
         detail_layout = QVBoxLayout(self.detail_panel)
@@ -453,6 +461,7 @@ class Window(QMainWindow):
             self.show_notices([f"打开本地数据失败：{exc}；路径：{folder}"])
 
     def clear_results(self):
+        self.fallback_contacts.hide()
         self.auto_calculate.stop()
         row = self.table.currentRow()
         if 0 <= row < len(self.items):
@@ -809,6 +818,16 @@ class Window(QMainWindow):
         origin = str(self.contacts_path) if self.contacts_path.exists() else "随 App 提供的照片暂读初稿"
         self.contact_group.setToolTip(f"{text}\n来源：{origin}\n{self.contacts_error}\n可在「行业联系表」中修改；没有明确映射的行业留空。")
         self.table.horizontalHeaderItem(9).setToolTip(self.contact_group.toolTip())
+        unknown = [item for item in self.items if not str(item.get("industry") or "").strip()]
+        lines = ["行业未读出 · 全部联系人", "", "适用标的：" + "、".join(item["code"] for item in unknown),
+                 f"微信群：{group or '未设置'}", ""]
+        for desk, names in self.contacts["desks"].items():
+            industries = [name for name, target in self.contacts["industries"].items() if target == desk]
+            lines.extend([desk, "、".join("@" + name for name in names) or "暂无联系人",
+                          "分工：" + ("、".join(industries) or desk), ""])
+        lines.extend([note, self.contacts_error, "请按分工选择通知对象；此处仅展示，不自动发送消息。"])
+        self.fallback_contacts.setPlainText("\n".join(lines))
+        self.fallback_contacts.setVisible(bool(unknown))
         for row, item in enumerate(self.items):
             contact = contact_for(item.get("industry"), self.contacts)
             item["contact"] = contact

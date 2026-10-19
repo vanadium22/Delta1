@@ -85,6 +85,29 @@ class ContactMappingTests(unittest.TestCase):
 
 
 class ContactDesktopTests(DesktopCase):
+    def test_missing_industry_shows_all_desks_and_clears_with_results(self):
+        self.query("600519")
+        self.assertTrue(self.window.fallback_contacts.isHidden())
+        self.window.items[0]["industry"] = ""
+        self.window.update_contacts()
+        self.assertFalse(self.window.fallback_contacts.isHidden())
+        text = self.window.fallback_contacts.toPlainText()
+        self.assertIn(self.window.contacts["group"], text)
+        for desk, names in self.window.contacts["desks"].items():
+            self.assertIn(desk, text)
+            for name in names:
+                self.assertIn("@" + name, text)
+        self.window.contacts["group"] = "更新后的群"
+        self.window.update_contacts()
+        self.assertIn("更新后的群", self.window.fallback_contacts.toPlainText())
+        self.window.items[0]["industry"] = "有行业但未映射"
+        self.window.update_contacts()
+        self.assertTrue(self.window.fallback_contacts.isHidden())
+        self.window.items[0]["industry"] = None
+        self.window.update_contacts()
+        self.window.clear_results()
+        self.assertTrue(self.window.fallback_contacts.isHidden())
+
     def test_contact_column_is_next_to_industry_unknown_is_empty(self):
         self.query("600519 000001")
         header = self.window.table.horizontalHeader()
