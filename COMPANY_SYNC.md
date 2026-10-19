@@ -2,6 +2,10 @@
 
 更新日期：2026-10-19。
 
+## 2026-10-19 test 文件夹内的 Wind 诊断速查
+
+按用户要求新增 [test/Wind诊断.md](test/Wind诊断.md)，将公司更新、运行诊断、复制完整结果及打开结果文件的命令放在一起；根 README 增加入口。仅修改说明，核验 PowerShell 示例语法、相对链接、代码块及 Git 差异，不重复运行业务测试。随统一分支发布，公司一次 `git pull --ff-only` 即可取得。
+
 ## 2026-10-19 公司Wind诊断方法
 
 新增基差 `diagnose_wind.cmd`，公司更新后登录Wind终端即可双击，或在仓库根目录运行 `.\index_futures_basis\diagnose_wind.cmd`。复用现有Python和Wind配置，核验交易日历、周末、实际休市工作日和四品种单日行情补齐，并测试重复零请求和单字段补缺；补缺仅在独立诊断库执行，正式库只读。生成便于粘贴反馈的 `可复制.txt`、JSON及 `latest.txt`，失败/超时也保留证据。复制命令及结果解释见 [Wind诊断方法](index_futures_basis/WIND_DIAGNOSTICS.md)。

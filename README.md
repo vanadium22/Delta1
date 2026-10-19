@@ -4,6 +4,8 @@
 
 **复制 Git 命令请打开 [Git操作指南.md](Git操作指南.md)**，包含公司/家里项目路径、pull、按文件提交与push、远端有新提交时的处理。
 
+**公司 Wind 检查请打开 [test/Wind诊断.md](test/Wind诊断.md)**，可直接复制运行诊断和复制结果的 PowerShell 命令。
+
 以后关闭 App，在 PowerShell 运行以下命令，即可一次更新整个项目中已发布的模块和公共文件：
 
 ```powershell
