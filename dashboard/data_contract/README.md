@@ -1,10 +1,10 @@
 # 国内 A 股指数与股指期货数据格式规范 v1
 
-日期：2026-09-30。范围以用户本次更正为准：**国内 A 股指数，以及 IF、IH、IC、IM 的具体年月合约**。所有历史数据未来重新下载。本方案不注册、不导入已有商品期货、港股、美股或其他历史库。测试样例均为合成数据。
+日期：2026-09-30。范围以用户本次更正为准：**国内 A 股指数，以及 IF、IH、IC、IM 的具体年月合约**。本文保留数据格式规范，不描述当前部署状态。真实指数/股指历史现已接入 DDB，验收见 [项目交接](../PROJECT_HANDOFF.md)。测试样例均为合成数据。
 
-本规范用于未来下载程序与独立桌面看板之间的交接。看板不绑定供应商，也不要求下载程序依赖看板前端。参考实现：`dashboard/marketdata/bars.py`；实时观测适配器：`dashboard/marketdata/adapters.py`。
+本规范用于历史维护与桌面看板之间的数据交接。看板不绑定供应商，也不要求下载程序依赖看板前端。参考实现：`dashboard/marketdata/bars.py`；实时观测适配器：`dashboard/marketdata/adapters.py`。
 
-2026-10-01 实施更新：原生 App 已实现数据源选择、按日/分/秒窗口读取、多频公式 v2、图表与历史回放；启动和操作见 [../native/README.md](../native/README.md)。真实数据源默认仍为空。下述数据格式继续使用 v1，未导入任何已有其他市场历史库。
+2026-10-01 实施更新：原生 App 已实现数据源选择、按日/分/秒窗口读取、多频公式 v2、图表与历史回放；启动和操作见 [../native/README.md](../native/README.md)。下述数据格式继续使用 v1；当前读取路径由本机配置或数据包激活确定。
 
 ## 1. 数据分四层
 
@@ -39,7 +39,7 @@
 
 实时热库和因子结果库分别选目录，不要求与历史库同盘。当前采集器的 SQLite WAL **要求本机磁盘**，网络映射盘会被现有代码拒绝。历史 Parquet 可以单独放大容量磁盘；网络文件系统的写锁与原子替换可靠性需要实测，未验证时用本地发布、再同步只读副本。
 
-原生 App 初次启动无已绑定数据源，选择目录并验证后才启用。`sources.example.json` 保留为概念配置模板；实际原生配置为 `dashboard/localsetting/native.json`，由 App 写入，独立于旧预览配置。
+安装数据包后原生 App 首启自动激活历史目录；未安装包时需配置有效数据源。`sources.example.json` 保留为概念配置模板；实际原生配置为 `dashboard/localsetting/native.json`，由 App 写入，独立于旧预览配置。
 
 ## 3. 文件格式
 
@@ -51,7 +51,7 @@
 
 ## 4. bar 字段
 
-机器可读字段表见 `examples/bar_fields.json`，实际 Arrow schema 为 `dashboard.marketdata.BAR_SCHEMA`。字段必须与 schema 一致，新增业务字段应升级 schema，不能静默改含义。
+合成示例不随运行数据维护，可用 `python -m dashboard.marketdata.demo --root dashboard/runtime/synthetic_examples` 重新生成（仅测试）。机器可读字段表在生成目录的 `bar_fields.json`；实际 Arrow schema 为 `dashboard.marketdata.BAR_SCHEMA`。字段必须与 schema 一致，新增业务字段应升级 schema，不能静默改含义。
 
 | 字段 | 类型 | 要求与含义 |
 | --- | --- | --- |

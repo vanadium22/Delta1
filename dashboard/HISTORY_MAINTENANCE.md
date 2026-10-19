@@ -18,8 +18,9 @@
 1. 单独分支包含 `dashboard`、`index_strategy/history` 和实时查询依赖，不要求另一份公共工程或 Z 盘。
    安装 `dashboard/requirements.txt`；DDB SDK 可放独立环境（`dashboard/requirements-history.txt`）。
 2. 按 [交付与 Git 操作](DEPLOYMENT.md) 安装数据包；首启自动调整本机读取路径，保留公司配置和 Wind 文件。
-   实际读取历史是 `history_roots` 中的目录，目前为 `normalized/backfilled_cn_index` 与
-   `normalized/backfilled_cn_index_future`；不要只更新旧的 `normalized/cn_index*`。
+   实际读取历史是 `history_roots` 中的目录：本机为 `normalized/backfilled_cn_index` 与
+   `normalized/backfilled_cn_index_future`；公司安装数据包后为 `imports/<包标识>/...`，以维护页实际路径为准，
+   不要只更新旧的 `normalized/cn_index*`。
 3. 若解释器位置不同，设置 `native.json.history_python` 或环境变量 `SWHY_HISTORY_PYTHON`。
    可选 `history_connection_file` 指向本机 DDB 配置；已有公共配置继续使用，否则采用 `dashboard/localsetting/ddb.connection.local.json`。
 4. 在「数据维护 → 设置历史账号」输入公司电脑的地址、端口、账号、密码。配置使用 Windows
