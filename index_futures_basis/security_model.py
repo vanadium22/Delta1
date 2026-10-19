@@ -9,7 +9,7 @@ import pandas as pd
 
 TZ = "Asia/Shanghai"
 FIELDS = {"close": "收盘价", "open": "开盘价", "high": "最高价", "low": "最低价",
-          "volume": "成交量", "amt": "成交额"}
+          "volume": "成交量", "amt": "成交额", "oi": "持仓量（手）"}
 REALTIME = {"close": "rt_last", "open": "rt_open", "high": "rt_high", "low": "rt_low",
             "volume": "rt_vol", "amt": "rt_amt"}
 VOLUME_UNITS = {"unknown": ("未确认", None), "share": ("股 / 份", 1), "lot100": ("手（100股/份）", 100)}
@@ -43,14 +43,19 @@ class SecurityQuery:
     adjustment: str = "none"
 
     def __post_init__(self):
-        object.__setattr__(self, "code", self.code.strip().upper())
+        code = self.code.strip().upper()
+        if re.fullmatch(r"(?:IF|IH|IC|IM)(?:0[0-3]|\d{4})", code):
+            code += ".CFE"
+        object.__setattr__(self, "code", code)
         object.__setattr__(self, "fields", tuple(sorted(set(self.fields))))
-        if not re.fullmatch(r"\d{6}\.(SH|SZ)", self.code):
-            raise ValueError("请输入完整沪深 Wind 代码，例如 600519.SH、000001.SZ、510300.SH")
+        if not re.fullmatch(r"\d{6}\.(SH|SZ)", self.code) and not self.is_future:
+            raise ValueError("请输入完整沪深 Wind 代码或股指期货代码，例如 600519.SH、IF02、IF2612.CFE")
         if self.frequency not in {"1d", "1m", "5m", "15m", "30m", "60m", "snapshot"}:
             raise ValueError("不支持的频率")
         if not self.fields or set(self.fields) - FIELDS.keys():
             raise ValueError("至少选择一个支持的行情字段")
+        if "oi" in self.fields and not self.is_future:
+            raise ValueError("持仓量字段仅用于本地股指期货日线")
         object.__setattr__(self, "fields", tuple(f for f in FIELDS if f in self.fields))
         if self.adjustment != "none":
             raise ValueError("本版使用不复权原始行情")
@@ -86,6 +91,10 @@ class SecurityQuery:
             raise ValueError("TWAP 使用分钟采样；日频可查看日收盘价均值")
         if self.vwap and not self.is_equity:
             raise ValueError("VWAP 当前仅支持沪深股票 / ETF；指数成交额除成交量不等于指数点位")
+
+    @property
+    def is_future(self):
+        return bool(re.fullmatch(r"(?:IF|IH|IC|IM)(?:0[0-3]|\d{4})\.CFE", self.code))
 
     @property
     def is_equity(self):
@@ -175,7 +184,7 @@ def numeric(value, field):
         return None
     try:
         number = float(value)
-        if not np.isfinite(number) or number < 0 or (field not in {"volume", "amt"} and number == 0):
+        if not np.isfinite(number) or number < 0 or (field not in {"volume", "amt", "oi"} and number == 0):
             return None
         return number
     except (ValueError, TypeError, OverflowError):

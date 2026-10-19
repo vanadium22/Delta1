@@ -57,9 +57,11 @@ class FrameTable(QTableView):
         QShortcut(QKeySequence.StandardKey.Copy, self, activated=self.copy)
 
     def fill(self, frame, headers=None):
-        old = self.model()
-        self.setModel(FrameModel(frame, headers, self))
-        old.deleteLater()
+        model = self.model()
+        model.beginResetModel()
+        model.frame = frame
+        model.headers = headers or list(frame.columns)
+        model.endResetModel()
         metrics = self.fontMetrics()
         for i, label in enumerate(self.model().headers):
             width = max(metrics.horizontalAdvance(line) for line in str(label).split("\n")) + 30
@@ -114,7 +116,7 @@ class SecurityPage(QWidget):
         grid = QGridLayout(self.controls)
         grid.setContentsMargins(0, 0, 0, 0)
         self.code = QLineEdit("600519.SH")
-        self.code.setPlaceholderText("沪深股票 / ETF / 指数 Wind代码")
+        self.code.setPlaceholderText("证券代码 / IF02 / IF2612.CFE")
         self.code.setMaximumWidth(180)
         self.security_name = QLabel("输入完整代码后自动核验名称")
         self.security_name.setTextFormat(Qt.TextFormat.PlainText)
@@ -257,14 +259,21 @@ class SecurityPage(QWidget):
         self.start.dateTimeChanged.connect(self.invalidate)
         self.end.dateTimeChanged.connect(self.invalidate)
         self.code.textChanged.connect(self.change_identity)
-        self.code.editingFinished.connect(self.schedule_name)
+        self.code.editingFinished.connect(self.normalize_code)
         self.tabs.currentChanged.connect(self.scale_image)
         self.change_frequency()
 
     @property
     def service(self):
         basis = self.window.service
-        return SecurityService(basis.paths, basis.config, basis.mode, basis.cancel)
+        return SecurityService(basis.paths, basis.config, basis.mode, basis.cancel, basis=basis)
+
+    def normalize_code(self):
+        try:
+            self.code.setText(SecurityQuery(self.code.text(), "snapshot").code)
+        except ValueError:
+            pass
+        self.schedule_name()
 
     def frequency_key(self):
         return self.bar.currentData() if self.frequency.currentData() == "minute" else self.frequency.currentData()
@@ -281,7 +290,7 @@ class SecurityPage(QWidget):
             SecurityQuery(self.code.text(), "snapshot")
         except ValueError:
             self.name_timer.stop()
-            self.security_name.setText("请输入完整沪深代码，如 600006.SH")
+            self.security_name.setText("请输入证券代码或 IF02 / IF2612.CFE")
             return
         self.name_timer.start()
 
@@ -373,6 +382,17 @@ class SecurityPage(QWidget):
         except ValueError:
             equity = False
         eligible = equity and self.frequency.currentData() != "snapshot"
+        try:
+            future = SecurityQuery(key[0], "snapshot").is_future
+        except ValueError:
+            future = False
+        self.fields["oi"].setEnabled(future)
+        if not future:
+            self.fields["oi"].setChecked(False)
+        self.refresh_button.setEnabled(not future and self.window.service.mode != "offline")
+        self.query_button.setText("读取本地日线" if future else "查询 / 补齐缓存")
+        if future:
+            self.info.setText("股指期货使用本地每日更新的日线，请选择日频。支持00—03及实际合约；不调用Wind。")
         self.vwap.setEnabled(eligible)
         if not eligible:
             self.vwap.setChecked(False)
@@ -397,7 +417,7 @@ class SecurityPage(QWidget):
         for key in self.metric_values:
             self.metric_values[key].setText("—")
             self.metric_hints[key].setText("查询后显示数值及有效样本数")
-        self.info.setText("输入沪深证券 Wind 代码并查询。离线可读已有历史查询缓存，演示使用独立合成数据。")
+        self.info.setText("输入证券代码或 IF02 / IF2612.CFE。股指期货只读本地日线；沪深证券沿用历史查询缓存。")
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
 
@@ -405,7 +425,7 @@ class SecurityPage(QWidget):
         self.controls.setEnabled(not busy)
         for button in (self.query_button, self.cache_button):
             button.setEnabled(not busy)
-        self.refresh_button.setEnabled(not busy and self.window.service.mode != "offline")
+        self.refresh_button.setEnabled(not busy and self.window.service.mode != "offline" and self.query_button.text() != "读取本地日线")
         for button in (self.export_button, self.copy_button):
             button.setEnabled(not busy and self.result is not None)
 
@@ -441,7 +461,7 @@ class SecurityPage(QWidget):
         self.show_name({"code": q.code, "name": meta["name"], "source": meta["source"]}, self.identity_key())
         headers = ["时间 / Wind返回时间"]
         for f in q.required_fields:
-            unit = VOLUME_UNITS[q.volume_unit][0] if f == "volume" else AMOUNT_UNITS[q.amount_unit][0] if f == "amt" else "原始报价"
+            unit = "手" if f == "oi" else VOLUME_UNITS[q.volume_unit][0] if f == "volume" else AMOUNT_UNITS[q.amount_unit][0] if f == "amt" else "原始报价"
             headers.append(field_label(f, q.frequency) + f" ({f})\n" + ("Wind原始单位未确认" if unit == "未确认" else unit))
         self.data_table.fill(result.frame, headers)
         stats = pd.DataFrame(result.summary["statistics"]).drop(columns="field")
@@ -470,7 +490,7 @@ class SecurityPage(QWidget):
                 elif key == "twap" and not q.bar_minutes:
                     text = "切换分钟频后计算"
                 elif key == "vwap" and not q.is_equity:
-                    text = "指数不适用，仅股票 / ETF"
+                    text = "期货暂不计算VWAP" if q.is_future else "指数不适用，仅股票 / ETF"
             self.metric_hints[key].setText(text)
         notes = list(dict.fromkeys(result.summary["notes"] + meta["notes"]))
         if q.frequency == "snapshot":

@@ -74,12 +74,13 @@ class SecurityResult:
 
 
 class SecurityService:
-    def __init__(self, paths, config, mode="wind", cancel=None):
+    def __init__(self, paths, config, mode="wind", cancel=None, basis=None):
         if mode not in {"wind", "offline", "demo"}:
             raise ValueError("未知数据模式")
         self.paths, self.config, self.mode = paths, config, mode
         self.cancel = cancel if cancel is not None else threading.Event()
         self.catalog = Catalog(paths)
+        self.basis = basis
 
     def cache(self, frequency):
         # Offline is an explicitly labelled read-only view of previously acquired Wind queries.
@@ -97,6 +98,9 @@ class SecurityService:
     def lookup_name(self, code, frequency="1d", *, provider=None):
         """Resolve one complete code with WSS; offline may only show a labelled cached name."""
         code = SecurityQuery(code, "snapshot").code
+        if SecurityQuery(code, "snapshot").is_future:
+            from .security_futures import future_name
+            return {"code": code, "name": future_name(code), "source": "本地股指日线代码（非Wind实时核验）"}
         _, root = self.cache(frequency)
         reference_file = root / "reference.json"
         if self.mode == "offline":
@@ -130,6 +134,13 @@ class SecurityService:
         if (query.frequency != "snapshot" and local_time(query.end) > now
                 and not (query.bar_minutes and local_time(query.end).date() == now.date())):
             raise ValueError("结束时间不能晚于当前北京时间")
+        if query.is_future:
+            from .security_futures import query_local_future
+            self.cancel.clear()
+            self.check_cancel()
+            result = query_local_future(self, query, force=force)
+            self.check_cancel()
+            return result
         if self.mode == "offline" and (force or query.frequency == "snapshot"):
             raise ValueError("离线模式只读历史查询缓存；最新值需要切回 Wind 正式数据")
         dataset, root = self.cache(query.frequency)
