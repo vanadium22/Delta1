@@ -16,6 +16,26 @@ from index_futures_basis.service import BasisService
 
 
 class SecurityDesktopTests(unittest.TestCase):
+    def test_local_futures_normalization_daily_chart_and_field_switch(self):
+        self.page.start.setDateTime(QDateTime.fromString("2026-10-01 09:30", "yyyy-MM-dd HH:mm"))
+        self.page.end.setDateTime(QDateTime.fromString("2026-10-08 15:00", "yyyy-MM-dd HH:mm"))
+        self.page.code.setText("if02")
+        self.page.normalize_code()
+        self.assertEqual(self.page.code.text(), "IF02.CFE")
+        self.assertTrue(self.page.fields["oi"].isEnabled())
+        self.page.fields["oi"].setChecked(True)
+        with patch("index_futures_basis.security_data.SecurityProvider", side_effect=AssertionError("network")):
+            self.page.query()
+            self.wait()
+        self.assertIsNotNone(self.page.result, self.page.info.text())
+        self.assertEqual(self.page.result.metadata["requests"], 0)
+        self.assertTrue(self.page.png.startswith(b"\x89PNG"))
+        self.assertFalse(self.page.refresh_button.isEnabled())
+        self.page.code.setText("600519.SH")
+        self.assertFalse(self.page.fields["oi"].isEnabled())
+        self.assertFalse(self.page.fields["oi"].isChecked())
+        self.assertIsNone(self.page.result)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

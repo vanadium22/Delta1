@@ -16,10 +16,10 @@ def plot_result(result):
     font_path = Path("C:/Windows/Fonts/msyh.ttc")
     font = FontProperties(fname=str(font_path)) if font_path.exists() else FontProperties()
     query, frame = result.query, result.frame
-    price_fields = [f for f in query.fields if f not in {"volume", "amt"}]
+    price_fields = [f for f in query.fields if f not in {"volume", "amt", "oi"}]
     if query.twap and "close" not in price_fields:
         price_fields.append("close")
-    groups = ([price_fields] if price_fields else []) + [[f] for f in query.fields if f in {"volume", "amt"}]
+    groups = ([price_fields] if price_fields else []) + [[f] for f in query.fields if f in {"volume", "amt", "oi"}]
     if query.vwap and not price_fields:
         groups.insert(0, [])
     figure = Figure(figsize=(11, max(3.5, len(groups) * 2.5)), dpi=130, layout="constrained", facecolor="white")
@@ -29,14 +29,14 @@ def plot_result(result):
     for axis, fields in zip(axes, groups):
         for field in fields:
             label = field_label(field, query.frequency)
-            if field in {"volume", "amt"}:
+            if field in {"volume", "amt", "oi"}:
                 axis.bar(x, frame[field], color="#70A6BB", width=.85, label=label)
-                unit = VOLUME_UNITS[query.volume_unit][0] if field == "volume" else AMOUNT_UNITS[query.amount_unit][0]
+                unit = "手" if field == "oi" else VOLUME_UNITS[query.volume_unit][0] if field == "volume" else AMOUNT_UNITS[query.amount_unit][0]
                 axis.set_ylabel(label + "（" + ("Wind原始单位" if unit == "未确认" else unit) + "）", fontproperties=font)
             else:
                 axis.plot(x, frame[field], linewidth=1.4, label=label)
                 axis.set_ylabel("不复权价格", fontproperties=font)
-        if not fields or all(f not in {"volume", "amt"} for f in fields):
+        if not fields or all(f not in {"volume", "amt", "oi"} for f in fields):
             for metric, value in result.summary["metrics"].items():
                 axis.axhline(value, linestyle="--", linewidth=1.2,
                              color="#C57D36" if metric == "twap" else "#29927F", label=f"{metric.upper()} {value:.4f}")
