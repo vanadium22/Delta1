@@ -1,5 +1,6 @@
 """Portable, additive dashboard-only data package. No Wind paths are written."""
 import argparse
+from collections import Counter
 from datetime import datetime,timezone
 import hashlib
 import json
@@ -32,19 +33,25 @@ def export_package(local_root,output):
         s=BarDataset(path);stores[s.descriptor['dataset_id']]=s
     pointer=maintenance_root(config['history_roots'])/'publication.json'
     snapshots=read_publication(pointer,stores) if pointer.exists() else {k:s.snapshot() for k,s in stores.items()}
-    identifier=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8]
+    identifier=datetime.now(timezone.utc).strftime('%y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:4]
     prefix=BASE+'/imports/'+identifier
     files={};roots=[];source_versions={}
     for i,(key,store) in enumerate(stores.items()):
-        snap=snapshots[key];root=prefix+'/'+key;roots.append(root);source_versions[key]=snap['version']
+        snap=snapshots[key];root=prefix+f'/s{i+1}';roots.append(root);source_versions[key]=snap['version']
         descriptor={k:v for k,v in snap.get('descriptor',store.descriptor).items() if k not in ('base_dataset','merge_policy')}
         files['data/'+root+'/dataset.json']=_json_bytes(descriptor)
+        parts=[];counts=Counter()
         for part in snap['parts']:
             path=store._path(part['path'])
             if digest(path.read_bytes())!=part['sha256']:raise ValueError('Source partition checksum mismatch')
-            files['data/'+root+'/'+part['path']]=path
+            day=part['trade_date'];directory=f"data/{part['frequency']}/{part['instrument_id']}/{day[:4]}/{day[5:7]}"
+            counts[(directory,day)]+=1;number=counts[(directory,day)]
+            relative=directory+'/'+day+(f'.{number}' if number>1 else '')+'.parquet'
+            safe_relative(relative)
+            files['data/'+root+'/'+relative]=path
+            parts.append({**part,'path':relative})
         version=uuid.uuid4().hex
-        manifest={**snap,'descriptor':descriptor,'version':version,'previous_version':None,
+        manifest={**snap,'descriptor':descriptor,'parts':parts,'version':version,'previous_version':None,
             'checkpoint':{'portable_source_version':snap['version'],'package_id':identifier}}
         raw=_json_bytes(manifest);relative='versions/'+version+'.json'
         files['data/'+root+'/'+relative]=raw

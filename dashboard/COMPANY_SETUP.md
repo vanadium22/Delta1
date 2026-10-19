@@ -2,6 +2,8 @@
 
 长期分支为 `codex/company-apps`。公司现有 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身是仓库根目录；下面的 `dashboard\start_numeric_excel.cmd` 是新增模块入口，两个 dashboard 是正常的层级。路径若已改变，以 `git rev-parse --show-toplevel` 为准。
 
+短文件名修复及新数据包安装按 [SHORT_FILENAMES.md](SHORT_FILENAMES.md)。不能只替换 ZIP 或覆盖整个 data；新包需用安装器激活，旧 Wind 和配置保留。
+
 ## 1. 先检查现场
 
 关闭使用该项目的 App 和数字 Excel，保留原项目目录及现有备份。以下命令只检查，不修改文件：

@@ -20,6 +20,7 @@ import uuid
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from index_strategy.instant_dld.short_files import publish_bytes
 
 VERSION = "dashboard_bars_v1"
 UTC = timezone.utc
@@ -338,10 +339,9 @@ class BarDataset:
                 pq.write_table(table, sink, compression="zstd")
                 data = sink.getvalue().to_pybytes()
                 digest = hashlib.sha256(data).hexdigest()
-                relative = f"data/{frequency}/{symbol}/{day:%Y/%m}/{day}.{digest}.parquet"
-                target = self._path(relative)
-                if not target.exists():
-                    _atomic_bytes(target, data)
+                directory = self._path(f"data/{frequency}/{symbol}/{day:%Y/%m}")
+                target = publish_bytes(data, directory, str(day))
+                relative = target.relative_to(self.root).as_posix()
                 parts.append({"path": relative, "sha256": digest, "rows": len(items),
                               "instrument_id": symbol, "frequency": frequency,
                               "trade_date": day.isoformat(), "min_time": items[0]["event_time"].isoformat(),

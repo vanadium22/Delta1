@@ -6,7 +6,6 @@ from datetime import date
 from pathlib import Path
 import re
 import sqlite3
-import uuid
 
 import pandas as pd
 import pyarrow as pa
@@ -126,4 +125,4 @@ def write_strategy_frame(frame: pd.DataFrame, strategy: str, root: str | Path = 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", strategy):
         raise ValueError("策略目录名仅支持字母、数字、下划线和连字符")
     directory = Path(root).expanduser().resolve() / "strategy_results" / strategy
-    return publish_parquet(pa.Table.from_pandas(frame), directory, uuid.uuid4().hex)
+    return publish_parquet(pa.Table.from_pandas(frame), directory, date.today().isoformat(), reuse=False)

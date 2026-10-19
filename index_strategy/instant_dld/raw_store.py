@@ -4,15 +4,32 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
-import tempfile
+from .short_files import publish_bytes
 
 
 # Never archive client/session objects, URL credentials or authentication headers.
 METADATA_FIELDS = ("requested_at", "received_at", "elapsed_seconds", "http_status", "status",
                    "symbols", "requested_symbols", "symbol_mapping", "poll", "batch", "batch_count")
+
+
+def _encoded(envelope):
+    return (json.dumps(envelope, ensure_ascii=False, allow_nan=False,
+                       sort_keys=True, separators=(',', ':'))+'\n').encode('utf8')
+
+
+def _verify_envelope(raw):
+    try:
+        value=json.loads(raw)
+        expected=value.pop('content_sha256',None)
+        # Older byte-preserved evidence is still checked by its event reference.
+        if expected and hashlib.sha256(_encoded(value)).hexdigest()!=expected:
+            raise ValueError('checksum')
+        if value.get('schema_version')!='swhy_raw_http_v1':
+            raise ValueError('schema')
+    except (ValueError,AttributeError,UnicodeError) as exc:
+        raise OSError('已发布原始响应校验失败') from exc
 
 
 def publish_raw_batch(root: Path, run_id: str, record: dict) -> dict:
@@ -40,33 +57,12 @@ def publish_raw_batch(root: Path, run_id: str, record: dict) -> dict:
     envelope = {"schema_version": "swhy_raw_http_v1", "run_id": run_id,
                 "request_and_collection": {key: record[key] for key in METADATA_FIELDS if key in record},
                 "response_body": body}
-    payload = (json.dumps(envelope, ensure_ascii=False, allow_nan=False,
-                          sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    envelope['content_sha256'] = hashlib.sha256(_encoded(envelope)).hexdigest()
+    payload = _encoded(envelope)
     digest = hashlib.sha256(payload).hexdigest()
     directory = Path(root) / "raw" / "http" / run_id
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / (digest + ".json")
-    if target.exists():
-        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-            raise OSError(f"已发布原始响应校验失败：{target}")
-    else:
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=directory, prefix=".publishing-", suffix=".tmp", delete=False) as stream:
-                temporary = Path(stream.name)
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.rename(target)
-            if os.name != "nt":
-                descriptor = os.open(directory, os.O_RDONLY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+    prefix = f"p{int(record.get('poll', 0))}-b{int(record.get('batch', 0))}"
+    target = publish_bytes(payload, directory, prefix, '.json', validate_existing=_verify_envelope)
     return {"path": target.relative_to(root).as_posix(), "sha256": digest,
             "body_sha256": body["sha256"] if body else None,
             "body_representation": body["representation"] if body else "no_http_response"}

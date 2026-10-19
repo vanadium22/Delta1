@@ -118,7 +118,7 @@ class RealtimeStorageTests(unittest.TestCase):
         files = self.reader.parquet_files("000001.SZ", "2026-09-18")
         self.assertEqual(len(files), 1)
         self.assertEqual(files[0].parent, self.root / "data/000001.SZ/2026/09")
-        self.assertEqual(files[0].name, "2026-09-18." + hashlib.sha256(files[0].read_bytes()).hexdigest() + ".parquet")
+        self.assertEqual(files[0].name, "2026-09-18.parquet")
         frame = pd.read_parquet(files[0])
         self.assertEqual(len(frame), 1)
         self.assertTrue(set(DEPTH_COLUMNS).issubset(frame.columns))

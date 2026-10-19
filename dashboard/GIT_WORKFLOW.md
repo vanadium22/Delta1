@@ -28,3 +28,5 @@ git ls-remote --heads origin codex/company-apps
 新离线 bundle 命名为 `company-apps-numeric-20261019.bundle`，仅包含本次统一分支代码增量，以 `f8c1d2f` 为前提提交。保存在本机 `dashboard/runtime/distribution/`，不上传业务数据。公司默认在线 pull，无需反复导入 bundle。
 
 旧数据 zip 保留为独立私有数据交付，不加入 Git 或公开 bundle。安装需显式使用 dashboard 专属增量安装器，不解压覆盖公司 data。
+
+2026-10-19 短文件名后续交付：新增 `company-apps-shortfiles-20261019.bundle`，仍以 `f8c1d2f` 为前提，包含数字版接入及本次后台修复。新数据 ZIP `dashboard-data-short-v2-20261019.zip` 单独私有交付，不加入 bundle/Git。公司步骤见 SHORT_FILENAMES.md。当前真实发布 SHA 与包校验记录见本机 `.deps/numeric_integration/short_release/`。

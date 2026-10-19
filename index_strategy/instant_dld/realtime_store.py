@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-import tempfile
 import time
 import uuid
 
@@ -16,6 +15,7 @@ import pyarrow.parquet as pq
 
 from .quotes import DEPTH_COLUMNS, IDENTITY_COLUMNS, QUOTE_COLUMNS, MARKET_NUMERIC, MARKET_TEXT, normalize_quote, update_volume
 from .raw_store import publish_raw_batch
+from .short_files import publish_bytes
 
 DEFAULT_OUTPUT = Path("Z:/Project_data/realtime_market")
 DB_RELATIVE = Path("live/quotes.sqlite3")
@@ -78,36 +78,12 @@ class WriterLock:
             self.stream.close()
 
 
-def publish_parquet(table: pa.Table, directory: Path, prefix: str) -> Path:
+def publish_parquet(table: pa.Table, directory: Path, prefix: str, *, reuse=True) -> Path:
     """Readers can discover only a closed, fsynced file; existing files stay intact."""
     buffer = pa.BufferOutputStream()
     pq.write_table(table, buffer, compression="zstd")
     contents = buffer.getvalue().to_pybytes()
-    digest = hashlib.sha256(contents).hexdigest()
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{prefix}.{digest}.parquet"
-    if target.exists():
-        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-            raise OSError(f"已发布文件校验失败：{target}")
-        return target
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=directory, prefix=".publishing-", suffix=".tmp", delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(contents)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.rename(target)
-        if os.name != "nt":
-            descriptor = os.open(directory, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        return target
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    return publish_bytes(contents, directory, prefix, reuse=reuse)
 
 
 class RealtimeStore:
