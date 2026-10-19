@@ -1,0 +1,15 @@
+{
+  "config_status": "proposal_not_connected",
+  "market_scope": ["cn_index", "cn_index_future"],
+  "display_timezone": "Asia/Shanghai",
+  "history_sources": [
+    {"dataset_id": "new_cn_index_bars", "root": "", "enabled": false, "schema_version": "dashboard_bars_v1"},
+    {"dataset_id": "new_cfe_concrete_bars", "root": "", "enabled": false, "schema_version": "dashboard_bars_v1"}
+  ],
+  "realtime_source": {"dataset_id": "new_swhy_cn_live", "root": "", "enabled": false},
+  "reference_root": "",
+  "factor_results_root": "",
+  "default_index_ids": ["000300.SH", "000016.SH", "000905.SH", "000852.SH"],
+  "index_future_roots": ["IF", "IH", "IC", "IM"],
+  "startup_policy": "select_and_validate_new_roots_before_enabling"
+}

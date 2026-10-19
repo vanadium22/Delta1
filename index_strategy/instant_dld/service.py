@@ -155,6 +155,40 @@ class DownloadService:
             raise ContractMappingError("\n".join(errors.values()))
         return [{"symbol": symbol, **resolved[symbol]} for symbol in settings["symbols"]]
 
+    def check_connection(self, value: dict) -> dict:
+        """Probe the actual market API without saving settings or market data."""
+        with self.lock:
+            self._ensure_idle()
+            settings = self.validate(value)
+        resolver = MainContractResolver(Path(settings["mapping_file"]), Path(settings["calendar_file"]),
+                                        store=RealtimeReader(Path(settings["output_dir"])))
+        # Probe one configured symbol using the collector's persisted identity.
+        symbol = settings["symbols"][0]
+        source = resolver.resolve(symbol)["source_symbol"]
+        client = self.client_factory()
+        try:
+            record = client.fetch([source])
+        finally:
+            client.close()
+        status = record["status"]
+        available = status in {"success", "partial", "empty"}
+        if status == "success":
+            message = f"实时行情接口可用，已收到 {source} 的行情。可以开始采集。"
+        elif available:
+            message = f"实时行情接口可达，但 {source} 暂无行情；请核对标的和源数据。"
+        elif status in {"http_error", "business_error", "invalid_json", "invalid_response"}:
+            message = f"已收到接口响应，但行情服务未通过检查（HTTP {record.get('http_status')}，{status}）。请检查服务或权限。"
+        else:
+            message = record.get("hint") or f"实时行情连接检查失败：{record.get('error') or status}"
+        result = {"ok": available, "status": status, "message": message,
+                  "checked_at": record["received_at"], "source_symbol": source,
+                  "http_status": record.get("http_status"), "error": record.get("error"),
+                  "latency_ms": round(record.get("elapsed_seconds", 0) * 1000)}
+        self.log("INFO" if available else "WARNING", message, status="success" if status == "success" else "warning")
+        if result["error"]:
+            self.log("WARNING", result["error"])
+        return result
+
     def _ensure_idle(self) -> None:
         if self.state in ACTIVE_STATES or (self.worker is not None and self.worker.is_alive()):
             raise ConflictError("采集正在运行，请先停止，再修改配置或重新开始")
@@ -241,7 +275,8 @@ class DownloadService:
             if rows:
                 self.stats["quote_sequence"] = rows[-1]["sequence"]
             self.log("INFO" if good else "WARNING",
-                     report["description"] + f"；{self.stats['last_latency_ms']} ms",
+                     report["description"] + f"；{self.stats['last_latency_ms']} ms"
+                     + ("；" + record["hint"] if record.get("hint") else ""),
                      status=report["status"], failed_symbols=report["failed_symbols"], at=report["timestamp"])
 
     def _run(self, settings: dict) -> None:

@@ -159,11 +159,11 @@ class ContractMappingTests(unittest.TestCase):
                 with self.assertRaises(ContractMappingError):
                     self.resolver().resolve("AU.SHF")
 
-    def test_explicit_stock_and_contract_never_touch_mapping_or_calendar(self):
+    def test_stock_and_overseas_symbols_never_touch_domestic_mapping_or_calendar(self):
         resolver = MainContractResolver(self.root / "missing-map.pkl", self.root / "missing-calendar.pkl")
         with patch.object(resolver, "_stamp", side_effect=AssertionError("unexpected file access")):
             resolved, errors = resolver.resolve_many([
-                "000001.SZ", "603110.SH", "AU2610.SHF", "IF2609.CFE",
+                "000001.SZ", "603110.SH",
                 "GC.CMX", "CL.NYM", "ES.CME", "AAPL.US",
             ])
         self.assertEqual(errors, {})

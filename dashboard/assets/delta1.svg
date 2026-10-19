@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Delta1 · 指数观察</title>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#202329"/>
+  <path d="M128 45 219 204H37L128 45Zm0 49-48 84h96l-48-84Z" fill="#e6c27e" fill-rule="evenodd"/>
+  <path d="m148 120 48 84h23l-59-103Z" fill="#94b8d5"/>
+  <path d="m84 159 28-23 23 12 34-42" fill="none" stroke="#edeff3" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

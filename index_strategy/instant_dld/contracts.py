@@ -14,6 +14,7 @@ from .quotes import CHINA
 DEFAULT_MAPPING_FILE = Path("Z:/Project_data/future_investment/data/raw/day/main/month_contract_code.pkl")
 DEFAULT_CALENDAR_FILE = Path("Z:/Project_data/future_investment/data/normalization/Date.pkl")
 MAIN_SYMBOL = re.compile(r"([A-Z]+)\.(SHF|DCE|CZC|INE|CFE|GFE)\Z")
+FUTURES_CONTRACT = re.compile(r"[A-Z]+\d{3,4}\.(SHF|DCE|CZC|INE|CFE|GFE)\Z")
 
 
 class ContractMappingError(ValueError):
@@ -112,7 +113,10 @@ class MainContractResolver:
     def resolve(self, symbol: str, at: datetime | None = None) -> dict:
         matched = MAIN_SYMBOL.fullmatch(symbol)
         if matched is None:
-            return {"source_symbol": symbol, "mapping_date": None, "trading_date": None}
+            # A concrete domestic future still has a night-session trading date.
+            # It needs the source calendar, never the daily main-contract mapping.
+            trade_day = self.trading_dates(symbol, at or self.now())[0] if FUTURES_CONTRACT.fullmatch(symbol) else None
+            return {"source_symbol": symbol, "mapping_date": None, "trading_date": trade_day}
         trade_day, map_day = self.trading_dates(symbol, at or self.now())
         key = symbol, trade_day
         if key in self._pinned:

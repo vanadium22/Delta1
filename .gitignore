@@ -52,3 +52,7 @@ index_strategy/data_dld/wind_test_report_*.md
 *.part
 .DS_Store
 Thumbs.db
+
+# Native dashboard machine artifacts and published snapshots.
+dashboard/runtime/
+dashboard/*.lnk

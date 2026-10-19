@@ -1,0 +1,24 @@
+{
+  "dataset_id": "new_cfe_concrete_bars",
+  "source_id": "replace_with_verified_provider",
+  "schema_version": "dashboard_bars_v1",
+  "timezone": "UTC",
+  "timestamp_semantics": "bar_end",
+  "series_kind": "concrete",
+  "price_adjustment": "none",
+  "volume_unit": "source_native_unverified",
+  "availability_policy": "unknown",
+  "instruments": {
+    "IC2610.CFE": {
+      "asset_type": "cn_index_future",
+      "market_region": "CN",
+      "currency": "CNY",
+      "price_unit": "index_points",
+      "source_time_precision": "unverified",
+      "underlying_id": "000905.SH",
+      "calendar_id": "new_verified_cfe_calendar",
+      "listing_and_expiry_verified": false
+    }
+  },
+  "example_only": true
+}

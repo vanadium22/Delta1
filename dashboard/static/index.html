@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light"><title>Delta1 · 市场观察</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script>
+</head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="Delta1 首页"><span class="brand-mark">Δ</span><span>Delta<span class="brand-one">1</span><small>MARKET OBSERVATORY</small></span></a>
+  <div class="workspace-label">研究工作台 <span>LOCAL</span></div>
+  <nav aria-label="主导航">
+    <button class="nav-item active" data-page="overview"><span class="nav-icon">◫</span>市场总览<span class="nav-dot"></span></button>
+    <button class="nav-item" data-page="futures"><span class="nav-icon">⌁</span>期货结构</button>
+    <button class="nav-item" data-page="formulas"><span class="nav-icon serif">ƒ</span>公式中心<span class="small-tag">PY</span></button>
+    <button class="nav-item" data-page="archive"><span class="nav-icon">◷</span>结果与回放</button>
+    <div class="nav-divider"></div>
+    <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span>数据与任务</button>
+  </nav>
+  <div class="sidebar-bottom"><span class="status-light" id="connection-light"></span><span id="connection-text">正在连接</span><p>行情采集 · 指标计算 · 持续观察</p><span class="version">初版 0.1 / 本机工作区</span></div>
+</aside>
+<div class="app-shell">
+  <header class="topbar"><div class="breadcrumb">研究工作台 <span>/</span> <strong id="breadcrumb">市场总览</strong></div><div class="topbar-right"><span id="clock">—</span><span class="local-chip">本机</span></div></header>
+  <main>
+    <div class="page-heading"><div><div class="eyebrow" id="eyebrow">MARKET OVERVIEW</div><h1 id="page-title">看见变化，追踪依据。</h1><p id="page-subtitle">关联期货、指数与 ETF，把每一次观察留下来。</p></div><div class="heading-actions"><span id="collect-badge" class="badge neutral">采集未启动</span><button class="button" id="refresh">↻ 刷新</button><button class="button primary" data-go="settings">管理数据源 <span>↗</span></button></div></div>
+    <div id="global-error" class="error-box" hidden></div>
+    <section id="page-overview" class="page">
+      <div id="index-cards" class="index-grid"></div>
+      <div class="quality-strip"><span class="quality-dot"></span><strong>观察口径</strong><span>上游未提供完整行情日期；接收状态与休市缓存分别标注，指标仅作观察。</span><button class="text-button" data-go="settings">查看数据状态 →</button></div>
+      <div class="overview-grid">
+        <section class="panel market-panel"><div class="panel-heading"><div><h2>行情观察 <span id="quote-count" class="count">0</span></h2><p>按实际合约去重 · 数量保持来源单位</p></div><input id="market-search" class="search" placeholder="搜索代码 / 名称" aria-label="搜索行情"></div>
+          <div class="tabs" id="market-tabs"><button class="active" data-filter="全部">全部</button><button data-filter="股指">股指期货</button><button data-filter="ETF">ETF</button><button data-filter="指数">指数</button><button data-filter="商品">商品</button><button data-filter="股票">股票</button></div>
+          <div class="table-scroll market-table-scroll"><table><thead><tr><th>标的 / 合约</th><th class="number">最新价</th><th class="number">观察期变化</th><th class="number">区间数量</th><th class="number">买卖价差</th><th>数据状态</th></tr></thead><tbody id="market-body"></tbody></table></div>
+          <div class="panel-foot"><span id="market-time">等待数据</span><span>变化基于最近采样窗口，不是日涨跌幅</span></div>
+        </section>
+        <div class="right-stack"><section class="panel curve-panel"><div class="panel-heading"><div><h2>IC 期限结构</h2><p>各到期月份的一档中间价</p></div><button class="icon-button" data-go="futures" aria-label="打开期货结构">↗</button></div><div id="overview-curve" class="chart curve-chart"></div><div id="curve-note" class="chart-caption"></div></section>
+          <section class="panel selected-panel"><div class="panel-heading"><div><h2 id="selected-name">选择一个标的</h2><p id="selected-code">查看采样轨迹与盘口</p></div><span id="selected-quality"></span></div><div id="selected-chart" class="chart mini-detail-chart"></div><div class="quote-detail" id="selected-details"></div></section>
+        </div>
+      </div>
+      <div class="section-heading"><div><h2>自定义指标 <span class="tiny-label">后台持续计算</span></h2><p>发布公式后自动加入这里；结果保留版本与输入依据。</p></div><button class="button" data-go="formulas">＋ 新增公式</button></div><div class="factor-grid" id="factor-cards"></div>
+    </section>
+    <section id="page-futures" class="page" hidden>
+      <div class="toolbar"><div class="segmented" id="root-tabs"><button class="active" data-root="IC">IC 中证500</button><button data-root="IF">IF 沪深300</button><button data-root="IH">IH 上证50</button><button data-root="IM">IM 中证1000</button></div><span class="muted">价差口径：近月 − 远月</span></div>
+      <div id="futures-cards" class="index-grid"></div>
+      <div class="futures-grid"><section class="panel"><div class="panel-heading"><div><h2>期限结构</h2><p>按到期月份排序 · 原始价格，不做换月复权</p></div><span class="badge amber">源时间未认证</span></div><div id="futures-curve" class="chart large-chart"></div></section>
+      <section class="panel"><div class="panel-heading"><div><h2>跨期价差矩阵</h2><p>买入 = 近月卖一 − 远月买一；卖出为反向盘口</p></div></div><div class="table-scroll"><table><thead><tr><th>近月 / 远月</th><th class="number">最新价差</th><th class="number">买入</th><th class="number">卖出</th></tr></thead><tbody id="spread-body"></tbody></table></div><div class="panel-foot">未扣除手续费与冲击成本，缓存及错位报价不能视为可成交机会。</div></section></div>
+      <section class="panel mapping-panel"><div class="panel-heading"><div><h2>合约身份</h2><p>00 / 01 / 02 / 03 为本地近月顺序别名，分别对应第一至第四个到期月份。</p></div><button class="button" id="load-universe">核验规则候选</button></div><div id="mapping-list" class="mapping-list"></div><div id="universe-note" class="panel-foot">主力映射与近月顺序独立；不会把成交量领先自动认定为主力。</div></section>
+    </section>
+    <section id="page-formulas" class="page" hidden>
+      <div class="formula-layout"><aside class="formula-library"><h2>从一个模板开始</h2><p class="muted">选择、修改，再加入你的看板。</p><div id="template-list"></div><div class="section-heading compact"><h2>已发布</h2></div><div id="published-list"></div></aside>
+        <section class="panel editor-panel"><div class="panel-heading"><div><h2>指标编辑器</h2><p>受限 Python · 独立进程 · 最长运行 3 秒</p></div><span class="badge neutral" id="editor-version">未发布草稿</span></div>
+          <form id="formula-form"><div class="form-grid"><label>公式名称<input id="formula-name" required maxlength="60"></label><label>唯一 ID<input id="formula-id" required pattern="[a-z][a-z0-9_]{0,49}"></label><label>输入标的<input id="formula-symbols" required placeholder="IC00.CFE, IC01.CFE"></label><label>输出单位<input id="formula-unit" maxlength="20"></label></div>
+          <label class="block-label">参数 <span>JSON 对象</span><textarea id="formula-params" class="params-input" spellcheck="false" rows="3"></textarea></label>
+          <div class="code-header"><span>PYTHON</span><span>compute(quotes, history, params)</span></div><textarea id="formula-code" class="code-editor" spellcheck="false" aria-label="Python 公式代码"></textarea>
+          <div class="code-help">支持四则运算、if、字典，以及 abs / min / max / round / mean / stdev / sma 等函数。sma 使用采样条数；不支持 import、循环和文件操作。</div>
+          <div id="formula-error" class="error-box" hidden></div><div class="editor-actions"><button type="button" class="button" id="preview-formula">▷ 试算当前数据</button><button type="submit" class="button primary" id="publish-formula">发布并加入看板 →</button></div></form>
+          <div class="preview-area"><div class="section-heading compact"><h2>试算结果</h2><span id="preview-quality" class="muted">尚未试算</span></div><div id="preview-values" class="preview-values"><p class="muted">先验证数值，再发布版本。编辑中的内容尚未保存。</p></div></div>
+        </section>
+      </div>
+    </section>
+    <section id="page-archive" class="page" hidden>
+      <div class="archive-stats" id="archive-stats"></div><section class="panel"><div class="panel-heading"><div><h2>计算记录</h2><p>点击记录查看当时的输入合约、行情时间与公式版本。</p></div><div class="inline-controls"><label class="inline-label">交易日<input id="history-day" type="date" aria-label="按交易日筛选"></label><button class="button" id="history-search">查询</button><button class="button" id="flush-results">立即归档</button></div></div><div class="table-scroll"><table><thead><tr><th>计算时刻</th><th>指标 / 版本</th><th>交易日</th><th>结果</th><th>状态</th><th>归档</th></tr></thead><tbody id="history-body"></tbody></table></div><div class="panel-foot">显示最近 250 条。这里回看已保存的计算证据；历史重新计算尚未开放。</div></section>
+    </section>
+    <section id="page-settings" class="page" hidden>
+      <div class="settings-layout"><section class="panel"><div class="panel-heading"><div><h2>数据位置与订阅</h2><p>看板配置独立保存；行情读写调用 index_strategy。</p></div></div><form id="settings-form" class="settings-form"><label>行情根目录<input id="market-root" required><small>已有目录可直接只读接入；开始采集后由采集模块写入此目录。</small></label><label>看板计算结果目录<input id="results-root" required><small>独立结果库与按交易日组织的 Parquet；切换目录不搬动历史文件。</small></label><div class="form-grid thirds"><label>采集间隔 / 秒<input id="interval" type="number" min="0.5" max="3600" step="0.5"></label><label>接收过期阈值 / 秒<input id="max-age" type="number" min="2" max="3600"></label><label>两腿接收误差 / 秒<input id="max-skew" type="number" min="0.5" max="60" step="0.5"></label></div><label>订阅标的 <small>每行一个或逗号分隔；IC00—03 等为近月顺序别名，AU.SHF 使用主力表。</small><textarea id="symbols" class="symbols-input" rows="6" spellcheck="false"></textarea></label><details><summary>主力映射与交易日历</summary><label>主力映射文件<input id="mapping-file"></label><label>交易日历文件<input id="calendar-file"></label></details><div id="settings-error" class="error-box" hidden></div><div class="editor-actions"><span class="muted">运行中修改前需停止本看板的采集任务</span><button type="submit" class="button primary">保存设置</button></div></form></section>
+      <div class="right-stack"><section class="panel"><div class="panel-heading"><div><h2>采集任务</h2><p>复用采集模块，按别名和实际合约同时保存。</p></div></div><div id="collection-summary" class="collection-summary"></div><div class="collection-actions"><button class="button primary" id="start-collection">开始采集</button><button class="button" id="once-collection">采集一轮</button><button class="button" id="stop-collection">停止</button></div><p class="task-note">关闭页面不会停止后台任务。同一行情目录只允许一个采集写入器；外部采集任务不由本页面停止。</p><div class="log-list" id="collection-log"></div></section><section class="panel"><div class="panel-heading"><div><h2>存储说明</h2><p>行情与看板结果分别管理</p></div></div><div class="storage-description"><p><strong>行情</strong><br>原始 HTTP 记录、实时 SQLite、按标的分片的 Parquet。</p><p><strong>计算结果</strong><br>公式 / 版本 / 年 / 月 / 交易日。首批、每分钟及服务退出时发布分片。</p><p><strong>时间</strong><br>采集日期与期货交易日可能不同；夜盘结果保留交易日身份。</p><div id="old-roots"></div><button class="text-button danger" id="shutdown">停止看板服务并归档</button></div></section></div></div>
+    </section>
+    <footer class="footer"><span>DELTA1 / OBSERVE · EXPLAIN · REVIEW</span><span id="last-update">等待后台读取</span></footer>
+  </main>
+</div>
+<div id="toast" role="status" hidden></div>
+<dialog id="detail-dialog"><div class="dialog-heading"><h2 id="dialog-title">记录详情</h2><button class="icon-button" id="close-dialog" aria-label="关闭详情">×</button></div><div id="dialog-content"></div></dialog>
+</body></html>
