@@ -97,6 +97,21 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(set(self.store.calendar("2026-10-01", "2026-10-07").values()), {0})
 
+    def test_previous_zero_count_validation_is_rechecked_without_quote_download(self):
+        self.sync()
+        before = self.store.quotes(self.start, self.end)
+        previous = self.store.meta("calendar_verification", {})
+        previous.pop("validation_version")
+        self.store.set_meta("calendar_verification", previous)
+        self.store.save_calendar("2026-07-08", "2026-07-08", set())
+        self.provider.calls.clear()
+        self.assertEqual(self.sync()["state"], "complete")
+        self.assertEqual(self.provider.calls, [("calendar", self.start, self.end)])
+        self.assertEqual(self.store.calendar("2026-07-08", "2026-07-08"), {"2026-07-08": 1})
+        self.assertEqual(self.store.quotes(self.start, self.end), before)
+        self.provider.calls.clear()
+        self.assertEqual(self.sync()["requests"], 0)
+
     def test_empty_long_calendar_response_is_not_cached_as_closed_dates(self):
         self.provider.calendar = lambda start, end: []
         with self.assertRaisesRegex(ValueError, "未返回任何交易日"):

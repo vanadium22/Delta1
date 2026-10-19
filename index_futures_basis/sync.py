@@ -10,7 +10,7 @@ import pandas as pd
 
 from .analytics import ROOTS
 from .config import timestamp
-from .wind_worker import CALENDAR_OPTIONS
+from .wind_worker import CALENDAR_OPTIONS, CALENDAR_VALIDATION
 
 
 class Cancelled(Exception):
@@ -67,7 +67,9 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
             all_dates = [str(d.date()) for d in pd.date_range(start, end)]
             cached = store.calendar(start, end)
             verification = store.meta("calendar_verification", {})
-            verified = set(verification.get("dates", [])) if verification.get("options") == CALENDAR_OPTIONS else set()
+            verified = (set(verification.get("dates", []))
+                        if verification.get("options") == CALENDAR_OPTIONS
+                        and verification.get("validation_version") == CALENDAR_VALIDATION else set())
             # Recheck legacy CFFEX/unverified calendar rows once. Quotes are still
             # requested strictly by missing instrument/date/field after this step.
             for batch in segments([d for d in all_dates if d not in cached or d not in verified], all_dates, 400):
@@ -79,7 +81,8 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
                     raise ValueError("Wind 连续两个月未返回任何交易日；本批次不写入，请检查日历权限后重试")
                 store.save_calendar(batch[0], batch[-1], set(opened))
                 verified.update(batch)
-                store.set_meta("calendar_verification", {"options": CALENDAR_OPTIONS, "dates": sorted(verified)})
+                store.set_meta("calendar_verification", {"options": CALENDAR_OPTIONS,
+                               "validation_version": CALENDAR_VALIDATION, "dates": sorted(verified)})
             calendar = [d for d, opened in store.calendar(start, end).items() if opened]
             mapping = store.mappings(start, end)
             for root in ROOTS:

@@ -26,6 +26,20 @@ import json
 from pathlib import Path
 from types import SimpleNamespace as R
 fixture = json.loads(Path(__file__).with_name("sdk_fixture.json").read_text())
+def calendar_days(start, end, options):
+    style = "iso" if "-" in start else "compact"
+    profile = fixture.get("calendar_profile", "iso")
+    wanted = {"iso": ("TradingCalendar=CFFE;Days=Trading", "iso"),
+              "compact": ("TradingCalendar=CFFE;Days=Trading", "compact"),
+              "bare": ("TradingCalendar=CFFE", "compact"),
+              "legacy": ("TradingCalendar=CFFEX;Days=Trading", "compact")}.get(profile)
+    equity = profile == "equity_only" and options in ("", "TradingCalendar=SSE;Days=Trading")
+    if not equity and wanted != (options, style):
+        return []
+    if style == "compact":
+        start = datetime.strptime(start, "%Y%m%d").date().isoformat()
+        end = datetime.strptime(end, "%Y%m%d").date().isoformat()
+    return [datetime.fromisoformat(d) for d in fixture["calendar"] if start <= d <= end]
 class W:
     def start(self, **kwargs):
         print("SDK startup banner must not corrupt JSON")
@@ -35,11 +49,10 @@ class W:
     def stop(self):
         pass
     def tdays(self, start, end, options):
-        assert options == "TradingCalendar=CFFE;Days=Trading"
-        days = [datetime.fromisoformat(d) for d in fixture["calendar"] if start <= d <= end]
+        days = calendar_days(start, end, options)
         return R(ErrorCode=0, Data=[days] if days else [], Times=days, Codes=[], Fields=[])
     def tdayscount(self, start, end, options):
-        days = [d for d in fixture["calendar"] if start <= d <= end]
+        days = calendar_days(start, end, options)
         return R(ErrorCode=0, Data=[[len(days)]], Times=[], Codes=[], Fields=[])
     def wsd(self, code, fields, start, end, options):
         names = fields.split(",")
@@ -121,6 +134,43 @@ class WindDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report["checks"][0]["status"], "FAIL")
         self.assertTrue(any(c["status"] == "SKIP" for c in report["checks"]))
         self.assertNotIn("probe.sqlite", [p.name for p in folder.iterdir()])
+
+    def test_company_zero_calendar_does_not_pass_weekend_or_touch_production(self):
+        self.fixture["calendar_profile"] = "all_zero"
+        (self.sdk / "sdk_fixture.json").write_text(json.dumps(self.fixture), encoding="utf-8")
+        code, report, folder, console = self.run_diagnostic()
+        self.assertEqual(code, 2, console)
+        self.assertEqual(report["checks"][2]["status"], "FAIL")
+        raw = report["checks"][2]["detail"]["raw"]
+        self.assertEqual(len(raw["attempts"]), 5)
+        self.assertEqual(len(raw["controls"]), 3)
+        self.assertTrue(all(item["tdayscount"]["data_sample"] == [[0]] for item in raw["attempts"]))
+        self.assertEqual(report["checks"][3]["status"], "SKIP")
+        self.assertFalse((folder / "probe.sqlite").exists())
+        self.assertEqual(hashlib.sha256(self.production.path.read_bytes()).hexdigest(), self.production_hash)
+
+    def test_verified_futures_profiles_recover_and_complete_real_worker_sync(self):
+        for profile in ("compact", "bare", "legacy"):
+            with self.subTest(profile=profile):
+                self.fixture["calendar_profile"] = profile
+                (self.sdk / "sdk_fixture.json").write_text(json.dumps(self.fixture), encoding="utf-8")
+                code, report, _, console = self.run_diagnostic()
+                self.assertEqual(code, 0, console)
+                raw = report["checks"][2]["detail"]["raw"]
+                self.assertEqual(raw["date_format"], "compact")
+                self.assertGreater(raw["tdayscount"]["data_sample"][0][0], 0)
+                self.assertTrue(all(c["status"] == "PASS" for c in report["checks"]))
+                self.assertEqual(hashlib.sha256(self.production.path.read_bytes()).hexdigest(), self.production_hash)
+
+    def test_working_equity_control_is_not_used_as_futures_calendar(self):
+        self.fixture["calendar_profile"] = "equity_only"
+        (self.sdk / "sdk_fixture.json").write_text(json.dumps(self.fixture), encoding="utf-8")
+        code, report, folder, _ = self.run_diagnostic()
+        self.assertEqual(code, 2)
+        raw = report["checks"][2]["detail"]["raw"]
+        self.assertTrue(any(item["tdayscount"]["data_sample"][0][0] > 0 for item in raw["controls"]))
+        self.assertEqual(report["checks"][3]["status"], "SKIP")
+        self.assertFalse((folder / "probe.sqlite").exists())
 
     def test_hung_sdk_times_out_with_copyable_report(self):
         (self.sdk / "WindPy.py").write_text("import time\ntime.sleep(30)", encoding="utf-8")

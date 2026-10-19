@@ -1,5 +1,5 @@
 import copy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import os
 from pathlib import Path
 import tempfile
@@ -14,9 +14,16 @@ from index_futures_basis.wind_worker import CALENDAR_OPTIONS
 
 
 class CalendarResponseTests(unittest.TestCase):
-    def calendar(self, data, *, error=0, times=(), count=0, start="2026-07-06", end="2026-07-10"):
-        w = SimpleNamespace(tdays=lambda *args: SimpleNamespace(ErrorCode=error, Data=data, Times=times),
-                            tdayscount=lambda *args: SimpleNamespace(ErrorCode=0, Data=[[count]]))
+    def calendar(self, data, *, error=0, times=(), count="auto", start="2026-07-06", end="2026-07-10"):
+        original = data
+        def tdays(first, last, options):
+            if first != start:
+                return SimpleNamespace(ErrorCode=0, Data=[[(date.fromisoformat(start) - timedelta(days=3)).isoformat()]])
+            return SimpleNamespace(ErrorCode=error, Data=original, Times=times)
+        def tdayscount(first, last, options):
+            value = count if count != "auto" else len(data[0] if data and isinstance(data[0], list) else times)
+            return SimpleNamespace(ErrorCode=0, Data=[[1 if first != start else value]])
+        w = SimpleNamespace(tdays=tdays, tdayscount=tdayscount)
         return perform(w, {"operation": "calendar", "start": start, "end": end})
 
     def test_missing_or_malformed_column_is_diagnostic_error(self):
@@ -65,6 +72,10 @@ class CalendarResponseTests(unittest.TestCase):
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, "数量无效"):
                 self.calendar([], count=count)
 
+    def test_nonempty_calendar_must_match_count(self):
+        with self.assertRaisesRegex(ValueError, "不一致"):
+            self.calendar([["2026-07-06"]], count=0)
+
     def test_bad_duplicate_or_out_of_range_dates_are_rejected(self):
         for values in ([None], ["not-a-date"], ["2026-07-06", "2026-07-06"], ["2026-07-11"]):
             with self.subTest(values=values), self.assertRaisesRegex(ValueError, "未写入"):
@@ -76,6 +87,43 @@ class CalendarResponseTests(unittest.TestCase):
 
 
 class WindProcessTests(unittest.TestCase):
+    def test_silent_zero_service_cannot_overwrite_calendar_or_existing_quotes(self):
+        from index_futures_basis.store import Store
+        from index_futures_basis.sync import synchronize
+        from index_futures_basis.tests.test_sync import FakeProvider
+        source = '''
+from types import SimpleNamespace as R
+class W:
+    def start(self, **kwargs):
+        return R(ErrorCode=0)
+    def tdays(self, *args):
+        return R(ErrorCode=0, Data=[], Times=[])
+    def tdayscount(self, *args):
+        return R(ErrorCode=0, Data=[[0]])
+    def stop(self):
+        pass
+w = W()
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "WindPy.py").write_text(source, encoding="utf-8")
+            store = Store(Path(folder) / "market.sqlite")
+            store.save_rows("quotes", [("000300.SH", "2026-10-16", "close", 3900)])
+            store.save_calendar("2026-10-16", "2026-10-16", {"2026-10-16"})
+            before = store.quotes("2026-10-16", "2026-10-18")
+            with patch.dict(os.environ, {"PYTHONPATH": folder}):
+                provider = WindProvider(copy.deepcopy(DEFAULTS))
+                combined = FakeProvider()
+                combined.calendar = provider.calendar
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "不能据此认定周末或节假日"):
+                        synchronize(store, combined, "2026-10-16", "2026-10-18")
+                    self.assertEqual(store.calendar("2026-10-16", "2026-10-18"), {"2026-10-16": 1})
+                    self.assertEqual(store.quotes("2026-10-16", "2026-10-18"), before)
+                    self.assertEqual(store.meta("calendar_verification", {}), {})
+                    self.assertEqual(combined.calls, [])
+                finally:
+                    provider.close()
+
     def test_weekend_empty_worker_result_then_monday_incremental_update(self):
         from index_futures_basis.store import Store
         from index_futures_basis.sync import synchronize
@@ -90,7 +138,7 @@ class W:
         days = [d for d in ["2026-07-10", "2026-07-13"] if start <= d <= end]
         return R(ErrorCode=0, Data=[days] if days else [], Times=days)
     def tdayscount(self, start, end, options):
-        return R(ErrorCode=0, Data=[[0]])
+        return R(ErrorCode=0, Data=[[sum(start <= d <= end for d in ["2026-07-10", "2026-07-13"])]])
     def stop(self):
         pass
 w = W()
@@ -173,6 +221,8 @@ class W:
         return R(ErrorCode=0)
     def tdays(self, start, end, options):
         return R(ErrorCode=0, Data=[[start]])
+    def tdayscount(self, start, end, options):
+        return R(ErrorCode=0, Data=[[1]])
     def stop(self):
         pass
 w = W()

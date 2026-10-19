@@ -2,6 +2,8 @@
 
 先关闭股指基差 App，并登录公司 Wind 终端。打开 **PowerShell**，按下面两步操作；沿用现有环境，不用重新安装。
 
+已读到你放在 `test/latest.txt` 的公司结果：Wind已连接，但最近90天日历和计数都为零，行情补缺尚未执行。新版增加日期格式/中金所参数对比及日历健康检查；请更新后按下面原命令再运行一次，以确认哪组参数可用，或继续定位Wind日历服务异常。
+
 ## 1. 更新并运行
 
 整段复制到 PowerShell：
@@ -25,6 +27,12 @@ Get-Content -LiteralPath '.\data\diagnostics\index_futures_basis\latest.txt' -Ra
 ```
 
 然后回到聊天窗口，按 **Ctrl+V** 粘贴整份结果。即使有 `FAIL` 或 `SKIP`，也请复制完整内容。
+
+如果继续通过Git反馈txt，在诊断完成后执行以下命令更新 `test/latest.txt`，再按项目Git指南提交、推送这一个结果文件：
+
+```powershell
+Copy-Item -LiteralPath '.\data\diagnostics\index_futures_basis\latest.txt' -Destination '.\test\latest.txt'
+```
 
 如果想先查看结果：
 

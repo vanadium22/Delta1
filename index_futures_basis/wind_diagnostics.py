@@ -16,7 +16,7 @@ import uuid
 
 from .config import ROOT, SHANGHAI, atomic_json, closed_date, load_config
 from .wind import WindProvider
-from .wind_worker import CALENDAR_OPTIONS
+from .wind_worker import CALENDAR_OPTIONS, CALENDAR_VALIDATION
 from shared_data import DataPaths
 
 
@@ -147,13 +147,16 @@ def database_info(path):
             row = con.execute("SELECT value FROM meta WHERE key='calendar_verification'").fetchone()
             verification = json.loads(row[0]) if row else {}
             info["verified_calendar_options"] = verification.get("options")
+            info["calendar_validation_version"] = verification.get("validation_version")
             info["verified_calendar_dates"] = len(verification.get("dates", []))
     return info
 
 
-def check_calendar(provider, detail, first, last, *, closed=False):
-    detail["raw"] = provider.request("diagnostic_calendar", start=first, end=last)
-    days = provider.calendar(first, last)
+def check_calendar(provider, detail, first, last, *, closed=False, controls=False):
+    detail["raw"] = provider.request("diagnostic_calendar", start=first, end=last, controls=controls)
+    if detail["raw"].get("error"):
+        raise ValueError(detail["raw"]["error"])
+    days = detail["raw"]["days"]
     detail.update(normalized_count=len(days), first=days[0] if days else None, last=days[-1] if days else None)
     raw = detail["raw"]["tdayscount"]
     data = raw.get("data_sample", [])
@@ -178,15 +181,18 @@ def run_checks(report, config, paths, root, cutoff, timeout=25, budget=180, holi
                      lambda detail: detail.update(database_info(local_database(root, paths, config))))
         first = (cutoff - timedelta(days=89)).isoformat()
         def recent(detail):
-            days = check_calendar(provider, detail, first, cutoff.isoformat())
+            days = check_calendar(provider, detail, first, cutoff.isoformat(), controls=True)
             if not days:
                 raise ValueError("最近90个自然日均无交易日，不能据此选择行情补缺日期")
             return days
         days = report.check("近期90天交易日历及数量一致性", recent)
         sunday = cutoff - timedelta(days=(cutoff.weekday() + 1) % 7)
-        report.check("最近完整周末：正常零交易日",
-                     lambda detail: check_calendar(provider, detail, (sunday - timedelta(days=1)).isoformat(),
-                                                   sunday.isoformat(), closed=True))
+        if days:
+            report.check("最近完整周末：正常零交易日",
+                         lambda detail: check_calendar(provider, detail, (sunday - timedelta(days=1)).isoformat(),
+                                                       sunday.isoformat(), closed=True))
+        else:
+            report.skip("最近完整周末", "日历健康检查未通过，零返回不能单独证明正常休市")
         if holiday_date:
             holiday = holiday_date.isoformat()
         elif days:
@@ -282,7 +288,8 @@ def main(argv=None):
             packages[name] = "未安装"
     report = Report(folder, {"time_beijing": now.isoformat(), "git_commit": git_version(root),
                             "app_python": sys.executable, "packages": packages, "calendar_options": CALENDAR_OPTIONS,
-                            "probe_database": str(folder / "probe.sqlite")})
+                            "probe_database": str(folder / "probe.sqlite"),
+                            "calendar_validation_version": CALENDAR_VALIDATION})
     print(f"诊断结果目录：{folder}", flush=True)
     try:
         if paths_error:
