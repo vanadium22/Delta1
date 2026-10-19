@@ -130,13 +130,21 @@ class ReportUpdateTests(unittest.TestCase):
         self.assertEqual(actual, "2026-10-08")
         self.assertEqual(check["state"], "complete")
         self.assertEqual(check["requested_cutoff"], "2026-10-11")
+        # Imported legacy calendars receive one CFFE verification; cached prices
+        # and closed weekend dates must not trigger any quote downloads.
+        self.assertEqual([c[0] for c in self.provider.calls], ["calendar"])
+        self.assertEqual(self.provider.calls[0][-1], "2026-10-11")
+        self.provider.calls.clear()
+        with patch("index_futures_basis.service.closed_date", return_value="2026-10-11"):
+            self.service.prepare_report()
         self.assertEqual(self.provider.calls, [])
 
     def test_explicit_history_stays_selected_and_does_not_fetch_today(self):
         actual, check = self.service.prepare_report("2026-10-06")
         self.assertEqual(actual, "2026-10-06")
         self.assertEqual(check["state"], "complete")
-        self.assertEqual(self.provider.calls, [])
+        self.assertEqual([c[0] for c in self.provider.calls], ["calendar"])
+        self.assertEqual(self.provider.calls[0][-1], "2026-10-06")
         self.provider.missing.add(("000905.SH", "2026-10-08", "close"))
         actual, check = self.service.prepare_report("2026-10-08")
         self.assertEqual(actual, "2026-10-08")

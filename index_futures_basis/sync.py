@@ -10,6 +10,7 @@ import pandas as pd
 
 from .analytics import ROOTS
 from .config import timestamp
+from .wind_worker import CALENDAR_OPTIONS
 
 
 class Cancelled(Exception):
@@ -65,7 +66,11 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
         try:
             all_dates = [str(d.date()) for d in pd.date_range(start, end)]
             cached = store.calendar(start, end)
-            for batch in segments([d for d in all_dates if d not in cached], all_dates, 400):
+            verification = store.meta("calendar_verification", {})
+            verified = set(verification.get("dates", [])) if verification.get("options") == CALENDAR_OPTIONS else set()
+            # Recheck legacy CFFEX/unverified calendar rows once. Quotes are still
+            # requested strictly by missing instrument/date/field after this step.
+            for batch in segments([d for d in all_dates if d not in cached or d not in verified], all_dates, 400):
                 progress(f"检查交易日历 {batch[0]} 至 {batch[-1]}")
                 opened = call("calendar", batch[0], batch[-1])
                 if len(opened) != len(set(opened)) or any(d not in batch for d in opened):
@@ -73,6 +78,8 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
                 if len(batch) >= 60 and not opened:
                     raise ValueError("Wind 连续两个月未返回任何交易日；本批次不写入，请检查日历权限后重试")
                 store.save_calendar(batch[0], batch[-1], set(opened))
+                verified.update(batch)
+                store.set_meta("calendar_verification", {"options": CALENDAR_OPTIONS, "dates": sorted(verified)})
             calendar = [d for d, opened in store.calendar(start, end).items() if opened]
             mapping = store.mappings(start, end)
             for root in ROOTS:
@@ -161,7 +168,9 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
             state = "complete" if not errors and not coverage["missing_fields"] else "partial"
             if not calendar:
                 state = "empty"
-            message = "数据齐全，未重复下载行情" if requests == 0 else f"本次请求{requests}批，剩余{coverage['missing_fields']}个缺失字段"
+            message = ("所选区间无交易日（周末或节假日），检查完成，无需补齐行情" if not calendar else
+                       "数据齐全，未重复下载行情" if requests == 0 else
+                       f"本次请求{requests}批，剩余{coverage['missing_fields']}个缺失字段")
             if errors:
                 message += "；" + "；".join(errors[:8])
             store.set_meta("source", {"kind": "wind", "label": "Wind 日线", "checked_at": timestamp()})

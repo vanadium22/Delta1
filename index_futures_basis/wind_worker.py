@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import contextlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 import math
 import re
@@ -35,29 +35,71 @@ def series(w, code, fields, start, end, options="Period=D;Days=Trading;Fill=Blan
     return {day: {field: result.Data[actual.index(field)][i] for field in fields} for i, day in enumerate(days)}
 
 
-def calendar(w, start, end):
-    options = "TradingCalendar=CFFEX"
-    context = f"Wind TDAYS({start!r}, {end!r}, {options!r})"
-    result = check(w.tdays(start, end, options), context)
+CALENDAR_OPTIONS = "TradingCalendar=CFFE;Days=Trading"
+
+
+def calendar_dates(result, context, start, end):
     data = getattr(result, "Data", None)
+    times = getattr(result, "Times", [])
     columns = len(data) if isinstance(data, (list, tuple)) else None
     lengths = [len(c) if isinstance(c, (list, tuple)) else type(c).__name__
                for c in data[:4]] if columns is not None else []
 
     def reject(reason):
         raise ValueError(f"{context}；{reason}；DataColumns={columns}；DataLengths={lengths!r}；"
-                         "本批交易日历未写入，请确认Wind终端在线及CFFEX日历权限后重试。")
+                         "本批交易日历未写入，请确认Wind终端在线及CFFE日历权限后重试。")
 
-    # A missing column is an incomplete response, not proof that the entire
-    # requested interval was closed. An explicit [[]] is a valid empty calendar.
-    if columns != 1 or not isinstance(data[0], (list, tuple)):
+    # WindData.set can keep Data=[] when its dimensions are zero. TDAYS also
+    # exposes the returned calendar dates in Times; preserve those when present.
+    if columns not in (0, 1) or (columns == 1 and not isinstance(data[0], (list, tuple))):
         reject("交易日历返回为空或结构不完整")
+    if not isinstance(times, (list, tuple)):
+        reject("交易日历Times结构无效")
     try:
-        days = [iso(day) for day in data[0]]
+        days = [iso(day) for day in data[0]] if columns else []
+        time_days = [iso(day) for day in times]
     except (ValueError, TypeError, OverflowError):
         reject("交易日历包含无效日期")
-    if len(set(days)) != len(days) or any(not start <= day <= end for day in days):
-        reject("交易日历日期重复或超出请求范围")
+    for values in (days, time_days):
+        if len(set(values)) != len(values) or any(not start <= day <= end for day in values):
+            reject("交易日历日期重复或超出请求范围")
+    if days and time_days and sorted(days) != sorted(time_days):
+        reject("交易日历Data与Times不一致")
+    return sorted(days or time_days)
+
+
+def calendar(w, start, end):
+    context = f"Wind TDAYS({start!r}, {end!r}, {CALENDAR_OPTIONS!r})"
+    result = check(w.tdays(start, end, CALENDAR_OPTIONS), context)
+    days = calendar_dates(result, context, start, end)
+    if days:
+        return days
+
+    # An empty TDAYS result may be a genuine weekend/holiday. Ask Wind for its
+    # trading-day count instead of guessing from weekdays or rejecting empties.
+    count_context = f"Wind TDAYSCOUNT({start!r}, {end!r}, {CALENDAR_OPTIONS!r})"
+    counted = check(w.tdayscount(start, end, CALENDAR_OPTIONS), count_context)
+    data = getattr(counted, "Data", None)
+    count = (data[0][0] if isinstance(data, (list, tuple)) and len(data) == 1
+             and isinstance(data[0], (list, tuple)) and len(data[0]) == 1 else None)
+    span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    if (isinstance(count, bool) or not isinstance(count, (int, float)) or not math.isfinite(count)
+            or count < 0 or not float(count).is_integer() or count > span):
+        raise ValueError(f"{count_context}；交易日数量无效，不能确认空结果是否休市；本批交易日历未写入。")
+    if count == 0:
+        return []
+
+    # Count says the interval is open: retry once with surrounding dates, then
+    # filter back to the original request. Never cache an unconfirmed closure.
+    first = (date.fromisoformat(start) - timedelta(days=14)).isoformat()
+    last = (date.fromisoformat(end) + timedelta(days=14)).isoformat()
+    retry_context = f"Wind TDAYS({first!r}, {last!r}, {CALENDAR_OPTIONS!r})"
+    retry = check(w.tdays(first, last, CALENDAR_OPTIONS), retry_context)
+    surrounding = calendar_dates(retry, retry_context, first, last)
+    days = [day for day in surrounding if start <= day <= end]
+    if len(days) != int(count):
+        raise ValueError(f"{context}；TDAYSCOUNT确认{int(count)}个交易日，扩窗重试仅返回{len(days)}个；"
+                         "日历返回不一致，本批交易日历未写入，请稍后重试。")
     return days
 
 

@@ -75,6 +75,28 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(self.sync()["requests"], 0)
         self.assertEqual(self.provider.calls, [])
 
+    def test_legacy_closed_calendar_is_rechecked_without_redownloading_quotes(self):
+        self.sync()
+        before = self.store.quotes(self.start, self.end)
+        self.store.set_meta("calendar_verification", {})
+        self.store.save_calendar("2026-07-08", "2026-07-08", set())
+        self.provider.calls.clear()
+        self.assertEqual(self.sync()["state"], "complete")
+        self.assertEqual(self.provider.calls, [("calendar", self.start, self.end)])
+        self.assertEqual(self.store.calendar(self.start, self.end)["2026-07-08"], 1)
+        self.assertEqual(self.store.quotes(self.start, self.end), before)
+        self.provider.calls.clear()
+        self.assertEqual(self.sync()["requests"], 0)
+
+    def test_weekday_holiday_is_saved_closed_without_requesting_quotes(self):
+        self.provider.calendar = lambda start, end: []
+        result = synchronize(self.store, self.provider, "2026-10-01", "2026-10-07")
+        self.assertEqual(result["state"], "empty")
+        self.assertIn("周末或节假日", result["message"])
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(set(self.store.calendar("2026-10-01", "2026-10-07").values()), {0})
+
     def test_empty_long_calendar_response_is_not_cached_as_closed_dates(self):
         self.provider.calendar = lambda start, end: []
         with self.assertRaisesRegex(ValueError, "未返回任何交易日"):
