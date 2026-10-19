@@ -52,6 +52,23 @@ class FormatTests(unittest.TestCase):
 
 
 class DesktopTests(unittest.TestCase):
+    def test_startup_checks_once_and_refresh_does_not_repeat_sync(self):
+        self.window._auto_sync_pending = True
+        with patch.object(self.service, "start_sync", return_value={"state": "running"}) as start:
+            self.window.refresh_catalog()
+            deadline = time.monotonic() + 10
+            while not start.called and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+            start.assert_called_once_with(only_missing=True)
+            self.service.job = {"state": "error", "error": "离线测试"}
+            self.window.poll_sync()
+            self.wait_idle()
+            self.window.refresh_catalog()
+            self.wait_idle()
+            start.assert_called_once()
+        self.assertIsNotNone(self.window.result)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

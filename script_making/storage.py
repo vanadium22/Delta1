@@ -213,7 +213,7 @@ def _save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str)
     return {"date": day, "files": manifest["files"], "saved_dir": str(folder.resolve())}
 
 
-def sync_reports(values: dict, data_dir: Path, as_of: date | None = None) -> dict:
+def sync_reports(values: dict, data_dir: Path, as_of: date | None = None, *, only_missing=False) -> dict:
     if not values.get("source_root"):
         raise ReportError("请先在「数据与同步」中设置共享来源目录。")
     root = Path(values["source_root"])
@@ -231,6 +231,23 @@ def sync_reports(values: dict, data_dir: Path, as_of: date | None = None) -> dic
         if not days:
             raise ReportError("共享目录内没有早于今天的日期文件夹。")
         day = max(days).isoformat()
+        if only_missing:
+            manifest = manifest_for(data_dir / day)
+            valid = True
+            for kind in REPORTS:
+                path = data_dir / day / filename(kind, day)
+                entry = manifest.get("files", {}).get(kind, {})
+                try:
+                    if not path.is_file() or not entry.get("sha256") or sha256(path) != entry["sha256"]:
+                        valid = False
+                        break
+                    validate_workbook(path, kind)
+                except (ReportError, OSError):
+                    valid = False
+                    break
+            if valid:
+                return {**manifest, "reused": True,
+                        "selection_rule": "早于今日的最新日期目录（依赖上游按交易日生成）"}
         sources = {kind: root / day / filename(kind, day) for kind in REPORTS}
         missing = [p.name for p in sources.values() if not p.is_file()]
         if missing:

@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from datetime import date
 from pathlib import Path
 from urllib.error import HTTPError
@@ -185,6 +186,32 @@ class FileTests(unittest.TestCase):
         self.assertEqual(result["date"],"2026-10-16")
         self.assertEqual(len(result["files"]),2)
 
+    def test_auto_sync_downloads_missing_then_reuses_verified_pair(self):
+        source, destination = self.root / "source", self.root / "saved"
+        self.pair(source, "2026-09-30")
+        values = {"source_root": str(source)}
+        # The upstream date folders cover exchange holidays, not a weekday guess.
+        result = sync_reports(values, destination, date(2026, 10, 8), only_missing=True)
+        self.assertEqual(result["date"], "2026-09-30")
+        with patch("script_making.storage.shutil.copyfile", side_effect=AssertionError("unexpected copy")):
+            result = sync_reports(values, destination, date(2026, 10, 8), only_missing=True)
+        self.assertTrue(result["reused"])
+        (destination / result["date"] / filename("review", result["date"])).unlink()
+        result = sync_reports(values, destination, date(2026, 10, 8), only_missing=True)
+        self.assertTrue((destination / result["date"] / filename("review", result["date"])).is_file())
+        self.pair(source, "2026-10-08")
+        result = sync_reports(values, destination, date(2026, 10, 9), only_missing=True)
+        self.assertEqual(result["date"], "2026-10-08")
+
+    def test_auto_sync_does_not_trust_changed_local_file(self):
+        source, destination = self.root / "source", self.root / "saved"
+        self.pair(source, "2026-10-16")
+        values = {"source_root": str(source)}
+        sync_reports(values, destination, date(2026, 10, 19), only_missing=True)
+        (destination / "2026-10-16" / filename("review", "2026-10-16")).write_text("corrupted")
+        with self.assertRaisesRegex(ReportError, "已保留原文件"):
+            sync_reports(values, destination, date(2026, 10, 19), only_missing=True)
+
     def test_missing_latest_pair_never_silently_falls_back(self):
         source = self.root/"source"
         self.pair(source,"2026-10-14")
@@ -230,6 +257,12 @@ class FileTests(unittest.TestCase):
         self.assertEqual(application.job["state"], "success", application.job)
         self.assertEqual(application.job["result"]["date"], "2000-01-07")
         self.assertTrue(catalog(application.settings)["dates"][0]["complete"])
+        application.start_sync(only_missing=True)
+        deadline = time.monotonic() + 15
+        while application.job["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertEqual(application.job["state"], "success", application.job)
+        self.assertTrue(application.job["result"]["reused"])
 
     def test_loopback_api_settings_query_and_foreign_origin(self):
         application=Application(self.root/"app")

@@ -59,24 +59,24 @@ class ReportService:
         with self.lock:
             return dict(self.job)
 
-    def start_sync(self):
+    def start_sync(self, *, only_missing=False):
         with self.lock:
             if self.job["state"] == "running":
                 return dict(self.job)
             if not self.settings.get().get("source_root"):
                 raise ReportError("请先在「数据与同步」中设置共享来源目录。")
             self.job = {"state": "running", "started_at": timestamp()}
-        threading.Thread(target=self._sync, daemon=True).start()
+        threading.Thread(target=self._sync, kwargs={"only_missing": only_missing}, daemon=True).start()
         return self.sync_status()
 
-    def _sync(self):
+    def _sync(self, *, only_missing=False):
         try:
             executable = Path(sys.executable)
             if executable.name.lower() == "pythonw.exe":
                 executable = executable.with_name("python.exe")
             completed = subprocess.run(
                 [str(executable), "-X", "utf8", "-m", "script_making.sync_worker",
-                 "--root", str(self.settings.root)],
+                 "--root", str(self.settings.root), *(["--only-missing"] if only_missing else [])],
                 cwd=Path(__file__).parent.parent, capture_output=True,
                 text=True, encoding="utf-8", timeout=45,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
