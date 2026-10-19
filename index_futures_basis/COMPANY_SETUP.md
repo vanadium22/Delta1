@@ -30,7 +30,7 @@
 
 ## 拿到后续更新
 
-公司已完成 Git 迁移。保持在 **`codex/company-apps`**，关闭 App，在仓库根目录一次更新所有已发布模块。本机 `data`、`inputs`、`exports`、`config.local.json`、`python.local.txt` 由 Git 忽略规则保留：
+公司已完成 Git 迁移。开发、更新、提交、推送和公司运行均保持在 **`codex/company-apps`**。关闭 App，在仓库根目录一次更新所有已发布模块；可复制命令见 [Git操作指南](../Git操作指南.md)。本机 `data`、`inputs`、`exports`、`config.local.json`、`python.local.txt` 由 Git 忽略规则保留：
 
 ```powershell
 Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'

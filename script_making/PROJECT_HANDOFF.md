@@ -1,5 +1,11 @@
 # script_making 项目交接
 
+## 2026-10-19 长期统一分支约定
+
+用户明确要求：所有App以后都在 `codex/company-apps` 开发、更新、提交和推送，不再使用模块独立开发分支。此约定覆盖本文历史记录中的旧流程；优先复用统一分支的现有目录，保护其他目录未提交工作。具体命令见根目录 [Git操作指南](../Git操作指南.md)。
+
+本次仅同步项目约定、README及后续开发说明；检查Git差异、链接和旧流程残留，业务代码未改，不重复业务测试。提交与发布记录见根目录 COMPANY_SYNC.md。
+
 ## 2026-10-19 启动自动检查前一交易日报表
 
 - 正常打开桌面App后，先加载本地目录，同时在现有45秒限时子进程检查共享来源中早于北京时间今日的最新日期目录。沿用上游按交易日生成的既定口径，不用周一至周五猜节假日；界面显示实际报表日期，不将旧目录宣称为经独立日历确认的前一交易日。
@@ -29,7 +35,7 @@
 ## 目录与分支
 
 - 用户原项目：`P:\project\swhy\Delta1\project\script_making`。
-- 复用已有开发目录：`P:\project\swhy\Delta1\script-making-worktree`，分支 `codex/script-making`。原工作目录其他模块有未提交工作，不能混入。
+- 当前统一分支工作目录：`P:\project\swhy\Delta1\company-apps-worktree`，分支 `codex/company-apps`。历史独立目录仍保留；原工作目录其他模块有未提交工作，不能混入。
 - 公司目录：`D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\script_making`，统一分支 `codex/company-apps`。
 - 原始材料留在用户原目录 `materials`，不修改、不提交；旧脚本包含本机设置及登录信息，未运行、导入或复制到正式源码。
 
@@ -82,4 +88,4 @@
 
 先读取本文件、README、模块与仓库 AGENTS，核验分支、worktree、未提交工作，保留原材料及其他模块修改。
 
-完成后更新交接，按明确文件清单提交推送开发分支，再将已验证提交汇总到 `codex/company-apps`，更新根目录 `COMPANY_SYNC.md` 并核验远端。公司始终在统一分支，仓库根目录一次 `git pull --ff-only`。不强推，不用 reset/clean 或强制切换覆盖文件。
+所有App在 `codex/company-apps` 开发。完成后更新交接，按明确文件清单直接提交推送这一分支，更新根目录 `COMPANY_SYNC.md` 并核验远端。公司始终在同一分支，仓库根目录一次 `git pull --ff-only`。具体远端及持续授权见根目录 AGENTS.md；不再建立模块开发分支，不强推，不用 reset/clean 或强制切换覆盖文件。

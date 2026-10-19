@@ -8,9 +8,9 @@ Python + PySide6 原生 Windows 应用，默认入口为 python -m securities_le
 
 后续对话或继续开发，请先读 [项目交接与后续修改入口](PROJECT_HANDOFF.md)：包含已确认业务口径、代码索引、最近修复、验证边界和继续工作流程。
 
-**公司使用 `codex/company-apps`，在仓库根目录一次 `git pull --ff-only` 更新券单、基差和指数策略等全部已发布模块。** `codex/securities-lending` 用于开发；公司运行时保持统一分支。
+**开发、更新、提交、推送和公司运行统一使用 `codex/company-apps`。** 仓库根目录一次 `git pull --ff-only` 更新全部已发布模块；可复制命令见 [Git操作指南](../Git操作指南.md)。
 
-持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，将本次代码、测试和说明提交推送到开发分支，再将本次已验证提交汇总、验证并推送到 `codex/company-apps`，保留其他模块及本机数据。
+持续开发约定见 [AGENTS.md](AGENTS.md)：每次修改后更新 PROJECT_HANDOFF.md，完成验证，将本次代码、测试和说明直接提交推送到 `codex/company-apps`，保留其他模块及本机数据。
 
 
 ## 公司桌面快捷方式（2026-10-16）

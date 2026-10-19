@@ -1,5 +1,11 @@
 # Delta1 股指基差 App：项目交接
 
+## 2026-10-19 长期统一分支约定
+
+用户明确要求：所有App以后都在 `codex/company-apps` 开发、更新、提交和推送，不再使用模块独立开发分支。此约定覆盖本文历史记录中的旧流程；优先复用统一分支的现有目录，保护其他目录未提交工作。具体命令见根目录 [Git操作指南](../Git操作指南.md)。
+
+本次仅同步项目约定、README/公司说明及新对话提示词；检查Git差异、链接和旧流程残留，业务代码未改，不重复业务测试。提交与发布记录见根目录 COMPANY_SYNC.md。
+
 ## 2026-10-19 行情分析接入本地股指期货日线
 
 - 行情分析支持IF/IH/IC/IM的00—03连续档位和实际合约，如if02、IF02.CFE、if2612.cfe；自动大写，期货简码补.CFE。读取当前App配置的永久日线SQLite，沿用单一真实来源回退，演示隔离；不发Wind名称/行情请求，不依赖分红。
@@ -73,9 +79,9 @@
 - 公司集成后完整83项模块回归通过，含自定义目录隔离、分红导入归档及读取后源文件变化时拒绝替换。真实原离线库7695条读取前后一致；原库仅IF/IC/IM，未补造IH。另用已有四品种真实快照在隔离目录验证查询和Qt窗口，未覆盖原库。公共层15项测试通过，另实测Windows一键入口从其他工作目录运行、中文/特殊字符路径、重复执行和原件哈希。家里共迁移30个文件/清单；真实数据及截图保留在忽略目录。
 - 最终公司分支集成回归与提交记录见根目录 COMPANY_SYNC.md。公司真实共享盘、Wind实连及公司电脑脚本执行仍需公司环境验证；本轮没有连接这些来源。
 
-更新日期：2026-10-16。家里实际仓库：`P:\project\swhy\Delta1\project`；已用 `git rev-parse --show-toplevel` 确认。仓库为 https://github.com/vanadium22/Delta1.git ，本模块分支 **`codex/index-futures-basis`**，模块入口 **`python -m index_futures_basis`**。
+分支约定更新日期：2026-10-19。家里主仓库：`P:\project\swhy\Delta1\project`；当前统一分支工作目录为 `P:\project\swhy\Delta1\company-apps-worktree`。每次用 `git rev-parse --show-toplevel` 确认。远端为 https://github.com/vanadium22/Delta1.git ，唯一开发和交付分支 **`codex/company-apps`**，模块入口 **`python -m index_futures_basis`**。
 
-**公司统一使用 `codex/company-apps`，仓库根目录一次 `git pull --ff-only` 更新所有已发布模块。** 模块开发分支完成验证并推送后，还必须将本次已验证提交汇总、验证并推送到公司分支，保留其他模块，更新 COMPANY_SYNC.md。公司已完成迁移并删除解压包备份；日常保持统一分支。
+**开发与公司运行统一使用 `codex/company-apps`，仓库根目录一次 `git pull --ff-only` 更新所有已发布模块。** 在统一分支完成验证后直接提交推送，保留其他模块，更新 COMPANY_SYNC.md。公司已完成迁移并删除解压包备份；日常保持统一分支。
 
 2026-10-15 同步说明修正：用户按旧券单说明切到开发分支，基差源码退出当前检出，仅余本地数据文件夹。现已修正本模块 README、COMPANY_SETUP、AGENTS 和下方完整提示词，避免再次引导公司切分支。本次仅改文档，检查命令、链接及 Git 差异；业务实现保持 `008a31f`，此前测试结果按原记录保留，公司分支本次集成验证另记根目录 COMPANY_SYNC.md。
 
@@ -206,8 +212,8 @@
 - 家里仓库：P:\project\swhy\Delta1\project
 - 公司操作目录参考：D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
 - Git 仓库：https://github.com/vanadium22/Delta1.git
-- 开发分支：codex/index-futures-basis
-- 公司统一分支：codex/company-apps（公司日常保持此分支，仓库根目录一次 git pull --ff-only 更新所有已发布模块）
+- 唯一开发、更新和推送分支：codex/company-apps（公司日常也保持此分支，仓库根目录一次 git pull --ff-only）
+- 家里现有统一分支工作目录：P:\project\swhy\Delta1\company-apps-worktree（以实际Git状态为准，保护其他目录的未提交工作）
 - 核心模块：仓库根目录下的 index_futures_basis
 请根据当前机器确认实际路径，用 git rev-parse --show-toplevel 确认仓库根目录。
 
@@ -226,7 +232,7 @@
 - 公司环境是配置好的 swhy_delta1\python.exe，已安装 Wind 包；说明保持简单，不要求重建环境。
 
 持续交付约定：
-每次修改基差 App 后，同步更新 index_futures_basis/PROJECT_HANDOFF.md，记录行为变化、实际测试与待验证事项，必要时更新使用说明。验证后把本次代码、测试和说明提交推送到 codex/index-futures-basis，再将本次已验证提交汇总、验证并推送到 codex/company-apps，保留公司分支内其他模块，更新 COMPANY_SYNC.md。核验远端公司分支包含本次提交后再报告公司提交号与一次 git pull --ff-only 的更新方式，不要让公司切回模块开发分支。无需重复询问；我明确要求暂不提交时除外。
+每次修改基差 App 后，同步更新 index_futures_basis/PROJECT_HANDOFF.md，记录行为变化、实际测试与待验证事项，必要时更新使用说明。所有App统一在 codex/company-apps 开发，验证后将本次代码、测试和说明直接提交推送到此分支，保留其他模块，更新 COMPANY_SYNC.md。核验远端包含本次提交后再报告提交号与一次 git pull --ff-only 的更新方式。不再建立或使用模块开发分支。Git操作可查根目录 Git操作指南.md。无需重复询问；我明确要求暂不提交时除外。
 仅提交本次基差模块相关文件，不提交真实分红 Excel、行情库、缓存、导出、本机配置或其它模块改动；不用强推或 reset/clean 覆盖工作。完成后告诉我改动内容、验证结果、提交号和公司同步方法。
 
 我的本次需求是：
