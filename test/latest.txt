@@ -1,10 +1,10 @@
 ﻿===== Delta1 Wind 诊断：请从这里完整复制 =====
 PASS=通过；FAIL=失败；SKIP=未覆盖。检查失败也请保留整份结果。
-检查汇总：{"PASS": 3, "FAIL": 1, "SKIP": 2, "RUNNING": 0}
+检查汇总：{"PASS": 8, "FAIL": 0, "SKIP": 0, "RUNNING": 0}
 补缺仅在本次独立诊断库进行，正式行情库未修改。
 {
-  "time_beijing": "2026-10-19T11:03:31.418381+08:00",
-  "git_commit": "b607c19",
+  "time_beijing": "2026-10-19T11:15:34.294091+08:00",
+  "git_commit": "320a332",
   "app_python": "D:\\conda\\envs\\swhy_delta1\\python.exe",
   "packages": {
     "pandas": "3.0.6",
@@ -12,7 +12,8 @@ PASS=通过；FAIL=失败；SKIP=未覆盖。检查失败也请保留整份结�
     "PySide6-Essentials": "6.11.2"
   },
   "calendar_options": "TradingCalendar=CFFE;Days=Trading",
-  "probe_database": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\data\\diagnostics\\index_futures_basis\\20261019_110331_1bd602\\probe.sqlite",
+  "probe_database": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\data\\diagnostics\\index_futures_basis\\20261019_111534_2565f6\\probe.sqlite",
+  "calendar_validation_version": 2,
   "cutoff": "2026-10-18",
   "wind_python": "D:\\conda\\envs\\swhy_delta1\\python.exe",
   "mapping_field": "trade_hiscode",
@@ -34,34 +35,61 @@ PASS=通过；FAIL=失败；SKIP=未覆盖。检查失败也请保留整份结�
   latest_by_root: {"IC": "2026-10-16", "IF": "2026-10-16", "IH": "2026-10-16", "IM": "2026-10-16"}
   calendar_days: 383
   verified_calendar_options: null
+  calendar_validation_version: null
   verified_calendar_dates: 0
 
-[FAIL] 近期90天交易日历及数量一致性
-  raw: {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
-  normalized_count: 0
-  first: null
-  last: null
-ValueError: 最近90个自然日均无交易日，不能据此选择行情补缺日期
-Traceback (most recent call last):
-  File "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\wind_diagnostics.py", line 65, in check
-    result = operation(entry["detail"])
-  File "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\wind_diagnostics.py", line 183, in recent
-    raise ValueError("最近90个自然日均无交易日，不能据此选择行情补缺日期")
-ValueError: 最近90个自然日均无交易日，不能据此选择行情补缺日期
-
+[PASS] 近期90天交易日历及数量一致性
+  raw: {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFEX;Days=Trading", "days": ["2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-28", "2026-09-29", "2026-09-30", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"], "attempts": [{"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "iso", "sent_start": "2026-07-21", "sent_end": "2026-10-18", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFEX;Days=Trading", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 58, "times_sample": ["2026-07-21", "2026-07-22", "2026-07-23"], "data_columns": 1, "data_lengths": [58], "data_sample": [["2026-07-21 00:00:00", "2026-07-22 00:00:00", "2026-07-23 00:00:00"]]}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[58]]}, "count": 58, "selected": true}], "date_format": "compact", "tdays": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 58, "times_sample": ["2026-07-21", "2026-07-22", "2026-07-23"], "data_columns": 1, "data_lengths": [58], "data_sample": [["2026-07-21 00:00:00", "2026-07-22 00:00:00", "2026-07-23 00:00:00"]]}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[58]]}}
+  normalized_count: 58
+  first: "2026-07-21"
+  last: "2026-10-16"
 
 [PASS] 最近完整周末：正常零交易日
-  raw: {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
+  raw: {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFEX;Days=Trading", "days": [], "attempts": [{"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "iso", "sent_start": "2026-10-17", "sent_end": "2026-10-18", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "iso", "sent_start": "2026-07-21", "sent_end": "2026-10-18", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "compact", "sent_start": "20261017", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFE", "date_format": "compact", "sent_start": "20261017", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFEX;Days=Trading", "date_format": "compact", "sent_start": "20261017", "sent_end": "20261018", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0, "selected": true}, {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFEX;Days=Trading", "date_format": "compact", "sent_start": "20260721", "sent_end": "20261018", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 58, "times_sample": ["2026-07-21", "2026-07-22", "2026-07-23"], "data_columns": 1, "data_lengths": [58], "data_sample": [["2026-07-21 00:00:00", "2026-07-22 00:00:00", "2026-07-23 00:00:00"]]}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[58]]}, "count": 58}], "date_format": "compact", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
   normalized_count: 0
   first: null
   last: null
 
-[SKIP] 休市工作日样例
-  reason: "未找到已验证的休市工作日，可加--holiday-date指定样例"
+[PASS] 休市工作日样例：Wind确认零交易日
+  raw: {"start": "2026-10-07", "end": "2026-10-07", "options": "TradingCalendar=CFFEX;Days=Trading", "days": [], "attempts": [{"start": "2026-10-07", "end": "2026-10-07", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "iso", "sent_start": "2026-10-07", "sent_end": "2026-10-07", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-10", "end": "2026-10-07", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "iso", "sent_start": "2026-07-10", "sent_end": "2026-10-07", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-07", "end": "2026-10-07", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "compact", "sent_start": "20261007", "sent_end": "20261007", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-10", "end": "2026-10-07", "options": "TradingCalendar=CFFE;Days=Trading", "date_format": "compact", "sent_start": "20260710", "sent_end": "20261007", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-07", "end": "2026-10-07", "options": "TradingCalendar=CFFE", "date_format": "compact", "sent_start": "20261007", "sent_end": "20261007", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-07-10", "end": "2026-10-07", "options": "TradingCalendar=CFFE", "date_format": "compact", "sent_start": "20260710", "sent_end": "20261007", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0}, {"start": "2026-10-07", "end": "2026-10-07", "options": "TradingCalendar=CFFEX;Days=Trading", "date_format": "compact", "sent_start": "20261007", "sent_end": "20261007", "role": "requested", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}, "count": 0, "selected": true}, {"start": "2026-07-10", "end": "2026-10-07", "options": "TradingCalendar=CFFEX;Days=Trading", "date_format": "compact", "sent_start": "20260710", "sent_end": "20261007", "role": "health_control", "tdays": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 58, "times_sample": ["2026-07-10", "2026-07-13", "2026-07-14"], "data_columns": 1, "data_lengths": [58], "data_sample": [["2026-07-10 00:00:00", "2026-07-13 00:00:00", "2026-07-14 00:00:00"]]}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[58]]}, "count": 58}], "date_format": "compact", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
+  normalized_count: 0
+  first: null
+  last: null
 
-[SKIP] 行情补缺与缓存复用
-  reason: "没有可靠交易日历，未猜日期或请求行情"
+[PASS] 独立库：最近完整交易日首次补齐
+  state: "complete"
+  requests: 38
+  message: "本次请求38批，剩余0个缺失字段"
+  errors: []
+  rows: [{"root": "IF", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IC", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IM", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IH", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}]
+  calendar_days: 1
+  latest_complete: "2026-10-16"
+  missing_fields: 0
+  probe_date: "2026-10-16"
 
-已记录请求 5 次；失败 0 次
+[PASS] 独立库：重复检查零行情请求
+  state: "complete"
+  requests: 0
+  message: "数据齐全，未重复下载行情"
+  errors: []
+  rows: [{"root": "IF", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IC", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IM", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IH", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}]
+  calendar_days: 1
+  latest_complete: "2026-10-16"
+  missing_fields: 0
+  actual_provider_requests: 0
+
+[PASS] 独立库：仅补一个缺失持仓字段
+  state: "complete"
+  requests: 1
+  message: "本次请求1批，剩余0个缺失字段"
+  errors: []
+  rows: [{"root": "IF", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IC", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IM", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}, {"root": "IH", "expected_days": 1, "complete_days": 1, "first": "2026-10-16", "last": "2026-10-16", "missing_days": 0, "missing": []}]
+  calendar_days: 1
+  latest_complete: "2026-10-16"
+  missing_fields: 0
+  repair_cell: {"code": "IF2610.CFE", "date": "2026-10-16", "field": "oi"}
+  requests_for_repair: [{"operation": "series", "arguments": {"code": "IF2610.CFE", "fields": ["oi"], "start": "2026-10-16", "end": "2026-10-16"}, "result_items": 1, "elapsed_seconds": 0.042}]
+
+已记录请求 43 次；失败 0 次
 完成状态：True
 ===== Delta1 Wind 诊断结束 =====
