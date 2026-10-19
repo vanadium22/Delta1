@@ -35,11 +35,36 @@ def series(w, code, fields, start, end, options="Period=D;Days=Trading;Fill=Blan
     return {day: {field: result.Data[actual.index(field)][i] for field in fields} for i, day in enumerate(days)}
 
 
+def calendar(w, start, end):
+    options = "TradingCalendar=CFFEX"
+    context = f"Wind TDAYS({start!r}, {end!r}, {options!r})"
+    result = check(w.tdays(start, end, options), context)
+    data = getattr(result, "Data", None)
+    columns = len(data) if isinstance(data, (list, tuple)) else None
+    lengths = [len(c) if isinstance(c, (list, tuple)) else type(c).__name__
+               for c in data[:4]] if columns is not None else []
+
+    def reject(reason):
+        raise ValueError(f"{context}；{reason}；DataColumns={columns}；DataLengths={lengths!r}；"
+                         "本批交易日历未写入，请确认Wind终端在线及CFFEX日历权限后重试。")
+
+    # A missing column is an incomplete response, not proof that the entire
+    # requested interval was closed. An explicit [[]] is a valid empty calendar.
+    if columns != 1 or not isinstance(data[0], (list, tuple)):
+        reject("交易日历返回为空或结构不完整")
+    try:
+        days = [iso(day) for day in data[0]]
+    except (ValueError, TypeError, OverflowError):
+        reject("交易日历包含无效日期")
+    if len(set(days)) != len(days) or any(not start <= day <= end for day in days):
+        reject("交易日历日期重复或超出请求范围")
+    return days
+
+
 def perform(w, request):
     op = request["operation"]
     if op == "calendar":
-        result = check(w.tdays(request["start"], request["end"], "TradingCalendar=CFFEX"), "交易日历")
-        return [iso(d) for d in result.Data[0]]
+        return calendar(w, request["start"], request["end"])
     if op == "series":
         return series(w, request["code"], request["fields"], request["start"], request["end"])
     if op == "expiries":
