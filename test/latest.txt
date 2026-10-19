@@ -1,0 +1,67 @@
+﻿===== Delta1 Wind 诊断：请从这里完整复制 =====
+PASS=通过；FAIL=失败；SKIP=未覆盖。检查失败也请保留整份结果。
+检查汇总：{"PASS": 3, "FAIL": 1, "SKIP": 2, "RUNNING": 0}
+补缺仅在本次独立诊断库进行，正式行情库未修改。
+{
+  "time_beijing": "2026-10-19T11:03:31.418381+08:00",
+  "git_commit": "b607c19",
+  "app_python": "D:\\conda\\envs\\swhy_delta1\\python.exe",
+  "packages": {
+    "pandas": "3.0.6",
+    "numpy": "2.5.4",
+    "PySide6-Essentials": "6.11.2"
+  },
+  "calendar_options": "TradingCalendar=CFFE;Days=Trading",
+  "probe_database": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\data\\diagnostics\\index_futures_basis\\20261019_110331_1bd602\\probe.sqlite",
+  "cutoff": "2026-10-18",
+  "wind_python": "D:\\conda\\envs\\swhy_delta1\\python.exe",
+  "mapping_field": "trade_hiscode",
+  "expiry_field": "lasttrade_date"
+}
+
+[PASS] Python / WindPy / 终端连接
+  python: "D:\\conda\\envs\\swhy_delta1\\python.exe"
+  python_version: "3.13.16"
+  bits: 64
+  windpy_file: "D:\\wind\\x64\\WindPy.py"
+  connected: true
+
+[PASS] 正式本地库概况（只读）
+  path: "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\data\\market\\index_futures\\wind\\market.sqlite"
+  exists: true
+  access: "只读"
+  quotes: 8991
+  latest_by_root: {"IC": "2026-10-16", "IF": "2026-10-16", "IH": "2026-10-16", "IM": "2026-10-16"}
+  calendar_days: 383
+  verified_calendar_options: null
+  verified_calendar_dates: 0
+
+[FAIL] 近期90天交易日历及数量一致性
+  raw: {"start": "2026-07-21", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
+  normalized_count: 0
+  first: null
+  last: null
+ValueError: 最近90个自然日均无交易日，不能据此选择行情补缺日期
+Traceback (most recent call last):
+  File "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\wind_diagnostics.py", line 65, in check
+    result = operation(entry["detail"])
+  File "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\wind_diagnostics.py", line 183, in recent
+    raise ValueError("最近90个自然日均无交易日，不能据此选择行情补缺日期")
+ValueError: 最近90个自然日均无交易日，不能据此选择行情补缺日期
+
+
+[PASS] 最近完整周末：正常零交易日
+  raw: {"start": "2026-10-17", "end": "2026-10-18", "options": "TradingCalendar=CFFE;Days=Trading", "tdays": {"error_code": 0, "state_code": 0, "fields": [], "codes_count": 0, "times_count": 0, "times_sample": [], "data_columns": 0, "data_lengths": [], "data_sample": []}, "tdayscount": {"error_code": 0, "state_code": 0, "fields": [""], "codes_count": 1, "times_count": 1, "times_sample": ["2026-10-19"], "data_columns": 1, "data_lengths": [1], "data_sample": [[0]]}}
+  normalized_count: 0
+  first: null
+  last: null
+
+[SKIP] 休市工作日样例
+  reason: "未找到已验证的休市工作日，可加--holiday-date指定样例"
+
+[SKIP] 行情补缺与缓存复用
+  reason: "没有可靠交易日历，未猜日期或请求行情"
+
+已记录请求 5 次；失败 0 次
+完成状态：True
+===== Delta1 Wind 诊断结束 =====
