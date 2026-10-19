@@ -549,6 +549,8 @@ class ResearchWindow(QMainWindow):
         self.pages.addTab(self.settings_page(),"数据管理 / 设置")
         from .history_maintenance import HistoryMaintenance,MaintenancePage
         self.history_maintenance=HistoryMaintenance(model)
+        # Mutual VPN workflow owns maintenance before the realtime window opens.
+        self.history_maintenance.authorized=False
         self.maintenance_page=MaintenancePage(self.history_maintenance)
         self.pages.addTab(self.maintenance_page,"数据维护")
         self.pages.currentChanged.connect(self.update_dividend_banner)
@@ -602,7 +604,7 @@ class ResearchWindow(QMainWindow):
             if generation==self.generation:self.render(state)
             else:self.pending=True
         def read():
-            if self.model.config.get('reference_file') or self.model.config.get('realtime_root'):
+            if getattr(self.model,'realtime_verified',False) and (self.model.config.get('reference_file') or self.model.config.get('realtime_root')):
                 self.model.sync_contract_reference()
             return self.model.snapshot(request)
         self.submit(read,rendered)
@@ -669,6 +671,12 @@ class ResearchWindow(QMainWindow):
         if not self.busy:self.refresh()
 
     def start_collection(self,once):
+        if not getattr(self.model,'realtime_verified',False):
+            from .launch_wizard import LaunchWizard
+            from PySide6.QtWidgets import QDialog
+            wizard=LaunchWizard(self.model,self);wizard.company_prompt()
+            if wizard.exec()!=QDialog.DialogCode.Accepted or not wizard.realtime:return
+            self.model.realtime_verified=True
         try:
             symbols=[v[0] for v in UNDERLYINGS.values()]
             self.collection.start(self.model.config["realtime_root"],symbols,

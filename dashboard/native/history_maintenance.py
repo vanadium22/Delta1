@@ -24,6 +24,7 @@ class HistoryMaintenance:
         self.model=model;self.process=None;self.started=0;self.next_launch=0;self.closing=False
         self.root=None;self.stop_file=None;self.last_day=None;self.error=None;self.force=False;self.closing_since=None
         self.control=model.local_root/'history_control.json'
+        self.authorized = True
 
     def state(self):
         value=read(self.root/'status.json') if self.root else {}
@@ -40,6 +41,9 @@ class HistoryMaintenance:
         if self.stop_file:self.stop_file.touch(exist_ok=True)
 
     def retry(self):
+        if not self.authorized:
+            self.error=dict(state='paused',message='请先停止实时并重新运行双 VPN 启动向导')
+            return
         _atomic_bytes(self.control,_json_bytes({'paused':False}))
         self.force=True;self.next_launch=0;self.error=None
         self.tick()
@@ -68,9 +72,11 @@ class HistoryMaintenance:
             if code not in (0,2,3):
                 self.error=dict(state='failed',message='历史进程未正常完成；请检查 SDK 环境和本机配置')
                 self.next_launch=time.time()+300
-        if self.closing or read(self.control).get('paused') or not self.model.config.get('history_maintenance_enabled',True):return
+        if self.closing or not self.authorized or read(self.control).get('paused') or not self.model.config.get('history_maintenance_enabled',True):return
         roots=self.model.config.get('history_roots',[])
-        if not roots:return
+        if not roots:
+            self.error=dict(state='waiting_configuration',message='尚未注册历史数据，请先安装数据包或在开发版注册标准数据集')
+            return
         root=maintenance_root(roots)
         if self.root!=root:self.root=root;self.next_launch=0;self.last_day=None
         state=read(root/'status.json')

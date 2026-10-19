@@ -107,7 +107,14 @@ class CollectionJob:
         self.status={"status":"starting","rows":0,"polls":0,"error":None}
         def work():
             client=None
+            lease=None;leased=False
             try:
+                import json
+                from dashboard.session_guard import network_lease
+                path=self.local_root/'native.json'
+                lease=network_lease(json.loads(path.read_text(encoding='utf8')) if path.exists() else {})
+                lease.__enter__()
+                leased=True
                 client=client_factory(connect_timeout=5,read_timeout=10)
                 with DualIdentityStore(Path(root)) as store:
                     original=store.batch
@@ -127,7 +134,10 @@ class CollectionJob:
             except Exception as exc:
                 with self.lock: self.status.update(status="failed",error=str(exc))
             finally:
-                if client is not None: client.close()
+                try:
+                    if client is not None: client.close()
+                finally:
+                    if leased: lease.__exit__(None,None,None)
         self.worker=threading.Thread(target=work,name="native-market-collection",daemon=True)
         self.worker.start()
 

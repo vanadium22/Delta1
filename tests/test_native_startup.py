@@ -91,9 +91,9 @@ with patch('PySide6.QtNetwork.QLocalServer.listen',return_value=False), patch('P
             end=time.monotonic()+15
             while time.monotonic()<end:
                 if first.poll() is not None: self.fail("first startup exited before rendering")
-                if log_path.is_file() and "First frame ready" in log_path.read_text(encoding="utf-8"): break
+                if log_path.is_file() and "Startup wizard ready" in log_path.read_text(encoding="utf-8"): break
                 time.sleep(.05)
-            else: self.fail("first frame was not ready")
+            else: self.fail("startup wizard was not ready")
             result=subprocess.run([*command,"--startup-check"],cwd=PROJECT,env=environment,capture_output=True,text=True,encoding="utf-8",timeout=20)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIsNone(first.poll())

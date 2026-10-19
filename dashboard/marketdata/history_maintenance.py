@@ -211,7 +211,13 @@ def merge_missing(store, snapshot, job, incoming, *, preserve_existing=False, no
     return chosen
 
 
-def run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False):
+def run_cycle(local_root, **kwargs):
+    from dashboard.session_guard import network_lease
+    with network_lease(read_json(Path(local_root)/'native.json')):
+        return _run_cycle(local_root, **kwargs)
+
+
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
     controls=local_root/'history_control.json'

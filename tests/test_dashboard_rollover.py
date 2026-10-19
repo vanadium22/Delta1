@@ -167,7 +167,7 @@ class RolloverTests(unittest.TestCase):
         configure_qt()
         from dashboard.native.app import ResearchWindow
         collection=Mock()
-        window=SimpleNamespace(collection=collection,model=SimpleNamespace(config={
+        window=SimpleNamespace(collection=collection,model=SimpleNamespace(realtime_verified=True,config={
             'realtime_root':str(self.root/'live'),'reference_file':str(self.base)}),
             periodic=Mock(),status=Mock(),state={'active_contracts':[]})
         ResearchWindow.start_collection(window,True)
