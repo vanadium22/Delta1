@@ -64,6 +64,7 @@ class Window(QMainWindow):
         self._generation = 0
         self._closing = self._syncing = False
         self._startup_done = self._startup_error = False
+        self._auto_sync_pending = auto_start
         self.preferences = QSettings(str(service.settings.root / "ui.local.ini"), QSettings.Format.IniFormat)
         self.setWindowTitle("D1 日报工作台")
         self.setWindowIcon(app_icon())
@@ -338,6 +339,9 @@ class Window(QMainWindow):
         self.epsilon.setText(str(data["settings"]["epsilon"]))
         self.epsilon.blockSignals(False)
         self._fill_dates(preferred)
+        if self._auto_sync_pending:
+            self._auto_sync_pending = False
+            QTimer.singleShot(0, lambda: self.start_sync(only_missing=True))
 
     def _fill_dates(self, preferred=None):
         self.date_combo.blockSignals(True)
@@ -578,16 +582,21 @@ class Window(QMainWindow):
                      lambda results: self.refresh_catalog(preferred=max(item["date"] for item in results)),
                      "正在校验并保存 Excel…", mutation=True)
 
-    def start_sync(self):
+    def start_sync(self, *, only_missing=False):
+        if self._closing:
+            return
         try:
-            self.service.start_sync()
+            if only_missing:
+                self.service.start_sync(only_missing=True)
+            else:
+                self.service.start_sync()
         except ReportError as exc:
             self.error.setText(str(exc))
             self.error.show()
             return
         self.error.hide()
         self._syncing = True
-        self.statusBar().showMessage("正在连接共享来源并校验两份报表…")
+        self.statusBar().showMessage("正在检查前一交易日报表，缺失时自动同步…" if only_missing else "正在连接共享来源并校验两份报表…")
         self.sync_timer.start()
         self._update_controls()
 
@@ -641,6 +650,7 @@ def main(argv=None):
     application.setStyleSheet(STYLE)
     window = Window(ReportService(args.root))
     if args.startup_check:
+        window._auto_sync_pending = False
         window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     window.show()
     if args.startup_check:
