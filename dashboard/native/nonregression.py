@@ -434,6 +434,10 @@ class ResearchEngine:
             required.update(s for s,r in metadata.items() if r["listing_date"]<=end_day<r["expiry_date"])
         for symbol in required-{None}:
             if symbol in self.daily:continue
+            # A newly listed live contract has no bars at the prior-session
+            # history endpoint. Its continuous-slot history uses older contracts.
+            listing=metadata.get(symbol,{}).get('listing_date')
+            if listing and listing>str(history_cutoff.tz_convert('Asia/Shanghai').date()):continue
             try:
                 self.daily[symbol]=frame_index(repo.read_window(symbol,"1d",count=400,as_of=history_cutoff,fields=FIELDS,frozen=frozen))
             except ValueError as exc: errors.append(str(exc))
