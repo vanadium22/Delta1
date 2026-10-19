@@ -4,7 +4,7 @@
 
 最新用户授权（覆盖旧“暂不推送”）：完成后推送数字 Excel 及必要公共后台；新展示版/开发版看板前端先隐藏，不 add/commit/push。共同历史基线保留，不回退已提交界面。仅推 codex/dashboard-history-release-20261019，不强推、不改 main；核对远程 SHA 和本机 runtime/release_numeric.json。
 
-实际发布状态：代码本地提交3a48274；push自动审批因具体目的地授权不足被拒绝。只读GitHub确认 vanadium22/Delta1 为公开仓库。等待用户明确确认向该URL/分支公开推送；尚未成功推送，不得把原泛化授权或本地提交描述为远程已完成。最终本地文档HEAD以运行记录为准。
+实际发布状态：用户已明确确认向公开仓库 https://github.com/vanadium22/Delta1.git 的 codex/dashboard-history-release-20261019 分支推送。数字版代码提交3a48274已成功推送，远程SHA已核对；此前自动审批阻断已在补充授权后解除。最终文档HEAD、远程SHA和离线包头以 runtime/release_numeric.json 为准。不得将新前端或业务数据混入后续提交。
 
 数字 Excel：start_numeric_excel.cmd 打开独立桌面 Excel 实例，约每3秒一轮（耗时顺延）更新同一工作簿并保存；运行依赖 Python 和 Excel，不依赖新前端、Qt、Node或VBA。包含四档行情、分位和 A/B 单合约指标；日线/分钟/OI项保持各自频率和时点。实际数据、每日计算缓存和Excel文件只留 data/runtime；Git仅含无业务数据的空白模板。
 

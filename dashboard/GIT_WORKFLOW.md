@@ -2,7 +2,7 @@
 
 仓库 `https://github.com/vanadium22/Delta1.git`，分支 `codex/dashboard-history-release-20261019`。2026-10-19最新授权允许推送数字Excel及必要后台；先前“暂不推送”仅属上一阶段决定。新展示版/开发版前端继续不提交、不推送。
 
-当前执行结果：数字版代码已本地提交 `3a48274`。普通push被自动审批拒绝，尚未推送。随后只读GitHub核对确认该仓库为 **public**，当前连接有push/admin权限；自动审批要求用户明确确认这个具体公开目的地后才可重试。未更换上传途径绕过审批。最终本地文档HEAD和bundle头见 `runtime/release_numeric.json`。
+当前执行结果：用户已明确确认向上述 **public** 仓库及指定分支推送；数字版代码提交 `3a48274` 已随分支成功普通推送，远程SHA已核对。此前的自动审批阻断在补充具体目的地授权后解除，未使用其他上传途径绕过。新前端、业务数据和凭据仍排除。最终文档HEAD、远程SHA和bundle头见 `runtime/release_numeric.json`。
 
 ## 提交边界
 
