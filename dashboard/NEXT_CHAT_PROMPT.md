@@ -4,7 +4,7 @@
 
 ---
 
-请继续完善 `P:\project\swhy\Delta1\project\dashboard`。先读 `dashboard/PROJECT_HANDOFF.md`、`COMPANY_CHECKLIST.md`、`GIT_WORKFLOW.md`、`HISTORY_MAINTENANCE.md`，检查实际 Git 状态再动手。当前分支是 `codex/dashboard-history-release-20261019`，功能基线 `b518a94`，后续文档提交在同分支。其他业务模块有用户未提交修改，必须保留。
+请继续完善 `P:\project\swhy\Delta1\project\dashboard`。先读 `dashboard/PROJECT_HANDOFF.md`、`COMPANY_CHECKLIST.md`、`GIT_WORKFLOW.md`、`HISTORY_MAINTENANCE.md`，检查实际 Git 状态再动手。当前分支是 `codex/dashboard-history-release-20261019`，功能基线 `b518a94`，后续文档提交在同分支。其他业务模块有用户未提交修改，必须保留。最新用户决定是“暂不推送，只保留本地提交和离线包”；当前公司部署用 bundle，不能假设远程已有本分支。
 
 现有基础：上一轮已通过 DDB 实际补齐 2025-07-01—2026-10-16 日线和分钟，新增 795,618 条、缺口 0；6 项来源差异采用用户选定的“保留已有值，只补缺失分钟”。启动补缺、校验原子发布、重试、维护页面、DPAPI 账号保护、数据包增量安装已经实现。自动合约换月、具体合约分红及缺失时 2706 沿用 2703 已实现。公司 Wind 数据必须保留；正常运行不依赖 Z 盘。
 
@@ -32,7 +32,7 @@
 
 4. Git 与公司交付。
    - 本轮新展示版/开发版前端相关改动暂不 add、commit、push；已有共同基线不回退。明确列出保留本地的文件。
-   - 已验证且独立可运行的维护/计算修复、必要测试和文档可以提交并推送到对应维护分支，让我在公司 fetch/pull。提交必须按文件/改动白名单，不能混入其他模块修改、未完成前端或未提交依赖。
+   - 已验证且独立可运行的维护/计算修复、必要测试和文档可提交到对应本地维护分支并更新离线包。最新授权仍为暂不推送；以后我明确授权向 https://github.com/vanadium22/Delta1.git 发布后，再推送供公司 fetch/pull。提交必须按文件/改动白名单，不能混入其他模块修改、未完成前端或未提交依赖。
    - 更新项目里的 GIT_WORKFLOW.md，写明真实分支、提交、推送结果、首次抓取和后续 pull、推送方法、冲突处理和数据包安装步骤。失败就记录原因，不声称已发布。
    - 任何提交或交付包不含账号、VPN 配置、DPAPI 密文、localsetting、实时库、真实历史数据；数据包独立传输，安装保持公司 Wind 原文件。
 
