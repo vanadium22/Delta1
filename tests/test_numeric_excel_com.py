@@ -24,6 +24,33 @@ def cell(path, address):
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; explicitly opt in')
 class ExcelIntegration(unittest.TestCase):
+    def test_once_waits_for_complete_feed_after_opening_loading_workbook(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);feed=folder/'feed.json';out=folder/'loading.xlsx'
+            payload=dict(schema_version=1,generated_at='2026-10-19T07:00:00Z',mode='首次计算中',
+                         ready=False,headers=HEADERS,sheets={s:[] for s in HEADERS})
+            save_snapshot(payload,feed)
+            command=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'dashboard/excel_numeric/live.ps1'),
+                     '-FeedFile',str(feed),'-Output',str(out),'-Hidden','-Once']
+            process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000000)
+            try:
+                end=time.monotonic()+45
+                while time.monotonic()<end:
+                    if out.exists():break
+                    if process.poll() is not None:self.fail(process.communicate()[1].decode(errors='replace'))
+                    time.sleep(.2)
+                else:self.fail('loading workbook was not opened')
+                time.sleep(2)
+                self.assertIsNone(process.poll(),'Once exited while the feed was incomplete')
+                payload.update(ready=True,generated_at='2026-10-19T07:00:03Z',mode='已完成')
+                payload['sheets']['数字看板']=[['IF','IF00.CFE','SYNTHETIC',1234.,4200.,None,32,None,None,0.,'测试',46000.,'SYNTHETIC','合成验证']]
+                save_snapshot(payload,feed)
+                stdout,stderr=process.communicate(timeout=40)
+                self.assertEqual(process.returncode,0,stderr.decode(errors='replace'))
+                self.assertIn(b'updates: 1',stdout);self.assertEqual(cell(out,'D7'),1234.)
+            finally:
+                if process.poll() is None:process.terminate();process.wait(timeout=10)
+
     def test_two_updates_clear_missing_and_keep_zero_and_no_charts(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder);feed=folder/'feed.json';out=folder/'live.xlsx'

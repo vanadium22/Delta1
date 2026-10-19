@@ -55,13 +55,16 @@ def workbook_payload(payload):
     return dict(schema_version=1,generated_at=payload['generated_at'],mode=payload['mode'],headers=HEADERS,sheets=sheets)
 
 
-def capture(model, now=None):
+def capture(model, now=None, *, progress=None, stopped=None):
     from dashboard.display_state import display_snapshot
     now=pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
     states=[]
     for slot in range(4):
+        if stopped and stopped():raise InterruptedError('numeric service stopped')
+        if progress:progress(slot,False,None)
         state=display_snapshot(model,dict(cards=True,category='basis',price_input='annual',distribution_input='annual',overview_slot=slot),now=now)
         states.extend(freeze_state(state)['snapshots'])
+        if progress:progress(slot,True,dict(generated_at=now.isoformat(),mode=state['display_policy']['reason'],snapshots=list(states)))
     policy=states[0]['display_policy']
     return dict(generated_at=now.isoformat(),mode=policy['reason'],snapshots=states)
 
@@ -84,6 +87,14 @@ def main(argv=None):
     from dashboard.marketdata.paths import DATA_ROOT
     from dashboard.native.instruments import UNDERLYINGS
     from dashboard.numeric_config import prepare_config, problems
+    service_started=time.monotonic()
+    status_path=args.feed.with_suffix('.status.json')
+    def status(message, *, ready=False, log=True):
+        value=dict(message=message,ready=ready,elapsed_seconds=round(time.monotonic()-service_started,1),
+                   updated_at=pd.Timestamp.now(tz='UTC').isoformat())
+        save_snapshot(value,status_path)
+        if log:print(f"[{value['elapsed_seconds']:.1f}s] {message}",flush=True)
+    status('检查数字专用配置和历史索引')
     model=NativeModel(prepare_config(args.local_root));model.config['dashboard_mode']='nonregression'
     if not args.snapshot:
         issues=problems(model.config)
@@ -93,6 +104,7 @@ def main(argv=None):
     collection=CollectionJob(model.local_root)
     next_attempt=0;iteration=0
     try:
+        cached=False
         if not args.snapshot and not args.iterations:
             # Open promptly from a previous daily calculation while historical
             # minute inputs warm up. Original row times stay unchanged.
@@ -103,8 +115,24 @@ def main(argv=None):
                 try:
                     previous=json.loads(candidates[0].read_text(encoding='utf8'))
                     previous['mode']='启动中 · 上次计算缓存（待本轮历史核验）'
-                    save_snapshot(workbook_payload(previous),args.feed)
+                    initial=workbook_payload(previous);initial['ready']=False
+                    save_snapshot(initial,args.feed);cached=True
                 except (OSError,ValueError,KeyError,TypeError):pass
+        if not args.snapshot and not cached:
+            # Open Excel before the expensive first calculation. Missing results
+            # remain empty, and partial results never enter the daily cache.
+            save_snapshot(dict(schema_version=1,generated_at=pd.Timestamp.now(tz='UTC').isoformat(),
+                mode='首次计算中 · 尚无计算结果，缺失不填0',headers=HEADERS,
+                sheets={name:[] for name in HEADERS},ready=False),args.feed)
+        def progress(slot,complete,payload):
+            message=f"{'完成' if complete else '正在计算'} {slot:02d} 档（{slot+1}/4）：历史、分位和研究指标"
+            status(message,log=iteration==0)
+            if complete and iteration==0 and not cached:
+                partial=workbook_payload(payload)
+                partial.update(ready=False,mode=f'首次计算中 · 已完成 {slot+1}/4 档，其余待计算',
+                               generated_at=pd.Timestamp.now(tz='UTC').isoformat())
+                save_snapshot(partial,args.feed)
+        stopped=lambda:bool(args.stop_file and args.stop_file.exists())
         while not args.stop_file or not args.stop_file.exists():
             started=time.monotonic()
             if args.collect and not args.snapshot and session_policy()['allowed'] and not collection.running() and started>=next_attempt:
@@ -114,19 +142,23 @@ def main(argv=None):
                     indices={v[0] for v in UNDERLYINGS.values()}
                     collection.start(model.config['realtime_root'],list(indices),indices,model.config.get('reference_file'),auto_roll=True)
             if not session_policy()['allowed']:collection.stop()
-            payload=json.loads(args.snapshot.read_text(encoding='utf8')) if args.snapshot else capture(model)
+            payload=json.loads(args.snapshot.read_text(encoding='utf8')) if args.snapshot else capture(model,progress=progress,stopped=stopped)
             feed=workbook_payload(payload)
+            feed['ready']=True
             feed['collector']=collection.state()['status']
             save_snapshot(feed,args.feed)
             if not args.snapshot:
                 day=pd.Timestamp(payload['generated_at']).tz_convert('Asia/Shanghai').strftime('%Y-%m-%d')
                 save_snapshot(payload,DATA_ROOT/'cache/dashboard/numeric'/day/'latest.json')
+            status(f'四个档位计算完成，本轮用时 {time.monotonic()-started:.1f} 秒',ready=True,log=iteration==0)
             iteration+=1
             if args.snapshot or args.iterations and iteration>=args.iterations:break
             deadline=started+args.interval
             while time.monotonic()<deadline:
                 if args.stop_file and args.stop_file.exists():break
                 time.sleep(min(.2,max(0,deadline-time.monotonic())))
+    except InterruptedError:
+        if not args.stop_file or not args.stop_file.exists():raise
     finally:
         collection.stop()
         if collection.worker:collection.worker.join(timeout=20)

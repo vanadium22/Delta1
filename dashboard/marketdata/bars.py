@@ -286,8 +286,19 @@ class BarDataset:
                 if hashlib.sha256(path.read_bytes()).hexdigest() != part["sha256"]:
                     raise ValueError(f"行情分片哈希不匹配: {path}")
                 self._verified_parts[str(path)] = token
-            rows.extend(pq.read_table(path, columns=columns,
-                                      filters=filters or None).to_pylist())
+            table = pq.read_table(path, columns=columns, filters=filters or None)
+            # Arrow's per-scalar timezone conversion repeatedly attempts optional
+            # pytz imports when it is absent. Our schema is UTC nanoseconds: keep
+            # the exact integer values and construct timestamps without that path.
+            times = [name for name in table.column_names if name in TIME_FIELDS]
+            for name in times:
+                table = table.set_column(table.schema.get_field_index(name), name, table[name].cast(pa.int64()))
+            records = table.to_pylist()
+            for row in records:
+                for name in times:
+                    if row[name] is not None:
+                        row[name] = pd.Timestamp(row[name], unit='ns', tz='UTC')
+            rows.extend(records)
         return rows
 
     def commit(self, rows, checkpoint=None, *, publish=True, base_version=None):

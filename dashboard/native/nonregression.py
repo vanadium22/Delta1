@@ -46,6 +46,11 @@ def positive(s):
 
 def frame_index(frame):
     if frame.empty: return pd.DataFrame(columns=FIELDS, index=pd.DatetimeIndex([],tz="UTC"))
+    # Provenance remains on repository results. Research arithmetic uses the
+    # frozen manifest separately; copying a full instrument registry on every
+    # pandas slice/rolling operation is unnecessary and very expensive.
+    frame = frame.copy(deep=False)
+    frame.attrs = {}
     return frame.set_index("event_time").sort_index()
 
 

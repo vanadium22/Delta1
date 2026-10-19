@@ -26,15 +26,40 @@ class NumericServiceTests(unittest.TestCase):
             raw=json.dumps(config).encode();(local/'native.json').write_bytes(raw)
             pointer=(store.root/'current.json').read_bytes()
             feed=root/'feed.json';capture=numeric_excel.capture
+            stages=[]
+            def traced_capture(model,**kw):
+                initial=json.loads(feed.read_text(encoding='utf8'))
+                self.assertFalse(initial['ready'])
+                self.assertTrue(all(not rows for rows in initial['sheets'].values()))
+                callback=kw['progress']
+                def progress(slot,complete,payload):
+                    callback(slot,complete,payload)
+                    if complete:
+                        partial=json.loads(feed.read_text(encoding='utf8'))
+                        self.assertFalse(partial['ready'])
+                        self.assertEqual(len(partial['sheets']['数字看板']),4*(slot+1))
+                        self.assertFalse(list((root/'data').rglob('latest.json')))
+                        stages.append(slot)
+                return capture(model,now='2026-10-02T10:00:00Z',**{**kw,'progress':progress})
             with patch('requests.Session',side_effect=AssertionError('offline must not create HTTP client')), \
                  patch('dashboard.marketdata.paths.DATA_ROOT',root/'data'), \
                  patch('dashboard.session_clock.session_policy',return_value=dict(allowed=False,reason='offline test')), \
-                 patch('dashboard.numeric_excel.capture',side_effect=lambda model:capture(model,now='2026-10-02T10:00:00Z')):
+                 patch('dashboard.numeric_excel.capture',side_effect=traced_capture):
                 numeric_excel.main(['--local-root',str(local),'--feed',str(feed),'--iterations','1','--collect'])
             value=json.loads(feed.read_text(encoding='utf8'))
+            self.assertTrue(value['ready']);self.assertEqual(stages,[0,1,2,3])
             self.assertEqual(set(value['sheets']),set(numeric_excel.HEADERS))
             self.assertEqual(len(value['sheets']['数字看板']),16)
             self.assertTrue(value['sheets']['研究指标'])
             self.assertTrue((root/'data/cache/dashboard/numeric/2026-10-02/latest.json').is_file())
             self.assertEqual((local/'native.json').read_bytes(),raw)
             self.assertEqual((store.root/'current.json').read_bytes(),pointer)
+
+    def test_capture_stops_between_slots_without_publishing_a_complete_result(self):
+        stages=[]
+        state=dict(overview=[],entities=[],display_policy=dict(reason='test'))
+        with patch('dashboard.display_state.display_snapshot',return_value=state) as display:
+            with self.assertRaises(InterruptedError):
+                numeric_excel.capture(object(),progress=lambda slot,done,payload:stages.append(slot) if done else None,
+                    stopped=lambda:bool(stages))
+        self.assertEqual(display.call_count,1);self.assertEqual(stages,[0])
