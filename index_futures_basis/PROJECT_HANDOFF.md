@@ -1,5 +1,12 @@
 # Delta1 股指基差 App：项目交接
 
+## 2026-10-19 公司可复制Wind诊断入口
+
+- 新增 `diagnose_wind.cmd` / `python -m index_futures_basis.wind_diagnostics`，复用原解释器选择及正式Wind配置，不依赖分红、Qt界面或Word绘图。独立标准库worker继承正式Wind进程协议与日历/行情适配；显示实际Wind解释器/SDK位置，采集原始TDAYS/TDAYSCOUNT字段、形状、样本、错误码和请求耗时。
+- 默认验证最近90天CFFE日历、最近完整周末、从Wind日历发现的休市工作日；补缺使用最近一个已完成交易日的新建独立库，实际执行四品种00—03、到期日/close/oi补齐，再验证重复零请求和仅补一个缺失OI。正式库仅读取概况，已实测前后哈希不变，不自动迁移或修改正式数据。不查询账户，不输出行情数值或完整本机配置。
+- 默认每批最多25秒、联网总预算180秒，连接失败/超时后不再反复连接；逐步保存UTF-8 `可复制.txt` 和 `diagnostic.json`，维护 `latest.txt` / `latest.json`。正常完成、缺SDK、坏路径配置、缺字段及超时均能输出证据；PASS/FAIL/SKIP明确，未覆盖不当成功。结果默认在公共data/diagnostics/index_futures_basis，独立SQLite留本机。说明见 [WIND_DIAGNOSTICS.md](WIND_DIAGNOSTICS.md)。
+- 诊断专项9项及既有日历/同步25项通过；覆盖真实隐藏子进程和Windows CMD从其他工作目录启动（含中文空格输出目录）、休市与补缺、部分字段不可误报通过、限时/缺SDK/配置损坏仍生成报告、正式库哈希和文本不含行情值。合成完整输出为93行，已检查可复制格式。无真实Wind/公司连接，无新依赖；诊断结果及QA均Git忽略。所有代码、测试和说明仅在统一分支交付。
+
 ## 2026-10-19 继续排查：日历参数及正常休市空结果
 
 - 上一版 `f192c7b` 虽防止了越界，但将 `Data=[]` 一概当成异常过严，现按用户反馈修正。核对 [Wind官方包装代码](https://github.com/WindQuant/Official/blob/master/WAPIWrapper/WAPIWrapperPython/WindPy.py) 的 `WindData.set`：维度为零时可保留空Data；TDAYS的Times也可能保留有效日期。核对 [Wind Python接口手册2.0（转载）](https://www.scribd.com/document/991659560/Wind-Wind-Python-%E6%8E%A5%E5%8F%A3%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C-v2-0-2018) 3.5.1—3.5.3：中金所日历参数列为 `CFFE`，旧代码写的是 `CFFEX`。已统一为 `TradingCalendar=CFFE;Days=Trading`。公司原始响应尚未取得，不能断言此次空结果仅由参数引起。

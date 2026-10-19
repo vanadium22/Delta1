@@ -10,6 +10,8 @@
 
 公司第一次使用请看 [三步启动说明](COMPANY_SETUP.md)。继续开发请先读 [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) 和 [AGENTS.md](AGENTS.md)。
 
+公司Wind出现问题时，登录终端后双击 `diagnose_wind.cmd`，或在仓库根目录运行 `.\index_futures_basis\diagnose_wind.cmd`。检查日历、周末/节假日及独立库补缺，生成可直接复制反馈的文本。具体命令、结果位置及含义见 [Wind诊断方法](WIND_DIAGNOSTICS.md)。
+
 ## 检查并补齐行情：交易日历与休市
 
 中金所日历使用Wind的 `TradingCalendar=CFFE;Days=Trading`。Wind返回空日期时自动核验交易日数量；周末或节假日确实没有交易日会正常显示“检查完成，无需补齐行情”。若Wind确认有交易日而日期列表缺失，自动扩窗重试一次，只补原窗口的行情；真实接口错误仍提示，不将缺数据当休市。

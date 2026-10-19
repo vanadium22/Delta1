@@ -43,6 +43,8 @@ git pull --ff-only
 
 ## 遇到问题看这里
 
+需要排查Wind时，先登录终端，再双击 `diagnose_wind.cmd`。完整步骤及复制结果的方法见 [Wind诊断方法](WIND_DIAGNOSTICS.md)。诊断会在独立库测试日历、休市和补缺，正式行情库只读；把结束后生成的 `可复制.txt` 全部内容粘贴反馈即可。
+
 | 看到的情况 | 怎么处理 |
 | --- | --- |
 | 提示 Python 不存在 | 把 `python.local.txt` 改成公司真实路径，一行、不加引号 |
