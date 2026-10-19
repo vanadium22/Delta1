@@ -70,7 +70,7 @@ def synchronize(store, provider, start, end, progress=lambda message: None, canc
             verified = (set(verification.get("dates", []))
                         if verification.get("options") == CALENDAR_OPTIONS
                         and verification.get("validation_version") == CALENDAR_VALIDATION else set())
-            # Recheck legacy CFFEX/unverified calendar rows once. Quotes are still
+            # Recheck older parameter choices / unverified calendar rows once. Quotes are still
             # requested strictly by missing instrument/date/field after this step.
             for batch in segments([d for d in all_dates if d not in cached or d not in verified], all_dates, 400):
                 progress(f"检查交易日历 {batch[0]} 至 {batch[-1]}")

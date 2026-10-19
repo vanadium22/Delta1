@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from index_futures_basis.config import DEFAULTS
 from index_futures_basis.wind import WindProvider
-from index_futures_basis.wind_worker import perform
+from index_futures_basis.wind_worker import iso, perform
 from index_futures_basis.wind_worker import CALENDAR_OPTIONS
 
 
@@ -17,10 +17,12 @@ class CalendarResponseTests(unittest.TestCase):
     def calendar(self, data, *, error=0, times=(), count="auto", start="2026-07-06", end="2026-07-10"):
         original = data
         def tdays(first, last, options):
+            first = iso(first)
             if first != start:
                 return SimpleNamespace(ErrorCode=0, Data=[[(date.fromisoformat(start) - timedelta(days=3)).isoformat()]])
             return SimpleNamespace(ErrorCode=error, Data=original, Times=times)
         def tdayscount(first, last, options):
+            first = iso(first)
             value = count if count != "auto" else len(data[0] if data and isinstance(data[0], list) else times)
             return SimpleNamespace(ErrorCode=0, Data=[[1 if first != start else value]])
         w = SimpleNamespace(tdays=tdays, tdayscount=tdayscount)
@@ -31,7 +33,7 @@ class CalendarResponseTests(unittest.TestCase):
             with self.subTest(data=data), self.assertRaises(ValueError) as caught:
                 self.calendar(data)
             message = str(caught.exception)
-            for part in ("TDAYS", "2026-07-06", "2026-07-10", "CFFE;", "DataColumns=", "未写入"):
+            for part in ("TDAYS", "2026-07-06", "2026-07-10", "CFFEX;", "DataColumns=", "未写入"):
                 self.assertIn(part, message)
             self.assertNotIn("IndexError", message)
 
@@ -59,13 +61,13 @@ class CalendarResponseTests(unittest.TestCase):
             return SimpleNamespace(ErrorCode=0, Data=[] if len(calls) == 1 else
                                    [["2026-07-03", "2026-07-06", "2026-07-07", "2026-07-13"]])
         def count(start, end, options):
-            self.assertEqual((start, end, options), ("2026-07-06", "2026-07-10", CALENDAR_OPTIONS))
+            self.assertEqual((start, end, options), ("20260706", "20260710", CALENDAR_OPTIONS))
             return SimpleNamespace(ErrorCode=0, Data=[[2]])
         w = SimpleNamespace(tdays=tdays, tdayscount=count)
         self.assertEqual(perform(w, {"operation": "calendar", "start": "2026-07-06", "end": "2026-07-10"}),
                          ["2026-07-06", "2026-07-07"])
-        self.assertEqual(calls, [("2026-07-06", "2026-07-10", CALENDAR_OPTIONS),
-                                 ("2026-06-22", "2026-07-24", CALENDAR_OPTIONS)])
+        self.assertEqual(calls, [("20260706", "20260710", CALENDAR_OPTIONS),
+                                 ("20260622", "20260724", CALENDAR_OPTIONS)])
 
     def test_invalid_count_cannot_mark_dates_closed(self):
         for count in (None, -1, 1.5, True, float("nan"), 6):
@@ -129,15 +131,18 @@ w = W()
         from index_futures_basis.sync import synchronize
         from index_futures_basis.tests.test_sync import FakeProvider
         source = '''
+from datetime import datetime
 from types import SimpleNamespace as R
 class W:
     def start(self, **kwargs):
         return R(ErrorCode=0)
     def tdays(self, start, end, options):
-        assert options == "TradingCalendar=CFFE;Days=Trading"
+        assert options == "TradingCalendar=CFFEX;Days=Trading"
+        start, end = [datetime.strptime(d, "%Y%m%d").date().isoformat() for d in (start, end)]
         days = [d for d in ["2026-07-10", "2026-07-13"] if start <= d <= end]
         return R(ErrorCode=0, Data=[days] if days else [], Times=days)
     def tdayscount(self, start, end, options):
+        start, end = [datetime.strptime(d, "%Y%m%d").date().isoformat() for d in (start, end)]
         return R(ErrorCode=0, Data=[[sum(start <= d <= end for d in ["2026-07-10", "2026-07-13"])]])
     def stop(self):
         pass

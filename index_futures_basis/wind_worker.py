@@ -35,14 +35,15 @@ def series(w, code, fields, start, end, options="Period=D;Days=Trading;Fill=Blan
     return {day: {field: result.Data[actual.index(field)][i] for field in fields} for i, day in enumerate(days)}
 
 
-CALENDAR_OPTIONS = "TradingCalendar=CFFE;Days=Trading"
+CALENDAR_OPTIONS = "TradingCalendar=CFFEX;Days=Trading"
+CALENDAR_DATE_FORMAT = "compact"
 CALENDAR_VALIDATION = 2
 CALENDAR_PROFILES = (
-    (CALENDAR_OPTIONS, "iso"),
-    (CALENDAR_OPTIONS, "compact"),
-    ("TradingCalendar=CFFE", "compact"),
-    ("TradingCalendar=CFFEX;Days=Trading", "compact"),
+    (CALENDAR_OPTIONS, CALENDAR_DATE_FORMAT),
     ("TradingCalendar=CFFEX", "compact"),
+    ("TradingCalendar=CFFE;Days=Trading", "compact"),
+    ("TradingCalendar=CFFE;Days=Trading", "iso"),
+    ("TradingCalendar=CFFE", "compact"),
 )
 
 
@@ -55,7 +56,7 @@ def calendar_dates(result, context, start, end):
 
     def reject(reason):
         raise ValueError(f"{context}；{reason}；DataColumns={columns}；DataLengths={lengths!r}；"
-                         "本批交易日历未写入，请确认Wind终端在线及CFFE日历权限后重试。")
+                         "本批交易日历未写入，请确认Wind终端在线及中金所日历权限后重试。")
 
     # WindData.set can keep Data=[] when its dimensions are zero. TDAYS also
     # exposes the returned calendar dates in Times; preserve those when present.

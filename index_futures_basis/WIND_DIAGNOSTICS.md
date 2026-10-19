@@ -40,11 +40,13 @@ Get-Content -LiteralPath '.\data\diagnostics\index_futures_basis\latest.txt' -Ra
 
 报告记录程序提交号、App/实际Wind解释器、WindPy位置、日历参数、调用日期范围、返回字段/列数/长度及少量日期样本、错误码、失败堆栈、请求耗时和补缺结果。文本/JSON不输出行情价格或持仓值，不查询账户信息或完整转储本机配置；独立SQLite测试库留在本机。
 
-2026-10-19公司反馈已确认：终端连接成功、正式行情截至10月16日，但7月21日至10月18日日历和计数均返回零。这属于异常长窗全空，不能用周末或节假日解释，也不能据此证明周末检查通过；当时行情补缺实际未执行。
+2026-10-19第二轮公司反馈已确认8项全部通过，源码版本为 `320a332`，反馈提交为 `d4325d6`。第一轮的90天全零已定位到日历参数：同样使用YYYYMMDD和Days=Trading，CFFE返回零，CFFEX返回58个日期，且计数一致。故当前首选 `TradingCalendar=CFFEX;Days=Trading` + YYYYMMDD；之前依据旧手册首选CFFE的修改不适用于公司环境。日志未单独测试CFFEX配ISO日期，不能将日期格式本身认定为根因。
+
+实际验证内容：10月17—18日周末、10月7日节假日均正常零交易日；IF/IC/IM/IH的10月16日行情首次38批补齐，缺失字段为0；重复检查0次请求；人为在独立库移除一格IF持仓后，仅1次请求补回。43次诊断请求全部成功，正式库仍只读。
 
 新版 `raw.attempts` 记录每组实际发送的日期格式、CFFE/CFFEX参数和原始返回，`selected: true` 标出经过校验采用的一组。长期全空时额外输出默认日历、SSE及自然日对照，**对照只用于定位问题，不用于期货同步**。日历未恢复时，周末/节假日检查显示SKIP；不要把终端“已连接”当作日历服务正常。
 
-Wind官方包装源码会把date/datetime对象转换为YYYYMMDD；新版同时验证这一紧凑格式，不能仅凭旧日志断言一定是格式或某个交易所参数导致。源码依据见 [Wind官方WindPy.py](https://github.com/WindQuant/Official/blob/master/WAPIWrapper/WAPIWrapperPython/WindPy.py) 的tdays/tdayscount实现。
+Wind官方包装源码会把date/datetime对象转换为YYYYMMDD；当前同时采用公司已实测成功的这一格式。源码依据见 [Wind官方WindPy.py](https://github.com/WindQuant/Official/blob/master/WAPIWrapper/WAPIWrapperPython/WindPy.py) 的tdays/tdayscount实现；本次日历参数结论以公司实测对照为依据。
 
 ## 检查内容与结果含义
 
@@ -62,6 +64,8 @@ Wind官方包装源码会把date/datetime对象转换为YYYYMMDD；新版同时�
 `PASS`=该项通过；`FAIL`=该项失败，查看随后的错误与原始结构；`SKIP`=前置条件未满足或未找到样例，尚未验证，不能当成通过。完整执行后仍可能有FAIL，报告照常生成。命令退出码0表示全部通过，2表示存在失败或未覆盖项，1通常是解释器/命令启动失败。
 
 诊断中的“行情补齐”发生在新建的 `probe.sqlite`，**不会修改正式行情库**，也不清理已有数据。正式库的实际增量更新仍在 App 中点击“检查并补齐行情”或按F5。
+
+本轮已全部通过，无需为了确认同一结果反复运行诊断。公司更新后重启App，在“数据管理”点击“检查并补齐行情”来更新正式库；不需要把probe.sqlite复制或覆盖到正式库。诊断当时为10月19日11:15，早于App默认15:05截止，最新已完成交易日为10月16日；10月19日收盘后再尝试当天行情。
 
 ## 需要复现指定日期时
 

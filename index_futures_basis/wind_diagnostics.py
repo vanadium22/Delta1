@@ -16,7 +16,7 @@ import uuid
 
 from .config import ROOT, SHANGHAI, atomic_json, closed_date, load_config
 from .wind import WindProvider
-from .wind_worker import CALENDAR_OPTIONS, CALENDAR_VALIDATION
+from .wind_worker import CALENDAR_OPTIONS, CALENDAR_DATE_FORMAT, CALENDAR_VALIDATION
 from shared_data import DataPaths
 
 
@@ -288,6 +288,7 @@ def main(argv=None):
             packages[name] = "未安装"
     report = Report(folder, {"time_beijing": now.isoformat(), "git_commit": git_version(root),
                             "app_python": sys.executable, "packages": packages, "calendar_options": CALENDAR_OPTIONS,
+                            "calendar_date_format": CALENDAR_DATE_FORMAT,
                             "probe_database": str(folder / "probe.sqlite"),
                             "calendar_validation_version": CALENDAR_VALIDATION})
     print(f"诊断结果目录：{folder}", flush=True)

@@ -28,11 +28,11 @@ from types import SimpleNamespace as R
 fixture = json.loads(Path(__file__).with_name("sdk_fixture.json").read_text())
 def calendar_days(start, end, options):
     style = "iso" if "-" in start else "compact"
-    profile = fixture.get("calendar_profile", "iso")
-    wanted = {"iso": ("TradingCalendar=CFFE;Days=Trading", "iso"),
+    profile = fixture.get("calendar_profile", "company")
+    wanted = {"company": ("TradingCalendar=CFFEX;Days=Trading", "compact"),
+              "iso": ("TradingCalendar=CFFE;Days=Trading", "iso"),
               "compact": ("TradingCalendar=CFFE;Days=Trading", "compact"),
-              "bare": ("TradingCalendar=CFFE", "compact"),
-              "legacy": ("TradingCalendar=CFFEX;Days=Trading", "compact")}.get(profile)
+              "bare": ("TradingCalendar=CFFE", "compact")}.get(profile)
     equity = profile == "equity_only" and options in ("", "TradingCalendar=SSE;Days=Trading")
     if not equity and wanted != (options, style):
         return []
@@ -111,6 +111,13 @@ class WindDiagnosticsTests(unittest.TestCase):
         self.assertTrue(report["finished"])
         self.assertEqual(len(report["checks"]), 8)
         self.assertTrue(all(c["status"] == "PASS" for c in report["checks"]))
+        self.assertEqual(report["metadata"]["calendar_options"], "TradingCalendar=CFFEX;Days=Trading")
+        self.assertEqual(report["metadata"]["calendar_date_format"], "compact")
+        recent = report["checks"][2]["detail"]["raw"]
+        self.assertEqual(len(recent["attempts"]), 1)
+        self.assertEqual(recent["options"], "TradingCalendar=CFFEX;Days=Trading")
+        self.assertEqual(recent["date_format"], "compact")
+        self.assertEqual(recent["attempts"][0]["sent_end"], "20260710")
         weekend, holiday = report["checks"][3:5]
         self.assertEqual(weekend["detail"]["normalized_count"], 0)
         self.assertEqual(holiday["detail"]["raw"]["start"], "2026-07-01")
@@ -150,14 +157,14 @@ class WindDiagnosticsTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.production.path.read_bytes()).hexdigest(), self.production_hash)
 
     def test_verified_futures_profiles_recover_and_complete_real_worker_sync(self):
-        for profile in ("compact", "bare", "legacy"):
+        for profile in ("compact", "bare", "iso"):
             with self.subTest(profile=profile):
                 self.fixture["calendar_profile"] = profile
                 (self.sdk / "sdk_fixture.json").write_text(json.dumps(self.fixture), encoding="utf-8")
                 code, report, _, console = self.run_diagnostic()
                 self.assertEqual(code, 0, console)
                 raw = report["checks"][2]["detail"]["raw"]
-                self.assertEqual(raw["date_format"], "compact")
+                self.assertEqual(raw["date_format"], "iso" if profile == "iso" else "compact")
                 self.assertGreater(raw["tdayscount"]["data_sample"][0][0], 0)
                 self.assertTrue(all(c["status"] == "PASS" for c in report["checks"]))
                 self.assertEqual(hashlib.sha256(self.production.path.read_bytes()).hexdigest(), self.production_hash)
