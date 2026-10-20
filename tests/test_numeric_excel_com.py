@@ -24,6 +24,18 @@ def cell(path, address):
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; explicitly opt in')
 class ExcelIntegration(unittest.TestCase):
+    def assert_ready_notices(self, stdout):
+        # Windows PowerShell uses the machine code page when stdout is piped.
+        for encoding in ('utf-8', 'gb18030'):
+            ready='完整计算结果已就绪'.encode(encoding)
+            saved='Excel 首次写入成功'.encode(encoding)
+            if ready in stdout:
+                self.assertEqual(stdout.count(ready),1)
+                self.assertEqual(stdout.count(saved),1)
+                self.assertLess(stdout.index(ready),stdout.index(saved))
+                return
+        self.fail('missing calculation/Excel-save completion notices: '+repr(stdout))
+
     def test_once_waits_for_complete_feed_after_opening_loading_workbook(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder);feed=folder/'feed.json';out=folder/'loading.xlsx'
@@ -48,6 +60,7 @@ class ExcelIntegration(unittest.TestCase):
                 stdout,stderr=process.communicate(timeout=40)
                 self.assertEqual(process.returncode,0,stderr.decode(errors='replace'))
                 self.assertIn(b'updates: 1',stdout);self.assertEqual(cell(out,'D7'),1234.)
+                self.assert_ready_notices(stdout)
             finally:
                 if process.poll() is None:process.terminate();process.wait(timeout=10)
 
@@ -77,6 +90,7 @@ class ExcelIntegration(unittest.TestCase):
                 stdout,stderr=process.communicate(timeout=30)
                 self.assertEqual(process.returncode,0,stderr.decode(errors='replace'))
                 self.assertIn(b'updates: 2',stdout)
+                self.assert_ready_notices(stdout)
                 self.assertEqual(cell(out,'D7'),2345.)
                 self.assertIsNone(cell(out,'E7'))
                 self.assertEqual(cell(out,'J7'),0.)

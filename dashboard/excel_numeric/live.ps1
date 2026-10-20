@@ -45,13 +45,16 @@ try {
     $owned = $true; $excel.Visible = -not $Hidden; $excel.DisplayAlerts = $false
     $book = $excel.Workbooks.Open($Output)
     $last = ''; $updates = 0; $counts = @{}; $lastSuccess = Get-Date; $lastProgress = ''; $nextProgress = Get-Date
-    $initialReady = $false
+    $initialReady = $false; $nextRefreshNotice = Get-Date; $nextProgressNotice = Get-Date
     while ($true) {
         try { $open = $book.Name } catch { break }
         if (-not $open) { break }
         $feed = Get-Content -LiteralPath $FeedFile -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($producer -and $producer.HasExited -and (-not $Once -or $feed.ready -eq $false)) { throw (ProducerFailure) }
-        if ($feed.ready -ne $false) { $initialReady = $true }
+        if ($feed.ready -ne $false -and -not $initialReady) {
+            Write-Output '完整计算结果已就绪，正在写入 Excel。'
+            $initialReady = $true
+        }
         if (-not $initialReady -and (Get-Date) -gt $deadline) { throw "首次完整计算超过600秒，当前结果保留。日志：$runRoot" }
         if ($feed.generated_at -ne $last) {
             if ($feed.schema_version -ne 1) { throw '不支持的数据格式' }
@@ -84,7 +87,18 @@ try {
                     $sheet.Range('A4').Formula = '已更新（北京）：' + ([DateTimeOffset]::Parse($feed.generated_at).ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss')) + ' · 关闭窗口即停止；重开文件仅为保存快照'
                 }
                 $book.Save(); $last = $feed.generated_at; $lastSuccess = Get-Date
-                if ($feed.ready -ne $false) { $updates++ }
+                if ($feed.ready -ne $false) {
+                    $updates++
+                    if ($updates -eq 1) {
+                        Write-Output "Excel 首次写入成功：$Output"
+                        if (-not $Once) { Write-Output '已进入持续刷新；请查看已打开的 Excel 窗口，关闭该窗口可停止。' }
+                        $nextRefreshNotice = (Get-Date).AddSeconds(30)
+                    }
+                    elseif ((Get-Date) -ge $nextRefreshNotice) {
+                        Write-Output ('Excel 已刷新并保存：' + $lastSuccess.ToString('HH:mm:ss') + "；累计写入 $updates 次。")
+                        $nextRefreshNotice = (Get-Date).AddSeconds(30)
+                    }
+                }
             } finally { $excel.ScreenUpdating = $true }
         }
         if (($Once -and $initialReady) -or ($MaxUpdates -gt 0 -and $updates -ge $MaxUpdates)) { break }
@@ -94,7 +108,10 @@ try {
                 $progress = Get-Content -LiteralPath $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
                 $elapsed = [int]($progress.elapsed_seconds + ([DateTimeOffset]::Now - [DateTimeOffset]::Parse($progress.updated_at)).TotalSeconds)
                 $message = [string]$progress.message + " · 累计 $elapsed 秒"
-                if ($progress.message -ne $lastProgress) { Write-Output $message; $lastProgress = $progress.message }
+                if ($progress.message -ne $lastProgress -or (Get-Date) -ge $nextProgressNotice) {
+                    Write-Output $message; $lastProgress = $progress.message
+                    $nextProgressNotice = (Get-Date).AddSeconds(10)
+                }
             }
             foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
             $nextProgress = (Get-Date).AddSeconds(2)
