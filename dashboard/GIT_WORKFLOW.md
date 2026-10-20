@@ -25,7 +25,7 @@ git ls-remote --heads origin codex/company-apps
 
 ## 离线代码
 
-2026-10-20 刷新证据交付使用 `company-apps-numeric-refresh-20261020.bundle`，包头为本次统一分支发布HEAD，仍以前提提交 `f8c1d2f` 构建；文件位于本机 `dashboard/runtime/distribution/`，校验记录在 `.deps/numeric_refresh/release.json`。旧numeric/shortfiles/startup/status/visible包保留，均不会自动获得本次修复。普通公司更新优先pull，无需导入任何数据包。版本对照见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。
+2026-10-20 刷新证据交付使用 `company-apps-numeric-refresh-20261020.bundle`，代码修复包头为 `60e5446`，以前提提交 `f8c1d2f` 构建，后续公司诊断说明提交不在该包内；文件位于本机 `dashboard/runtime/distribution/`，校验记录在 `.deps/numeric_refresh/release.json`。旧numeric/shortfiles/startup/status/visible包保留，均不会自动获得本次修复。普通公司更新优先pull，无需导入任何数据包。版本对照见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。
 
 历史2026-10-19首次数字版 bundle 名为 `company-apps-numeric-20261019.bundle`，仅包含当时统一分支代码增量，以 `f8c1d2f` 为前提提交，不包含后续刷新修复。保存在本机 `dashboard/runtime/distribution/`，不上传业务数据。公司默认在线 pull，无需反复导入 bundle。
 

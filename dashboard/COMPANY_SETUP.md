@@ -1,6 +1,6 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
-已启用后的普通代码更新无需重新安装数据包。本次“界面似乎未刷新”的更新与只读诊断顺序见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)：公司已返回2938763、只读缓存命令和成品路径，下一步核对同一窗口/缓存，不重复重装环境。以下第3—4节供缺环境/首次配置时参考。
+已启用后的普通代码更新无需重新安装数据包。本次“界面似乎未刷新”的诊断见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)：公司11:06已确认60e5446、实际Python及同一可见工作簿；当前ReadOnlyCache且配置中的实时SQLite不存在，显示历史收盘。下一步运行允许采集的原入口并核对新运行样本，当前无需再更新或处理环境/数据。以下第3—4节供缺环境/首次配置时参考。
 
 长期分支为 `codex/company-apps`。公司现有 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身是仓库根目录；下面的 `dashboard\start_numeric_excel.cmd` 是新增模块入口，两个 dashboard 是正常的层级。路径若已改变，以 `git rev-parse --show-toplevel` 为准。
 

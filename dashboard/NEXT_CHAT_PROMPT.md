@@ -1,6 +1,6 @@
 # 继续数字 Excel 工作
 
-最新排查入口为 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。用户确认公司仍是2938763并以ReadOnlyCache运行；该运行不创建采集器。已发布状态修复的最终SHA以实际远端及本机release.json为准，公司是否已pull须用户新输出确认。2026-10-20 10:37用户授权本机VPN实连，三轮20个标的、隔离缓存、同一可见Excel价格/源时及保存均已核验，原库不变；这不等于公司电脑验收。下一步只需新诊断入口的两次只读样本及窗口运行号；不要把ready/日志/保存时间当新行情。
+最新排查入口为 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。公司11:06诊断已确认运行60e5446及原swhy_delta1解释器，同一可见工作簿代表单元格与feed一致、保存正常；ReadOnlyCache、collector=idle，配置指向的实时SQLite不存在，显示10月16日15:00历史收盘。下一步验证不带ReadOnlyCache的原入口采集，以及新运行两次样本的源时/单元格，不重复要求pull、重装或导数据；不能用旧运行号指向新窗口。该公司反馈只有一份样本，不算实时连续刷新验收。2026-10-20 10:37本机另有三轮20标的VPN实连及隔离缓存/同一可见Excel验证，原库不变，与公司证据分开。不要把ready/日志/保存时间当新行情。
 
 先读根 AGENTS.md、COMPANY_SYNC.md、Git操作指南.md，再读本目录 AGENTS.md、PROJECT_HANDOFF.md、COMPANY_SETUP.md、NUMERIC_EXCEL.md 和 GIT_WORKFLOW.md。核对实际 Git 根目录、分支、工作区和远端，不能把待办当完成。
 

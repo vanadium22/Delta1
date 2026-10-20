@@ -1,12 +1,16 @@
 # 数字 Excel 刷新证据与版本对照
 
-核对日期：2026-10-20（北京时间）。本次代码基于 `2938763`，最终发布 SHA 以统一分支 HEAD 和远端核对为准。
+核对日期：2026-10-20（北京时间）。刷新修复已发布为 `60e5446`；公司11:06返回诊断，确认实际运行此版本。后续文档提交不改变该版代码行为。
 
 ## 已确认与未确认
 
-用户本次返回公司 HEAD/远端跟踪分支均为 `2938763`，命令为 `dashboard/start_numeric_excel.cmd -ReadOnlyCache`，打开的文件位于公司仓库 `data/cache/dashboard/numeric/`，文件名时间为 20261020_102137。这是公司版本及命令的现场证据；路径符合默认输出规则，但还不能证明窗口属于启动器维护的同一 Excel 实例。
+最初公司返回 `2938763`、只读命令及文件路径，只能确认当时版本与启动方式。随后用户返回11:06:46的一份公司诊断：HEAD为 `60e5446`、统一分支，实际后台Python确为 `D:\conda\envs\swhy_delta1\python.exe`。运行号 `a55c931f` 对应11:04:12生成的工作簿，原生窗口FullName/HWND/PID与启动记录一致，attached/visible/window_enabled均为true；代表单元格与feed一致，saved=true，最后成功保存于11:06:42，无已记录错误。这已确认本次检查的是启动器维护的同一可见工作簿。
 
-`-ReadOnlyCache` 不创建采集器。没有其他程序更新**相同 realtime_root** 时，后台重算成功、Excel 写入成功而行情数值不变是预期行为。是否存在其他采集器、公司缓存是否新增记录、实际窗口内容是否对应本次 feed，仍需下面的只读采样，不能从旧 ready=true 或保存日志推断。
+当前数值不变的直接证据是 `read_only_cache=true`、`collect_requested=false`、`collector=idle`，且配置指向的 `data/market/index_futures/dashboard/realtime/live/quotes.sqlite3` **不存在**。该运行没有主动采集，也没有从此实时库获得新行情；feed原始时点和窗口A4均为北京时间2026-10-16 15:00，K7明确为“历史收盘”。它正在基于导入的历史数据重算，不能用计算/保存时间当行情时间。这里只确认当前配置指向的库，不推断公司其他目录是否另有采集程序。
+
+公司配置使用 `dashboard/localsetting/numeric_excel/native.json`，history_roots为 `data/market/index_futures/dashboard/imports/20261019_short/` 下的index/futures，reference_file为该导入目录的reference.json；分红目录仍指向现有inputs。本次诊断没有证明路径配错，也没有要求重新导入或改配置。诊断输出只返回了一份样本；公司新行情到达后同一窗口随之变化、持续采集和长时间运行仍未验收。下一步直接在公司行情网络可达且时段允许时，以不带 `-ReadOnlyCache` 的入口运行，再用新运行的两次样本核对源时与单元格。
+
+`calculation.ready=false` 与 `feed.ready=true` 同时出现不表示结果失效：前者是独立进度文件，可能采到档位处理阶段，后者表示完整结果已发布；两文件分开读取，非原子快照。此样本进度更新时间早于feed完成时间。窗口状态约30秒更新，因此A4计算时间比最新feed稍早也不等于写入故障。
 
 本次确认的代码问题与处理：
 
@@ -32,7 +36,17 @@
 
 ## 公司按顺序更新与核验
 
-先在本次启动终端 Ctrl+C 并等待退出；若 Excel 有保存/编辑对话框，先在该窗口处理。只停止本次数字运行。普通更新不需要重导任何数据包，也不覆盖 data 或配置。
+公司已确认运行 `60e5446`，当前无需再次pull、重装或重导。要接入盘中行情，先关闭运行号a55c931f的数字Excel并等待启动终端退出，保留其他Excel；在公司行情网络可达时执行以下命令。启动器仍受09:29/15:01时段守卫和网络互斥约束。
+
+```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
+$env:SWHY_DELTA1_PYTHON = 'D:\conda\envs\swhy_delta1\python.exe'
+.\dashboard\start_numeric_excel.cmd
+```
+
+原缓存目录可保留；采集器通过检查并实际启动后会创建所需实时库，无需手工建SQLite或搬数据。启动后按下面的另终端诊断命令获取新运行样本，默认选最新活动运行；若有多份，用新窗口运行号，不能沿用a55c931f。希望看到采集运行、缓存存在且源时更新、同一窗口单元格与feed相符；仅collector=running或sequence增长不等于报价新鲜。
+
+以下保留为以后代码更新的步骤，**不是这次已完成更新后必须重做的操作**。先停止本次数字运行；若Excel有保存/编辑对话框，先在该窗口处理。普通更新不需要重导任何数据包，也不覆盖data或配置。
 
 ```powershell
 Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
@@ -58,6 +72,7 @@ if ($LASTEXITCODE -ne 0) { throw '原环境检查失败，保留输出诊断，�
 启动后保持这个窗口和终端。另开 PowerShell，在同一公司仓库根目录执行一次（只读；不准备/激活配置、不创建采集器、不打开另一份 xlsx）：
 
 ```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
 & 'D:\conda\envs\swhy_delta1\python.exe' -B -X utf8 -m dashboard.numeric_diagnose --samples 2 --interval 10
 ```
 
@@ -77,10 +92,10 @@ if ($LASTEXITCODE -ne 0) { throw '原环境检查失败，保留输出诊断，�
 | --- | --- | --- | --- | --- | --- |
 | 旧展示版 `O\dashboard` | `codex/dashboard-history-release-20261019`，HEAD `a070339`，前端未提交 | `dashboard\start_presentation.cmd` → `native.editions_current` | `dashboard/localsetting/native.json`；其 history_roots/realtime_root、合约参考与分红设置 | 代码确有四品种卡片、四档选择、分位/n、六项指标、实时启停、数字快照；本次只核对源码，未进行新的 App 实机验收 | 新前端未推送；本次旧目录491个原有未提交文件与95份配置/保护文件按哈希核对，不覆盖。公司不安装新前端 |
 | 旧开发版 `O\dashboard` | 同上 | `dashboard\start_development.cmd` → `DeveloperWindow(ResearchWindow)` | 同上 | 已继承研究窗口并增加数字快照导出；诊断溯源统一状态仍待方案实施 | 同上，暂不发布 |
-| 数字 Excel `U\dashboard` | `codex/company-apps`，起点 `2938763`，本次改动见当前发布提交 | `dashboard\start_numeric_excel.cmd` | 默认 `dashboard/localsetting/numeric_excel/native.json`；首次复制已有配置，既有副本不覆盖；输出默认仓库 data，计算缓存使用共享 DATA_ROOT | 本次验证见下；公司缓存/窗口还需两次采样。U 本机默认数字配置并不存在，验证使用隔离副本，不能把 U 当已配置好的正式运行目录 | 仅白名单代码/测试/说明发布统一分支；公司在 C pull 后原入口重开 |
-| 公司实际数字 Excel `C\dashboard` | 用户本次确认 `2938763` | `-ReadOnlyCache` | 公司副本具体内容尚未读取；用户确认成品在 C 的 data/cache 下 | 版本、命令、文件路径已确认；共享缓存写入者、实际 Python、窗口归属和新行情未确认 | 不从远端已发布推断公司已经更新；以公司新 log/诊断为准 |
+| 数字 Excel `U\dashboard` | `codex/company-apps`，刷新代码 `60e5446`，后续HEAD含说明更新 | `dashboard\start_numeric_excel.cmd` | 默认 `dashboard/localsetting/numeric_excel/native.json`；首次复制已有配置，既有副本不覆盖；输出默认仓库data，计算缓存使用共享DATA_ROOT | 本机合成/实连验证见下；U默认数字配置并不存在，验证使用隔离副本 | 仅白名单代码/测试/说明发布统一分支 |
+| 公司实际数字 Excel `C\dashboard` | 用户11:06诊断确认 `60e5446`、`codex/company-apps` | `-ReadOnlyCache` | 数字专用配置；短包index/futures历史；实时根为C下 `data/market/index_futures/dashboard/realtime`，其SQLite不存在 | 实际Python、同一可见窗口、代表单元格匹配与保存已确认；当前显示10月16日历史收盘。公司实时采集及新数据变化仍待核验 | 已确认此次代码更新；下一步改用允许采集的原入口，无需重新pull或导数据 |
 | 共用计算/数据后台 `U\dashboard`、`U\index_strategy\instant_dld` 与 O 的同名目录 | 公司基线1ec44ed、短名240a995、性能9d4deb0；两分支非快进关系 | numeric_excel / display_snapshot / NativeModel / CollectionJob / RealtimeReader | 当前入口决定配置根；不是全局同一份 native.json | 短路径7个文件、bars/nonregression在本次前已同步旧目录（两文件仅换行差异）；旧 numeric_excel 保留原配置解析。旧 live.ps1 缺61a5f42/2938763；本次状态/配置隔离修复仅U。contracts/service另有旧分支夜盘交易日和连接探测功能差异，未整体复制 | 仅公司版本更新；O仍原样保留。不要用目录同名推断字节或功能相同 |
-| 新离线代码 `U\dashboard\runtime\distribution\company-apps-numeric-refresh-20261020.bundle` | 本次发布公司HEAD；前提 f8c1d2f | Git bundle；非解压安装包 | 只含Git代码/测试/说明；不含本机配置/数据 | 交付时核验 list-heads/verify、隔离导入结果；可替代离线更新，非日常必需 | 包本身不上传Git；在线公司优先 pull，不切旧分支 |
+| 离线代码 `U\dashboard\runtime\distribution\company-apps-numeric-refresh-20261020.bundle` | 代码修复包头 `60e5446`；前提 f8c1d2f；不含后续公司诊断说明提交 | Git bundle；非解压安装包 | 只含Git代码/测试/说明；不含本机配置/数据 | 已通过list-heads/verify和隔离导入，导入树与60e5446一致；240,861字节 | 包本身不上传Git；在线公司优先pull，不切旧分支 |
 | 独立私有数据 `U\dashboard\runtime\distribution\dashboard-data-short-v2-20261019.zip` | 非Git；75,655,652字节；SHA256 `878548493cdbe5dcdcb18b79c5cab33c3eb4a1e127b0fb99f418cabda38eac96` | 缺数据/确需迁移时显式 data_package 安装器 | 历史/分红/参考增量包；不含当前实时更新、凭据 | 文件及校验已核对；本次不重装。公司当前启用哪套数据以诊断配置为准 | 不推送；与代码包分开，绝不解压覆盖公司整个data |
 
 另有 lending-worktree（`codex/securities-lending`，`066f176`）和 script-making-worktree（`codex/script-making`，`58e3194`），本次只读核对，不作为数字版更新入口。工作区状态以 `.deps/numeric_refresh/` 本机审计记录及当前 git status 为准。
@@ -95,9 +110,9 @@ if ($LASTEXITCODE -ne 0) { throw '原环境检查失败，保留输出诊断，�
 
 用户随后授权本机 VPN 实连验证。北京时间2026-10-20 10:37完成独立人工诊断：最多三轮，每轮20个标的全部返回，按正常客户端和存储器写入独立诊断缓存，仍用原计算引擎及同一个可见Excel窗口。三轮原始源时范围依次为10:37:10–13、10:37:27、10:37:34–36；同一FullName/HWND/PID的价格、数据时点和计算指标单元格与feed相符，最终磁盘文件也回读一致。停止采样后重算相同缓存，窗口明确显示“未观察到源时/报价变化；重算不代表新行情”，原始源时保持10:37:34–36。原行情SQLite哈希未变，真实行情、成品和诊断证据仅留在忽略目录 `.deps/numeric_refresh/`，不进入提交。
 
-这次实连采用具体合约、有限三轮采样和隔离缓存；没有启用长期采集或改写原有数据/配置，不等于完整启动器自动换月流程或公司电脑验收。公司电脑的HTTP访问、实际Python、那份窗口归属、长时间运行、筛选/编辑交互仍待现场诊断；Wind实连未测试。自动回归与本机VPN人工验证分别报告。
+这次实连采用具体合约、有限三轮采样和隔离缓存；没有启用长期采集或改写原有数据/配置，不等于完整启动器自动换月流程或公司电脑实时验收。公司11:06样本随后确认了实际Python和当前可见窗口，但HTTP访问、新行情输入后的连续变化、长时间运行、筛选/编辑交互仍待验证；Wind实连未测试。自动回归、本机VPN人工验证、公司只读运行三类证据分别报告。
 
-1. **P0 本次发布：** 以上刷新证据、窗口身份、缓存配置隔离、减少重复写入与诊断。公司先返回一次两样本诊断，依据五层证据决定是否需要调整采集模式/修正具体路径；不盲目安装或搬数据。
+1. **P0 本次发布：** 刷新证据、窗口身份、缓存配置隔离、减少重复写入与诊断已发布；公司只读样本已定位缺少当前配置的实时缓存输入。接下来验证正常入口采集与新源时进入窗口；不盲目安装、改路径或搬数据。
 2. **P1 Excel可评审方案：** 沿用四张表，把固定顶部状态收敛为采集方式、行情时点、计算/保存、运行身份四项；四档分组阅读，核心F/S/D/T/年化固定，分位与n相邻；缺失原因用短标记及可查明细。先做一份合成样例供评审，再调整列宽、分组/冻结、筛选范围。验收要覆盖用户实际滚动、筛选和编辑，不用时间戳或颜色闪动充当行情更新。本次不重排指标或改变样本口径。
 3. **P1 共用状态协议：** Excel和两个App共同使用行情源时、接收时、计算时、缓存身份、日历守卫与数据可用性解释。现有display_state、session_clock已共用；新增运行证据目前只有数字版接入，前端接入是待办。
 4. **P2 展示版方案：** 保留现有四卡及六指标，优先展示关键值、分位/n和影响当前阅读的异常，详情展开显示数据来源和缺失原因；不把全部调试表铺在首页。现有卡片/六指标已在源码实现；统一状态摘要和异常层次仍待实施/评审。

@@ -1,6 +1,6 @@
 # 数字 Excel 与交易时段
 
-2026-10-20 刷新排查更新：请先看 [刷新证据、版本对照与公司核验](REFRESH_DIAGNOSIS.md)。公司已确认旧版2938763及 `-ReadOnlyCache`；这只读共享缓存，不创建行情采集器。新版窗口显示文件路径/运行号、实际采集模式、计算完成时间及期货/指数原始源时。相同结果不重写指标表，状态约30秒更新并保存；时间推进不称为新行情。只读两次采样命令为 `python -B -X utf8 -m dashboard.numeric_diagnose --samples 2 --interval 10`，实际 Python 以启动器运行记录为准。
+2026-10-20 刷新排查更新：请先看 [刷新证据、版本对照与公司核验](REFRESH_DIAGNOSIS.md)。公司11:06已确认运行60e5446、同一可见窗口及正确Python，代表单元格与feed匹配、保存正常；当前ReadOnlyCache不创建采集器，其配置指向的实时SQLite不存在，显示10月16日历史收盘。下一步只需正常采集入口及新运行样本，不重导数据。新版窗口显示文件路径/运行号、实际采集模式、计算完成时间及原始源时。相同结果不重写指标表，状态约30秒更新并保存；时间推进不称为新行情。只读诊断需先进入仓库根目录再运行 `python -B -X utf8 -m dashboard.numeric_diagnose --samples 2 --interval 10`。
 
 数字版独立于尚未提交的新展示版/开发版。Windows 桌面 Excel + Python 即可运行，不需要 VBA、Node 或 artifact-tool；后两者仅用于开发机制作空白模板。已有项目环境可以直接复用，新环境安装 `dashboard/requirements-numeric.txt`，设置 `SWHY_DELTA1_PYTHON` 为实际 Python 路径。
 
