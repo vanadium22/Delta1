@@ -1,7 +1,7 @@
 ﻿param(
     [string]$Python = 'python', [string]$Output, [string]$LocalRoot,
     [string]$Snapshot, [string]$FeedFile, [switch]$ReadOnlyCache,
-    [switch]$Once, [switch]$Hidden, [int]$MaxUpdates = 0
+    [switch]$Once, [switch]$Hidden, [switch]$NoPrompt, [int]$MaxUpdates = 0
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -42,6 +42,14 @@ function IsBusy($exception) {
     }
     return $false
 }
+function Set-ViewState([string]$Mode, [string]$Message, [string]$Identity, [string]$Times) {
+    $book.Worksheets.Item('概览').Range('G3').Formula=$Mode
+    $book.Worksheets.Item('概览').Range('B4').Formula=$Message
+    $book.Worksheets.Item('概览').Range('B41').Formula=$Identity
+    $book.Worksheets.Item('概览').Range('B42').Formula=$Times
+    $book.Worksheets.Item('指标').Range('B4').Formula=$Mode+' · '+$Message
+    $book.Worksheets.Item('指标').Range('B35').Formula=$Identity
+}
 SaveRun
 function ProducerFailure {
     $errorLog = Join-Path $runRoot 'producer.err.log'
@@ -49,6 +57,14 @@ function ProducerFailure {
     return "数据服务退出，日志：$errorLog`n$tail"
 }
 try {
+    if (-not ($ReadOnlyCache -or $Once -or $Hidden -or $Snapshot -or $FeedFile -or $NoPrompt)) {
+        . (Join-Path $PSScriptRoot 'startup.ps1')
+        $choice=Invoke-NumericWizard $Python $LocalRoot $runRoot
+        if ($choice.cancelled) { $run.state='cancelled'; return }
+        $ReadOnlyCache=[bool]$choice.read_only
+        if ($choice.local_root) { $LocalRoot=$choice.local_root }
+        $run.read_only_cache=[bool]$ReadOnlyCache
+    }
     if (-not $FeedFile) {
         $FeedFile = Join-Path $runRoot 'workbook.json'
         $arguments = @('-B','-X','utf8','-m','dashboard.numeric_excel','--feed',$FeedFile,'--stop-file',$stopFile)
@@ -77,13 +93,24 @@ try {
     $excel = New-Object -ComObject Excel.Application
     $owned = $true; $excel.DisplayAlerts = $false
     $book = $excel.Workbooks.Open($Output)
+    $excel.Calculation = -4105 # Automatic; selectors recalculate without another feed.
+    $book.Worksheets.Item('概览').Activate()
+    foreach ($sheet in $book.Worksheets) {
+        if ($sheet.Name -notin @('概览','指标','来源与状态')) { $sheet.Visible=0 }
+    }
+    $book.Windows.Item(1).Zoom=85
+    $valueAxis=$book.Worksheets.Item('概览').ChartObjects(1).Chart.Axes(2)
+    $valueAxis.MinimumScale=0; $valueAxis.MaximumScale=1
+    $book.Worksheets.Item('概览').ChartObjects(1).Chart.PlotVisibleOnly=$false
     Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class NumericWindow { [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h); }'
     $run.hwnd = [long]$excel.Hwnd
     [uint32]$excelProcessId = 0
     [void][NumericWindow]::GetWindowThreadProcessId([IntPtr]$run.hwnd, [ref]$excelProcessId)
     $run.excel_pid = $excelProcessId
     $book.Windows.Item(1).Caption = (Split-Path $Output -Leaf) + ' · Delta1 ' + $runId.Substring(0,8)
-    foreach ($sheet in $book.Worksheets) { $sheet.Range('A1').Formula = '文件：' + $Output }
+    foreach ($sheet in $book.Worksheets) {
+        if ($sheet.Name -notin @('概览','指标')) { $sheet.Range('A1').Formula = '文件：' + $Output }
+    }
     # Excel may ignore Visible=True before it has an open workbook. Restore
     # only this owned workbook after Open; never attach to another instance.
     if (-not $Hidden) {
@@ -167,10 +194,16 @@ try {
                     $source = if ($feed.evidence) { (Beijing $feed.evidence.oldest_source_time) + ' 至 ' + (Beijing $feed.evidence.newest_source_time) } else { '以逐行数据时间为准' }
                     $note = if ($feed.evidence) { [string]$feed.evidence.note } else { '未提供行情变化证据' }
                     foreach ($sheet in $book.Worksheets) {
+                        if ($sheet.Name -in @('概览','指标')) { continue }
                         $sheet.Range('A3').Formula = [string]$feed.mode + ' · ' + $note
                         $sheet.Range('A4').Formula = if ($feed.ready -eq $false) { '四档计算中，尚未全部就绪 · 原始数据：' + $source } else { '计算完成（北京）：' + (Beijing $calculated) + ' · 原始数据：' + $source }
                         $sheet.Range('A5').Formula = '运行 ' + $runId.Substring(0,8) + ' · 检查 ' + (Beijing ([DateTimeOffset]::Now.ToString('o'))) + ' · 仅启动器窗口持续更新；重开文件为快照'
                     }
+                    $compactMode=if($feed.ready -eq $false){'计算中'}elseif($feed.acquisition -like '*快照*'){'历史回看'}elseif($ReadOnlyCache){'只读缓存'}elseif($feed.acquisition -like '*时段守卫*'){'保存数据'}elseif($feed.collector -eq 'running'){'采集中'}else{'缓存 · 未采集'}
+                    $compactNote=if($feed.ready -eq $false){'四档计算中'}elseif($feed.evidence.display_inputs_changed -eq $true){'源时 / 报价变化'}elseif($feed.evidence.display_inputs_changed -eq $false){'源时 / 报价未变'}else{'数据时间见各卡片'}
+                    Set-ViewState $compactMode $compactNote ('维护中 · '+$runId.Substring(0,8)+' · '+(Split-Path $Output -Leaf)) ('计算 '+(Beijing $calculated)+' · 写入 '+(Get-Date -Format 'HH:mm:ss')+' · 上次保存 '+(Beijing $run.last_save_at))
+                    $book.Worksheets.Item('概览').Calculate()
+                    $book.Worksheets.Item('指标').Calculate()
                     $run.last_write_at = [DateTimeOffset]::Now.ToString('o'); $run.writes++
                     $s = $book.Worksheets.Item('数字看板')
                     $actual = @($s.Range('D7').Value2,$s.Range('E7').Value2,$s.Range('J7').Value2,$s.Range('L7').Value2)
@@ -188,6 +221,7 @@ try {
                     $run.state='saving'; SaveRun
                     $book.Save()
                     $run.last_save_at = [DateTimeOffset]::Now.ToString('o'); $run.saves++
+                    $excel.StatusBar='Delta1 '+$runId.Substring(0,8)+' · 保存成功 '+(Get-Date -Format 'HH:mm:ss')+' · 行情时间见卡片'
                     $run.saved_file_mtime = (Get-Item -LiteralPath $Output).LastWriteTimeUtc.ToString('o')
                     $lastSuccess = Get-Date; $nextStatusWrite = (Get-Date).AddSeconds(30)
                     foreach ($name in $changed.Keys) { $revisions[$name] = $changed[$name] }
@@ -227,17 +261,23 @@ try {
                 }
             }
             try {
-                foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
+                foreach ($sheet in $book.Worksheets) {
+                    if ($sheet.Name -notin @('概览','指标')) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
+                }
+                Set-ViewState '计算中' $message ('维护中 · '+$runId.Substring(0,8)) '空白表示待计算'
             } catch {
                 $run.state='write_error'; $run.error=$_.Exception.Message; SaveRun
                 if (-not (IsBusy $_.Exception)) { throw }
             }
             $nextProgress = (Get-Date).AddSeconds(2)
         }
-        elseif ($initialReady -and (([DateTimeOffset]::Now - [DateTimeOffset]::Parse($feed.generated_at)).TotalSeconds -gt 60)) {
+        elseif ($initialReady -and $run.state -ne 'calculation_delayed' -and (([DateTimeOffset]::Now - [DateTimeOffset]::Parse($feed.generated_at)).TotalSeconds -gt 60)) {
             $run.state='calculation_delayed'; SaveRun
             try {
-                foreach ($sheet in $book.Worksheets) { $sheet.Range('A5').Formula = '计算更新延迟 · 运行 ' + $runId.Substring(0,8) + ' · 上次计算 ' + (Beijing $feed.generated_at) + '；行情是否新鲜见原始时点。' }
+                foreach ($sheet in $book.Worksheets) {
+                    if ($sheet.Name -notin @('概览','指标')) { $sheet.Range('A5').Formula = '计算更新延迟 · 运行 ' + $runId.Substring(0,8) + ' · 上次计算 ' + (Beijing $feed.generated_at) + '；行情是否新鲜见原始时点。' }
+                }
+                Set-ViewState '更新延迟' '数据时间见各卡片' ('维护中 · '+$runId.Substring(0,8)) ('上次计算 '+(Beijing $feed.generated_at))
             } catch {
                 $run.state='write_error'; $run.error=$_.Exception.Message; SaveRun
                 if (-not (IsBusy $_.Exception)) { throw }
@@ -256,8 +296,14 @@ try {
     }
     if ($book) {
         try {
-            foreach ($sheet in $book.Worksheets) { $sheet.Range('A5').Formula = '已停止自动更新 · 运行 ' + $runId.Substring(0,8) + ' · 此文件为保存快照；数据时点见逐行列' }
+            foreach ($sheet in $book.Worksheets) {
+                if ($sheet.Name -notin @('概览','指标')) { $sheet.Range('A5').Formula = '已停止自动更新 · 运行 ' + $runId.Substring(0,8) + ' · 此文件为保存快照；数据时点见逐行列' }
+            }
+            $endMode=if($run.state -eq 'failed'){'错误 · 已停止'}else{'已停止'}
+            $endNote=if($run.state -eq 'failed'){'本次失败，详情见启动终端；数据时间见卡片'}else{'保存快照 · 数据时间见各卡片'}
+            Set-ViewState $endMode $endNote ('已停止 · '+$runId.Substring(0,8)+' · '+(Split-Path $Output -Leaf)) ('上次成功保存 '+(Beijing $run.last_save_at))
             $book.Save()
+            $excel.StatusBar='Delta1 · '+$endMode+' · 此文件为保存快照'
             if ($Hidden) { $book.Close($true) }
         } catch { }
     }

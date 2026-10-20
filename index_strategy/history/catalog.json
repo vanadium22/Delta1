@@ -1,0 +1,993 @@
+{
+  "inspected_on": "2026-10-09",
+  "sources": [
+    {
+      "db": "dfs://ods_tsdb_y_wind",
+      "table": "cindexfutureseodprices",
+      "kind": "ff",
+      "market": "all",
+      "frequency": "1d",
+      "comment": "中国股指期货日行情",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "对象ID",
+          "sensitive": false
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "Wind代码",
+          "sensitive": false
+        },
+        {
+          "name": "TRADE_DT",
+          "typeString": "DATE",
+          "typeInt": 6,
+          "extra": null,
+          "comment": "交易日期",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_PRESETTLE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "前结算价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "最高价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_LOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "最低价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "收盘价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_SETTLE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "结算价(元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交量(手)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交金额(万元)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_OI",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "持仓量(手)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌(元)",
+          "sensitive": false
+        },
+        {
+          "name": "FS_INFO_TYPE",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "合约类型",
+          "sensitive": false
+        },
+        {
+          "name": "OPDATE",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12,
+          "extra": null,
+          "comment": "",
+          "sensitive": false
+        },
+        {
+          "name": "OPMODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "",
+          "sensitive": false
+        }
+      ],
+      "partition_columns": "TRADE_DT"
+    },
+    {
+      "db": "dfs://ods_olap_y_csmar",
+      "table": "ff_l2_trdmin1_cffex",
+      "kind": "ff",
+      "market": "cffex",
+      "frequency": "1m",
+      "comment": "中金所股指期货L2-一分钟分时",
+      "columns": [
+        {
+          "name": "TradingDate",
+          "typeString": "DATE",
+          "typeInt": 6,
+          "extra": null,
+          "comment": "交易归属日期",
+          "sensitive": false
+        },
+        {
+          "name": "TradingTime",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12,
+          "extra": null,
+          "comment": "交易发生时间",
+          "sensitive": false
+        },
+        {
+          "name": "Symbol",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "合约代码",
+          "sensitive": false
+        },
+        {
+          "name": "OpenPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内开盘价",
+          "sensitive": false
+        },
+        {
+          "name": "ClosePrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内收盘价",
+          "sensitive": false
+        },
+        {
+          "name": "HighPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内最高价",
+          "sensitive": false
+        },
+        {
+          "name": "LowPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内最低价",
+          "sensitive": false
+        },
+        {
+          "name": "Change",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌",
+          "sensitive": false
+        },
+        {
+          "name": "ChangeRatio",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌幅",
+          "sensitive": false
+        },
+        {
+          "name": "Position",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "持仓量",
+          "sensitive": false
+        },
+        {
+          "name": "Volume",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "分时内成交量",
+          "sensitive": false
+        },
+        {
+          "name": "Amount",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内成交金额",
+          "sensitive": false
+        },
+        {
+          "name": "ContinueSign",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "连续合约代码",
+          "sensitive": false
+        },
+        {
+          "name": "Market",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "市场",
+          "sensitive": false
+        },
+        {
+          "name": "UNIX",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "格林威治时间",
+          "sensitive": false
+        },
+        {
+          "name": "ContinueSignName",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "连续合约名称",
+          "sensitive": false
+        },
+        {
+          "name": "TotalVolume",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "成交总量",
+          "sensitive": false
+        },
+        {
+          "name": "VWAP",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交量加权平均价",
+          "sensitive": false
+        },
+        {
+          "name": "SecurityID",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "证券统一编码",
+          "sensitive": false
+        },
+        {
+          "name": "BenchMarkOpenPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘基准价",
+          "sensitive": false
+        },
+        {
+          "name": "ShortName",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "证券简称",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeLowPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今最低价",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeHighPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今最高价",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeVWAP",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今交易量加权平均价",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价一",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价二",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价三",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价四",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价五",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价一",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价二",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价三",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价四",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价五",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量一",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量二",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量三",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量四",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量五",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量一",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量二",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量三",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量四",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量五",
+          "sensitive": false
+        },
+        {
+          "name": "Return",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "简单收益率",
+          "sensitive": false
+        }
+      ],
+      "partition_columns": "TradingDate"
+    },
+    {
+      "db": "dfs://ods_tsdb_m_wind",
+      "table": "aindexeodprices",
+      "kind": "index",
+      "market": "all",
+      "frequency": "1d",
+      "comment": "中国A股指数日行情",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "对象ID",
+          "sensitive": false
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "Wind代码",
+          "sensitive": false
+        },
+        {
+          "name": "TRADE_DT",
+          "typeString": "DATE",
+          "typeInt": 6,
+          "extra": null,
+          "comment": "交易日期",
+          "sensitive": false
+        },
+        {
+          "name": "CRNCY_CODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "货币代码",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "昨收盘价(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘价(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "最高价(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_LOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "最低价(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "收盘价(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌(点)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌幅(%)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交量(手)",
+          "sensitive": false
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交金额(千元)",
+          "sensitive": false
+        },
+        {
+          "name": "SEC_ID",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "证券ID",
+          "sensitive": false
+        },
+        {
+          "name": "OPDATE",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12,
+          "extra": null,
+          "comment": "",
+          "sensitive": false
+        },
+        {
+          "name": "OPMODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "",
+          "sensitive": false
+        }
+      ],
+      "partition_columns": "TRADE_DT"
+    },
+    {
+      "db": "dfs://ods_tsdb_d_hash20_csmar",
+      "table": "l1_trdmin1_sh",
+      "kind": "l1",
+      "market": "sh",
+      "frequency": "1m",
+      "comment": "上交所L1-分时-一分钟分时",
+      "columns": [
+        {
+          "name": "Symbol",
+          "typeString": "SYMBOL",
+          "typeInt": 17,
+          "extra": null,
+          "comment": "证券代码",
+          "sensitive": false
+        },
+        {
+          "name": "ShortName",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "证券简称",
+          "sensitive": false
+        },
+        {
+          "name": "TradingDate",
+          "typeString": "DATE",
+          "typeInt": 6,
+          "extra": null,
+          "comment": "交易归属日期",
+          "sensitive": false
+        },
+        {
+          "name": "TradingTime",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12,
+          "extra": null,
+          "comment": "交易发生时间",
+          "sensitive": false
+        },
+        {
+          "name": "OpenPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内开盘价",
+          "sensitive": false
+        },
+        {
+          "name": "HighPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内最高价",
+          "sensitive": false
+        },
+        {
+          "name": "LowPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内最低价",
+          "sensitive": false
+        },
+        {
+          "name": "ClosePrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内收盘价",
+          "sensitive": false
+        },
+        {
+          "name": "Volume",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "分时内成交量",
+          "sensitive": false
+        },
+        {
+          "name": "Amount",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时内成交金额",
+          "sensitive": false
+        },
+        {
+          "name": "UNIX",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "格林威治时间",
+          "sensitive": false
+        },
+        {
+          "name": "Market",
+          "typeString": "STRING",
+          "typeInt": 18,
+          "extra": null,
+          "comment": "市场",
+          "sensitive": false
+        },
+        {
+          "name": "SecurityID",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "证券统一编码",
+          "sensitive": false
+        },
+        {
+          "name": "BenchMarkOpenPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘基准价",
+          "sensitive": false
+        },
+        {
+          "name": "Change",
+          "typeString": "LONG",
+          "typeInt": 5,
+          "extra": null,
+          "comment": "涨跌",
+          "sensitive": false
+        },
+        {
+          "name": "ChangeRatio",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "涨跌幅",
+          "sensitive": false
+        },
+        {
+          "name": "TotalVolume",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交总量",
+          "sensitive": false
+        },
+        {
+          "name": "VWAP",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "成交量加权平均价",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeLowPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今最低价",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeHighPrice",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今最高价",
+          "sensitive": false
+        },
+        {
+          "name": "CumulativeVWAP",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "开盘至今交易量加权平均价",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价一",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价二",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价三",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价四",
+          "sensitive": false
+        },
+        {
+          "name": "BuyPrice05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买价五",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价一",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价二",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价三",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价四",
+          "sensitive": false
+        },
+        {
+          "name": "SellPrice05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖价五",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量一",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量二",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量三",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量四",
+          "sensitive": false
+        },
+        {
+          "name": "BuyVolume05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委买量五",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume01",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量一",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume02",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量二",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume03",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量三",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume04",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量四",
+          "sensitive": false
+        },
+        {
+          "name": "SellVolume05",
+          "typeString": "DOUBLE",
+          "typeInt": 16,
+          "extra": null,
+          "comment": "分时委卖量五",
+          "sensitive": false
+        }
+      ],
+      "partition_columns": "['TradingDate' 'Symbol']"
+    }
+  ]
+}

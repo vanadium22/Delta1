@@ -85,10 +85,19 @@ def sample(run_file):
             all(same_cell(result['window']['cells'].get(k), v) for k, v in result.get('feed', {}).get('representative', {}).items()))
         if not result.get('feed',{}).get('representative'):
             result['cells_match_feed']=None
+        view = result['window'].get('view')
+        if view and 'feed_error' not in result:
+            index = int(view['slot']) * 4
+            card_rows = feed['sheets'].get('卡片数据', [])
+            if 0 <= index < len(card_rows):
+                r = card_rows[index]
+                result['overview_match_feed'] = all(same_cell(None if view.get(k)=='' and v is None else view.get(k), v)
+                    for k,v in zip(('contract','future','spot','annual','percentile','stress'), (r[2],r[3],r[4],r[6],r[13],r[8])))
         after=read_json(run['feed'])
         if after.get('generated_at')!=result.get('feed',{}).get('generated_at'):
             result['sample_spanned_calculation']=True
             result['cells_match_feed']=None  # Concurrent publication is inconclusive, not a write failure.
+            result['overview_match_feed']=None
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         result['window'] = dict(attached=False, error=str(exc))
     try:

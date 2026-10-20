@@ -14,6 +14,8 @@ HEADERS = {
     '研究指标': ['品种','档位','具体合约','指标ID','指标名称','数值','单位','数据类型','数据时间（北京）','可用性说明','口径 / 公式'],
     '来源与状态': ['项目','内容'],
 }
+from dashboard.numeric_view import CARD_HEADERS, METRIC_HEADERS
+HEADERS.update({'卡片数据': CARD_HEADERS, '指标数据': METRIC_HEADERS})
 
 
 def local_time(value):
@@ -54,7 +56,8 @@ def workbook_payload(payload):
         ['历史版本',json.dumps(payload['snapshots'][0].get('versions',{}),ensure_ascii=False)],
         ['分红版本',payload['snapshots'][0].get('dividend_version','')],
     ] if payload['snapshots'] else []
-    return dict(schema_version=1,generated_at=payload['generated_at'],mode=payload['mode'],headers=HEADERS,sheets=sheets)
+    from dashboard.numeric_view import add_view
+    return add_view(dict(schema_version=1,generated_at=payload['generated_at'],mode=payload['mode'],headers=HEADERS,sheets=sheets))
 
 
 def capture(model, now=None, *, progress=None, stopped=None):

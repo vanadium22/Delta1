@@ -259,7 +259,7 @@ $bitmap.Save($Destination,[Drawing.Imaging.ImageFormat]::Png);$graphics.Dispose(
             finally:
                 if process.poll() is None:process.terminate();process.wait(timeout=10)
 
-    def test_two_updates_clear_missing_and_keep_zero_and_no_charts(self):
+    def test_two_updates_clear_missing_and_keep_zero_and_native_chart(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder);feed=folder/'feed.json';out=folder/'live.xlsx'
             sheets={s:[] for s in HEADERS}
@@ -290,7 +290,7 @@ $bitmap.Save($Destination,[Drawing.Imaging.ImageFormat]::Png);$graphics.Dispose(
                 self.assertIsNone(cell(out,'E7'))
                 self.assertEqual(cell(out,'J7'),0.)
                 with zipfile.ZipFile(out) as z:
-                    self.assertFalse(any(n.startswith('xl/charts/') for n in z.namelist()))
+                    self.assertEqual(len([n for n in z.namelist() if n.startswith('xl/charts/chart') and n.endswith('.xml')]),1)
             finally:
                 if process.poll() is None:process.terminate();process.wait(timeout=10)
 

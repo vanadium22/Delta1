@@ -1,6 +1,40 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
-已启用后的普通代码更新无需重新安装数据包。本次“界面似乎未刷新”的诊断见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)：公司11:06已确认60e5446、实际Python及同一可见工作簿；当前ReadOnlyCache且配置中的实时SQLite不存在，显示历史收盘。下一步运行允许采集的原入口并核对新运行样本，当前无需再更新或处理环境/数据。以下第3—4节供缺环境/首次配置时参考。
+## 2026-10-20 精简界面与历史向导更新
+
+先关闭本次数值Excel及启动器，保留其他Excel和全部数据/配置。公司已在统一分支，无需切换。源码有本地修改时先保留并处理冲突，不能强制覆盖：
+
+```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
+git status --short
+if ((git branch --show-current) -ne 'codex/company-apps') { throw '分支不符，停止并保留现场' }
+git pull --ff-only origin codex/company-apps
+if ($LASTEXITCODE -ne 0) { throw '更新失败，停止；不要强制覆盖' }
+git log -1 --oneline
+$env:SWHY_DELTA1_PYTHON = 'D:\conda\envs\swhy_delta1\python.exe'
+.\dashboard\start_numeric_excel.cmd
+```
+
+先选“使用现有数据”，再按提示连接公司行情VPN、验证打开。概览/指标各自E3切换00—03，确认品种合约、卡片数值与数据时点；不要用计算时间判断新行情。非接入时段直接只读进入。想直接只读测试界面可用原 `-ReadOnlyCache`；该参数会跳过向导。
+
+DDB可之后在公司配置：
+
+```powershell
+.\dashboard\configure_numeric_history.cmd
+```
+
+输入本机DDB地址/端口/账号/密码、SSL及**已有**DDB Python路径；没有SDK时先确认已有环境，不盲目重装原swhy_delta1。密码本机加密，配置仅保存到数字副本。之后重新打开，选择“检查并补齐”，手动连接历史网络；任务退出后才切回行情VPN。普通代码更新无需导入数据包，不覆盖整个data或Wind库。
+
+需要核验界面时，原只读诊断命令仍可用；新增window.view和overview_match_feed核对正在看的卡片，不仅核对隐藏原始表：
+
+```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
+& 'D:\conda\envs\swhy_delta1\python.exe' -B -X utf8 -m dashboard.numeric_diagnose --samples 2 --interval 10
+```
+
+公司是否已更新、DDB实际连通/补齐及本次界面连续运行仍待实机反馈；开发机合成通过不能代替这些验收。下面保留早先首次部署资料，当前更新按本节。
+
+已启用后的普通代码更新无需重新安装数据包。早先“界面似乎未刷新”的诊断见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)：公司11:06曾确认60e5446、实际Python及同一可见工作簿；当时ReadOnlyCache且配置中的实时SQLite不存在，显示历史收盘。该记录不代表已取得本次精简界面，请按本节更新；以下第3—4节供缺环境/首次配置时参考。
 
 长期分支为 `codex/company-apps`。公司现有 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身是仓库根目录；下面的 `dashboard\start_numeric_excel.cmd` 是新增模块入口，两个 dashboard 是正常的层级。路径若已改变，以 `git rev-parse --show-toplevel` 为准。
 

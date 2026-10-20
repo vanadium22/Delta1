@@ -58,6 +58,15 @@ try {
     $result.active_sheet=$app.ActiveSheet.Name; $result.selection=$app.ActiveCell.Address()
     $result.scroll_row=$book.Windows.Item(1).ScrollRow
     $result.scroll_column=$book.Windows.Item(1).ScrollColumn
+    try {
+        $view=$book.Worksheets.Item('概览'); $metrics=$book.Worksheets.Item('指标')
+        $result.view=[ordered]@{slot=$view.Range('E3').Value2;contract=$view.Range('E6').Value2;
+            future=$view.Range('B8').Value2;spot=$view.Range('D8').Value2;annual=$view.Range('H8').Value2;
+            source=$view.Range('B9').Value2;state=$view.Range('G3').Value2;identity=$view.Range('B41').Value2;
+            percentile=$view.Range('B15').Value2;stress=$view.Range('H10').Value2;
+            metric_slot=$metrics.Range('E3').Value2;metric_efficiency=$metrics.Range('D28').Value2;
+            metric_time=$metrics.Range('E28').Value2}
+    } catch { $result.view_error=$_.Exception.Message }
 } catch { $result.error=$_.Exception.Message; $result.hresult=$_.Exception.HResult }
 finally {
     # Release references only; the launcher owns the application.

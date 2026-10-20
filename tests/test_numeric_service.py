@@ -51,6 +51,8 @@ class NumericServiceTests(unittest.TestCase):
             self.assertEqual(set(value['sheets']),set(numeric_excel.HEADERS))
             self.assertEqual(len(value['sheets']['数字看板']),16)
             self.assertTrue(value['sheets']['研究指标'])
+            from dashboard.numeric_view import METRICS
+            self.assertEqual({r[3] for r in value['sheets']['研究指标']},{m[0] for m in METRICS})
             self.assertTrue((root/'data/cache/dashboard/numeric/2026-10-02/latest.json').is_file())
             self.assertEqual((local/'native.json').read_bytes(),raw)
             self.assertEqual((store.root/'current.json').read_bytes(),pointer)
