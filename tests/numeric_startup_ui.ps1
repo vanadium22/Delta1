@@ -12,13 +12,14 @@ $timer.Add_Tick({
         $button=$null
         switch($form.Text){
             'Delta1 · 历史数据' {$button=@($form.Controls | Where-Object Text -eq '检查并补齐')[0]}
-            'Delta1 · 历史网络' {$button=@($form.Controls | Where-Object Text -eq '已连接，开始补齐')[0]}
+            'Delta1 · 历史网络' {$button=@($form.Controls | Where-Object Text -eq '自动连接并补齐')[0]}
             'Delta1 · 历史结果' {
                 $text=@($form.Controls | Where-Object {$_ -is [Windows.Forms.Label]})[0].Text
                 if($text -notlike '*DDB未配置*'){throw "Unexpected history result: $text"}
                 $button=@($form.Controls | Where-Object Text -eq '继续打开看板')[0]
             }
             'Delta1 · 行情网络' {$button=@($form.Controls | Where-Object Text -eq '只读打开')[0]}
+            'Delta1 · 历史任务已退出' {$button=@($form.Controls | Where-Object Text -eq '只读打开')[0]}
         }
         if($button){$clicks.Add($form.Text);$button.PerformClick();break}
     }

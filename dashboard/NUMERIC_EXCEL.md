@@ -1,6 +1,6 @@
 # 数字 Excel 与交易时段
 
-2026-10-20 精简版已接入“概览”“指标”页与历史选择/网络向导。公司更新后运行原入口（不带ReadOnlyCache）即可看到向导；DDB可稍后配置。新前端App仍未发布。
+2026-10-20 精简版已接入“概览”“指标”页与历史选择/网络向导，后续新增可选DDB VPN自动登录。公司更新后运行原入口（不带ReadOnlyCache）即可看到向导；DDB和VPN分开在本机配置。新前端App仍未发布。
 
 2026-10-20 刷新排查更新：请先看 [刷新证据、版本对照与公司核验](REFRESH_DIAGNOSIS.md)。公司11:06已确认运行60e5446、同一可见窗口及正确Python，代表单元格与feed匹配、保存正常；当前ReadOnlyCache不创建采集器，其配置指向的实时SQLite不存在，显示10月16日历史收盘。下一步只需正常采集入口及新运行样本，不重导数据。新版窗口显示文件路径/运行号、实际采集模式、计算完成时间及原始源时。相同结果不重写指标表，状态约30秒更新并保存；时间推进不称为新行情。只读诊断需先进入仓库根目录再运行 `python -B -X utf8 -m dashboard.numeric_diagnose --samples 2 --interval 10`。
 
@@ -10,7 +10,7 @@
 
 ## 打开与刷新
 
-- 自动更新：双击 `dashboard/start_numeric_excel.cmd`。先选择“检查并补齐”或“使用现有数据”；补齐时提示手动连接DDB网络，历史进程退出后再提示公司行情VPN。验证成功后打开Excel，失败可只读进入，时段外跳过实时网络阶段。程序不操作VPN。
+- 自动更新：双击 `dashboard/start_numeric_excel.cmd`。先选择“检查并补齐”或“使用现有数据”；补齐可选“自动连接并补齐”或“已手动连接，开始补齐”。自动模式先复用已通DDB网络，有实际历史缺口且网络不通时才使用本机VPN配置登录。历史进程退出后提示手动切回实时行情VPN，验证成功再打开Excel；失败可只读进入，时段外跳过实时接入。
 - 只跟随本地缓存，不创建采集器：`dashboard/start_numeric_excel.cmd -ReadOnlyCache`。
 - 已手动完成准备、需要跳过向导：`dashboard/start_numeric_excel.cmd -NoPrompt`，仍受时段守卫与连接验证。Once/Hidden/Snapshot/外部Feed也不弹向导。
 - 一次性生成当前本地结果：`dashboard/export_numeric.cmd`。
@@ -39,7 +39,11 @@
 
 ## 可选历史补齐
 
-尚未配置DDB时选择“使用现有数据”，不影响界面或HTTP行情测试。首次本机配置执行 `dashboard/configure_numeric_history.cmd`，按提示填地址、端口、账号、密码、SSL及已有DDB Python路径。密码使用当前Windows用户DPAPI加密；数字配置副本另存备份，不写入Git。公司VPN由用户自行配置和连接。
+尚未配置DDB时选择“使用现有数据”，不影响界面或HTTP行情测试。首次本机配置执行 `dashboard/configure_numeric_history.cmd`，按提示填数据库地址、端口、账号、密码、SSL及已有DDB Python路径。输错后可重跑该入口更正，保留VPN配置和历史路径；重开数字Excel再补齐。
+
+VPN另用 `dashboard/configure_numeric_vpn.cmd` 配置网关、已核验的证书SHA256指纹、VPN账号密码；已有加密配置可通过 `--reuse-config` 和 `--trust-file` 引用，不改写旧文件。自动登录复用已安装的深信服客户端与PowerShell 7，缺少依赖/需要验证码或二次认证时提示手动登录后重试，不自动安装或反复尝试密码。DDB与VPN密码均用当前Windows用户DPAPI加密，仅保存在本机忽略目录；不能把另一台电脑的加密文件直接当作公司凭据。
+
+取消或超时会先结束本次登录辅助进程和历史进程，再进入下一步。**任务退出不等于VPN已断开**：不自动登出DDB VPN、不自动登录行情VPN，不停止其他客户端；用户按提示手动切回。时段外补齐结束也会显示该提醒，随后只读打开。使用现有数据、ReadOnlyCache或历史已完整不会触发VPN自动登录。
 
 补齐只到上一交易日，按具体合约上市/到期范围检查日线和分钟缺口。原有效行情保留，新增分片验证后发布；来源冲突保留原值并说明。单次启动有轮次/查询预算，结果若仍提示缺口，不算全部完成，可下次重试。取消等待历史进程退出后才允许进入下一网络阶段。历史完整也不保证新上市合约已有20期样本或成本/ETF等额外输入。
 

@@ -1,4 +1,4 @@
-﻿# Startup UI only. Background actions use the numeric Python; no VPN automation.
+﻿# Startup UI only. Background actions use the numeric Python; DDB login is optional.
 function Invoke-NumericChoice([string]$Title, [string]$Message, [string]$Primary, [string]$Secondary) {
     $form = New-Object Windows.Forms.Form
     $form.Text=$Title; $form.Width=620; $form.Height=250; $form.StartPosition='CenterScreen'
@@ -14,11 +14,12 @@ function Invoke-NumericChoice([string]$Title, [string]$Message, [string]$Primary
     try { return $form.ShowDialog().ToString() } finally { $form.Dispose() }
 }
 
-function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$ConfigRoot, [string]$Folder, [string]$HistoryStatus, [string]$JobModule='dashboard.numeric_startup') {
+function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$ConfigRoot, [string]$Folder, [string]$HistoryStatus, [string]$JobModule='dashboard.numeric_startup', [string]$VpnMode='auto') {
     $report=Join-Path $Folder ($Action+'-'+[guid]::NewGuid().ToString('N')+'.json')
     $stop=$report+'.stop'
     $argsList=@('-B','-X','utf8','-m',$JobModule,$Action,'--report',$report,'--stop-file',$stop)
     if ($ConfigRoot) { $argsList+=@('--local-root',$ConfigRoot) }
+    if ($Action -eq 'history' -and $JobModule -eq 'dashboard.numeric_startup') { $argsList+=@('--vpn-mode',$VpnMode) }
     $quoted=$argsList | ForEach-Object { if ($_ -match '"') { throw '参数不得含双引号' }; '"'+$_+'"' }
     $process=Start-Process -FilePath $Interpreter -ArgumentList $quoted -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput ($report+'.out') -RedirectStandardError ($report+'.err')
     $started=Get-Date
@@ -42,6 +43,12 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
         if(((Get-Date)-$started).TotalMinutes -gt 45) { & $cancel }
         if($state.cancelled -and ((Get-Date)-$state.cancelTime).TotalSeconds -gt 30) {
             $process.Kill(); $process.WaitForExit(); return
+        }
+        if(-not $state.cancelled -and $Action -eq 'history' -and (Test-Path -LiteralPath $report)) {
+            try {
+                $phase=Get-Content -LiteralPath $report -Raw -Encoding UTF8 | ConvertFrom-Json
+                if($phase.state -eq 'connecting_vpn') { $label.Text=[string]$phase.message; return }
+            } catch {}
         }
         if(-not $state.cancelled -and $Action -eq 'history' -and $HistoryStatus -and (Test-Path -LiteralPath $HistoryStatus)) {
             try {
@@ -69,6 +76,7 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
 }
 
 function Invoke-NumericWizard([string]$Interpreter, [string]$ConfigRoot, [string]$Folder) {
+    $done=$null
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [Windows.Forms.Application]::EnableVisualStyles()
@@ -81,12 +89,20 @@ function Invoke-NumericWizard([string]$Interpreter, [string]$ConfigRoot, [string
     $choice=Invoke-NumericChoice 'Delta1 · 历史数据' $description '检查并补齐' '使用现有数据'
     if($choice -notin @('Yes','No')) { return @{cancelled=$true} }
     if($choice -eq 'Yes') {
-        $choice=Invoke-NumericChoice 'Delta1 · 历史网络' "请先连接本机DDB网络。`r`n尚未配置DDB时可跳过，之后运行 configure_numeric_history.cmd 配置。" '已连接，开始补齐' '跳过，使用现有数据'
+        $choice=Invoke-NumericChoice 'Delta1 · 历史网络' "自动模式优先复用已连通网络，否则使用本机VPN配置登录。`r`n补齐结束后，请手动切回实时行情VPN。" '自动连接并补齐' '已手动连接，开始补齐'
         if($choice -notin @('Yes','No')) { return @{cancelled=$true} }
-        if($choice -eq 'Yes') {
+        if($choice -in @('Yes','No')) {
+            $vpnMode=if($choice -eq 'Yes'){'auto'}else{'manual'}
             $hp=if($info.history_python){$info.history_python}else{$Interpreter}
-            try { $done=Invoke-NumericJob $hp 'history' $ConfigRoot $Folder $info.history_status }
+            try { $done=Invoke-NumericJob $hp 'history' $ConfigRoot $Folder $info.history_status 'dashboard.numeric_startup' $vpnMode }
             catch { $done=[pscustomobject]@{message='历史Python无法启动；请配置已有解释器。'} }
+            while($done.state -in @('waiting_vpn','waiting_network')) {
+                $choice=Invoke-NumericChoice 'Delta1 · 历史网络未就绪' ([string]$done.message) '手动连接后重试' '使用现有数据'
+                if($choice -eq 'No') { break }
+                if($choice -ne 'Yes') { return @{cancelled=$true} }
+                try { $done=Invoke-NumericJob $hp 'history' $ConfigRoot $Folder $info.history_status 'dashboard.numeric_startup' 'manual' }
+                catch { $done=[pscustomobject]@{message='历史Python无法启动；请配置已有解释器。'} }
+            }
             $choice=Invoke-NumericChoice 'Delta1 · 历史结果' ([string]$done.message) '继续打开看板' '退出'
             if($choice -ne 'Yes') { return @{cancelled=$true} }
         }
@@ -94,9 +110,15 @@ function Invoke-NumericWizard([string]$Interpreter, [string]$ConfigRoot, [string
     # Refresh the clock after a possibly long history task. Never reuse the old gate.
     $info=Invoke-NumericJob $Interpreter 'summary' $ConfigRoot $Folder ''
     if($info.state -eq 'cancelled') { return @{cancelled=$true} }
-    if(-not $info.gate.allowed) { return @{read_only=$true;local_root=$ConfigRoot} }
+    if(-not $info.gate.allowed) {
+        if($done) {
+            $choice=Invoke-NumericChoice 'Delta1 · 历史任务已退出' "当前不在行情接入时段，将只读打开。`r`n如需恢复公司网络，请手动切回实时行情VPN。" '只读打开' '退出'
+            if($choice -ne 'Yes') { return @{cancelled=$true} }
+        }
+        return @{read_only=$true;local_root=$ConfigRoot}
+    }
     while($true) {
-        $choice=Invoke-NumericChoice 'Delta1 · 行情网络' "历史任务已退出。请连接公司行情VPN。`r`n只读模式使用现有缓存，不采集新行情。" '验证并打开' '只读打开'
+        $choice=Invoke-NumericChoice 'Delta1 · 行情网络' "历史任务已退出。请手动切回实时行情VPN。`r`n连接完成后再验证；只读模式不采集新行情。" '验证并打开' '只读打开'
         if($choice -notin @('Yes','No')) { return @{cancelled=$true} }
         if($choice -eq 'No') { return @{read_only=$true;local_root=$ConfigRoot} }
         $probe=Invoke-NumericJob $Interpreter 'probe' $ConfigRoot $Folder ''

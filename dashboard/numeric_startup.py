@@ -1,4 +1,4 @@
-"""Numeric Excel startup services. Explicit actions, local configuration, no VPN control."""
+"""Numeric Excel startup services; optional local DDB VPN login, manual return."""
 import argparse
 from datetime import datetime, timedelta
 import getpass
@@ -42,8 +42,9 @@ def summary(local_root):
         note='截止日期仅为各目录最新分片；完整缺口在补齐阶段核验')
 
 
-def history(local_root, report, stop_file, *, cycle=None, max_cycles=20):
-    from dashboard.marketdata.history_maintenance import run_cycle
+def history(local_root, report, stop_file, *, cycle=None, max_cycles=20, vpn_mode='auto'):
+    from dashboard.marketdata.history_maintenance import run_cycle, open_direct
+    from dashboard.marketdata import ddb_vpn
     from index_strategy.history.credentials import load_config
     from index_strategy.history.downloader import DEFAULT_CONFIG
     config = read(Path(local_root)/'native.json')
@@ -63,13 +64,45 @@ def history(local_root, report, stop_file, *, cycle=None, max_cycles=20):
             result = dict(state='waiting_sdk', message='所选历史Python缺少DDB SDK，请配置已有历史解释器。')
             save_snapshot(result, report)
             return result
+    vpn_failure = None
+    vpn_cancelled = False
+    vpn_connected = False
+    def connect(path):
+        nonlocal vpn_failure, vpn_cancelled, vpn_connected
+        try:
+            ddb_vpn.check_stop(stop_file)
+            if vpn_mode == 'auto' and not vpn_connected:
+                save_snapshot(dict(state='connecting_vpn', message='正在检查DDB网络，必要时自动登录VPN；完成前请勿切换网络。'), report)
+                connection = load_config(path)
+                try:
+                    ddb_vpn.ensure_connected(connection,
+                        config.get('history_vpn_config') or Path(local_root)/'ddb_vpn.local.json',
+                        config.get('history_vpn_trust') or Path(local_root)/'ddb_vpn.trust.local.json',
+                        stop_file=stop_file, interpreter=config.get('history_vpn_powershell'))
+                finally:
+                    connection.clear()
+                vpn_connected = True
+                save_snapshot(dict(state='history', message='DDB网络已就绪，正在核验数据库登录及历史缺口。'), report)
+            ddb_vpn.check_stop(stop_file)
+            return open_direct(path)
+        except ddb_vpn.VPNError as exc:
+            vpn_failure = ddb_vpn.message(exc)
+            raise
+        except ddb_vpn.VPNCancelled:
+            vpn_cancelled = True
+            raise
     fn = cycle or run_cycle
     for attempt in range(max_cycles):
         if stop_file and Path(stop_file).exists():
             result = dict(state='stopped', message='历史任务已停止，原发布数据保留')
             break
         # Reset no user controls. A pre-existing paused task must remain paused.
-        result = fn(local_root, force=attempt == 0, stop_file=stop_file)
+        options = {} if cycle is not None else dict(direct_factory=connect)
+        result = fn(local_root, force=attempt == 0, stop_file=stop_file, **options)
+        if vpn_cancelled:
+            result.update(state='stopped', message='已取消；VPN登录辅助进程和历史任务已结束，请手动检查VPN状态。')
+        elif vpn_failure:
+            result.update(state='waiting_vpn', message=vpn_failure)
         save_snapshot(result, report)
         if result.get('state') != 'partial' or not result.get('inserted'):
             break
@@ -90,7 +123,7 @@ def configure(local_root):
     path = Path(local_root)/'native.json'
     config = read(path)
     connection = Path(local_root)/'ddb.connection.local.json'
-    print('仅配置本机DDB；VPN请手动连接。密码不会显示或写入日志。')
+    print('仅配置本机DDB数据库；VPN账号另行配置。密码不会显示或写入日志。')
     host = input('DDB地址: ').strip()
     port = int(input('端口: ').strip())
     username = input('账号: ').strip()
@@ -114,6 +147,7 @@ def main(argv=None):
     parser.add_argument('--local-root', type=Path)
     parser.add_argument('--report', type=Path)
     parser.add_argument('--stop-file', type=Path)
+    parser.add_argument('--vpn-mode', choices=['auto','manual'], default='auto')
     args = parser.parse_args(argv)
     local_root = prepare_config(args.local_root)
     try:
@@ -126,7 +160,7 @@ def main(argv=None):
             from dashboard.session_guard import probe_realtime
             result = probe_realtime(read(local_root/'native.json'))
         else:
-            result = history(local_root, args.report, args.stop_file)
+            result = history(local_root, args.report, args.stop_file, vpn_mode=args.vpn_mode)
         if args.report:
             save_snapshot(result, args.report)
         return 0

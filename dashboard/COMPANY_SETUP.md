@@ -1,5 +1,35 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
+## 2026-10-20 DDB VPN自动登录补充
+
+先按下一节更新到统一分支最新代码，保留全部本机数据和配置。已重跑 `configure_numeric_history.cmd` 更正数据库账号密码即可，不必重建环境；该入口只改数字版数据库连接设置，保留VPN配置及历史路径。数据库账号与VPN账号是两套凭据。
+
+第一次在公司启用自动VPN，运行：
+
+```powershell
+$env:SWHY_DELTA1_PYTHON = 'D:\conda\envs\swhy_delta1\python.exe'
+.\dashboard\configure_numeric_vpn.cmd
+```
+
+输入VPN网关（HTTPS及端口）、经核验的网关证书SHA256指纹、VPN账号和密码。密码不回显，使用当前Windows用户DPAPI加密，只保存本机 `dashboard/localsetting/numeric_excel/ddb_vpn.local.json`；证书指纹保存在同目录 `ddb_vpn.trust.local.json`。数据库配置文件仍是 `ddb.connection.local.json`。`native.json` 新增的只有 `history_vpn_config`、`history_vpn_trust` 和可选 `history_vpn_powershell`；修改前备份数字配置副本。
+
+公司若已有**本机当前用户**加密的VPN配置和匹配信任文件，可引用既有完整路径，免重复录入：
+
+```powershell
+.\dashboard\configure_numeric_vpn.cmd --reuse-config '本机已有sslvpn.json完整路径' --trust-file '本机已有sslvpn.trust.local.json完整路径'
+```
+
+自动登录复用已有深信服客户端，需要PowerShell 7（`pwsh.exe`）；启动向导本身仍用Windows PowerShell，DDB沿用已配置的Python。配置器依次检查指定路径、环境变量 `SWHY_SSLVPN_POWERSHELL`、PATH及常见已有位置；未找到时可填写现有pwsh.exe路径，或回车以后配置并继续手动连接，不会盲目安装环境。证书变更、验证码/二次认证或登录失败会停止自动尝试，提示手动连接后重试。
+
+正常使用顺序：
+
+1. 不带 `-ReadOnlyCache` 启动数字Excel，选择“检查并补齐”。
+2. 选择“自动连接并补齐”；已连接的DDB网络直接复用，只有实际缺口需要查询且网络不通时才登录。也可选“已手动连接，开始补齐”。
+3. 等待历史结果；有剩余缺口或错误时不算补齐成功。取消也要等窗口确认进程退出。
+4. **历史任务退出后，手动退出/切换DDB VPN，连接实时行情VPN**，再点“验证并打开”。程序不自动断开或切回；时段外提醒切回后只读打开。
+
+只读或使用现有数据不会触发DDB自动登录。代码更新无需重新导数据包，凭据不进入Git。开发机已验证自动VPN登录、DDB只读常量查询及连接关闭；未据此声称公司补齐或公司自动登录验收通过。
+
 ## 2026-10-20 精简界面与历史向导更新
 
 先关闭本次数值Excel及启动器，保留其他Excel和全部数据/配置。公司已在统一分支，无需切换。源码有本地修改时先保留并处理冲突，不能强制覆盖：
@@ -23,7 +53,7 @@ DDB可之后在公司配置：
 .\dashboard\configure_numeric_history.cmd
 ```
 
-输入本机DDB地址/端口/账号/密码、SSL及**已有**DDB Python路径；没有SDK时先确认已有环境，不盲目重装原swhy_delta1。密码本机加密，配置仅保存到数字副本。之后重新打开，选择“检查并补齐”，手动连接历史网络；任务退出后才切回行情VPN。普通代码更新无需导入数据包，不覆盖整个data或Wind库。
+输入本机DDB地址/端口/账号/密码、SSL及**已有**DDB Python路径；没有SDK时先确认已有环境，不盲目重装原swhy_delta1。密码本机加密，配置仅保存到数字副本。之后重新打开，选择“检查并补齐”，按顶部说明自动或手动连接历史网络；任务退出后手动切回行情VPN。普通代码更新无需导入数据包，不覆盖整个data或Wind库。
 
 需要核验界面时，原只读诊断命令仍可用；新增window.view和overview_match_feed核对正在看的卡片，不仅核对隐藏原始表：
 
