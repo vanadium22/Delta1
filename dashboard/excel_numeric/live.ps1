@@ -13,6 +13,36 @@ $Output = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $Output) { throw '输出文件已存在，请另选文件名以保留原工作簿。' }
 [void](New-Item -ItemType Directory -Path (Split-Path $Output -Parent) -Force)
 $producer = $null; $excel = $null; $book = $null; $owned = $false
+$runId = Split-Path $runRoot -Leaf
+$runFile = Join-Path $runRoot 'run.json'
+$run = [ordered]@{ run_id=$runId; launcher_pid=$PID; started_at=[DateTimeOffset]::Now.ToString('o');
+    output=$Output; requested_python=$Python; read_only_cache=[bool]$ReadOnlyCache; state='starting';
+    heartbeat_at=$null; last_write_at=$null; last_save_at=$null; error=$null; writes=0; saves=0 }
+function SaveRun {
+    $run.heartbeat_at = [DateTimeOffset]::Now.ToString('o')
+    $tmp = $runFile + '.tmp'
+    [IO.File]::WriteAllText($tmp, ($run | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $tmp -Destination $runFile -Force
+}
+function Beijing($value) {
+    if (-not $value) { return '无' }
+    return [DateTimeOffset]::Parse($value).ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss')
+}
+function SheetRevision($feed, $name) {
+    if ($feed.sheet_revisions -and $feed.sheet_revisions.$name) { return [string]$feed.sheet_revisions.$name }
+    $raw = ConvertTo-Json -InputObject $feed.sheets.$name -Depth 30 -Compress
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { return [Convert]::ToBase64String($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($raw))) }
+    finally { $hash.Dispose() }
+}
+function IsBusy($exception) {
+    while ($exception) {
+        if ($exception.HResult -in @(-2147418111,-2147417846,-2146777998,-2146827284)) { return $true }
+        $exception = $exception.InnerException
+    }
+    return $false
+}
+SaveRun
 function ProducerFailure {
     $errorLog = Join-Path $runRoot 'producer.err.log'
     $tail = if (Test-Path -LiteralPath $errorLog) { (Get-Content -LiteralPath $errorLog -Tail 15 -Encoding UTF8) -join [Environment]::NewLine } else { '' }
@@ -29,7 +59,10 @@ try {
         # Native process arguments, never a shell command.
         $quoted = $arguments | ForEach-Object { if ($_ -match '"') { throw '参数不得含双引号' }; '"' + $_ + '"' }
         $producer = Start-Process -FilePath $Python -ArgumentList $quoted -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runRoot 'producer.out.log') -RedirectStandardError (Join-Path $runRoot 'producer.err.log')
+        $run.producer_pid = $producer.Id
     }
+    $run.feed = [IO.Path]::GetFullPath($FeedFile)
+    SaveRun
     Write-Output "Python: $Python"
     Write-Output "正在读取本地历史和行情缓存。Excel 将先打开，四个档位计算进度会显示在窗口中。日志：$runRoot"
     $statusFile = [IO.Path]::ChangeExtension($FeedFile, '.status.json')
@@ -44,6 +77,13 @@ try {
     $excel = New-Object -ComObject Excel.Application
     $owned = $true; $excel.DisplayAlerts = $false
     $book = $excel.Workbooks.Open($Output)
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class NumericWindow { [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h); }'
+    $run.hwnd = [long]$excel.Hwnd
+    [uint32]$excelProcessId = 0
+    [void][NumericWindow]::GetWindowThreadProcessId([IntPtr]$run.hwnd, [ref]$excelProcessId)
+    $run.excel_pid = $excelProcessId
+    $book.Windows.Item(1).Caption = (Split-Path $Output -Leaf) + ' · Delta1 ' + $runId.Substring(0,8)
+    foreach ($sheet in $book.Worksheets) { $sheet.Range('A1').Formula = '文件：' + $Output }
     # Excel may ignore Visible=True before it has an open workbook. Restore
     # only this owned workbook after Open; never attach to another instance.
     if (-not $Hidden) {
@@ -55,10 +95,25 @@ try {
         if (-not $excel.Visible -or -not $window.Visible) { throw "Excel 窗口未能显示，文件：$Output；日志：$runRoot" }
         Write-Output "Excel 窗口已显示：$Output"
     }
-    $last = ''; $updates = 0; $counts = @{}; $lastSuccess = Get-Date; $lastProgress = ''; $nextProgress = Get-Date
+    # Excel may replace its initial hidden application HWND when the workbook
+    # becomes visible. Pin the actual workbook window only after showing it.
+    $run.hwnd = [long]$book.Windows.Item(1).Hwnd
+    [void][NumericWindow]::GetWindowThreadProcessId([IntPtr]$run.hwnd, [ref]$excelProcessId)
+    $run.excel_pid = $excelProcessId
+    $last = ''; $updates = 0; $counts = @{}; $revisions = @{}; $lastSuccess = Get-Date; $lastProgress = ''; $nextProgress = Get-Date
     $initialReady = $false; $nextRefreshNotice = Get-Date; $nextProgressNotice = Get-Date
+    $nextHeartbeat = Get-Date; $nextStatusWrite = Get-Date; $lastMode = ''; $lastReady = $false
+    $run.state = 'running'; $run.excel_visible = [NumericWindow]::IsWindowVisible([IntPtr]$run.hwnd)
+    SaveRun
     while ($true) {
-        try { $open = $book.Name } catch { break }
+        if (Test-Path -LiteralPath $stopFile) { break }
+        try { $open = $book.Name } catch {
+            if (IsBusy $_.Exception) {
+                $run.state='excel_busy'; $run.error='Excel 正在编辑或暂不接受 COM 调用；保留本次运行并重试。'; SaveRun
+                Start-Sleep -Milliseconds 1000; continue
+            }
+            break
+        }
         if (-not $open) { break }
         $feed = Get-Content -LiteralPath $FeedFile -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($producer -and $producer.HasExited -and (-not $Once -or $feed.ready -eq $false)) { throw (ProducerFailure) }
@@ -67,11 +122,23 @@ try {
             $initialReady = $true
         }
         if (-not $initialReady -and (Get-Date) -gt $deadline) { throw "首次完整计算超过600秒，当前结果保留。日志：$runRoot" }
-        if ($feed.generated_at -ne $last) {
+        $run.feed_generated_at = $feed.generated_at
+        $run.ready = ($feed.ready -ne $false)
+        $run.runtime = $feed.runtime
+        $run.evidence = $feed.evidence
+        $run.calculation_completed_at = $feed.calculation_completed_at
+        if ($feed.generated_at -ne $last -or (Get-Date) -ge $nextStatusWrite) {
             if ($feed.schema_version -ne 1) { throw '不支持的数据格式' }
-            $excel.ScreenUpdating = $false
             try {
+                $changed = @{}
                 foreach ($property in $feed.sheets.PSObject.Properties) {
+                    $revision = SheetRevision $feed $property.Name
+                    if ($revisions[$property.Name] -ne $revision) { $changed[$property.Name] = $revision }
+                }
+                $writeStatus = $changed.Count -gt 0 -or $lastMode -ne $feed.mode -or $lastReady -ne ($feed.ready -ne $false) -or (Get-Date) -ge $nextStatusWrite
+                if ($writeStatus) { $excel.ScreenUpdating = $false }
+                foreach ($property in $feed.sheets.PSObject.Properties) {
+                    if (-not $changed.ContainsKey($property.Name)) { continue }
                     $sheet = $book.Worksheets.Item($property.Name)
                     $rows = $property.Value; $columns = $feed.headers.($property.Name).Length
                     if ($counts.ContainsKey($property.Name) -and $counts[$property.Name] -gt $rows.Count) {
@@ -94,15 +161,44 @@ try {
                         $target.Value2=$matrix
                     }
                     $counts[$property.Name] = $rows.Count
-                    $sheet.Range('A3').Formula = [string]$feed.mode
-                    $sheet.Range('A4').Formula = '已更新（北京）：' + ([DateTimeOffset]::Parse($feed.generated_at).ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss')) + ' · 关闭窗口即停止；重开文件仅为保存快照'
                 }
-                $book.Save(); $last = $feed.generated_at; $lastSuccess = Get-Date
-                if ($feed.ready -ne $false) {
+                if ($writeStatus) {
+                    $calculated = if ($feed.calculation_completed_at) { $feed.calculation_completed_at } else { $feed.generated_at }
+                    $source = if ($feed.evidence) { (Beijing $feed.evidence.oldest_source_time) + ' 至 ' + (Beijing $feed.evidence.newest_source_time) } else { '以逐行数据时间为准' }
+                    $note = if ($feed.evidence) { [string]$feed.evidence.note } else { '未提供行情变化证据' }
+                    foreach ($sheet in $book.Worksheets) {
+                        $sheet.Range('A3').Formula = [string]$feed.mode + ' · ' + $note
+                        $sheet.Range('A4').Formula = if ($feed.ready -eq $false) { '四档计算中，尚未全部就绪 · 原始数据：' + $source } else { '计算完成（北京）：' + (Beijing $calculated) + ' · 原始数据：' + $source }
+                        $sheet.Range('A5').Formula = '运行 ' + $runId.Substring(0,8) + ' · 检查 ' + (Beijing ([DateTimeOffset]::Now.ToString('o'))) + ' · 仅启动器窗口持续更新；重开文件为快照'
+                    }
+                    $run.last_write_at = [DateTimeOffset]::Now.ToString('o'); $run.writes++
+                    $s = $book.Worksheets.Item('数字看板')
+                    $actual = @($s.Range('D7').Value2,$s.Range('E7').Value2,$s.Range('J7').Value2,$s.Range('L7').Value2)
+                    if ($feed.sheets.'数字看板'.Count -gt 0) {
+                        $expected = @($feed.sheets.'数字看板'[0][3],$feed.sheets.'数字看板'[0][4],$feed.sheets.'数字看板'[0][9],$feed.sheets.'数字看板'[0][11])
+                        for ($i=0; $i -lt 4; $i++) {
+                            if ($null -eq $expected[$i]) { if ($null -ne $actual[$i]) { throw '单元格回读不符：缺失未清空' } }
+                            elseif ([Math]::Abs([double]$expected[$i]-[double]$actual[$i]) -gt 0.0000001) { throw '单元格回读不符' }
+                        }
+                    }
+                    $run.observed = [ordered]@{ full_name=$book.FullName; hwnd=$run.hwnd; cells=$actual;
+                        status=$s.Range('A3').Value2; times=$s.Range('A4').Value2; identity=$s.Range('A5').Value2 }
+                    # A COM Save can display a modal dialog even with alerts off.
+                    # Publish the pending stage BEFORE entering that blocking call.
+                    $run.state='saving'; SaveRun
+                    $book.Save()
+                    $run.last_save_at = [DateTimeOffset]::Now.ToString('o'); $run.saves++
+                    $run.saved_file_mtime = (Get-Item -LiteralPath $Output).LastWriteTimeUtc.ToString('o')
+                    $lastSuccess = Get-Date; $nextStatusWrite = (Get-Date).AddSeconds(30)
+                    foreach ($name in $changed.Keys) { $revisions[$name] = $changed[$name] }
+                    $lastMode = $feed.mode; $lastReady = ($feed.ready -ne $false)
+                }
+                $last = $feed.generated_at; $run.state='running'; $run.error=$null
+                if ($writeStatus -and $feed.ready -ne $false) {
                     $updates++
                     if ($updates -eq 1) {
                         Write-Output "Excel 首次写入成功：$Output"
-                        if (-not $Once) { Write-Output '已进入持续刷新；请查看已打开的 Excel 窗口，关闭该窗口可停止。' }
+                        if (-not $Once) { Write-Output '已进入持续检查；相同缓存不代表新行情，请核对原始数据时点。' }
                         $nextRefreshNotice = (Get-Date).AddSeconds(30)
                     }
                     elseif ((Get-Date) -ge $nextRefreshNotice) {
@@ -110,8 +206,14 @@ try {
                         $nextRefreshNotice = (Get-Date).AddSeconds(30)
                     }
                 }
-            } finally { $excel.ScreenUpdating = $true }
+            } catch {
+                $run.state='write_error'; $run.error=$_.Exception.Message; SaveRun
+                if (-not (IsBusy $_.Exception)) { throw }
+                Write-Warning 'Excel 正在编辑、忙碌或保存失败；未确认成功，保留运行并重试。'
+                Start-Sleep -Milliseconds 1000; continue
+            } finally { try { $excel.ScreenUpdating = $true } catch {} }
         }
+        if ((Get-Date) -ge $nextHeartbeat) { SaveRun; $nextHeartbeat=(Get-Date).AddSeconds(2) }
         if (($Once -and $initialReady) -or ($MaxUpdates -gt 0 -and $updates -ge $MaxUpdates)) { break }
         if (-not $initialReady -and (Get-Date) -ge $nextProgress) {
             $message = '首次计算中，尚未完成四个档位'
@@ -124,15 +226,29 @@ try {
                     $nextProgressNotice = (Get-Date).AddSeconds(10)
                 }
             }
-            foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
+            try {
+                foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
+            } catch {
+                $run.state='write_error'; $run.error=$_.Exception.Message; SaveRun
+                if (-not (IsBusy $_.Exception)) { throw }
+            }
             $nextProgress = (Get-Date).AddSeconds(2)
         }
-        elseif ($initialReady -and ((Get-Date)-$lastSuccess).TotalSeconds -gt 30) {
-            foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = '更新延迟：最后成功写入 ' + $lastSuccess.ToString('yyyy-MM-dd HH:mm:ss') + '；请检查数据服务。' }
+        elseif ($initialReady -and (([DateTimeOffset]::Now - [DateTimeOffset]::Parse($feed.generated_at)).TotalSeconds -gt 60)) {
+            $run.state='calculation_delayed'; SaveRun
+            try {
+                foreach ($sheet in $book.Worksheets) { $sheet.Range('A5').Formula = '计算更新延迟 · 运行 ' + $runId.Substring(0,8) + ' · 上次计算 ' + (Beijing $feed.generated_at) + '；行情是否新鲜见原始时点。' }
+            } catch {
+                $run.state='write_error'; $run.error=$_.Exception.Message; SaveRun
+                if (-not (IsBusy $_.Exception)) { throw }
+            }
         }
         Start-Sleep -Milliseconds 500
     }
     Write-Output "Excel: $Output; updates: $updates"
+} catch {
+    $run.state='failed'; $run.error=$_.Exception.Message; SaveRun
+    throw
 } finally {
     [IO.File]::WriteAllText($stopFile,'stop')
     if ($producer -and -not $producer.HasExited) {
@@ -140,7 +256,7 @@ try {
     }
     if ($book) {
         try {
-            foreach ($sheet in $book.Worksheets) { $sheet.Range('A4').Formula = '已停止自动更新 · 保存时点（北京） ' + ([DateTimeOffset]::Now.ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss')) + ' · 数据时点见逐行列' }
+            foreach ($sheet in $book.Worksheets) { $sheet.Range('A5').Formula = '已停止自动更新 · 运行 ' + $runId.Substring(0,8) + ' · 此文件为保存快照；数据时点见逐行列' }
             $book.Save()
             if ($Hidden) { $book.Close($true) }
         } catch { }
@@ -150,4 +266,6 @@ try {
         else { $excel.DisplayAlerts = $true }
         [void][Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
     }
+    if ($run.state -ne 'failed') { $run.state='stopped' }
+    $run.stopped_at=[DateTimeOffset]::Now.ToString('o'); SaveRun
 }

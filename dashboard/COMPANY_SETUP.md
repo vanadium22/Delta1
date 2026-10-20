@@ -1,8 +1,10 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
+已启用后的普通代码更新无需重新安装数据包。本次“界面似乎未刷新”的更新与只读诊断顺序见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)：公司已返回2938763、只读缓存命令和成品路径，下一步核对同一窗口/缓存，不重复重装环境。以下第3—4节供缺环境/首次配置时参考。
+
 长期分支为 `codex/company-apps`。公司现有 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard` 本身是仓库根目录；下面的 `dashboard\start_numeric_excel.cmd` 是新增模块入口，两个 dashboard 是正常的层级。路径若已改变，以 `git rev-parse --show-toplevel` 为准。
 
-短文件名修复及新数据包安装按 [SHORT_FILENAMES.md](SHORT_FILENAMES.md)。不能只替换 ZIP 或覆盖整个 data；新包需用安装器激活，旧 Wind 和配置保留。
+仅确需短文件名迁移或安装数据时，按 [SHORT_FILENAMES.md](SHORT_FILENAMES.md)。不能只替换 ZIP 或覆盖整个 data；新包需用安装器激活，旧 Wind 和配置保留。已有兼容数据不因本次代码更新重导。
 
 ## 1. 先检查现场
 
@@ -86,12 +88,12 @@ $env:SWHY_DELTA1_PYTHON = (Resolve-Path .\.venvs\numeric_excel\Scripts\python.ex
 
 如果公司只有原始 Wind 库，还没有看板标准化历史，**当前版本不会直接转换或读取那个 Wind 库**。需另行生成兼容历史，或使用此前已验收的独立看板数据包；不要移动、覆盖或清空原 Wind 库。已有标准化历史和配置则无需重新导入。
 
-仅当确实缺少标准化历史、且手头已有经核验的 `dashboard-data-20261019.zip` 时，可显式安装：把下例包路径换成现有文件，数据根目录从既有共享配置解析，不写死另一台机器路径。
+仅当确实缺少标准化历史、且手头已有经核验的 `dashboard-data-short-v2-20261019.zip` 时，可显式安装：把下例包路径换成现有文件，数据根目录从既有共享配置解析，不写死另一台机器路径。
 
 ```powershell
 $numericDataRoot = & $env:SWHY_DELTA1_PYTHON -c "from dashboard.marketdata.paths import DATA_ROOT; print(DATA_ROOT)"
 if ($LASTEXITCODE -ne 0) { throw '数据路径读取失败' }
-& $env:SWHY_DELTA1_PYTHON -B -X utf8 -m dashboard.data_package install '已有数据包的完整路径\dashboard-data-20261019.zip' --data-root $numericDataRoot
+& $env:SWHY_DELTA1_PYTHON -B -X utf8 -m dashboard.data_package install '已有数据包的完整路径\dashboard-data-short-v2-20261019.zip' --data-root $numericDataRoot
 if ($LASTEXITCODE -ne 0) { throw '导入失败；不要覆盖处理冲突文件' }
 & $env:SWHY_DELTA1_PYTHON -B -X utf8 -m dashboard.numeric_config
 ```

@@ -45,7 +45,7 @@ def latest_saved_pair(model, symbol, spot_symbol, now):
     return None
 
 
-def daily_saved_pairs(now):
+def daily_saved_pairs(now, scope=None):
     """Recover calculated final states even if the SQLite tail has moved on."""
     from dashboard.marketdata.paths import DATA_ROOT
     today=str(now.tz_convert('Asia/Shanghai').date())
@@ -54,6 +54,7 @@ def daily_saved_pairs(now):
     for path in paths[:10]:
         try:
             payload=json.loads(path.read_text(encoding='utf8'))
+            if scope is not None and payload.get('cache_scope')!=scope:continue
             for state in payload['snapshots']:
                 for card in state['overview']:
                     symbol=card['symbol']
@@ -81,7 +82,7 @@ def display_snapshot(model, request, *, now=None):
         model.config.get('daily_dividend_file'), model.config.get('dividend_mode', 'fixed_snapshot'),
         contracts=metadata, as_of=now.tz_convert('Asia/Shanghai'), missing_policy=model.config.get('dividend_missing_policy'))
     state = deepcopy(state)
-    saved_daily=daily_saved_pairs(now)
+    saved_daily=daily_saved_pairs(now, scope=getattr(model,'numeric_cache_scope',None))
     for card in state.get('overview', []):
         symbol = card['symbol']; slot = state['selection']['overview_slot']
         cached=next((v for k,v in getattr(engine,'continuous_cache',{}).items() if k[5]==symbol and k[6]==slot),None)

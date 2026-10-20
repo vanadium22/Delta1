@@ -24,6 +24,146 @@ def cell(path, address):
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; explicitly opt in')
 class ExcelIntegration(unittest.TestCase):
+    def test_native_same_window_changes_source_time_but_unchanged_cache_does_not_save_again(self):
+        from datetime import datetime, timezone
+        import uuid
+        from tests.test_numeric_refresh import payload as make_payload, feed as make_feed
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);feed_path=folder/'feed.json';out=folder/('refresh_'+uuid.uuid4().hex+'.xlsx')
+            value=make_payload()
+            def publish(previous=None):
+                value['generated_at']=datetime.now(timezone.utc).isoformat()
+                answer=make_feed(value,previous)
+                save_snapshot(answer,feed_path)
+                return answer
+            first=publish()
+            command=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'dashboard/excel_numeric/live.ps1'),
+                     '-FeedFile',str(feed_path),'-Output',str(out)]
+            process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000000)
+            run_path=None
+            def wait(predicate, timeout=45):
+                nonlocal run_path
+                end=time.monotonic()+timeout
+                while time.monotonic()<end:
+                    for p in ([run_path] if run_path else (ROOT/'dashboard/runtime/numeric_live').glob('*/run.json')):
+                        try:
+                            r=json.loads(p.read_text(encoding='utf8'))
+                            if Path(r['output'])==out:
+                                run_path=p
+                                if predicate(r):return r
+                        except (OSError,ValueError,KeyError):pass
+                    if process.poll() is not None:self.fail(process.communicate()[1].decode(errors='replace'))
+                    time.sleep(.2)
+                self.fail('Timed out waiting for live workbook evidence')
+            def inspect():
+                result=subprocess.run(['powershell.exe','-NoProfile','-File',str(ROOT/'dashboard/excel_numeric/inspect.ps1'),
+                    '-RunFile',str(run_path)],capture_output=True,timeout=20,creationflags=0x08000000)
+                answer=json.loads(result.stdout.decode('utf-8-sig'))
+                self.assertTrue(answer['attached'],answer)
+                return answer
+            try:
+                wait(lambda r:r.get('state')=='running' and r.get('observed',{}).get('cells',[None])[0]==4150.)
+                initial=inspect()
+                self.assertTrue(initial['visible']);self.assertEqual(initial['cells']['D7'],4150.)
+                second=publish(first)
+                wait(lambda r:r.get('state')=='running' and r.get('feed_generated_at')==second['generated_at'] and '未观察到' in r.get('observed',{}).get('status',''))
+                stable=inspect(); baseline=wait(lambda r:r.get('state')=='running' and r.get('feed_generated_at')==second['generated_at'])
+                third=publish(second)
+                after=wait(lambda r:r.get('state')=='running' and r.get('feed_generated_at')==third['generated_at'])
+                self.assertEqual(after['saves'],baseline['saves'],'clock-only recalculation must not save the workbook again')
+                self.assertEqual(stable['cells']['D7'],initial['cells']['D7'])
+                self.assertEqual(stable['cells']['L7'],initial['cells']['L7'])
+                self.assertIn('未观察到',stable['cells']['A3'])
+                card=value['snapshots'][0]['overview'][0]
+                card['quote'].update(close=4300.,source_event_time='2026-10-20T09:31:00+08:00')
+                card['spot']['source_event_time']='2026-10-20T09:31:00+08:00'
+                card['chart']['time']='2026-10-20T09:31:00+08:00'
+                fourth=publish(third)
+                wait(lambda r:r.get('state')=='running' and r.get('observed',{}).get('cells',[None])[0]==4300.)
+                changed=inspect()
+                for key in ('full_name','hwnd','excel_pid','selection','scroll_row','scroll_column'):
+                    self.assertEqual(changed[key],initial[key],key)
+                self.assertEqual(changed['cells']['D7'],4300.)
+                self.assertNotEqual(changed['cells']['L7'],initial['cells']['L7'])
+                self.assertIn('2026-10-20 09:31:00',changed['cells']['A4'])
+                self.assertEqual(cell(out,'D7'),4300.)
+                self.assertEqual(cell(out,'L7'),changed['cells']['L7'])
+                evidence=ROOT/'.deps/numeric_refresh';evidence.mkdir(parents=True,exist_ok=True)
+                screenshot=folder/'capture.ps1'
+                screenshot.write_text('''param([long]$WindowHandle,[string]$Destination)
+Add-Type -AssemblyName System.Drawing
+Add-Type @'
+using System; using System.Runtime.InteropServices;
+public class TestCapture {
+ [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left,top,right,bottom; }
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect r);
+ [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
+}
+'@
+$rect=[TestCapture+Rect]::new();[void][TestCapture]::GetWindowRect([IntPtr]$WindowHandle,[ref]$rect)
+$bitmap=[Drawing.Bitmap]::new($rect.right-$rect.left,$rect.bottom-$rect.top)
+$graphics=[Drawing.Graphics]::FromImage($bitmap);$dc=$graphics.GetHdc()
+try { [void][TestCapture]::PrintWindow([IntPtr]$WindowHandle,$dc,2) } finally { $graphics.ReleaseHdc($dc) }
+$bitmap.Save($Destination,[Drawing.Imaging.ImageFormat]::Png);$graphics.Dispose();$bitmap.Dispose()
+''',encoding='utf-8-sig')
+                subprocess.run(['powershell.exe','-NoProfile','-File',str(screenshot),'-WindowHandle',str(changed['hwnd']),
+                    '-Destination',str(evidence/'synthetic-window.png')],check=True,timeout=15,creationflags=0x08000000)
+                # The read-only diagnostic independently attaches to this same window.
+                from dashboard.numeric_diagnose import sample
+                diagnosis=sample(run_path)
+                self.assertTrue(diagnosis['cells_match_feed'],diagnosis)
+                (evidence/'native-window-test.json').write_text(json.dumps(dict(initial=initial,stable=stable,changed=changed),
+                    ensure_ascii=False,indent=2),encoding='utf8')
+                # A separate final fault: the same open workbook gets a new value,
+                # but an external read handle prevents replacement on Save. Do not
+                # attempt to dismiss Excel's own dialogs in production or this test.
+                import ctypes
+                from ctypes import wintypes
+                user32=ctypes.WinDLL('user32',use_last_error=True)
+                user32.IsWindowEnabled.argtypes=[wintypes.HWND]
+                card['quote']['close']=4400.
+                with out.open('rb'):
+                    final=publish(fourth)
+                    pending=wait(lambda r:r.get('state')=='saving' and r.get('observed',{}).get('cells',[None])[0]==4400.)
+                    self.assertEqual(pending['last_save_at'],diagnosis['run']['last_save_at'])
+                    end=time.monotonic()+10
+                    while user32.IsWindowEnabled(changed['hwnd']) and time.monotonic()<end:time.sleep(.1)
+                    self.assertFalse(user32.IsWindowEnabled(changed['hwnd']))
+                    blocked=subprocess.run(['powershell.exe','-NoProfile','-File',str(ROOT/'dashboard/excel_numeric/inspect.ps1'),
+                        '-RunFile',str(run_path)],capture_output=True,timeout=15,creationflags=0x08000000)
+                    blocked=json.loads(blocked.stdout.decode('utf-8-sig'))
+                    self.assertFalse(blocked['attached']);self.assertFalse(blocked['window_enabled'])
+                (evidence/'save-dialog-test.json').write_text(json.dumps(dict(pending=pending,window=blocked),ensure_ascii=False,indent=2),encoding='utf8')
+                # Only this test-owned process, with only synthetic data, is ended.
+                # A human should handle a production dialog; no automatic recovery is claimed.
+                import signal
+                process.terminate()
+                try:os.kill(changed['excel_pid'],signal.SIGTERM)
+                except OSError:pass
+            finally:
+                if run_path:(run_path.parent/'stop').write_text('stop',encoding='utf8')
+                try:stdout,stderr=process.communicate(timeout=20)
+                except subprocess.TimeoutExpired:
+                    process.terminate();stdout,stderr=process.communicate(timeout=10)
+                    if run_path:
+                        r=json.loads(run_path.read_text(encoding='utf8'))
+                        if Path(r['output'])==out and r.get('excel_pid'):
+                            import signal
+                            try:os.kill(r['excel_pid'],signal.SIGTERM)
+                            except OSError:pass
+                end=time.monotonic()+10
+                # Excel also creates randomly named replacement files during a
+                # failed Save. Wait for all files in THIS temporary test folder.
+                while True:
+                    try:
+                        for candidate in folder.iterdir():
+                            if candidate.is_file():candidate.unlink()
+                        break
+                    except PermissionError:
+                        if time.monotonic()>=end:raise
+                        time.sleep(.1)
+            self.assertIsNotNone(process.returncode)
+
     def test_default_launcher_shows_real_window_before_calculation_finishes(self):
         import ctypes
         from ctypes import wintypes

@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 import time
+import sys
+import os
 import pandas as pd
 from dashboard.numeric_snapshot import freeze_state, save_snapshot, numeric_rows
 
@@ -42,8 +44,8 @@ def workbook_payload(payload):
                 sheets['研究指标'].append([e['left'][:2],card['alias'] if card else '',e['left'],m['id'],m['title'],value,m['unit'],kind,
                     excel_time(m.get('current_time') if current else m.get('time')),m.get('current_reason') if current else m.get('reason'),m['formula']])
     sheets['来源与状态'] = [
-        ['更新时点（北京）',local_time(payload['generated_at'])],['模式',payload['mode']],
-        ['刷新规则','由启动数字Excel.cmd保持更新；直接打开xlsx只显示最后保存值。'],
+        ['模式',payload['mode']],
+        ['刷新规则','由 start_numeric_excel.cmd 保持更新；直接打开xlsx只显示最后保存值。计算和写入时间不代表新行情。'],
         ['行情接入','北京时间交易日09:29（含）至15:01（不含）；之外只读取本地数据。午间保留带时点的缓存。'],
         ['缓存规则','优先当前有效同步行情；否则比较最新历史收盘与保存观测，展示较新可用值。缓存不保证是最终收盘价。'],
         ['指标规则','实时可算项随行情变化；日线/分钟/OI项仅随对应有效数据更新；缺失留空，合法0保留。'],
@@ -87,6 +89,7 @@ def main(argv=None):
     from dashboard.marketdata.paths import DATA_ROOT
     from dashboard.native.instruments import UNDERLYINGS
     from dashboard.numeric_config import prepare_config, problems
+    from dashboard.numeric_evidence import cache_scope, annotate
     service_started=time.monotonic()
     status_path=args.feed.with_suffix('.status.json')
     def status(message, *, ready=False, log=True):
@@ -96,13 +99,17 @@ def main(argv=None):
         if log:print(f"[{value['elapsed_seconds']:.1f}s] {message}",flush=True)
     status('检查数字专用配置和历史索引')
     model=NativeModel(prepare_config(args.local_root));model.config['dashboard_mode']='nonregression'
+    model.numeric_cache_scope=cache_scope(model.config)
+    runtime=dict(python=sys.executable,producer_pid=os.getpid(),config_path=str(model.path),
+                 realtime_root=model.config.get('realtime_root'),history_roots=model.config.get('history_roots'),
+                 cache_scope=model.numeric_cache_scope,collect_requested=args.collect)
     if not args.snapshot:
         issues=problems(model.config)
         if issues:
             model.close()
             parser.error('；'.join(issues)+' 请运行 python -m dashboard.numeric_config，参见 dashboard/COMPANY_SETUP.md。')
     collection=CollectionJob(model.local_root)
-    next_attempt=0;iteration=0
+    next_attempt=0;iteration=0;previous_feed=None;probe_note='等待连接验证'
     try:
         cached=False
         if not args.snapshot and not args.iterations:
@@ -111,26 +118,28 @@ def main(argv=None):
             cache=DATA_ROOT/'cache/dashboard/numeric'
             today=pd.Timestamp.now(tz='Asia/Shanghai').strftime('%Y-%m-%d')
             candidates=sorted((p for p in cache.glob('????-??-??/latest.json') if p.parent.name<=today),reverse=True)
-            if candidates:
+            for candidate in candidates:
                 try:
-                    previous=json.loads(candidates[0].read_text(encoding='utf8'))
+                    previous=json.loads(candidate.read_text(encoding='utf8'))
+                    if previous.get('cache_scope')!=model.numeric_cache_scope:continue
                     previous['mode']='启动中 · 上次计算缓存（待本轮历史核验）'
                     initial=workbook_payload(previous);initial['ready']=False
-                    save_snapshot(initial,args.feed);cached=True
+                    initial['runtime']=runtime
+                    save_snapshot(initial,args.feed);cached=True;break
                 except (OSError,ValueError,KeyError,TypeError):pass
         if not args.snapshot and not cached:
             # Open Excel before the expensive first calculation. Missing results
             # remain empty, and partial results never enter the daily cache.
             save_snapshot(dict(schema_version=1,generated_at=pd.Timestamp.now(tz='UTC').isoformat(),
                 mode='首次计算中 · 尚无计算结果，缺失不填0',headers=HEADERS,
-                sheets={name:[] for name in HEADERS},ready=False),args.feed)
+                sheets={name:[] for name in HEADERS},ready=False,runtime=runtime),args.feed)
         def progress(slot,complete,payload):
             message=f"{'完成' if complete else '正在计算'} {slot:02d} 档（{slot+1}/4）：历史、分位和研究指标"
             status(message,log=iteration==0)
             if complete and iteration==0 and not cached:
                 partial=workbook_payload(payload)
                 partial.update(ready=False,mode=f'首次计算中 · 已完成 {slot+1}/4 档，其余待计算',
-                               generated_at=pd.Timestamp.now(tz='UTC').isoformat())
+                               generated_at=pd.Timestamp.now(tz='UTC').isoformat(),runtime=runtime)
                 save_snapshot(partial,args.feed)
         stopped=lambda:bool(args.stop_file and args.stop_file.exists())
         while not args.stop_file or not args.stop_file.exists():
@@ -138,15 +147,26 @@ def main(argv=None):
             if args.collect and not args.snapshot and session_policy()['allowed'] and not collection.running() and started>=next_attempt:
                 next_attempt=started+60
                 result=probe_realtime(model.config)
+                probe_note=result.get('message','验证未完成；只读缓存，稍后重试')
                 if result['ok']:
                     indices={v[0] for v in UNDERLYINGS.values()}
                     collection.start(model.config['realtime_root'],list(indices),indices,model.config.get('reference_file'),auto_roll=True)
             if not session_policy()['allowed']:collection.stop()
             payload=json.loads(args.snapshot.read_text(encoding='utf8')) if args.snapshot else capture(model,progress=progress,stopped=stopped)
+            payload['cache_scope']=model.numeric_cache_scope
             feed=workbook_payload(payload)
             feed['ready']=True
             feed['collector']=collection.state()['status']
+            gate=session_policy()
+            acquisition=('快照回看 · 不采集' if args.snapshot else '只读缓存 · 不创建采集器' if not args.collect else
+                         '时段守卫 · 不新接入行情' if not gate['allowed'] else
+                         '实时采集运行中 · 新鲜度见原始时点' if collection.running() and feed['collector']=='running' else
+                         '采集状态 '+feed['collector']+' · '+probe_note)
+            feed['mode']=acquisition+'；'+payload['mode']
+            annotate(feed,payload,previous=previous_feed,completed_at=pd.Timestamp.now(tz='UTC').isoformat(),
+                     duration=round(time.monotonic()-started,3),acquisition=acquisition,runtime=runtime)
             save_snapshot(feed,args.feed)
+            previous_feed=feed
             if not args.snapshot:
                 day=pd.Timestamp(payload['generated_at']).tz_convert('Asia/Shanghai').strftime('%Y-%m-%d')
                 save_snapshot(payload,DATA_ROOT/'cache/dashboard/numeric'/day/'latest.json')

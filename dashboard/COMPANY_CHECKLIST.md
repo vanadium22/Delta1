@@ -2,6 +2,8 @@
 
 逐步命令和分支恢复方法以 [COMPANY_SETUP.md](COMPANY_SETUP.md) 为准。
 
+已启用后的刷新问题按 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md) 两次只读采样，先区分后台、行情、重算、写入、用户所见窗口。以下数据安装项只在确有缺数据/迁移需要时执行，普通pull不重导。
+
 - 确认仓库根目录、当前分支 `codex/company-apps`、工作区无待处理修改；数据和配置未被跟踪。
 - 快进拉取统一分支，保留既有 Wind 数据、环境和根 localsetting。
 - 检查桌面 Microsoft Excel；复用 Python 或另建被忽略的数字专用环境，避免升级 Wind 环境。
