@@ -262,6 +262,7 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
         continuous=a.close.notna().rolling(6).sum().eq(6)&b.close.notna().rolling(6).sum().eq(6)
         for code,title,s,formula in (("actual","实际期货5日对数收益差",actual,"10000 × [Δ5 ln F_A − Δ5 ln F_B]"),("spot","指数收益差贡献",spot_return,"10000 × [Δ5 ln S_A − Δ5 ln S_B]"),("basis","未调基差贡献",raw_basis,"10000 × Δ5 [ln(F_A/S_A)−ln(F_B/S_B)]"),("scenario","分红情景变换差",scenario_move,"10000 × Δ5 [ln((F_A+D_A)/F_A) − ln((F_B+D_B)/F_B)]")):
             add("A07."+code,title,s.where(continuous),"bp",formula,"实际期货收益差=指数贡献+未调基差贡献；分红情景变换单列，不计作期货收益。")
+    add("X","输入值" if b is None else "输入差",x,unit,"x_A" if b is None else "x_A − x_B","所选输入序列；双腿各按自己的指数、分红和到期日计算。")
     z,pct,change=statistics(x)
     for code,title,s,u,formula in (("z","历史Z",z,"倍","(x_t − mean(x[t−20:t−1])) / sample_std"),("percentile","历史半权分位",pct,"%","100 × (历史<x + 0.5×历史=x) / 20"),("change5","五期变化",change,unit,"x_t − x_(t−5)，需连续6个观测")):
         s=s.where(x.notna().rolling(6).sum().eq(6)) if code=="change5" else s
@@ -371,13 +372,16 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
             if r["id"].startswith(("A04","A05","A06","A09","B12")):
                 r.update(current=current_values.get(r["id"]),current_time=pair_time,
                     current_reason=pair_reason if not pair_ok else "盘中截至当前累计成交容量，不能与全日量同比" if r["id"].startswith("B12") else "盘中同步观测；分红或指数腿缺失时留空，源日期推定")
-    return rows
+    from .intraday import apply
+    return apply(rows,left=left,right=right,category=category,price=price_input,a=a,b=b,x=x,
+                 minute_data=minute_data,metadata=metadata,dividends=dividends,live=live,now=as_of)
 
 
 class ResearchEngine:
     def __init__(self, model):
         self.model=model; self.cache={}; self.minute_cache={}; self.history_key=None; self.daily={}; self.calendar=None
         self.card_metric_cache={}
+        self.observation_cache={}
 
     def snapshot(self, request):
         model=self.model
@@ -424,6 +428,7 @@ class ResearchEngine:
         if history_key!=self.history_key:
             self.daily={}; self.cache={}; self.minute_cache={}
             self.card_metric_cache={}
+            self.observation_cache={}
             self.continuous_cache={}
         required=set(active)|index_ids|{left,right}
         if selection:
@@ -470,7 +475,8 @@ class ResearchEngine:
         metric_rows=[]
         pair_error=None
         if category=="calendar" and (not right or right[:2]!=left[:2] or right<=left): pair_error="跨期需要同品种近月/远月，且近月在前"
-        if category=="cross" and (not right or right[:2]==left[:2] or right[2:]!=left[2:] or metadata.get(left,{}).get("expiry_date")!=metadata.get(right,{}).get("expiry_date")): pair_error="跨指数需要不同品种、同月份且相同到期日"
+        if category=="cross" and (not right or right[:2]==left[:2] or (
+            not request.get('allow_mixed_expiry') and (right[2:]!=left[2:] or metadata.get(left,{}).get("expiry_date")!=metadata.get(right,{}).get("expiry_date")))): pair_error="跨指数需要不同品种；普通同月视图要求相同到期日"
         if category=="cross" and price_input=="future":pair_error="跨指数点位不可直接相减；请选择各自分红调整基差或年化基差"
         if left and len(calendar) and not pair_error and not selection:
             metric_rows=calculate(left,right,category,price_input,daily,minute_data,metadata,dividends,calendar,live,now)
@@ -478,6 +484,7 @@ class ResearchEngine:
             for suffix,title,value in (("collection_center","采集区间成交量加权中枢",center),("collection_gap","采集区间中枢偏离",gap)):
                 metric_rows.append(metric("B02."+suffix,title,pd.Series(dtype=float),INPUTS[price_input][1],"Σ(同步观测x × 有效增量V_A) / Σ有效增量V_A",note,
                     scope="采集以来·HTTP观测",reason="此项不是完整历史分钟指标",current=value,current_time=stamp,current_reason=note))
+                metric_rows[-1]['current_scope']='采集区间'
             if category=="cross":
                 end=str(calendar[-1].tz_convert("Asia/Shanghai").date())
                 months={s[2:] for s,r in metadata.items() if s.startswith(left[:2]) and r["listing_date"]<=end<r["expiry_date"]}&{s[2:] for s,r in metadata.items() if s.startswith(right[:2]) and r["listing_date"]<=end<r["expiry_date"]}
@@ -494,6 +501,9 @@ class ResearchEngine:
                     g=100*np.log(positive(total)/positive(total.shift(5)))
                     growth.append(g.where(total.notna().rolling(6).sum().eq(6)))
                 metric_rows.append(metric("B08","同组月份持仓扩张差",growth[0]-growth[1],"对数增长百分点","100 × [ln(OI_A合计/OI_A合计前5日) − ln(OI_B合计/OI_B合计前5日)]", "固定月份集合 "+", ".join(sorted(months))+"；全组齐备、到期前才更新，不拼接换月。"))
+        if not selection and metric_rows:
+            from .intraday import observations
+            observations(metric_rows,model.live_rows,left,right,category,price_input,daily,minute_data,metadata,dividends,now,self.observation_cache)
         quote_rows=[]
         visible=list(dict.fromkeys([*(active or model.config.get("collection_symbols",[])),*sorted(index_ids)]))
         for symbol in visible:

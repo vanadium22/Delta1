@@ -29,7 +29,7 @@ def short_reason(row):
     if not row:
         return '待计算'
     if row[5] is not None:
-        return '历史' if '历史' in (row[7] or '') else '缓存' if '回看' in (row[7] or '') else '行情'
+        return '历史' if '历史' in (row[7] or '') else '缓存' if '回看' in (row[7] or '') else row[7] or '行情'
     reason = str(row[9] or '')
     if 'ETF' in reason or 'IOPV' in reason:
         return '缺ETF/IOPV'
@@ -61,9 +61,19 @@ def add_view(feed):
             alias = f'{product}{slot:02d}.CFE'
             row = cards.get(alias)
             selected = [metrics.get((alias, code)) for code in CARD_METRICS]
+            for i,alternate in ((1,'B11.sample'),(3,'B02.collection_center'),(4,'B04.Q.intraday'),(5,'B09.same_time')):
+                live=metrics.get((alias,alternate))
+                if live and live[5] is not None:selected[i]=live
             w = windows.get(alias, [])
             w = w[:4] + [None] * max(0, 4-len(w))
             reasons = list(dict.fromkeys(short_reason(m) for m in selected if not m or m[5] is None))
+            kinds=[]
+            for name,m in zip(('收敛','振幅','路径','中枢','换手','活跃'),selected):
+                if m and m[5] is not None:
+                    label='日终' if '历史' in (m[7] or '') else '缓存' if any(s in (m[7] or '') for s in ('回看','缓存')) else '采集段' if '采集' in (m[7] or '') else '盘中'
+                    kinds.append(name+label)
+            if any('盘中' in s or '采集段' in s for s in kinds):
+                reasons.append(' · '.join(kinds))
             historical_times = [m[8] for (a, _), m in metrics.items()
                                 if a == alias and m[5] is not None and '历史' in (m[7] or '') and m[8]]
             history = min(historical_times) if historical_times else None

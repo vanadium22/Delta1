@@ -211,10 +211,16 @@ def dashboard_cards(engine, state, request, selection, daily, calendar, metadata
             if len(cache)>=48:cache.clear()
             cache[key]=rows
         rows=deepcopy(cache[key])
+        from .intraday import observations
+        symbols={left,right,UNDERLYINGS[left[:2]][0]}
+        if category!='basis': symbols.add(UNDERLYINGS[right[:2]][0])
+        observations(rows,engine.model.live_rows,left,right,category,price,daily,
+                     {s:load_minutes(s) for s in symbols},metadata,dividends,now,getattr(engine,'observation_cache',None))
         center,gap,stamp,note=collection_center(engine.model.live_rows,left,right,category,price,dividends,metadata,live,now)
         for suffix,title2,value in (("collection_center","采集区间成交量加权中枢",center),("collection_gap","采集区间中枢偏离",gap)):
             rows.append(metric("B02."+suffix,title2,pd.Series(dtype=float),INPUTS[price][1],"Σ(同步观测x × 有效增量V_A) / Σ有效增量V_A",note,
                 scope="采集以来·HTTP观测",reason="此项不是完整历史分钟指标",current=value,current_time=stamp,current_reason=note))
+            rows[-1]['current_scope']='采集区间'
         entities.append(dict(title=title,left=left,right=right,metrics=rows,error=None))
     overview=[]
     for s in selection['overview_symbols']:

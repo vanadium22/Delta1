@@ -1,5 +1,7 @@
 # 数字 Excel：公司统一分支交接
 
+最新后续（盘中/组合）：按用户授权新增B10/A03盘中估算、B04.Q.intraday、B09.same_time及B11采集段扩展，日终序列与口径保留。Excel增加8组具体合约的组合对比、六类明细和盘中/日终分列；本地展示/开发App共用相同四个后台模块，前端仅改旧目录不提交。本次未改数据/VPN配置。口径、测试边界、版本表、公司更新/验收见 [INTRADAY_WORKSPACE.md](INTRADAY_WORKSPACE.md)；本段覆盖下方“只有日终”“合约对仅App”“旧后台未同步”等历史描述。发布SHA及核验记录在`.deps/numeric_realtime/release.json`；公司本次HEAD及实时逐项验收待用户测试。
+
 最新后续（DDB VPN）：已复用本机旧历史工具的登录实现，新增数字版自动/手动补齐选择与configure_numeric_vpn.cmd。本机已有连接先复用，有历史缺口且网络不通时才登录；历史及登录进程退出后提示用户手动切回行情VPN，不自动登出。数据库与VPN凭据分开DPAPI保存，重跑configure_numeric_history.cmd修正数据库账号保留VPN和数据路径。112项后台回归、7项证书检查、Windows向导四路径/缺配置/取消退出、1项可见Excel连续更新通过；本机真实自动VPN登录和DDB只读常量查询/关闭通过，无真实历史下载。公司SDK/账号/客户端及补齐仍需现场验收。旧App及本机凭据未改，发布核验见 `.deps/numeric_vpn/release.json`；说明以COMPANY_SETUP顶部为准。
 
 最新实施：用户已认可样例并要求实现、推送供公司测试。四卡概览、25项简洁指标页、原生图表和默认启动向导已接入，原数据/指标表隐藏保留。DDB在公司之后配置，当前可选现有数据；配置入口configure_numeric_history.cmd，原入口无需新依赖即可只读/采集HTTP。新数字启动服务与必要历史后台仅U实现，旧App前端/后台不覆盖。98项后台组合回归、5项实际Excel及真实Windows向导缺配置/取消退出测试通过，含查询至发布的四来源合成验证，图表缺失分位已定向复验，证据在 `.deps/numeric_ui/`；公司新版本及DDB实连仍待用户验收。使用步骤以COMPANY_SETUP顶部和NUMERIC_EXCEL为准，下方“尚未接入”是已被本段覆盖的评审历史。

@@ -41,7 +41,9 @@ def workbook_payload(payload):
             for m in e['metrics']:
                 current=m.get('current') is not None
                 value=m.get('current') if current else m.get('value')
-                kind=m.get('display_kind','盘中观测') if current else '最后有效历史' if m.get('last_valid') else '历史'
+                kind=m.get('display_kind') or '盘中观测' if current else '最后有效历史' if m.get('last_valid') else '历史'
+                if current and kind.startswith('盘中'):
+                    kind=m.get('current_scope') or kind
                 if value is None:kind='缺少数据'
                 sheets['研究指标'].append([e['left'][:2],card['alias'] if card else '',e['left'],m['id'],m['title'],value,m['unit'],kind,
                     excel_time(m.get('current_time') if current else m.get('time')),m.get('current_reason') if current else m.get('reason'),m['formula']])
@@ -83,6 +85,7 @@ def main(argv=None):
     parser.add_argument('--collect',action='store_true',help='公司VPN已登录；盘中有限验证后采集，已有采集器则只读共享缓存')
     parser.add_argument('--interval',type=float,default=3)
     parser.add_argument('--iterations',type=int,default=0)
+    parser.add_argument('--selection-file',type=Path,help='本次Excel关注组合选择；独立于数据/VPN设置')
     args=parser.parse_args(argv)
     if args.interval<1:parser.error('interval must be >= 1')
     from dashboard.native.model import NativeModel
@@ -158,6 +161,17 @@ def main(argv=None):
             payload=json.loads(args.snapshot.read_text(encoding='utf8')) if args.snapshot else capture(model,progress=progress,stopped=stopped)
             payload['cache_scope']=model.numeric_cache_scope
             feed=workbook_payload(payload)
+            if not args.snapshot:
+                from dashboard.research_workspace import evaluate, save_preferences
+                selected=None
+                if args.selection_file and args.selection_file.exists():
+                    try:selected=json.loads(args.selection_file.read_text(encoding='utf-8-sig'))
+                    except (OSError,ValueError):pass
+                workspace=evaluate(model,selected)
+                feed['workspace']=workspace
+                if isinstance(selected,dict) and selected.get('request_id')!=getattr(model,'saved_workspace_request',None):
+                    save_preferences(model.local_root,workspace['selection'])
+                    model.saved_workspace_request=selected.get('request_id')
             feed['ready']=True
             feed['collector']=collection.state()['status']
             gate=session_policy()

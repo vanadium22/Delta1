@@ -48,9 +48,11 @@ for(const [name,cols] of Object.entries(headers)){
 }
 const {addViews}=await import('./view_template.mjs');
 addViews(wb,metadata);
+const {addWorkspace}=await import('./workspace_template.mjs');
+addWorkspace(wb);
 wb.recalculate();await fs.mkdir(path.dirname(destination),{recursive:true});
 await(await SpreadsheetFile.exportXlsx(wb)).save(destination);
-console.log(JSON.stringify({template:destination,sheets:8,containsBusinessData:false}));
+console.log(JSON.stringify({template:destination,sheets:10,containsBusinessData:false}));
 // Optional synthetic preview data is loaded only AFTER exporting the blank template.
 if(process.argv[4]){
  const sample=JSON.parse(await fs.readFile(process.argv[4],'utf8'));
@@ -59,8 +61,14 @@ if(process.argv[4]){
   const width=sample.headers[name].length;
   wb.worksheets.getItem(name).getRange(`A7:${String.fromCharCode(64+width)}${rows.length+6}`).values=rows;
  }
+ if(sample.workspace){
+  const s=wb.worksheets.getItem('组合对比'),w=sample.workspace;
+  s.getRange(`A7:F${6+w.selection.rows.length}`).values=w.selection.rows.map(r=>['category','left','right','input','timing','date'].map(k=>r[k]));
+  s.getRange(`G7:P${6+w.comparisons.length}`).values=w.comparisons;
+  if(w.details.length)s.getRange(`A20:I${19+w.details.length}`).values=w.details;
+ }
  wb.recalculate();
- for(const [name,range] of [['概览','A1:S42'],['指标','A1:O35']]){
+ for(const [name,range] of [['概览','A1:S42'],['指标','A1:O35'],['组合对比','A1:P29']]){
   const png=await wb.render({sheetName:name,range,scale:1.2,format:'png'});
   await fs.writeFile(path.join(path.dirname(process.argv[4]),name+'.png'),new Uint8Array(await png.arrayBuffer()));
  }

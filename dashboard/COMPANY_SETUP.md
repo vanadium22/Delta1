@@ -1,5 +1,11 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
+## 2026-10-20 盘中指标与组合分类
+
+本次无需安装依赖或重配VPN。关闭本次Excel/启动器，在此Git根目录`git pull --ff-only origin codex/company-apps`，确认`git log -1`后，以原swhy_delta1运行`.\dashboard\start_numeric_excel.cmd`。原历史补齐→手工切回行情VPN→验证打开流程保持；实时测试不加ReadOnlyCache。新增“组合对比”的黄色格选择具体合约、输入、盘中/日终/历史日，下方分类明细分列盘中与日终。
+
+完整顺序命令、B04.Q/B10/B09/B11验收、仍需数据的项和版本对照见 [INTRADAY_WORKSPACE.md](INTRADAY_WORKSPACE.md)。App两版同步优化仅在旧本地目录保留，不随本次pull发布。真实数据、Wind、缓存、VPN/数据库凭据与native.json不修改。
+
 ## 2026-10-20 DDB VPN自动登录补充
 
 先按下一节更新到统一分支最新代码，保留全部本机数据和配置。已重跑 `configure_numeric_history.cmd` 更正数据库账号密码即可，不必重建环境；该入口只改数字版数据库连接设置，保留VPN配置及历史路径。数据库账号与VPN账号是两套凭据。

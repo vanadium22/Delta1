@@ -26,6 +26,19 @@ def fixture():
 
 
 class ViewTests(unittest.TestCase):
+    def test_saved_observations_are_not_labelled_intraday_and_sample_scope_survives(self):
+        feed=fixture()
+        for row in feed['sheets']['研究指标']:
+            if row[3]=='A02.convergence':row[7]='保存行情回看'
+        add_view(feed)
+        self.assertNotIn('盘中',feed['sheets']['卡片数据'][0][21])
+        base=next(r for r in feed['sheets']['研究指标'] if r[1]=='IF00.CFE' and r[3]=='B11')
+        sample=base.copy();sample[3]='B11.sample';sample[5]=0.;sample[7]='采集区间'
+        feed['sheets']['研究指标'].append(sample);add_view(feed)
+        self.assertEqual(feed['sheets']['卡片数据'][0][8],0.)
+        self.assertIn('振幅采集段',feed['sheets']['卡片数据'][0][21])
+        self.assertIn('收敛缓存',feed['sheets']['卡片数据'][0][21])
+
     def test_original_results_unchanged_and_selected_rows_match(self):
         feed = fixture()
         original = copy.deepcopy(feed['sheets']['研究指标'])

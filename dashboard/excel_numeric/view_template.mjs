@@ -25,7 +25,7 @@ export function addViews(wb, metadata) {
      block(overview,`${l}${r+1}:${h}${r+1}`,name,{color:muted});
      formula(overview,`${l}${r+2}:${h}${r+2}`,'卡片数据',['D','E','F','G'][i],idx,i===3?'0.00%':'#,##0.00').format.font={name:font,size:16,bold:true,color:ink};
    });
-   const metrics=[['收敛 bp/日','H','振幅 倍','I'],['路径效率','J','中枢 %','K'],['日换手 倍','L','活跃度 倍','M']];
+   const metrics=[['收敛 bp/日','H','振幅 倍','I'],['路径效率','J','中枢 %','K'],['换手 倍','L','活跃度 倍','M']];
    for(let j=0;j<3;j++){
      const row=r+4+j,[l,c,l2,c2]=metrics[j];
      block(overview,`${a}${row}:${letter(start+1)}${row}`,l,{size:10,color:muted});
@@ -44,7 +44,8 @@ export function addViews(wb, metadata) {
    const ref=c=>`INDEX('卡片数据'!${c}$7:${c}$22,${idx})`;
    rr.formulas=[[`=IF(ISBLANK(${ref('W')}),"待计算",${ref('Y')}&" "&TEXT(${ref('W')},"mm/dd hh:mm:ss"))&IF(ISBLANK(${ref('X')}),""," · 历史 "&TEXT(${ref('X')},"mm/dd"))`]];
    rr.format.font={name:font,size:9,color:muted};rr.format.horizontalAlignment='center';
-   formula(overview,`${a}${r+11}:${z}${r+11}`,'卡片数据','V',idx,'@').format.font={name:font,size:10,color:muted};
+   const footer=formula(overview,`${a}${r+11}:${z}${r+11}`,'卡片数据','V',idx,'@');
+   footer.format.font={name:font,size:9,color:muted};footer.format.wrapText=true;footer.format.rowHeight=30;
    cards.push(`${a}${r+9}`);
  }
  for(const r of [6,8,19,21])overview.getRange(`B${r}:R${r}`).format.rowHeight=25;
