@@ -24,6 +24,61 @@ def cell(path, address):
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; explicitly opt in')
 class ExcelIntegration(unittest.TestCase):
+    def test_default_launcher_shows_real_window_before_calculation_finishes(self):
+        import ctypes
+        from ctypes import wintypes
+        import uuid
+        user32=ctypes.WinDLL('user32',use_last_error=True)
+        callback_type=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+        user32.EnumWindows.argtypes=[callback_type,wintypes.LPARAM]
+        user32.IsWindowVisible.argtypes=[wintypes.HWND]
+        user32.GetWindowTextW.argtypes=[wintypes.HWND,wintypes.LPWSTR,ctypes.c_int]
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);feed=folder/'feed.json';out=folder/('visibility_'+uuid.uuid4().hex+'.xlsx')
+            payload=dict(schema_version=1,generated_at='2026-10-20T01:00:00Z',mode='首次计算中',
+                         ready=False,headers=HEADERS,sheets={s:[] for s in HEADERS})
+            save_snapshot(payload,feed)
+            command=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'dashboard/excel_numeric/live.ps1'),
+                     '-FeedFile',str(feed),'-Output',str(out),'-MaxUpdates','1']
+            process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000000)
+            try:
+                visible=[]
+                @callback_type
+                def inspect_window(hwnd, _):
+                    title=ctypes.create_unicode_buffer(1024)
+                    user32.GetWindowTextW(hwnd,title,len(title))
+                    if out.stem in title.value and user32.IsWindowVisible(hwnd):visible.append(title.value)
+                    return True
+                end=time.monotonic()+45
+                while time.monotonic()<end:
+                    user32.EnumWindows(inspect_window,0)
+                    if visible:break
+                    if process.poll() is not None:self.fail(process.communicate()[1].decode(errors='replace'))
+                    time.sleep(.2)
+                else:self.fail('default launcher did not show a visible native workbook window')
+                self.assertFalse(payload['ready'],'window must appear before calculation finishes')
+                payload.update(ready=True,generated_at='2026-10-20T01:00:03Z',mode='已完成')
+                payload['sheets']['数字看板']=[['IF','IF00.CFE','SYNTHETIC',1234.,4200.,None,32,None,None,0.,'测试',46000.,'SYNTHETIC','合成验证']]
+                save_snapshot(payload,feed)
+                stdout,stderr=process.communicate(timeout=40)
+                self.assertEqual(process.returncode,0,stderr.decode(errors='replace'))
+                self.assert_ready_notices(stdout)
+                self.assertEqual(cell(out,'D7'),1234.)
+                # Excel can release the file lock just after PowerShell exits.
+                end=time.monotonic()+10
+                while True:
+                    try:out.unlink();break
+                    except PermissionError:
+                        if time.monotonic()>=end:raise
+                        time.sleep(.1)
+            finally:
+                if process.poll() is None:
+                    # Allow the launcher's own finally block to close its Excel.
+                    payload.update(ready=True,generated_at='2026-10-20T01:00:06Z')
+                    save_snapshot(payload,feed)
+                    try:process.communicate(timeout=15)
+                    except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=10)
+
     def assert_ready_notices(self, stdout):
         # Windows PowerShell uses the machine code page when stdout is piped.
         for encoding in ('utf-8', 'gb18030'):

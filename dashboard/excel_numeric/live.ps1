@@ -42,8 +42,19 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'template.xlsx') -Destination $Output
     # Own a separate Excel instance; never attach to user workbooks.
     $excel = New-Object -ComObject Excel.Application
-    $owned = $true; $excel.Visible = -not $Hidden; $excel.DisplayAlerts = $false
+    $owned = $true; $excel.DisplayAlerts = $false
     $book = $excel.Workbooks.Open($Output)
+    # Excel may ignore Visible=True before it has an open workbook. Restore
+    # only this owned workbook after Open; never attach to another instance.
+    if (-not $Hidden) {
+        $window = $book.Windows.Item(1)
+        $window.Visible = $true
+        $window.WindowState = -4137 # xlMaximized
+        $book.Activate()
+        $excel.Visible = $true
+        if (-not $excel.Visible -or -not $window.Visible) { throw "Excel 窗口未能显示，文件：$Output；日志：$runRoot" }
+        Write-Output "Excel 窗口已显示：$Output"
+    }
     $last = ''; $updates = 0; $counts = @{}; $lastSuccess = Get-Date; $lastProgress = ''; $nextProgress = Get-Date
     $initialReady = $false; $nextRefreshNotice = Get-Date; $nextProgressNotice = Get-Date
     while ($true) {
