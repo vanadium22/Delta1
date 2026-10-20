@@ -1,5 +1,7 @@
 # 继续数字 Excel 工作
 
+后续需求与已做样例见 [EXCEL_UX_PROPOSAL.md](EXCEL_UX_PROPOSAL.md)。用户已说看到更新，但B04.Q/B10为10/16、B09/B11缺失；本地与两个短包的历史分片签名相同，均截至10/16，00/03的固定合约历史窗口不足，不要求公司重导相同包。已完成独立合成四卡Excel评审样例（四档下拉、原生图表、空值/0经本机Excel验证），未接入正式入口。选择补历史→历史任务退出→公司行情VPN→打开的向导及大布局按先前要求先评审；公司分支当前缺完整历史维护后台，不能把旧App向导当已交付。前端不提交，数据/配置不覆盖。
+
 最新排查入口为 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。公司11:06诊断已确认运行60e5446及原swhy_delta1解释器，同一可见工作簿代表单元格与feed一致、保存正常；ReadOnlyCache、collector=idle，配置指向的实时SQLite不存在，显示10月16日15:00历史收盘。下一步验证不带ReadOnlyCache的原入口采集，以及新运行两次样本的源时/单元格，不重复要求pull、重装或导数据；不能用旧运行号指向新窗口。该公司反馈只有一份样本，不算实时连续刷新验收。2026-10-20 10:37本机另有三轮20标的VPN实连及隔离缓存/同一可见Excel验证，原库不变，与公司证据分开。不要把ready/日志/保存时间当新行情。
 
 先读根 AGENTS.md、COMPANY_SYNC.md、Git操作指南.md，再读本目录 AGENTS.md、PROJECT_HANDOFF.md、COMPANY_SETUP.md、NUMERIC_EXCEL.md 和 GIT_WORKFLOW.md。核对实际 Git 根目录、分支、工作区和远端，不能把待办当完成。
