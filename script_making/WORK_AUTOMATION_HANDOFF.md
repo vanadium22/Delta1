@@ -2,6 +2,8 @@
 
 2026-10-21。用户确认**公司电脑已有计划**；本机看不到该计划的名称、ID、状态或触发时间。此次只交付源项目适配程序、暂停配置规格及交接提示词，未运行真实日报、发送邮件、安装环境、创建/启用/停用任何调度。
 
+公司只读盘点等待问题已补丁处理：查询改用 Task Scheduler COM，20秒查询及2秒清理各自限时，超时/用户中断仍输出项目 JSON，计划状态标为 `complete=false`，不能当成没有计划。可先执行 `run_daily.cmd --inspect` 获取不依赖 Windows 查询的项目报告；`--inspect --windows-tasks` 再附计划结果。工作台独立盘点复用 `inspect_automation.py --tasks-only --match <入口路径>`，不读取项目配置或更改调度。具体实现依据 [Microsoft 只读枚举示例](https://learn.microsoft.com/en-us/windows/win32/taskschd/displaying-task-names-and-state--scripting-)。
+
 ## 可直接交给 Work Automation 负责对话的提示词
 
 > 请将公司电脑已有的日报计划接入 Work Automation 0.6.0，沿用已有计划身份，只准备默认暂停的接入配置，保持现有计划原状。本轮先检查，不运行真实日报、不发邮件、不创建或安装环境、不启用或另建调度，也不要擅自停用现有计划。
