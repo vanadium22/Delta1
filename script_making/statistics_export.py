@@ -17,6 +17,8 @@ from .statistics import FIELDS, DEFAULT_TEMPLATE, LEGACY_DEFAULT_TEMPLATES, comb
 from .storage import ReportError, atomic_json
 
 LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
+INLINE_IMAGES = (("pnl1.png", "pnl1@daily-report", "组内收益 · pnl1"),
+                 ("risk.png", "risk@daily-report", "风险观察 · 分日报与总汇总"))
 
 
 def display(value):
@@ -183,6 +185,23 @@ def save_image(html, path, width=1600):
     return width, height
 
 
+def mail_html(body):
+    """Static email HTML; all user text is escaped and images are local MIME CIDs."""
+    paragraphs = []
+    for paragraph in body.split("\n\n"):
+        text = escape(paragraph).replace("\n", "<br>")
+        text = text.replace("  时祺", "&nbsp;&nbsp;时祺")
+        paragraphs.append(f'<p style="margin:0 0 16px;line-height:1.7">{text}</p>')
+    pictures = ''.join(
+        f'<h2 style="font-size:18px;color:#185b59">{title}</h2>'
+        f'<img src="cid:{cid}" alt="{title}" width="1100" '
+        'style="display:block;width:100%;max-width:1600px;height:auto;border:1px solid #d9e1ea">'
+        for _, cid, title in INLINE_IMAGES)
+    return ('<!doctype html><html><body style="margin:24px;color:#18324c;'
+            'font-family:Microsoft YaHei,Arial,sans-serif;font-size:14px">'
+            + ''.join(paragraphs) + pictures + '</body></html>')
+
+
 def export_bundle(base, snapshot, pages, values):
     for field in ("to", "cc", "subject"):
         if any(c in values.get(field, "") for c in "\r\n"):
@@ -213,9 +232,18 @@ def export_bundle(base, snapshot, pages, values):
             if addresses[field].strip():
                 message[field.title()] = addresses[field]
         message["X-Unsent"] = "1"
-        message.set_content(body)
-        for path in files:
-            message.add_attachment(path.read_bytes(), maintype="image", subtype="png", filename=path.name)
+        alternatives = EmailMessage(policy=SMTP)
+        alternatives.set_content(body)
+        alternatives.add_alternative(mail_html(body), subtype="html")
+        # The related root is the plain/HTML alternative. The same two image
+        # parts remain downloadable without duplicating their bytes as attachments.
+        message.make_related()
+        message["MIME-Version"] = "1.0"
+        message.set_param("type", "multipart/alternative")
+        message.attach(alternatives)
+        for path, (_, cid, _) in zip(files, INLINE_IMAGES):
+            message.add_related(path.read_bytes(), maintype="image", subtype="png",
+                                filename=path.name, cid=f"<{cid}>", disposition="inline")
         (folder / "邮件草稿.eml").write_bytes(message.as_bytes())
         (folder / "邮件正文.txt").write_text(subject + "\n\n" + body, encoding="utf-8")
         atomic_json(folder / "统计记录.json", snapshot)

@@ -221,6 +221,13 @@ class StatisticsTests(unittest.TestCase):
         message = BytesParser(policy=policy.default).parsebytes((folder / "邮件草稿.eml").read_bytes())
         self.assertEqual(message["To"], "test@example.com")
         self.assertEqual({part.get_filename() for part in message.iter_attachments()}, {"pnl1.png", "risk.png"})
+        self.assertEqual(message.get_content_type(), 'multipart/related')
+        self.assertEqual(message['MIME-Version'], '1.0')
+        html = message.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('src="cid:pnl1@daily-report"', html)
+        self.assertIn('src="cid:risk@daily-report"', html)
+        self.assertIn('&nbsp;&nbsp;时祺', html)
+        self.assertEqual(len([p for p in message.walk() if p.get_content_maintype() == 'image']), 2)
         self.assertIn('data:image/png;base64,', pages[0])
         self.assertNotIn('data:image/png;base64,', pages[1])
         body = message.get_body(preferencelist=("plain",)).get_content()
@@ -228,6 +235,7 @@ class StatisticsTests(unittest.TestCase):
             self.assertIn(expected, body)
         self.assertNotIn("{{", body)
         for attachment in message.iter_attachments():
+            self.assertEqual(attachment.get_content_disposition(), 'inline')
             self.assertEqual(attachment.get_payload(decode=True), (folder / attachment.get_filename()).read_bytes())
         long = pages[1].replace("</body>", "<p>末尾行</p>" * 60 + "</body>")
         _, height = save_image(long, self.root / "long.png")
@@ -344,6 +352,9 @@ class StatisticsTests(unittest.TestCase):
             self.assertLess(len(body), 650)
         custom = "我的开头\n{{dates}}\n自定义结尾"
         self.assertEqual(validated_config({**self.config, "template": custom})["template"], custom)
+        from script_making.statistics_export import mail_html
+        self.assertIn('&lt;script&gt;', mail_html('<script> & 合成正文'))
+        self.assertNotIn('<script>', mail_html('<script> & 合成正文'))
 
     def test_unified_queries_duplicate_headers_total_grid_and_four_download_tabs(self):
         data = self.service.query_catalog()

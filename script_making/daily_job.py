@@ -105,7 +105,7 @@ def run_once(root, as_of, *, local_only=False):
                     record.update(state="incomplete", reason="统计或上期数值不完整；已记录诊断，本次不生成可发送草稿。")
                     return 2, record
                 identity = {key: value for key, value in snapshot.items() if key not in ("id", "created_at")}
-                fingerprint = hashlib.sha256(json.dumps({"version": 3, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                fingerprint = hashlib.sha256(json.dumps({"version": 4, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
                 completed = runs / "completed" / (fingerprint + ".json")
                 if completed.exists():
                     try:
