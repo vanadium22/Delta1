@@ -125,6 +125,7 @@ class Window(QMainWindow):
         sidebar.addWidget(self.query_button)
         sidebar.addWidget(self.download_button)
         self.statistics_button = button("统计", self.open_statistics, "nav")
+        self.statistics_button.setCheckable(True)
         sidebar.addWidget(self.statistics_button)
         self.download_notice = label("四类日报 · 本地归档", "muted", True)
         sidebar.addWidget(self.download_notice)
@@ -260,7 +261,11 @@ class Window(QMainWindow):
             pagination.addWidget(control)
         results.addLayout(pagination)
         outer.addWidget(results_card, 1)
-        layout.addWidget(body, 1)
+        self.content = QStackedWidget()
+        self.query_page = body
+        self.statistics_page = None
+        self.content.addWidget(body)
+        layout.addWidget(self.content, 1)
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setFixedWidth(140)
@@ -346,7 +351,8 @@ class Window(QMainWindow):
         self.progress.setVisible(busy or self._syncing or downloading)
         for control in (self.settings_button, self.import_button, self.refresh_button):
             control.setEnabled(not busy and not self._syncing and not self._closing)
-        self.settings_button.setEnabled(not busy and not self._syncing and not downloading and not self._closing)
+        stats_busy = bool(self.statistics_page and self.statistics_page.worker)
+        self.settings_button.setEnabled(not busy and not stats_busy and not self._syncing and not downloading and not self._closing)
         self.download_button.setEnabled(not self._closing)
         self.query_button.setEnabled(not mutation and not self._closing)
         self.statistics_button.setEnabled(not mutation and not self._closing)
@@ -394,6 +400,8 @@ class Window(QMainWindow):
         self.load_report()
 
     def switch_kind(self, kind):
+        self.content.setCurrentWidget(self.query_page)
+        self.statistics_button.setChecked(False)
         if self.kind == kind:
             if kind in self.nav:
                 self.nav[kind].setChecked(True)
@@ -616,7 +624,12 @@ class Window(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._invalidate()
             self._submit(lambda: self.service.update_settings(dialog.values),
-                         lambda _: self.refresh_catalog(), "正在保存设置…", mutation=True)
+                         lambda _: self._settings_saved(), "正在保存设置…", mutation=True)
+
+    def _settings_saved(self):
+        self.refresh_catalog()
+        if self.statistics_page:
+            self.statistics_page.refresh_dates()
 
     def open_current_location(self):
         try:
@@ -632,13 +645,23 @@ class Window(QMainWindow):
         DownloadsDialog(self.service, self.start_download, self).exec()
 
     def open_query(self):
+        self.content.setCurrentWidget(self.query_page)
+        self.statistics_button.setChecked(False)
         self.report_combo.setFocus()
         self.report_combo.showPopup()
 
     def open_statistics(self):
-        from .statistics_widgets import StatisticsDialog
+        from .statistics_widgets import StatisticsPage
         try:
-            StatisticsDialog(self.service, self).exec()
+            if self.statistics_page is None:
+                self.statistics_page = StatisticsPage(self.service, self)
+                self.statistics_page.finished.connect(self._finish_close)
+                self.statistics_page.busy_changed.connect(self._update_controls)
+                self.content.addWidget(self.statistics_page)
+            self.content.setCurrentWidget(self.statistics_page)
+            self.statistics_button.setChecked(True)
+            for control in self.nav.values():
+                control.setChecked(False)
         except (ReportError, OSError) as exc:
             self.error.setText(str(exc))
             self.error.show()
@@ -718,11 +741,14 @@ class Window(QMainWindow):
         self._finish_close()
 
     def closeEvent(self, event):
-        if self.worker is not None or self._syncing or self.service.downloads_running():
+        if (self.worker is not None or self._syncing or self.service.downloads_running()
+                or (self.statistics_page and self.statistics_page.worker)):
             self._closing = True
             self._generation += 1
             self._pending = None
             self.debounce.stop()
+            if self.statistics_page:
+                self.statistics_page.prepare_close()
             self.statusBar().showMessage("正在结束当前任务，完成后自动关闭…")
             self._update_controls()
             event.ignore()
@@ -730,12 +756,15 @@ class Window(QMainWindow):
         self.debounce.stop()
         self.sync_timer.stop()
         self.download_timer.stop()
+        if self.statistics_page:
+            self.statistics_page.prepare_close()
         self.preferences.setValue("window/geometry", self.saveGeometry())
         self.preferences.sync()
         event.accept()
 
     def _finish_close(self):
-        if self._closing and self.worker is None and not self._syncing and not self.service.downloads_running():
+        if (self._closing and self.worker is None and not self._syncing and not self.service.downloads_running()
+                and not (self.statistics_page and self.statistics_page.worker)):
             QTimer.singleShot(0, self.close)
 
 

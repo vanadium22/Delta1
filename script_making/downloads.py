@@ -12,7 +12,7 @@ from zipfile import ZipFile, BadZipFile
 
 from openpyxl import load_workbook
 from shared_data.io import file_lock
-from .storage import ReportError, atomic_json, sha256, timestamp, today
+from .storage import ReportError, atomic_json, backup_revision, sha256, timestamp, today
 
 DOWNLOADS = {
     "pnl": {"label": "盈亏统计", "pattern": r"盈亏统计_(\d{4}-\d{2}-\d{2})_new_adjust\.xlsx",
@@ -185,12 +185,17 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
             pending.update(damaged)
             manifest["pending_dates"] = sorted(day.isoformat() for day in pending)
             atomic_json(base / "manifest.json", manifest)
-            saved, reused = [], []
+            saved, reused, updated = [], [], []
             for day, sources in sorted(candidates.items()):
                 try:
                     with tempfile.TemporaryDirectory(prefix=".incoming-", dir=base) as temporary:
-                        staged = Path(temporary) / sources[0].name
-                        source = sources[0]
+                        # Root/year partitions can retain older editions. Prefer
+                        # the newest share modification time; differing ties are ambiguous.
+                        versions = [(candidate.stat().st_mtime_ns, candidate) for candidate in sources]
+                        newest = max(value for value, _ in versions)
+                        latest = [candidate for value, candidate in versions if value == newest]
+                        source = latest[0]
+                        staged = Path(temporary) / source.name
                         before = source.stat()
                         destination = base / day.isoformat() / staged.name
                         if destination.is_file() and sha256(destination) == sha256(source):
@@ -199,23 +204,23 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
                             shutil.copyfile(source, staged)
                             checked = staged
                         digest = sha256(checked)
-                        for duplicate in sources:
+                        for duplicate in latest:
                             first = duplicate.stat()
                             source_digest = sha256(duplicate)
                             last = duplicate.stat()
                             if (first.st_size, first.st_mtime_ns) != (last.st_size, last.st_mtime_ns):
                                 raise ReportError("来源文件仍在生成，请稍后重试。")
                             if source_digest != digest:
-                                raise ReportError("多个来源位置的同日期文件内容不同，未覆盖本地。")
+                                raise ReportError("公盘最新修改时间相同但内容不同，无法确定最新版本；请核对来源文件。")
                         after = source.stat()
                         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or checked.stat().st_size != before.st_size:
                             raise ReportError("来源文件仍在生成或复制不完整，请稍后重试。")
                         validate_report(checked, kind, day)
                         existed = destination.exists()
-                        if existed and sha256(destination) != digest:
-                            raise ReportError("已有同名不同内容的本地文件，已保留原文件。请核对后移走冲突文件再同步。")
+                        changed = existed and sha256(destination) != digest
+                        backup = backup_revision(destination, base) if changed else None
                         destination.parent.mkdir(parents=True, exist_ok=True)
-                        if not existed:
+                        if not existed or changed:
                             os.replace(staged, destination)
                         if sha256(destination) != digest:
                             raise ReportError("保存后文件哈希核验失败。")
@@ -224,16 +229,19 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
                             "date": day.isoformat(), "path": f"{day.isoformat()}/{destination.name}",
                             "source": str(source), "size": destination.stat().st_size, "sha256": digest,
                             "saved_at": previous.get("saved_at", timestamp()), "checked_at": timestamp()}
+                        if backup:
+                            manifest["files"][destination.name]["previous_version"] = backup.relative_to(base).as_posix()
+                            manifest["files"][destination.name]["updated_at"] = timestamp()
                         pending.discard(day)
                         manifest["pending_dates"] = sorted(value.isoformat() for value in pending)
                         # Commit each successful file so a later failure is retryable.
                         atomic_json(base / "manifest.json", manifest)
-                        (reused if existed else saved).append(day.isoformat())
+                        (updated if changed else reused if existed else saved).append(day.isoformat())
                 except (ReportError, OSError) as exc:
                     errors.append(f"{day}: {exc}")
             for day in sorted(pending - candidates.keys()):
                 errors.append(f"{day}: 待补文件在来源检查范围内尚未找到，将继续重试。")
-            result = {"saved": saved, "reused": reused, "errors": errors,
+            result = {"saved": saved, "reused": reused, "updated": updated, "errors": errors,
                       "source_latest": max(candidates).isoformat() if candidates else None,
                       "checked_at": timestamp(), "window_start": start.isoformat(),
                       "message": "检查完成" if candidates else "检查范围内没有可下载的日报；已保留本地文件。"}

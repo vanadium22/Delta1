@@ -1,0 +1,41 @@
+{
+  "document_type": "integration_handoff_spec_not_native_import",
+  "target_product": "Work Automation",
+  "target_version": "0.6.0",
+  "native_schema_verified": false,
+  "task_name": "日报同步与统计附件",
+  "status": "paused",
+  "enabled": false,
+  "existing_company_task_id": null,
+  "reuse_existing_company_task": true,
+  "schedule": {
+    "timezone": "Asia/Shanghai",
+    "time": null,
+    "calendar": "待公司确认工作日或交易日规则",
+    "next_run": null,
+    "missed_run_policy": "待公司确认；当前入口不内置补跑或自动重试"
+  },
+  "working_directory": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard",
+  "inspection_entry": {
+    "program": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\script_making\\run_daily.cmd",
+    "arguments": ["--inspect", "--windows-tasks"]
+  },
+  "proposed_business_entry_after_takeover": {
+    "program": "D:\\WORKSPACE\\MAIN\\SwhySc\\DeltaOne\\project\\dashboard\\script_making\\run_daily.cmd",
+    "arguments": ["--run"]
+  },
+  "verified_company_python": null,
+  "company_python_candidate_from_existing_launcher": "D:\\conda\\envs\\swhy_delta1\\python.exe",
+  "environment_names_only": ["REPORT_APP_PYTHON", "SWHY_DELTA1_PYTHON", "SCRIPT_MAKING_SOURCE", "SCRIPT_MAKING_DATA", "DELTA1_DATA_ROOT", "DELTA1_OUTPUTS_ROOT", "QT_QPA_PLATFORM"],
+  "concurrency": "单机同一实际日报目录互斥；GUI及下载子进程另共用来源写锁",
+  "automatic_retry": false,
+  "send_email": false,
+  "activation_gates": [
+    "核实公司现有计划ID、启用状态、触发器、下次运行及执行历史",
+    "核实唯一调度来源，不新增重复计划，不自行停用旧计划",
+    "核实公司解释器完整路径、运行账号共享盘权限及工作目录",
+    "确认北京时间执行时点、交易日规则和漏跑策略",
+    "将本交接规格转换为Work Automation 0.6.0已验证的原生配置",
+    "先仅运行--inspect及隔离合成测试，取得接管授权后再启用"
+  ]
+}

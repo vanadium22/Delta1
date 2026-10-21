@@ -116,7 +116,7 @@ class DownloadTests(unittest.TestCase):
         self.assertIn("2026-10-15", result["saved"])
         self.assertTrue(bad.exists())
 
-    def test_missing_local_repaired_and_changed_local_preserved(self):
+    def test_missing_local_repaired_and_changed_local_backed_up(self):
         sample(self.source, "pnl", "2026-10-19")
         sync_download(self.settings, "pnl", date(2026, 10, 21))
         base = archive_path(self.settings, "pnl")
@@ -125,8 +125,10 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(sync_download(self.settings, "pnl", date(2026, 11, 5))["saved"], ["2026-10-19"])
         local.write_bytes(b"local changes")
         result = sync_download(self.settings, "pnl", date(2026, 11, 6))
-        self.assertTrue(result["errors"])
-        self.assertEqual(local.read_bytes(), b"local changes")
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["updated"], ["2026-10-19"])
+        self.assertEqual(sha256(local), sha256(self.source / local.name))
+        self.assertEqual(next((base / "_revisions").rglob("*.xlsx")).read_bytes(), b"local changes")
 
     def test_empty_initial_check_does_not_advance(self):
         self.assertEqual(sync_download(self.settings, "pnl", date(2026, 10, 21))["saved"], [])

@@ -1,7 +1,7 @@
 """Native statistics workspace and editable mail draft settings."""
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
                               QFormLayout, QHBoxLayout, QLineEdit, QTabWidget,
                               QTextBrowser, QTextEdit, QVBoxLayout, QWidget)
@@ -11,6 +11,7 @@ from .download_widgets import open_location
 from .statistics import (DEFAULT_CONFIG, FIELDS, build_snapshot, load_config,
                          save_config, validated_config)
 from .statistics_export import export_bundle, mail_content, render_pages, save_image
+from .statistics_charts import ChartView, chart_image, save_chart
 from .storage import ReportError
 
 
@@ -49,7 +50,7 @@ class ConfigurationDialog(QDialog):
         layout.addWidget(self.template, 1)
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
-        layout.addWidget(label("本次正文预览（导出为带两张图片附件的 .eml 草稿）", "muted"))
+        layout.addWidget(label("本次正文预览（附件包含两张统计图片和两张年度历史图）", "muted"))
         layout.addWidget(self.preview, 1)
         tabs.addTab(mail, "邮件正文与地址")
         self.template.textChanged.connect(self.update_preview)
@@ -99,7 +100,10 @@ class StatisticsWorker(QThread):
             self.outcome = (False, str(exc))
 
 
-class StatisticsDialog(QDialog):
+class StatisticsPage(QWidget):
+    finished = Signal()
+    busy_changed = Signal()
+
     def __init__(self, service, parent=None):
         super().__init__(parent)
         self.service = service
@@ -107,9 +111,6 @@ class StatisticsDialog(QDialog):
         self.pages = None
         self.worker = None
         self._closing = False
-        self.setWindowTitle("统计 · pnl1 与风险观察")
-        self.resize(1280, 880)
-        self.setMinimumSize(960, 660)
         config_error = ""
         try:
             self.config = load_config(service.settings.root)
@@ -117,6 +118,7 @@ class StatisticsDialog(QDialog):
             self.config = validated_config(DEFAULT_CONFIG)
             config_error = str(exc)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 23, 24, 16)
         layout.addWidget(label("统计", "title"))
         layout.addWidget(label("每份日报按自己的报表日期统计；原始 Excel 保持不变。", "muted"))
         sources = QHBoxLayout()
@@ -155,10 +157,16 @@ class StatisticsDialog(QDialog):
         self.threshold.setMaximumWidth(120)
         controls.addWidget(self.threshold)
         self.configure_button = button("剔除名单 / 邮件设置", self.configure)
-        controls.addWidget(self.configure_button)
         self.generate_button = button("生成并记录统计", self.generate, "primary")
-        controls.addWidget(self.generate_button)
+        controls.addStretch()
         layout.addLayout(controls)
+        actions = QHBoxLayout()
+        actions.addWidget(label("历史图：今年已有日报 · 截止所选日期", "muted"), 1)
+        self.refresh_button = button("刷新本地日期", self.refresh_dates)
+        actions.addWidget(self.refresh_button)
+        actions.addWidget(self.configure_button)
+        actions.addWidget(self.generate_button)
+        layout.addLayout(actions)
         self.notice = label("请选择日期并生成统计。", "notice", True)
         layout.addWidget(self.notice)
         self.tabs = QTabWidget()
@@ -168,15 +176,19 @@ class StatisticsDialog(QDialog):
             browser.setOpenLinks(False)
             self.browsers.append(browser)
             self.tabs.addTab(browser, caption)
+        self.chart_views = {}
+        for kind, caption in (("swap", "互换 · 年度盈亏图"), ("strategy", "策略台 · 年度盈亏图")):
+            view = ChartView()
+            self.chart_views[kind] = view
+            self.tabs.addTab(view, caption)
         layout.addWidget(self.tabs, 1)
         bottom = QHBoxLayout()
         self.image_button = button("保存本页完整图片", self.export_image)
-        self.export_button = button("导出两图和邮件草稿", self.export, "primary")
+        self.export_button = button("导出统计、历史图和邮件草稿", self.export, "primary")
         self.folder_button = button("打开统计保存位置", self.reveal_output)
         for widget in (self.image_button, self.export_button, self.folder_button):
             bottom.addWidget(widget)
         bottom.addStretch()
-        bottom.addWidget(button("关闭", self.reject))
         layout.addLayout(bottom)
         self.error = label(config_error, "error", True)
         self.error.setVisible(bool(config_error))
@@ -202,6 +214,29 @@ class StatisticsDialog(QDialog):
         self.previous.addItem("无上期报表", None)
         self.previous.blockSignals(False)
 
+    def refresh_dates(self):
+        if self.worker:
+            return
+        try:
+            self.catalog_data = self.service.query_catalog()
+            for kind, combo in self.dates.items():
+                selected = combo.currentData()
+                combo.blockSignals(True)
+                combo.clear()
+                for entry in self.catalog_data["dates"]:
+                    if kind in entry["files"]:
+                        combo.addItem(entry["date"], entry["date"])
+                if not combo.count():
+                    combo.addItem("尚无本地日报", None)
+                if selected and combo.findData(selected) >= 0:
+                    combo.setCurrentIndex(combo.findData(selected))
+                combo.blockSignals(False)
+            self.fill_previous()
+            self.invalidate()
+        except (ReportError, OSError) as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+
     def current_config(self):
         return {**self.config, "metric": self.metric_combo.currentText(), "threshold": self.threshold.text()}
 
@@ -209,13 +244,15 @@ class StatisticsDialog(QDialog):
         self.snapshot = self.pages = None
         for browser in self.browsers:
             browser.setPlainText("条件已选择或变更，请生成统计。")
+        for view in self.chart_views.values():
+            view.set_image(None)
         self.notice.setText("生成统计后可导出完整页面图片和邮件草稿。")
         self.image_button.setEnabled(False)
         self.export_button.setEnabled(False)
 
     def set_busy(self, busy):
         for widget in (*self.dates.values(), *self.source_buttons, self.previous, self.metric_combo,
-                       self.threshold, self.configure_button, self.generate_button):
+                       self.threshold, self.configure_button, self.generate_button, self.refresh_button):
             widget.setEnabled(not busy and not self._closing)
 
     def generate(self):
@@ -236,6 +273,7 @@ class StatisticsDialog(QDialog):
         self.worker = StatisticsWorker(lambda: build_snapshot(self.service, selections, values), self)
         self.worker.finished.connect(self.generated)
         self.set_busy(True)
+        self.busy_changed.emit()
         self.notice.setText("正在读取缓存值、核对来源并记录统计…")
         self.worker.start()
 
@@ -244,8 +282,9 @@ class StatisticsDialog(QDialog):
         ok, result = worker.outcome
         worker.deleteLater()
         self.set_busy(False)
+        self.busy_changed.emit()
         if self._closing:
-            super().reject()
+            self.finished.emit()
             return
         if not ok:
             self.error.setText(result)
@@ -256,11 +295,17 @@ class StatisticsDialog(QDialog):
         self.pages = render_pages(result)
         for browser, html in zip(self.browsers, self.pages):
             browser.setHtml(html)
+        for kind, view in self.chart_views.items():
+            view.set_image(chart_image(result, kind))
         self.image_button.setEnabled(True)
         self.export_button.setEnabled(True)
         self.notice.setText("统计已记录。可导出完整页面；邮件为本机草稿，可在邮件客户端检查后发送。")
         if result["errors"]:
             self.error.setText("部分未生成：" + "；".join(result["errors"].values()))
+            self.error.show()
+        history_errors = sum(len(h["errors"]) for h in result["history"].values())
+        if history_errors:
+            self.error.setText(self.error.text() + f" 历史图有 {history_errors} 份文件解析失败，相关日期未补零，详见统计记录。")
             self.error.show()
 
     def configure(self):
@@ -286,10 +331,14 @@ class StatisticsDialog(QDialog):
         try:
             self.output_base().mkdir(parents=True, exist_ok=True)
             index = self.tabs.currentIndex()
-            default = self.output_base() / (f"{'pnl1' if index == 0 else 'risk'}-{self.snapshot['id'][:10]}.png")
+            names = ("pnl1", "risk", "swap_pnl_history", "strategy_pnl_history")
+            default = self.output_base() / (f"{names[index]}-{self.snapshot['id'][:10]}.png")
             path, _ = QFileDialog.getSaveFileName(self, "保存完整统计图片", str(default), "PNG (*.png)")
             if path:
-                save_image(self.pages[index], Path(path))
+                if index < 2:
+                    save_image(self.pages[index], Path(path))
+                else:
+                    save_chart(self.snapshot, "swap" if index == 2 else "strategy", Path(path))
                 self.notice.setText("完整图片已保存：" + path)
         except (OSError, ReportError) as exc:
             self.error.setText(str(exc))
@@ -300,7 +349,7 @@ class StatisticsDialog(QDialog):
             return
         try:
             folder = export_bundle(self.output_base(), self.snapshot, self.pages, self.config)
-            self.notice.setText("两图、正文和邮件草稿已保存：" + str(folder))
+            self.notice.setText("统计图片、年度历史图、正文和邮件草稿已保存：" + str(folder))
             open_location(folder)
         except (OSError, ReportError, ValueError) as exc:
             self.error.setText(str(exc))
@@ -323,17 +372,9 @@ class StatisticsDialog(QDialog):
             self.error.setText(str(exc))
             self.error.show()
 
-    def reject(self):
-        if self.worker:
-            self._closing = True
-            self.set_busy(True)
-            self.notice.setText("正在完成本次读取，随后关闭…")
-            return
-        super().reject()
-
-    def closeEvent(self, event):
-        if self.worker:
-            self.reject()
-            event.ignore()
-        else:
-            event.accept()
+    def prepare_close(self):
+        self._closing = True
+        self.set_busy(True)
+        self.image_button.setEnabled(False)
+        self.export_button.setEnabled(False)
+        self.notice.setText("正在完成本次读取，随后关闭…")

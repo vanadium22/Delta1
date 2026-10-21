@@ -31,13 +31,31 @@ def money(value):
     return "未取得" if value is None else f"{Decimal(value):,.2f}"
 
 
-def table(headers, rows, highlight=None):
+def table(headers, rows, highlight=None, *, summary=False):
     output = '<table width="100%" cellspacing="0" cellpadding="7" border="1"><tr>'
     output += "".join(f'<th bgcolor="#e8eef5">{escape(str(v))}</th>' for v in headers) + "</tr>"
     for index, row in enumerate(rows):
         color = "#e1f2ec" if index == highlight else ("#ffffff" if index % 2 else "#f4f7fa")
-        output += "<tr>" + "".join(f'<td bgcolor="{color}">{escape(display(v))}</td>' for v in row) + "</tr>"
+        cells = []
+        for position, value in enumerate(row):
+            foreground = "#18324c"
+            if summary and position >= 4:
+                amount = Decimal(str(value).replace(",", ""))
+                foreground = "#b84641" if amount > 0 else "#147b6d" if amount < 0 else "#536678"
+            background = ("#e9f2fb" if index < 2 else "#e7f4ef") if summary else color
+            content = escape(display(value))
+            cells.append(f'<td bgcolor="{background}"><font color="{foreground}">{"<b>" if summary else ""}{content}{"</b>" if summary else ""}</font></td>')
+        output += "<tr>" + "".join(cells) + "</tr>"
     return output + "</table>"
+
+
+def metric_cards(pnl):
+    cards = []
+    for title, key in (("本期累计净利润", "current"), ("上期累计净利润", "previous"), ("两期净利润变动", "change")):
+        value = pnl[key]
+        color = "#b84641" if value is not None and Decimal(value) > 0 else "#147b6d" if value is not None and Decimal(value) < 0 else "#18324c"
+        cards.append(f'<td width="33%" bgcolor="#eaf1f8"><p>{title} · 元</p><p><font size="6" color="{color}"><b>{money(value)}</b></font></p></td>')
+    return '<table width="100%" cellpadding="16" cellspacing="5"><tr>' + "".join(cards) + "</tr></table>"
 
 
 def document(title, body, snapshot):
@@ -73,8 +91,9 @@ def risk_text(snapshot):
         lines.append(f"{LABELS[kind]}（{result['date']}，剔除 {len(result['excluded'])} 个标的）：")
         for group in result["groups"]:
             lines.append(f"  {group['name']}：观察 {group['count']} 个，总盈亏 {money(group['total'])} 元，"
-                         f"当日盈亏 {money(group['daily'])} 元，Delta 净敞口金额 {money(group['net'])} 元，"
-                         f"绝对敞口金额合计 {money(group['gross'])} 元。")
+                         f"当日盈亏 {money(group['daily'])} 元，带符号敞口合计 Σx = {money(group['net'])} 元，"
+                         f"绝对敞口合计 Σ|x| = {money(group['gross'])} 元。")
+    lines.append("历史图只使用今年本地日报，按每份报表的观察标的分别汇总，总盈亏为左轴折线，当日盈亏为右轴柱形。")
     return "\n".join(lines)
 
 
@@ -82,8 +101,7 @@ def render_pages(snapshot):
     pnl = snapshot["pnl"]
     if pnl:
         body = f"<p>报表日期：<b>{pnl['date']}</b> · 上期报表：<b>{pnl['previous_date'] or '未取得'}</b> · 金额单位：元</p>"
-        body += table(["本期累计净利润", "上期累计净利润", "两期净利润变动"],
-                      [[money(pnl["current"]), money(pnl["previous"]), money(pnl["change"])]])
+        body += metric_cards(pnl)
         body += f'<p class="note">{escape(pnl["warning"])}</p>'
         body += "<h2>pnl1 · 累积盈亏统计原表内容</h2>"
         grid = pnl["grid"]
@@ -106,7 +124,8 @@ def render_pages(snapshot):
         for group in risk["groups"]:
             summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
                             *[money(group[key]) for key in ("total", "daily", "net", "gross")]])
-    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "Delta净敞口金额", "绝对敞口合计"], summary)
+    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "带符号敞口合计 Σx", "绝对敞口合计 Σ|x|"], summary, summary=True)
+    body += '<p class="note">x = 单个标的的 Delta总敞口金额。Σx 直接累加正负值；Σ|x| 逐项取绝对值后累加，不能用 |Σx| 替代。</p>'
     for kind in ("swap", "strategy"):
         risk = snapshot["risks"].get(kind)
         if not risk:
@@ -122,9 +141,10 @@ def render_pages(snapshot):
 
 
 def mail_content(snapshot, values):
-    dates = " / ".join(dict.fromkeys(item["date"] for key, item in snapshot["sources"].items() if key != "previous"))
+    dates = " / ".join(dict.fromkeys(item["date"] for key, item in snapshot["sources"].items() if key in LABELS))
     replacements = {"{{pnl1}}": pnl_text(snapshot), "{{risk}}": risk_text(snapshot), "{{dates}}": dates}
     body = values.get("template") or DEFAULT_TEMPLATE
+    body = body.replace("附件为 pnl1 和风险观察两张完整统计图片。", "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。")
     subject = values.get("subject") or "日报统计 {{dates}}"
     for key, value in replacements.items():
         body, subject = body.replace(key, value), subject.replace(key, value)
@@ -175,6 +195,12 @@ def export_bundle(base, snapshot, pages, values):
         files = [folder / "pnl1.png", folder / "risk.png"]
         for html, path in zip(pages, files):
             save_image(html, path)
+        if snapshot.get("history"):
+            from .statistics_charts import save_chart
+            for kind in ("swap", "strategy"):
+                path = folder / f"{kind}_pnl_history.png"
+                save_chart(snapshot, kind, path)
+                files.append(path)
         subject, body = mail_content(snapshot, values)
         message = EmailMessage(policy=SMTP)
         message["Subject"] = subject

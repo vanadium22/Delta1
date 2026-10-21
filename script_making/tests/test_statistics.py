@@ -26,7 +26,7 @@ from script_making.statistics import (DEFAULT_CONFIG, FIELDS, GROUPS, build_snap
                                       load_config, pnl_statistics, risk_statistics, save_config,
                                       validated_config)
 from script_making.statistics_export import export_bundle, render_pages, save_image
-from script_making.statistics_widgets import StatisticsDialog
+from script_making.statistics_widgets import StatisticsPage
 from script_making.storage import ReportError, filename, sha256
 from script_making.tests.test_reports import fixture
 
@@ -220,7 +220,7 @@ class StatisticsTests(unittest.TestCase):
         folder = export_bundle(self.root / "exports", snap, pages, values)
         message = BytesParser(policy=policy.default).parsebytes((folder / "邮件草稿.eml").read_bytes())
         self.assertEqual(message["To"], "test@example.com")
-        self.assertEqual(len(list(message.iter_attachments())), 2)
+        self.assertEqual(len(list(message.iter_attachments())), 4)
         body = message.get_body(preferencelist=("plain",)).get_content()
         for expected in ("尊敬的领导、同事", "顺颂商祺", "234.56", "2026-10-14", "2026-10-19", "T-2"):
             self.assertIn(expected, body)
@@ -250,8 +250,12 @@ class StatisticsTests(unittest.TestCase):
         self.fail(dialog.error.text() or "统计未完成")
 
     def test_statistics_ui_invalidates_stale_export_and_waits_on_close(self):
-        dialog = StatisticsDialog(self.service)
-        dialog.show()
+        window = Window(self.service, auto_start=False)
+        window.show()
+        window.open_statistics()
+        dialog = window.statistics_page
+        self.assertIs(window.content.currentWidget(), dialog)
+        self.assertFalse(dialog.isWindow())
         self.wait_dialog(dialog)
         self.assertEqual(dialog.previous.currentData(), "2026-10-16")
         self.assertTrue(dialog.export_button.isEnabled())
@@ -267,14 +271,14 @@ class StatisticsTests(unittest.TestCase):
             return original(*args)
         with patch("script_making.statistics_widgets.build_snapshot", side_effect=slow):
             dialog.generate()
-            dialog.reject()
-            self.assertTrue(dialog.isVisible())
+            window.close()
+            self.assertTrue(window.isVisible())
             deadline = time.monotonic() + 10
             while dialog.worker and time.monotonic() < deadline:
                 self.app.processEvents()
                 time.sleep(.01)
         self.app.processEvents()
-        self.assertFalse(dialog.isVisible())
+        self.assertFalse(window.isVisible())
 
     def test_unified_queries_duplicate_headers_total_grid_and_four_download_tabs(self):
         data = self.service.query_catalog()

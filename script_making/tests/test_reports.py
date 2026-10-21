@@ -209,8 +209,11 @@ class FileTests(unittest.TestCase):
         values = {"source_root": str(source)}
         sync_reports(values, destination, date(2026, 10, 19), only_missing=True)
         (destination / "2026-10-16" / filename("review", "2026-10-16")).write_text("corrupted")
-        with self.assertRaisesRegex(ReportError, "已保留原文件"):
-            sync_reports(values, destination, date(2026, 10, 19), only_missing=True)
+        result = sync_reports(values, destination, date(2026, 10, 19), only_missing=True)
+        self.assertEqual(result["updated"], ["review"])
+        self.assertEqual(sha256(destination / "2026-10-16" / filename("review", "2026-10-16")),
+                         sha256(source / "2026-10-16" / filename("review", "2026-10-16")))
+        self.assertEqual(next((destination / "_revisions").rglob("*.xlsx")).read_text(), "corrupted")
 
     def test_missing_latest_pair_never_silently_falls_back(self):
         source = self.root/"source"

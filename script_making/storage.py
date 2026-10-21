@@ -158,15 +158,35 @@ def manifest_for(folder: Path) -> dict:
     return {"date": folder.name, "files": {}}
 
 
-def save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str) -> dict:
+def backup_revision(path: Path, base: Path) -> Path:
+    """Keep the previous local bytes before adopting a validated share revision."""
+    digest = sha256(path)
+    backup = base / "_revisions" / path.parent.name / digest / path.name
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    if not backup.exists():
+        handle, temporary = tempfile.mkstemp(dir=backup.parent, suffix=".tmp")
+        os.close(handle)
+        try:
+            shutil.copyfile(path, temporary)
+            if sha256(Path(temporary)) != digest:
+                raise ReportError("旧版本备份校验失败，未替换本地文件。")
+            os.replace(temporary, backup)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    if sha256(backup) != digest:
+        raise ReportError("旧版本备份内容不一致，未替换本地文件。")
+    return backup
+
+
+def save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str, *, replace_existing=False) -> dict:
     try:
         with file_lock(data_dir / ".writer.lock"):
-            return _save_files(data_dir, sources, day, origin)
+            return _save_files(data_dir, sources, day, origin, replace_existing=replace_existing)
     except TimeoutError as exc:
         raise ReportError(str(exc)) from exc
 
 
-def _save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str) -> dict:
+def _save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str, *, replace_existing=False) -> dict:
     """Stage and validate every input before touching the destination."""
     valid_date(day)
     if not sources or any(kind not in REPORTS for kind in sources):
@@ -176,43 +196,73 @@ def _save_files(data_dir: Path, sources: dict[str, Path], day: str, origin: str)
     with tempfile.TemporaryDirectory(prefix=".incoming-", dir=data_dir) as temporary:
         staged = Path(temporary)
         entries = {}
+        changes, backups, published = [], {}, []
         for kind, source in sources.items():
             target = staged / filename(kind, day)
+            destination = folder / target.name
             before = source.stat()
-            shutil.copyfile(source, target)
+            source_hash = sha256(source)
+            same = destination.is_file() and sha256(destination) == source_hash
+            if not same:
+                shutil.copyfile(source, target)
+            checked = destination if same else target
             after = source.stat()
             if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                 raise ReportError("来源文件仍在生成，请稍后重试。")
-            if target.stat().st_size != before.st_size:
+            if checked.stat().st_size != before.st_size:
                 raise ReportError("文件复制不完整，请重试。")
-            validate_workbook(target, kind)
-            digest = sha256(target)
+            validate_workbook(checked, kind)
+            digest = sha256(checked)
             if sha256(source) != digest:
                 raise ReportError("来源与本地文件校验不一致，请重试。")
-            destination = folder / target.name
-            if destination.exists() and sha256(destination) != digest:
+            if destination.exists() and not same and not replace_existing:
                 raise ReportError(f"{day} 已有内容不同的同名文件，已保留原文件。可更换保存目录后重新下载。")
+            if not same:
+                changes.append(kind)
             entries[kind] = {"name": target.name, "size": before.st_size,
                              "sha256": digest, "source": str(source), "origin": origin,
                              "saved_at": timestamp(), "path": str(destination.resolve())}
         folder.mkdir(exist_ok=True)
         manifest = manifest_for(folder)
+        # Back up every changed existing file before publishing either of the pair.
+        for kind in changes:
+            destination = folder / entries[kind]["name"]
+            if destination.exists():
+                backups[kind] = backup_revision(destination, data_dir)
+                entries[kind]["previous_version"] = backups[kind].relative_to(data_dir).as_posix()
         for kind, entry in entries.items():
-            destination = folder / entry["name"]
-            if not destination.exists():
-                os.replace(staged / entry["name"], destination)
-            if not destination.is_file() or sha256(destination) != entry["sha256"]:
-                raise ReportError("保存后的文件核验失败。")
             previous = manifest["files"].get(kind)
             if previous and origin == "共享目录下载":
                 entry["original_origin"] = previous.get("original_origin", previous["origin"])
                 entry["first_saved_at"] = previous.get("first_saved_at", previous["saved_at"])
-                manifest["files"][kind] = entry
-            else:
-                manifest["files"].setdefault(kind, entry)
+            manifest["files"][kind] = entry
         manifest["updated_at"] = timestamp()
-        atomic_json(folder / "manifest.json", portable_manifest(manifest, data_dir))
-    return {"date": day, "files": manifest["files"], "saved_dir": str(folder.resolve())}
+        try:
+            for kind in changes:
+                destination = folder / entries[kind]["name"]
+                os.replace(staged / destination.name, destination)
+                published.append(kind)
+                if sha256(destination) != entries[kind]["sha256"]:
+                    raise ReportError("保存后的文件核验失败。")
+            atomic_json(folder / "manifest.json", portable_manifest(manifest, data_dir))
+        except (OSError, ReportError) as exc:
+            restore_errors = []
+            for kind in reversed(published):
+                destination = folder / entries[kind]["name"]
+                try:
+                    if kind in backups:
+                        rollback = staged / ("rollback-" + destination.name)
+                        shutil.copyfile(backups[kind], rollback)
+                        os.replace(rollback, destination)
+                    else:
+                        destination.unlink()
+                except OSError:
+                    restore_errors.append(kind)
+            if restore_errors:
+                raise ReportError("更新中断且回退未完成，请关闭占用文件后重试同步；旧版保存在 _revisions。") from exc
+            raise ReportError("更新未完成，已恢复原文件；请关闭 Excel 占用后重试同步。") from exc
+    return {"date": day, "files": manifest["files"], "saved_dir": str(folder.resolve()),
+            "reused": not changes, "updated": list(backups)}
 
 
 def sync_reports(values: dict, data_dir: Path, as_of: date | None = None, *, only_missing=False) -> dict:
@@ -233,28 +283,13 @@ def sync_reports(values: dict, data_dir: Path, as_of: date | None = None, *, onl
         if not days:
             raise ReportError("共享目录内没有早于今天的日期文件夹。")
         day = max(days).isoformat()
-        if only_missing:
-            manifest = manifest_for(data_dir / day)
-            valid = True
-            for kind in REPORTS:
-                path = data_dir / day / filename(kind, day)
-                entry = manifest.get("files", {}).get(kind, {})
-                try:
-                    if not path.is_file() or not entry.get("sha256") or sha256(path) != entry["sha256"]:
-                        valid = False
-                        break
-                    validate_workbook(path, kind)
-                except (ReportError, OSError):
-                    valid = False
-                    break
-            if valid:
-                return {**manifest, "reused": True,
-                        "selection_rule": "早于今日的最新日期目录（依赖上游按交易日生成）"}
+        # Startup also compares the current share bytes: a valid local manifest
+        # cannot prove that the upstream team has not republished the same date.
         sources = {kind: root / day / filename(kind, day) for kind in REPORTS}
         missing = [p.name for p in sources.values() if not p.is_file()]
         if missing:
             raise ReportError(f"最新日期 {day} 的两份文件尚未齐全：{'、'.join(missing)}。未回退到更旧日期。")
-        result = save_files(data_dir, sources, day, "共享目录下载")
+        result = save_files(data_dir, sources, day, "共享目录下载", replace_existing=True)
         result["selection_rule"] = "早于今日的最新日期目录（依赖上游按交易日生成）"
         return result
     except OSError as exc:

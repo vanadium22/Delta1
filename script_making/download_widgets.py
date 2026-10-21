@@ -127,8 +127,8 @@ class DownloadsDialog(QDialog):
                 elif state["state"] == "error":
                     text += "\n" + state.get("error", "同步失败")
                 elif result:
-                    text += (f"\n配对报表检查完成 · {result.get('date', '')}" if kind not in DOWNLOADS else
-                             f"\n{result.get('message', '检查完成')} · 新增 {len(result.get('saved', []))} 份 · 已有 {len(result.get('reused', []))} 份")
+                    text += (f"\n配对报表检查完成 · {result.get('date', '')} · 公盘更新 {len(result.get('updated', []))} 份" if kind not in DOWNLOADS else
+                             f"\n{result.get('message', '检查完成')} · 新增 {len(result.get('saved', []))} 份 · 更新 {len(result.get('updated', []))} 份 · 已有 {len(result.get('reused', []))} 份")
                     if result.get("source_latest"):
                         text += " · 本次发现最新 " + result["source_latest"]
                     if result.get("errors"):
