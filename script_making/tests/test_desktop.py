@@ -12,7 +12,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
 
-from script_making.desktop import Window
+from script_making.desktop import Window, Worker
+from script_making.download_widgets import DownloadsDialog, open_location
+from script_making.downloads import archive_path, sync_download
 from script_making.desktop_theme import STYLE
 from script_making.desktop_widgets import ColumnsDialog, DetailDialog, SettingsDialog
 from script_making.query import query_table
@@ -52,9 +54,59 @@ class FormatTests(unittest.TestCase):
 
 
 class DesktopTests(unittest.TestCase):
+    def test_download_panel_manual_retry_and_open_selected_location(self):
+        from script_making.tests.test_downloads import sample
+        from datetime import date
+        source = self.root / "new-source"
+        path = sample(source, "pnl", "2026-10-19")
+        self.service.update_settings({"pnl_source": str(source)})
+        sync_download(self.service.settings, "pnl", date(2026, 10, 21))
+        with patch.object(self.window, "start_download") as start:
+            dialog = DownloadsDialog(self.service, self.window.start_download, self.window)
+            dialog.show()
+            self.app.processEvents()
+            self.assertEqual(dialog.panels["pnl"]["files"].count(), 1)
+            dialog.panels["pnl"]["sync"].click()
+            start.assert_called_once_with("pnl")
+            with patch("script_making.download_widgets.open_location") as reveal:
+                dialog.reveal("pnl")
+                expected = archive_path(self.service.settings, "pnl") / "2026-10-19" / path.name
+                reveal.assert_called_once_with(str(expected))
+            dialog.reject()
+            self.assertFalse(dialog.timer.isActive())
+
+    def test_current_file_location_and_missing_directory_error(self):
+        self.load()
+        with patch("script_making.desktop.open_location") as reveal:
+            self.window.location_button.click()
+            self.assertTrue(Path(reveal.call_args.args[0]).is_file())
+        with self.assertRaisesRegex(ReportError, "尚不存在"):
+            open_location(self.root / "absent")
+
+    def test_close_waits_for_independent_download(self):
+        self.load()
+        self.service.download_jobs["pnl"] = {"state": "running"}
+        self.window.download_timer.start()
+        self.window.close()
+        self.assertTrue(self.window._closing)
+        self.assertTrue(self.window.isVisible())
+        self.service.download_jobs["pnl"] = {"state": "error", "error": "离线测试"}
+        self.window.poll_downloads()
+        self.app.processEvents()
+        self.assertFalse(self.window.isVisible())
+
+    def test_parser_error_is_not_reported_as_permission(self):
+        def fail():
+            raise AttributeError("synthetic parser failure")
+        worker = Worker((1, fail, None, "", False))
+        worker.run()
+        self.assertIn("解析失败", worker.outcome[1])
+        self.assertNotIn("权限", worker.outcome[1])
+
     def test_startup_checks_once_and_refresh_does_not_repeat_sync(self):
         self.window._auto_sync_pending = True
-        with patch.object(self.service, "start_sync", return_value={"state": "running"}) as start:
+        with patch.object(self.service, "start_sync", return_value={"state": "running"}) as start, \
+             patch.object(self.service, "start_download", wraps=self.service.start_download) as download:
             self.window.refresh_catalog()
             deadline = time.monotonic() + 10
             while not start.called and time.monotonic() < deadline:
@@ -67,6 +119,7 @@ class DesktopTests(unittest.TestCase):
             self.window.refresh_catalog()
             self.wait_idle()
             start.assert_called_once()
+            self.assertEqual([call.args[0] for call in download.call_args_list], ["pnl", "strategy"])
         self.assertIsNotNone(self.window.result)
 
     @classmethod
@@ -99,7 +152,8 @@ class DesktopTests(unittest.TestCase):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             self.app.processEvents()
-            if self.window.worker is None and not self.window.debounce.isActive() and not self.window._syncing:
+            if (self.window.worker is None and not self.window.debounce.isActive()
+                    and not self.window._syncing and not self.service.downloads_running()):
                 self.app.processEvents()
                 if self.window.worker is None:
                     return

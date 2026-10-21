@@ -17,6 +17,8 @@ from .desktop_widgets import (ColumnsDialog, CopyTable, DetailDialog, FilterRow,
                               ReportModel, SettingsDialog, button, default_visible, label)
 from .service import ReportService
 from .storage import REPORTS, ReportError
+from .downloads import DOWNLOADS
+from .download_widgets import DownloadsDialog, open_location
 
 
 class Worker(QThread):
@@ -29,8 +31,15 @@ class Worker(QThread):
         try:
             self.outcome = (True, self.job[1]())
         except Exception as exc:
-            self.outcome = (False, str(exc) if isinstance(exc, ReportError) else
-                            f"操作未完成（{type(exc).__name__}）。请检查本地路径、文件和访问权限。")
+            if isinstance(exc, ReportError):
+                message = str(exc)
+            elif isinstance(exc, PermissionError):
+                message = "文件访问被拒绝，请检查文件占用和目录权限。"
+            elif isinstance(exc, FileNotFoundError):
+                message = "本地文件不存在，请刷新目录或重新同步。"
+            else:
+                message = f"读取或解析失败（{type(exc).__name__}）：{exc}"
+            self.outcome = (False, message)
 
 
 def app_icon():
@@ -77,6 +86,9 @@ class Window(QMainWindow):
         self.sync_timer = QTimer(self)
         self.sync_timer.setInterval(250)
         self.sync_timer.timeout.connect(self.poll_sync)
+        self.download_timer = QTimer(self)
+        self.download_timer.setInterval(400)
+        self.download_timer.timeout.connect(self.poll_downloads)
         self._build()
         geometry = self.preferences.value("window/geometry")
         if geometry:
@@ -108,6 +120,10 @@ class Window(QMainWindow):
             control.setChecked(kind == self.kind)
             self.nav[kind] = control
             sidebar.addWidget(control)
+        self.download_button = button("日报下载", self.open_downloads, "nav")
+        sidebar.addWidget(self.download_button)
+        self.download_notice = label("盈亏统计 / 策略台日报", "muted", True)
+        sidebar.addWidget(self.download_notice)
         sidebar.addStretch()
         sidebar.addWidget(label("本地工作区\n\n按报表日期查阅\n原始文件保存在本机", wrap=True))
         layout.addWidget(side)
@@ -219,6 +235,8 @@ class Window(QMainWindow):
         pagination = QHBoxLayout()
         self.file_caption = label("", "muted")
         pagination.addWidget(self.file_caption, 1)
+        self.location_button = button("打开保存位置", self.open_current_location, "quiet")
+        pagination.addWidget(self.location_button)
         self.refresh_button = button("刷新本地", self.refresh_catalog, "quiet")
         pagination.addWidget(self.refresh_button)
         pagination.addWidget(label("每页"))
@@ -314,9 +332,12 @@ class Window(QMainWindow):
     def _update_controls(self):
         busy = self.worker is not None
         mutation = busy and self.worker.job[4]
-        self.progress.setVisible(busy or self._syncing)
+        downloading = self.service.downloads_running()
+        self.progress.setVisible(busy or self._syncing or downloading)
         for control in (self.settings_button, self.import_button, self.refresh_button):
             control.setEnabled(not busy and not self._syncing and not self._closing)
+        self.settings_button.setEnabled(not busy and not self._syncing and not downloading and not self._closing)
+        self.download_button.setEnabled(not self._closing)
         self.sync_button.setEnabled(not busy and not self._syncing and not self._closing)
         self.sync_button.setText("正在同步…" if self._syncing else "同步前一交易日")
         for control in (self.search, self.add_button, self.clear_button, self.epsilon,
@@ -341,6 +362,8 @@ class Window(QMainWindow):
         self._fill_dates(preferred)
         if self._auto_sync_pending:
             self._auto_sync_pending = False
+            for kind in DOWNLOADS:
+                self.start_download(kind)
             QTimer.singleShot(0, lambda: self.start_sync(only_missing=True))
 
     def _fill_dates(self, preferred=None):
@@ -516,6 +539,8 @@ class Window(QMainWindow):
         self.previous.setEnabled(result["page"] > 1)
         self.next.setEnabled(result["page"] < result["pages"])
         self.statusBar().showMessage("查询完成 · Ctrl / Shift 可多选记录，Ctrl+C 复制选中记录")
+        if result.get("layout") == "grid":
+            self.statusBar().showMessage("此工作表按原始单元格展示 · 列名为 Excel 列字母 · 合并单元格内容位于左上角")
         self._startup_done = True
         self._startup_error = False
 
@@ -571,6 +596,37 @@ class Window(QMainWindow):
             self._submit(lambda: self.service.update_settings(dialog.values),
                          lambda _: self.refresh_catalog(), "正在保存设置…", mutation=True)
 
+    def open_current_location(self):
+        try:
+            day = self.date_combo.currentData()
+            entry = next((d for d in (self.catalog_data or {}).get("dates", []) if d["date"] == day), {})
+            path = entry.get("files", {}).get(self.kind, {}).get("path")
+            open_location(path or self.service.settings.data_path())
+        except (ReportError, OSError) as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+
+    def open_downloads(self):
+        DownloadsDialog(self.service, self.start_download, self).exec()
+
+    def start_download(self, kind):
+        if self._closing:
+            return
+        self.service.start_download(kind)
+        self.download_timer.start()
+        self.poll_downloads()
+
+    def poll_downloads(self):
+        states = [self.service.download_status(kind)["state"] for kind in DOWNLOADS]
+        if "running" in states:
+            self.download_notice.setText("正在检查新增日报…")
+        else:
+            self.download_timer.stop()
+            self.download_notice.setText("部分同步未完成，点击查看" if any(s in ("error", "partial") for s in states)
+                                         else "日报检查完成，点击查看")
+        self._update_controls()
+        self._finish_close()
+
     def choose_import(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "导入已有日报", str(self.service.settings.root), "Excel 日报 (*.xlsx)")
         if paths:
@@ -617,7 +673,7 @@ class Window(QMainWindow):
         self._finish_close()
 
     def closeEvent(self, event):
-        if self.worker is not None or self._syncing:
+        if self.worker is not None or self._syncing or self.service.downloads_running():
             self._closing = True
             self._generation += 1
             self._pending = None
@@ -628,12 +684,13 @@ class Window(QMainWindow):
             return
         self.debounce.stop()
         self.sync_timer.stop()
+        self.download_timer.stop()
         self.preferences.setValue("window/geometry", self.saveGeometry())
         self.preferences.sync()
         event.accept()
 
     def _finish_close(self):
-        if self._closing and self.worker is None and not self._syncing:
+        if self._closing and self.worker is None and not self._syncing and not self.service.downloads_running():
             QTimer.singleShot(0, self.close)
 
 

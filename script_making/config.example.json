@@ -1,5 +1,7 @@
 {
   "source_root": "",
   "data_dir": "@shared",
+  "pnl_source": "",
+  "strategy_source": "",
   "epsilon": 1e-8
 }

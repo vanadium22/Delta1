@@ -92,7 +92,8 @@ class Settings:
 
     def get(self) -> dict:
         with self.lock:
-            values = {"source_root": "", "data_dir": "@shared", "epsilon": 1e-8}
+            values = {"source_root": "", "data_dir": "@shared", "epsilon": 1e-8,
+                      "pnl_source": "", "strategy_source": ""}
             if self.path.exists():
                 try:
                     values.update(json.loads(self.path.read_text(encoding="utf-8-sig")))
@@ -113,7 +114,7 @@ class Settings:
         from .query import parse_epsilon
         with self.lock:
             values = self.get()
-            for key in ("source_root", "data_dir"):
+            for key in ("source_root", "data_dir", "pnl_source", "strategy_source"):
                 if key in incoming:
                     value = str(incoming[key]).strip()
                     if "\x00" in value or len(value) > 2048:
@@ -123,7 +124,8 @@ class Settings:
                     values[key] = value
             if "epsilon" in incoming:
                 values["epsilon"] = parse_epsilon(incoming["epsilon"])
-            atomic_json(self.path, {k: values[k] for k in ("source_root", "data_dir", "epsilon")})
+            atomic_json(self.path, {k: values[k] for k in
+                                   ("source_root", "data_dir", "epsilon", "pnl_source", "strategy_source")})
             return self.get()
 
 

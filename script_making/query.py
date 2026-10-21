@@ -12,7 +12,7 @@ from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
-from openpyxl.utils.cell import column_index_from_string
+from openpyxl.utils.cell import column_index_from_string, get_column_letter
 
 from .storage import ReportError
 
@@ -141,26 +141,34 @@ def _read_table(path_text: str, size: int, modified: int, sheet: str) -> dict:
         ws = book[sheet]
         header_row = HEADER_ROWS.get(sheet)
         if header_row is None:
-            for cells in ws.iter_rows(min_row=1, max_row=min(15, last_row), max_col=last_col):
+            for row_number, cells in enumerate(ws.iter_rows(min_row=1, max_row=min(15, last_row), max_col=last_col), 1):
                 populated = [c for c in cells if not is_blank(c.value)]
                 if len(populated) >= 3 and all(isinstance(c.value, str) for c in populated):
-                    header_row = cells[0].row
+                    header_row = row_number
                     break
-        if header_row is None or not last_col:
-            raise ReportError("该工作表不是可识别的明细表，请选择含列标题的工作表。")
-        headers = next(ws.iter_rows(min_row=header_row, max_row=header_row, max_col=last_col))
-        selected = [i for i, cell in enumerate(headers) if not is_blank(cell.value)]
-        columns = [{"id": f"c{i}", "name": str(headers[i].value).strip(), "type": "text"}
-                   for i in selected]
+        # Summary sheets are read as a cell grid, retaining every column and row
+        # position rather than guessing a header and dropping source content.
+        grid = header_row is None or sheet == "收益总览"
+        if grid:
+            header_row = 0
+            selected = list(range(last_col))
+            columns = [{"id": f"c{i}", "name": get_column_letter(i + 1), "type": "text"}
+                       for i in selected]
+        else:
+            headers = next(ws.iter_rows(min_row=header_row, max_row=header_row, max_col=last_col))
+            selected = [i for i, cell in enumerate(headers) if not is_blank(cell.value)]
+            columns = [{"id": f"c{i}", "name": str(headers[i].value).strip(), "type": "text"}
+                       for i in selected]
         raw_rows = []
         source_rows = []
         number_formats = {}
-        for cells in ws.iter_rows(min_row=header_row + 1, max_row=last_row, max_col=last_col):
+        for row_number, cells in enumerate(ws.iter_rows(min_row=header_row + 1, max_row=last_row,
+                                                       max_col=last_col), header_row + 1):
             row = [cells[i].value for i in selected]
             if all(is_blank(v) for v in row):
                 continue
             raw_rows.append(row)
-            source_rows.append(cells[0].row)
+            source_rows.append(row_number)
             for idx, value in enumerate(row):
                 if not is_blank(value) and idx not in number_formats:
                     number_formats[idx] = cells[selected[idx]].number_format
@@ -178,7 +186,7 @@ def _read_table(path_text: str, size: int, modified: int, sheet: str) -> dict:
             column["missing"] = len(raw_rows) - len(values)
         rows = [[serial_value(v) for v in row] for row in raw_rows]
         return {"columns": columns, "rows": rows, "source_rows": source_rows,
-                "sheet": sheet, "header_row": header_row}
+                "sheet": sheet, "header_row": header_row, "layout": "grid" if grid else "table"}
     finally:
         book.close()
 
@@ -310,6 +318,6 @@ def query_table(table: dict, request: dict) -> dict:
     except (TypeError, ValueError, OverflowError) as exc:
         raise ReportError("分页参数无效。") from exc
     chosen = matches[(page - 1) * size: page * size]
-    return {"columns": columns, "total": len(table["rows"]), "matched": len(matches),
+    return {"columns": columns, "layout": table.get("layout", "table"), "total": len(table["rows"]), "matched": len(matches),
             "page": page, "pages": pages, "page_size": size, "epsilon": epsilon,
             "rows": [{"excel_row": table["source_rows"][i], "values": table["rows"][i]} for i in chosen]}

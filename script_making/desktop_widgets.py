@@ -257,8 +257,20 @@ class SettingsDialog(QDialog):
                 choose.setEnabled(False)
                 form.addRow("", label(f"由环境变量 {env_key} 覆盖。移除覆盖后可修改。", "muted", True))
         form.addRow("默认数值容差 ε", self.epsilon)
+        self.download_sources = {}
+        for key, caption in (("pnl_source", "盈亏统计来源"), ("strategy_source", "策略台日报来源")):
+            field = QLineEdit(values.get(key, ""))
+            field.setPlaceholderText("留空：沿用上方来源的服务器前缀（自动识别年份）")
+            self.download_sources[key] = field
+            container = QWidget()
+            row = QHBoxLayout(container)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(field, 1)
+            row.addWidget(button("浏览…", lambda checked=False, control=field: self.choose_folder(control)))
+            form.addRow(caption, container)
         layout.addLayout(form)
-        layout.addWidget(label("来源目录按交易日提供两份同日期 Excel，选择早于今日的最新日期。\n"
+        layout.addWidget(label("原日报来源按交易日提供两份同日期 Excel。新增来源留空时自动沿用同一服务器。\n"
+                               "盈亏统计和策略台日报独立补齐，存入保存目录下的 downloads 子目录。\n"
                                "相对保存路径以本模块为基准；更换目录不会搬移已有文件。", "muted", True))
         self.preview = label("", "pathPreview", True)
         self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -295,7 +307,8 @@ class SettingsDialog(QDialog):
                 raise ReportError("请填写本地保存目录。")
             self.values = {"source_root": self.source.text().strip(),
                            "data_dir": self.destination.text().strip(),
-                           "epsilon": parse_epsilon(self.epsilon.text())}
+                           "epsilon": parse_epsilon(self.epsilon.text()),
+                           **{key: field.text().strip() for key, field in self.download_sources.items()}}
             self.accept()
         except ReportError as exc:
             self.error.setText(str(exc))

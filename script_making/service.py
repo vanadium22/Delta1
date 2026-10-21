@@ -9,7 +9,8 @@ from pathlib import Path
 
 from .query import query_table, read_table, sheet_names
 from .storage import (REPORTS, ReportError, Settings, catalog, identify, report_path,
-                      save_files, timestamp)
+                      save_files, timestamp, atomic_json)
+from .downloads import DOWNLOADS, archive_path, local_files
 
 
 class ReportService:
@@ -17,6 +18,35 @@ class ReportService:
         self.settings = Settings(root)
         self.lock = threading.Lock()
         self.job = {"state": "idle"}
+        self.download_jobs = {kind: {"state": "idle"} for kind in DOWNLOADS}
+
+    def downloads_running(self):
+        with self.lock:
+            return any(job["state"] == "running" for job in self.download_jobs.values())
+
+    def download_status(self, kind):
+        with self.lock:
+            return dict(self.download_jobs[kind])
+
+    def download_catalog(self, kind):
+        base = archive_path(self.settings, kind)
+        state = self.download_status(kind)
+        if state["state"] == "idle":
+            try:
+                state = json.loads((base / "status.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+        return {"saved_dir": str(base), "files": local_files(base, kind), "status": state}
+
+    def start_download(self, kind):
+        if kind not in DOWNLOADS:
+            raise ReportError("未知下载来源。")
+        with self.lock:
+            if self.download_jobs[kind]["state"] == "running":
+                return dict(self.download_jobs[kind])
+            self.download_jobs[kind] = {"state": "running", "started_at": timestamp()}
+        threading.Thread(target=self._sync, kwargs={"kind": kind}, daemon=True).start()
+        return self.download_status(kind)
 
     def catalog(self):
         return catalog(self.settings)
@@ -34,7 +64,7 @@ class ReportService:
 
     def update_settings(self, values: dict):
         with self.lock:
-            if self.job["state"] == "running":
+            if self.job["state"] == "running" or any(j["state"] == "running" for j in self.download_jobs.values()):
                 raise ReportError("同步期间不能修改目录，请稍后再试。")
             return self.settings.update(values)
 
@@ -69,26 +99,38 @@ class ReportService:
         threading.Thread(target=self._sync, kwargs={"only_missing": only_missing}, daemon=True).start()
         return self.sync_status()
 
-    def _sync(self, *, only_missing=False):
+    def _sync(self, *, only_missing=False, kind=None):
         try:
             executable = Path(sys.executable)
             if executable.name.lower() == "pythonw.exe":
                 executable = executable.with_name("python.exe")
             completed = subprocess.run(
                 [str(executable), "-X", "utf8", "-m", "script_making.sync_worker",
-                 "--root", str(self.settings.root), *(["--only-missing"] if only_missing else [])],
+                 "--root", str(self.settings.root), *(["--only-missing"] if only_missing else []),
+                 *(["--kind", kind] if kind else [])],
                 cwd=Path(__file__).parent.parent, capture_output=True,
-                text=True, encoding="utf-8", timeout=45,
+                text=True, encoding="utf-8", timeout=120 if kind else 45,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             result = json.loads(completed.stdout)
             if not result.get("ok"):
                 raise ReportError(result.get("error", "同步失败。"))
             state = {"state": "success", "result": result["result"], "finished_at": timestamp()}
+            if kind and result["result"].get("errors"):
+                state["state"] = "partial"
         except subprocess.TimeoutExpired:
-            state = {"state": "error", "error": "共享目录访问超过 45 秒。请连接公司网络后重试，本地文件仍可查询。"}
+            state = {"state": "error", "error": f"共享目录访问超过 {120 if kind else 45} 秒。请连接公司网络后重试，本地文件仍可查询。"}
         except (ReportError, OSError, ValueError) as exc:
             state = {"state": "error", "error": str(exc) if isinstance(exc, ReportError)
                      else "同步进程失败，请检查 Python 环境和来源目录。"}
+        state.setdefault("finished_at", timestamp())
+        if kind:
+            try:
+                atomic_json(archive_path(self.settings, kind) / "status.json", state)
+            except OSError:
+                pass
         with self.lock:
-            self.job = state
+            if kind:
+                self.download_jobs[kind] = state
+            else:
+                self.job = state
