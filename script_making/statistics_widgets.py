@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
                               QFormLayout, QHBoxLayout, QLineEdit, QTabWidget,
                               QTextBrowser, QTextEdit, QVBoxLayout, QWidget)
@@ -11,7 +12,6 @@ from .download_widgets import open_location
 from .statistics import (DEFAULT_CONFIG, FIELDS, build_snapshot, load_config,
                          save_config, validated_config)
 from .statistics_export import export_bundle, mail_content, render_pages, save_image
-from .statistics_charts import ChartView, chart_image, save_chart
 from .storage import ReportError
 
 
@@ -100,6 +100,39 @@ class StatisticsWorker(QThread):
             self.outcome = (False, str(exc))
 
 
+class StatisticsBrowser(QTextBrowser):
+    """Fit the embedded pnl1 figure without changing the full-resolution export."""
+    def setHtml(self, html):
+        super().setHtml(html)
+        self.fit_images()
+
+    def fit_images(self):
+        width = min(1500, max(1, self.viewport().width() - 24))
+        block = self.document().begin()
+        edits = []
+        while block.isValid():
+            item = block.begin()
+            while not item.atEnd():
+                fragment = item.fragment()
+                if fragment.isValid() and fragment.charFormat().isImageFormat():
+                    fmt = fragment.charFormat().toImageFormat()
+                    if abs(fmt.width() - width) > 1:
+                        fmt.setHeight(width * 780 / 1600)
+                        fmt.setWidth(width)
+                        edits.append((fragment.position(), fragment.length(), fmt))
+                item += 1
+            block = block.next()
+        for position, length, fmt in edits:
+            cursor = QTextCursor(self.document())
+            cursor.setPosition(position)
+            cursor.setPosition(position + length, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setCharFormat(fmt)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fit_images()
+
+
 class StatisticsPage(QWidget):
     finished = Signal()
     busy_changed = Signal()
@@ -161,7 +194,7 @@ class StatisticsPage(QWidget):
         controls.addStretch()
         layout.addLayout(controls)
         actions = QHBoxLayout()
-        actions.addWidget(label("历史图：今年已有日报 · 截止所选日期", "muted"), 1)
+        actions.addWidget(label("pnl1 收益图：当年最近30份 · 截止所选日期", "muted"), 1)
         self.refresh_button = button("刷新本地日期", self.refresh_dates)
         actions.addWidget(self.refresh_button)
         actions.addWidget(self.configure_button)
@@ -172,19 +205,14 @@ class StatisticsPage(QWidget):
         self.tabs = QTabWidget()
         self.browsers = []
         for caption in ("组内收益 · pnl1", "风险观察 · 两份日报"):
-            browser = QTextBrowser()
+            browser = StatisticsBrowser()
             browser.setOpenLinks(False)
             self.browsers.append(browser)
             self.tabs.addTab(browser, caption)
-        self.chart_views = {}
-        for kind, caption in (("swap", "互换 · 年度盈亏图"), ("strategy", "策略台 · 年度盈亏图")):
-            view = ChartView()
-            self.chart_views[kind] = view
-            self.tabs.addTab(view, caption)
         layout.addWidget(self.tabs, 1)
         bottom = QHBoxLayout()
         self.image_button = button("保存本页完整图片", self.export_image)
-        self.export_button = button("导出统计、历史图和邮件草稿", self.export, "primary")
+        self.export_button = button("导出两图和邮件草稿", self.export, "primary")
         self.folder_button = button("打开统计保存位置", self.reveal_output)
         for widget in (self.image_button, self.export_button, self.folder_button):
             bottom.addWidget(widget)
@@ -244,8 +272,6 @@ class StatisticsPage(QWidget):
         self.snapshot = self.pages = None
         for browser in self.browsers:
             browser.setPlainText("条件已选择或变更，请生成统计。")
-        for view in self.chart_views.values():
-            view.set_image(None)
         self.notice.setText("生成统计后可导出完整页面图片和邮件草稿。")
         self.image_button.setEnabled(False)
         self.export_button.setEnabled(False)
@@ -295,8 +321,6 @@ class StatisticsPage(QWidget):
         self.pages = render_pages(result)
         for browser, html in zip(self.browsers, self.pages):
             browser.setHtml(html)
-        for kind, view in self.chart_views.items():
-            view.set_image(chart_image(result, kind))
         self.image_button.setEnabled(True)
         self.export_button.setEnabled(True)
         self.notice.setText("统计已记录。可导出完整页面；邮件为本机草稿，可在邮件客户端检查后发送。")
@@ -331,14 +355,11 @@ class StatisticsPage(QWidget):
         try:
             self.output_base().mkdir(parents=True, exist_ok=True)
             index = self.tabs.currentIndex()
-            names = ("pnl1", "risk", "swap_pnl_history", "strategy_pnl_history")
+            names = ("pnl1", "risk")
             default = self.output_base() / (f"{names[index]}-{self.snapshot['id'][:10]}.png")
             path, _ = QFileDialog.getSaveFileName(self, "保存完整统计图片", str(default), "PNG (*.png)")
             if path:
-                if index < 2:
-                    save_image(self.pages[index], Path(path))
-                else:
-                    save_chart(self.snapshot, "swap" if index == 2 else "strategy", Path(path))
+                save_image(self.pages[index], Path(path))
                 self.notice.setText("完整图片已保存：" + path)
         except (OSError, ReportError) as exc:
             self.error.setText(str(exc))
@@ -349,7 +370,7 @@ class StatisticsPage(QWidget):
             return
         try:
             folder = export_bundle(self.output_base(), self.snapshot, self.pages, self.config)
-            self.notice.setText("统计图片、年度历史图、正文和邮件草稿已保存：" + str(folder))
+            self.notice.setText("pnl1（含收益图）、风险汇总、正文和邮件草稿已保存：" + str(folder))
             open_location(folder)
         except (OSError, ReportError, ValueError) as exc:
             self.error.setText(str(exc))

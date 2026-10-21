@@ -105,13 +105,13 @@ def run_once(root, as_of, *, local_only=False):
                     record.update(state="incomplete", reason="统计或上期数值不完整；已记录诊断，本次不生成可发送草稿。")
                     return 2, record
                 identity = {key: value for key, value in snapshot.items() if key not in ("id", "created_at")}
-                fingerprint = hashlib.sha256(json.dumps({"version": 1, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                fingerprint = hashlib.sha256(json.dumps({"version": 2, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
                 completed = runs / "completed" / (fingerprint + ".json")
                 if completed.exists():
                     try:
                         previous = json.loads(completed.read_text(encoding="utf-8"))
                         folder = Path(previous["export_directory"])
-                        required = {"pnl1.png", "risk.png", "swap_pnl_history.png", "strategy_pnl_history.png",
+                        required = {"pnl1.png", "risk.png",
                                     "邮件草稿.eml", "邮件正文.txt", "统计记录.json", "邮件设置.json"}
                         files = previous["files"]
                         if (isinstance(files, dict) and required.issubset(files)

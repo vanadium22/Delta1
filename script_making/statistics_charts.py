@@ -1,12 +1,7 @@
-"""Native, dependency-free dual-axis charts rendered from frozen annual data."""
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import QLabel, QScrollArea
+"""One pnl1 history chart, embedded in the existing statistics page and attachment."""
+from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
 
-from .statistics import GROUPS
-from .storage import ReportError
-
-LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报"}
 NAVY, LINE, POSITIVE, NEGATIVE = "#18334f", "#3b59b8", "#cf5b55", "#159588"
 
 
@@ -15,53 +10,40 @@ def limits(values):
         return -1., 1.
     lo, hi = min(0., min(values)), max(0., max(values))
     span = hi - lo
-    if not span:
-        return -1., 1.
-    return lo - span * .12, hi + span * .12
+    return (lo - span * .12, hi + span * .12) if span else (-1., 1.)
 
 
-def chart_image(snapshot, kind, width=1600, height=1120):
+def chart_image(snapshot, width=1600, height=780):
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor("#f3f6fb"))
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.scale(width / 1600, height / 1120)
+    painter.scale(width / 1600, height / 780)
 
     def text(x, y, w, h, value, size=12, color=NAVY, bold=False, align=Qt.AlignmentFlag.AlignLeft):
         painter.setFont(QFont("Microsoft YaHei UI", size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
         painter.setPen(QColor(color))
         painter.drawText(QRectF(x, y, w, h), align | Qt.AlignmentFlag.AlignVCenter, value)
 
-    history = snapshot.get("history", {}).get(kind, {})
+    history = snapshot.get("history", {}).get("pnl", {})
     points = history.get("points", [])
-    text(40, 22, 1200, 30, "DELTA ONE  /  日报年度观察", 11, "#64788e")
-    text(40, 60, 1400, 52, LABELS[kind] + " · 总盈亏与当日盈亏", 25, bold=True)
-    config = snapshot["config"]
-    text(40, 118, 1480, 32, f"{history.get('year', '')}年本地日报  ·  截止 {history.get('through') or '未选择'}  ·  "
-         f"|{config['metric']}| ≥ {float(config['threshold']):,.2f}  ·  剔除名单按本次设置", 11)
-    text(40, 151, 1480, 26, "每日报表分别筛选观察标的；组成可能变化。各来源独立，不代表全台盈亏。金额轴单位：万元。", 11, "#64788e")
-    for group_index, group in enumerate(GROUPS):
-        card = QRectF(30, 198 + group_index * 410, 1540, 392)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("white"))
-        painter.drawRoundedRect(card, 14, 14)
-        top = card.top()
-        text(54, top + 12, 750, 30, group, 16, bold=True)
-        text(870, top + 12, 270, 30, "━━ 总盈亏 · 左轴", 11, LINE)
-        text(1150, top + 12, 370, 30, "■ 当日盈亏 · 右轴（红正 / 绿负）", 11, "#a4514e")
-        plot = QRectF(140, top + 67, 1310, 248)
-        series = []
-        for point in points:
-            data = point.get("groups")
-            series.append((float(data[group_index]["total"]) / 10000,
-                           float(data[group_index]["daily"]) / 10000) if data else None)
-        values = [value for value in series if value is not None]
-        if not values:
-            text(plot.left(), plot.top(), plot.width(), plot.height(), "今年尚无可用历史统计；缺失值不按零绘制。", 16,
-                 "#64788e", align=Qt.AlignmentFlag.AlignCenter)
-            continue
-        left_lo, left_hi = limits([value[0] for value in values])
-        right_lo, right_hi = limits([value[1] for value in values])
+    text(40, 22, 1480, 44, "pnl1 · 境内权益互换台收益", 24, bold=True)
+    text(40, 76, 1480, 30, f"{history.get('year', '')}年 · 截止 {history.get('through') or '未选择'} · 最近30份盈亏统计 Excel · 金额单位：万元", 12)
+    text(40, 110, 1480, 30, "横轴为报表日期。原表取 T-2 数据；柱形为相邻报表差额，缺日报时代表区间变动。", 12, "#64788e")
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("white"))
+    painter.drawRoundedRect(QRectF(30, 160, 1540, 492), 14, 14)
+    text(60, 177, 680, 32, "━━ 累计净利润 · 左轴", 13, LINE)
+    text(840, 177, 700, 32, "■ 相邻两期净利润变动 · 右轴（红正 / 绿负）", 13, "#a4514e")
+    plot = QRectF(145, 236, 1300, 320)
+    totals = [None if point["current"] is None else float(point["current"]) / 10000 for point in points]
+    changes = [None if point["change"] is None else float(point["change"]) / 10000 for point in points]
+    available = [value for value in totals if value is not None]
+    if not available:
+        text(plot.left(), plot.top(), plot.width(), plot.height(), "当年尚无可用 pnl1 历史数据。", 18, "#64788e", align=Qt.AlignmentFlag.AlignCenter)
+    else:
+        left_lo, left_hi = limits(available)
+        right_lo, right_hi = limits([value for value in changes if value is not None])
 
         def y(value, lo, hi):
             return plot.bottom() - (value - lo) / (hi - lo) * plot.height()
@@ -74,29 +56,27 @@ def chart_image(snapshot, kind, width=1600, height=1120):
             pos = plot.bottom() - ratio * plot.height()
             painter.setPen(QPen(QColor("#e3e9f1"), 1))
             painter.drawLine(QPointF(plot.left(), pos), QPointF(plot.right(), pos))
-            left_value, right_value = left_lo + ratio * (left_hi-left_lo), right_lo + ratio * (right_hi-right_lo)
-            text(35, pos - 12, 94, 25, f"{0 if abs(left_value) < .05 else left_value:,.1f}", 10, LINE,
-                 align=Qt.AlignmentFlag.AlignRight)
-            text(plot.right() + 10, pos - 12, 105, 25, f"{0 if abs(right_value) < .05 else right_value:,.1f}", 10, "#a4514e")
+            for value, left, color in ((left_lo + ratio * (left_hi-left_lo), 35, LINE),
+                                       (right_lo + ratio * (right_hi-right_lo), plot.right()+10, "#a4514e")):
+                text(left, pos-12, 100, 25, f"{0 if abs(value) < .05 else value:,.1f}", 11, color,
+                     align=Qt.AlignmentFlag.AlignRight if left == 35 else Qt.AlignmentFlag.AlignLeft)
         zero = y(0, right_lo, right_hi)
         painter.setPen(QPen(QColor("#c7d3e2"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(QPointF(plot.left(), zero), QPointF(plot.right(), zero))
-        bar_width = max(1.5, min(24., plot.width() / len(points) * .55))
-        for index, value in enumerate(series):
-            if value is None:
+        bar_width = min(28., plot.width() / len(points) * .55)
+        for index, amount in enumerate(changes):
+            if amount is None:
                 continue
-            amount = value[1]
             pos = y(amount, right_lo, right_hi)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(POSITIVE if amount >= 0 else NEGATIVE))
-            painter.drawRoundedRect(QRectF(x(index) - bar_width / 2, min(pos, zero), bar_width,
-                                          max(1., abs(pos - zero))), 2, 2)
+            painter.drawRoundedRect(QRectF(x(index)-bar_width/2, min(pos, zero), bar_width, max(1., abs(pos-zero))), 2, 2)
         path, connected = QPainterPath(), False
-        for index, value in enumerate(series):
-            if value is None:
+        for index, amount in enumerate(totals):
+            if amount is None:
                 connected = False
                 continue
-            point = QPointF(x(index), y(value[0], left_lo, left_hi))
+            point = QPointF(x(index), y(amount, left_lo, left_hi))
             if connected:
                 path.lineTo(point)
             else:
@@ -105,50 +85,24 @@ def chart_image(snapshot, kind, width=1600, height=1120):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor(LINE), 3))
         painter.drawPath(path)
-        if len(points) <= 35:
-            painter.setBrush(QColor("white"))
-            for index, value in enumerate(series):
-                if value is not None:
-                    painter.drawEllipse(QPointF(x(index), y(value[0], left_lo, left_hi)), 3.5, 3.5)
-        ticks = sorted({round(i * (len(points) - 1) / max(1, min(7, len(points) - 1)))
-                        for i in range(min(8, len(points)))})
+        painter.setBrush(QColor("white"))
+        for index, amount in enumerate(totals):
+            if amount is not None:
+                painter.drawEllipse(QPointF(x(index), y(amount, left_lo, left_hi)), 4, 4)
+        ticks = sorted({round(i * (len(points)-1) / max(1, min(7, len(points)-1))) for i in range(min(8, len(points)))})
         for index in ticks:
-            text(x(index) - 58, plot.bottom() + 7, 116, 24, points[index]["date"][5:], 10, "#64788e",
-                 align=Qt.AlignmentFlag.AlignCenter)
-        text(140, top + 351, 1310, 25, f"报表日期 · {len(points)} 份本地文件；{len(values)} 份可用。无文件日期不补点，解析失败日期断开折线。", 10, "#64788e")
-    errors = history.get("errors", {})
-    text(40, 1030, 1480, 30, ("未绘制日期：" + "、".join(errors)) if errors else "历史数据与当前统计共用来源哈希、阈值和剔除规则。", 10, "#8b5c2d" if errors else "#64788e")
-    text(40, 1070, 1480, 26, f"生成：{snapshot['created_at']}  ·  记录 {snapshot['id'][:10]}", 10, "#64788e")
+            text(x(index)-58, plot.bottom()+12, 116, 28, points[index]["date"][5:], 11, "#64788e", align=Qt.AlignmentFlag.AlignCenter)
+    text(60, 604, 1480, 30, f"已读取 {len(points)} 份历史报表，{len(available)} 份有效；首份或前一份解析失败时不画差额柱，不补零、不跨年相减。", 11, "#64788e")
+    text(40, 674, 1480, 30, "历史差额始终按相邻报表计算；上方三值卡片使用所选的本期和上期日期。", 11, "#64788e")
+    error_count = len(history.get("errors", {}))
+    text(40, 717, 1480, 30, f"{error_count} 份解析失败，详见统计记录。" if error_count else "来源：盈亏统计 / 累积盈亏统计 / 境内权益互换台 / 净利润", 11, "#a4514e" if error_count else "#64788e")
     painter.end()
     return image
 
 
-def save_chart(snapshot, kind, path):
-    if not chart_image(snapshot, kind).save(str(path), "PNG"):
-        raise ReportError("历史图保存失败，请检查目标目录。")
-
-
-class ChartView(QScrollArea):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.image = None
-        self.canvas = QLabel()
-        self.setWidget(self.canvas)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-    def set_image(self, image):
-        self.image = image
-        self.refresh_image()
-
-    def refresh_image(self):
-        if self.image is not None:
-            scaled = self.image.scaledToWidth(max(1, self.width() - 24), Qt.TransformationMode.SmoothTransformation)
-            self.canvas.setPixmap(QPixmap.fromImage(scaled))
-            self.canvas.resize(scaled.size())
-        else:
-            self.canvas.clear()
-            self.canvas.resize(1, 1)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.refresh_image()
+def chart_html(snapshot):
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    chart_image(snapshot).save(buffer, "PNG")
+    encoded = bytes(buffer.data().toBase64()).decode("ascii")
+    return f'<p style="line-height:100%;"><img src="data:image/png;base64,{encoded}" width="1500" height="731" alt="pnl1 当年最近30份报表收益图" /></p>'

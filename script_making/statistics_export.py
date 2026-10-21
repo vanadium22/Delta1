@@ -76,6 +76,10 @@ def pnl_text(snapshot):
             f"两期净利润变动 {money(pnl['change'])} 元。\n{pnl['warning']}")
     if pnl["notes"]:
         text += "\n" + "；".join(pnl["notes"])
+    history = snapshot.get("history", {}).get("pnl", {})
+    if history:
+        text += (f"\n收益图读取 {history['year']} 年截至本期的最近 {len(history['points'])} 份报表（最多30份）；"
+                 "左轴为累计净利润，右轴为相邻两期变动，不跨年相减。")
     return text
 
 
@@ -93,7 +97,6 @@ def risk_text(snapshot):
             lines.append(f"  {group['name']}：观察 {group['count']} 个，总盈亏 {money(group['total'])} 元，"
                          f"当日盈亏 {money(group['daily'])} 元，带符号敞口合计 Σx = {money(group['net'])} 元，"
                          f"绝对敞口合计 Σ|x| = {money(group['gross'])} 元。")
-    lines.append("历史图只使用今年本地日报，按每份报表的观察标的分别汇总，总盈亏为左轴折线，当日盈亏为右轴柱形。")
     return "\n".join(lines)
 
 
@@ -103,6 +106,9 @@ def render_pages(snapshot):
         body = f"<p>报表日期：<b>{pnl['date']}</b> · 上期报表：<b>{pnl['previous_date'] or '未取得'}</b> · 金额单位：元</p>"
         body += metric_cards(pnl)
         body += f'<p class="note">{escape(pnl["warning"])}</p>'
+        if snapshot.get("history", {}).get("pnl"):
+            from .statistics_charts import chart_html
+            body += chart_html(snapshot)
         body += "<h2>pnl1 · 累积盈亏统计原表内容</h2>"
         grid = pnl["grid"]
         rows = [[str(line), *row] for line, row in zip(grid["source_rows"], grid["rows"])]
@@ -144,7 +150,9 @@ def mail_content(snapshot, values):
     dates = " / ".join(dict.fromkeys(item["date"] for key, item in snapshot["sources"].items() if key in LABELS))
     replacements = {"{{pnl1}}": pnl_text(snapshot), "{{risk}}": risk_text(snapshot), "{{dates}}": dates}
     body = values.get("template") or DEFAULT_TEMPLATE
-    body = body.replace("附件为 pnl1 和风险观察两张完整统计图片。", "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。")
+    for old in ("附件为 pnl1 和风险观察两张完整统计图片。",
+                "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。"):
+        body = body.replace(old, "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。")
     subject = values.get("subject") or "日报统计 {{dates}}"
     for key, value in replacements.items():
         body, subject = body.replace(key, value), subject.replace(key, value)
@@ -195,12 +203,6 @@ def export_bundle(base, snapshot, pages, values):
         files = [folder / "pnl1.png", folder / "risk.png"]
         for html, path in zip(pages, files):
             save_image(html, path)
-        if snapshot.get("history"):
-            from .statistics_charts import save_chart
-            for kind in ("swap", "strategy"):
-                path = folder / f"{kind}_pnl_history.png"
-                save_chart(snapshot, kind, path)
-                files.append(path)
         subject, body = mail_content(snapshot, values)
         message = EmailMessage(policy=SMTP)
         message["Subject"] = subject

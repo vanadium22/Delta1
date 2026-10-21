@@ -25,7 +25,7 @@ GROUPS = ("指数及股指期货", "个股和ETF")
 DEFAULT_EXCLUSIONS = ["159001.SZ", "511660.OF", "511660.SH", "511850.SH", "511990.SH"]
 DEFAULT_TEMPLATE = ("尊敬的领导、同事：\n\n现将本次日报统计汇报如下。\n\n"
                     "一、组内收益（pnl1）\n{{pnl1}}\n\n二、风险观察\n{{risk}}\n\n"
-                    "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。\n\n顺颂商祺。")
+                    "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。\n\n顺颂商祺。")
 DEFAULT_CONFIG = {"metric": "Delta总敞口金额", "threshold": "500000",
                   "exclusions": DEFAULT_EXCLUSIONS, "to": "", "cc": "",
                   "subject": "日报统计 {{dates}}", "template": DEFAULT_TEMPLATE}
@@ -221,48 +221,43 @@ def build_snapshot(service, selections, values):
             snapshot["errors"][kind] = str(exc)
     catalog = service.query_catalog()
     year = today().year
-    rule = {"version": 1, **{key: config[key] for key in ("metric", "threshold", "exclusions")}}
     cache = service.settings.data_path() / "statistics" / "history_cache"
-    for kind in ("swap", "strategy"):
-        history = {"year": year, "through": selections.get(kind), "points": [], "errors": {}}
-        snapshot["history"][kind] = history
-        if not history["through"]:
-            continue
-        for entry in reversed(catalog["dates"]):
+    history = {"year": year, "through": selections.get("pnl"), "limit": 30, "points": [], "errors": {}}
+    snapshot["history"]["pnl"] = history
+    if history["through"]:
+        entries = [entry for entry in catalog["dates"] if "pnl" in entry["files"]
+                   and f"{year}-01-01" <= entry["date"] <= min(history["through"], f"{year}-12-31")][:30]
+        prior = None
+        for entry in reversed(entries):
             day = entry["date"]
-            if kind not in entry["files"] or not f"{year}-01-01" <= day <= min(history["through"], f"{year}-12-31"):
-                continue
-            point = {"date": day, "groups": None}
+            point = {"date": day, "current": None, "previous_date": None, "previous": None, "change": None}
             history["points"].append(point)
-            key = f"history:{kind}:{day}"
+            key = f"history:pnl:{day}"
             try:
-                path = capture(key, kind, day)
+                path = capture(key, "pnl", day)
                 digest = snapshot["sources"][key]["sha256"]
-                cache_key = hashlib.sha256(json.dumps([kind, day, digest, rule], sort_keys=True).encode()).hexdigest()
+                cache_key = hashlib.sha256(json.dumps(["pnl1-value-v1", day, digest]).encode()).hexdigest()
                 cached = cache / (cache_key + ".json")
-                groups = None
+                current = None
                 if cached.exists():
                     try:
                         value = json.loads(cached.read_text(encoding="utf-8"))
-                        groups = value["groups"]
-                        if [g["name"] for g in groups] != list(GROUPS):
-                            raise ValueError()
-                        for group in groups:
-                            for field in ("total", "daily"):
-                                decimal_value(group[field], "历史缓存")
+                        current = decimal_value(value["current"], "pnl1 历史缓存")
                     except (OSError, ValueError, KeyError, TypeError):
-                        groups = None
-                if groups is None:
-                    result = (snapshot["risks"][kind] if day == selections[kind] and kind in snapshot["risks"]
-                              else risk_statistics(path, day, kind, config))
-                    groups = [{field: group[field] for field in ("name", "count", "total", "daily")}
-                              for group in result["groups"]]
+                        current = None
+                if current is None:
+                    current, _ = pnl_value(path, day)
                     if sha256(path) != digest:
                         raise ReportError("读取期间文件更新，请重试。")
-                    atomic_json(cached, {"groups": groups})
-                point["groups"] = groups
+                    atomic_json(cached, {"current": str(current)})
+                point["current"] = str(current)
+                if prior is not None:
+                    point.update(previous_date=prior["date"], previous=prior["current"],
+                                 change=str(current - Decimal(prior["current"])))
+                prior = point
             except (OSError, ValueError, KeyError, BadZipFile, ParseError) as exc:
                 history["errors"][day] = str(exc)
+                prior = None  # Never bridge a failed report and call it a one-period change.
     for source in snapshot["sources"].values():
         if sha256(Path(source["path"])) != source["sha256"]:
             raise ReportError("计算期间来源文件发生变化，请重新生成统计。")

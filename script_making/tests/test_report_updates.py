@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,11 +13,10 @@ from shared_data.io import file_lock
 from script_making.daily_job import run_once
 from script_making.downloads import archive_path, sync_download
 from script_making.inspect_automation import inspect_project
-from script_making.statistics import GROUPS
 from script_making.statistics_charts import chart_image
 from script_making.storage import ReportError, filename, sha256, sync_reports
 from script_making.tests import test_statistics as sample_tests
-from script_making.tests.test_statistics import risk_book
+from script_making.tests.test_statistics import pnl_book, risk_book
 from script_making.tests.test_reports import fixture
 
 
@@ -89,28 +88,50 @@ class RevisionTests(unittest.TestCase):
         self.assertEqual(sha256(local), old_hash)
 
 
-    def test_annual_history_uses_all_this_year_and_marks_bad_points(self):
-        old = self.service.settings.data_path() / "2025-12-31" / filename("swap", "2025-12-31")
-        risk_book(old, "2025-12-31")
-        for day in ("2026-01-05", "2026-02-02", "2026-03-02"):
-            path = self.service.settings.data_path() / day / filename("swap", day)
-            risk_book(path, day)
-        bad = self.service.settings.data_path() / "2026-04-01" / filename("swap", "2026-04-01")
+    def pnl_history_path(self, day):
+        return archive_path(self.service.settings, "pnl") / day / f"盈亏统计_{day}_new_adjust.xlsx"
+
+    def test_pnl_history_differences_bad_points_and_revision_cache(self):
+        pnl_book(self.pnl_history_path("2025-12-31"), "2025-12-31", 999999)
+        for day, value in (("2026-01-05", 100), ("2026-02-02", 300), ("2026-03-02", 200)):
+            pnl_book(self.pnl_history_path(day), day, value)
+        bad = self.pnl_history_path("2026-04-01")
         bad.parent.mkdir()
         bad.write_bytes(b"bad")
         with patch("script_making.statistics.today", return_value=date(2026, 10, 21)):
             snap = self.snapshot()
-            points = snap["history"]["swap"]["points"]
-            self.assertEqual([p["date"] for p in points], ["2026-01-05", "2026-02-02", "2026-03-02", "2026-04-01", "2026-10-14"])
-            self.assertIsNone(points[3]["groups"])
-            self.assertEqual(points[0]["groups"][0]["name"], GROUPS[0])
-            image = chart_image(snap, "swap")
-            self.assertEqual((image.width(), image.height()), (1600, 1120))
-            # Changing one source must invalidate its hash-keyed history cache.
-            first = self.service.settings.data_path() / "2026-01-05" / filename("swap", "2026-01-05")
-            risk_book(first, "2026-01-05", rows=[["000300.SH", "合成", 9876, 1, 2, 600000]])
+            self.assertEqual(set(snap["history"]), {"pnl"})
+            points = snap["history"]["pnl"]["points"]
+            self.assertEqual([p["date"] for p in points], ["2026-01-05", "2026-02-02", "2026-03-02", "2026-04-01", "2026-10-16", "2026-10-19"])
+            self.assertEqual([p["change"] for p in points], [None, "200", "-100", None, None, "234.56"])
+            self.assertIsNone(points[3]["current"])
+            image = chart_image(snap)
+            self.assertEqual((image.width(), image.height()), (1600, 780))
+            pnl_book(self.pnl_history_path("2026-01-05"), "2026-01-05", 50)
             changed = self.snapshot()
-            self.assertEqual(changed["history"]["swap"]["points"][0]["groups"][0]["total"], "9876")
+            self.assertEqual(changed["history"]["pnl"]["points"][0]["current"], "50")
+            self.assertEqual(changed["history"]["pnl"]["points"][1]["change"], "250")
+
+    def test_pnl_history_last_30_cutoff_and_automatic_year_rollover(self):
+        for i in range(40):
+            day = (date(2026, 8, 1) + timedelta(days=i)).isoformat()
+            pnl_book(self.pnl_history_path(day), day, i * 100)
+        pnl_book(self.pnl_history_path("2026-10-20"), "2026-10-20", 999)
+        for day, value in (("2027-01-05", 10), ("2027-01-06", 25)):
+            pnl_book(self.pnl_history_path(day), day, value)
+        with patch("script_making.statistics.today", return_value=date(2026, 10, 21)):
+            snap = self.snapshot()
+        points = snap["history"]["pnl"]["points"]
+        self.assertEqual(len(points), 30)
+        self.assertEqual(points[0]["date"], "2026-08-13")
+        self.assertIsNone(points[0]["change"])
+        self.assertEqual(points[-1]["date"], "2026-10-19")
+        self.assertTrue(all(key.startswith("history:pnl:") for key in snap["sources"] if key.startswith("history:")))
+        self.selections.update(pnl="2027-01-06", previous="2027-01-05")
+        with patch("script_making.statistics.today", return_value=date(2027, 1, 7)):
+            new = self.snapshot()["history"]["pnl"]
+        self.assertEqual(new["year"], 2027)
+        self.assertEqual([p["change"] for p in new["points"]], [None, "15"])
 
 
     def test_inspection_has_no_writes_no_mail_values_and_no_business_imports(self):
@@ -131,7 +152,7 @@ class RevisionTests(unittest.TestCase):
             self.assertEqual(code, 0, result)
             self.assertEqual(result["state"], "success")
             directory = Path(result["export_directory"])
-            self.assertEqual(len(list(directory.glob("*.png"))), 4)
+            self.assertEqual({p.name for p in directory.glob("*.png")}, {"pnl1.png", "risk.png"})
             code, repeated = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
             self.assertEqual(repeated["state"], "reused")
             self.assertEqual(repeated["export_directory"], str(directory))
@@ -222,7 +243,7 @@ class RevisionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         output = json.loads(result.stdout)
         self.assertEqual(output["state"], "success")
-        self.assertEqual(len(list(Path(output["export_directory"]).glob("*.png"))), 4)
+        self.assertEqual(len(list(Path(output["export_directory"]).glob("*.png"))), 2)
         record = json.loads((target / "statistics" / "daily_runs" / "latest.json").read_text(encoding="utf-8"))
         self.assertEqual(record["report_dates"], self.selections)
         self.assertTrue(all(item["state"] == "success" for item in record["sync"].values()))

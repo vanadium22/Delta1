@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import time
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,11 +47,11 @@ class DownloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportError, "服务器前缀"):
             source_path({}, "pnl")
 
-    def test_initial_week_delayed_latest_and_repeated_sync(self):
+    def test_pnl_extended_history_delayed_latest_and_repeated_sync(self):
         for day in ("2026-10-13", "2026-10-14", "2026-10-16", "2026-10-19", "2026-10-21", "2026-10-22"):
             sample(self.source / "2026", "pnl", day)
         result = sync_download(self.settings, "pnl", date(2026, 10, 21))
-        self.assertEqual(result["saved"], ["2026-10-14", "2026-10-16", "2026-10-19"])
+        self.assertEqual(result["saved"], ["2026-10-13", "2026-10-14", "2026-10-16", "2026-10-19"])
         self.assertEqual(result["source_latest"], "2026-10-19")
         base = archive_path(self.settings, "pnl")
         paths = [Path(item["path"]) for item in local_files(base, "pnl")]
@@ -59,10 +59,26 @@ class DownloadTests(unittest.TestCase):
         with patch("script_making.downloads.shutil.copyfile", side_effect=AssertionError("unchanged file copied")):
             again = sync_download(self.settings, "pnl", date(2026, 10, 21))
         self.assertEqual(again["saved"], [])
-        self.assertEqual(len(again["reused"]), 3)
+        self.assertEqual(len(again["reused"]), 4)
         self.assertEqual(before, [(p.stat().st_mtime_ns, sha256(p)) for p in paths])
         manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
         self.assertTrue(all(not Path(v["path"]).is_absolute() for v in manifest["files"].values()))
+
+    def test_pnl_backfills_recent_30_in_current_year_and_strategy_keeps_week(self):
+        days = [(date(2026, 8, 1) + timedelta(days=i)).isoformat() for i in range(40)]
+        for day in days:
+            sample(self.source / "2026", "pnl", day)
+        sample(self.source / "2025", "pnl", "2025-12-31")
+        sample(self.source / "2026", "pnl", "2026-10-21")
+        result = sync_download(self.settings, "pnl", date(2026, 10, 21))
+        self.assertEqual(result["saved"], days[-30:])
+        sample(self.source / "2026", "strategy", "2026-09-01")
+        sample(self.source / "2026", "strategy", "2026-10-19")
+        self.assertEqual(sync_download(self.settings, "strategy", date(2026, 10, 21))["saved"], ["2026-10-19"])
+        sample(self.source / "2027", "pnl", "2027-01-04")
+        result = sync_download(self.settings, "pnl", date(2027, 1, 5))
+        self.assertEqual(result["saved"], ["2027-01-04"])
+        self.assertEqual(len(local_files(archive_path(self.settings, "pnl"), "pnl")), 31)
 
     def test_long_gap_backfill_and_recent_late_arrival(self):
         sample(self.source, "strategy", "2026-10-19")

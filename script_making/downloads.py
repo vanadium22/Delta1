@@ -180,7 +180,18 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
                     continue
             recent = cutoff - timedelta(days=7)
             start = min([recent, *damaged, *pending, *([max(verified)] if verified else [])])
+            if kind == "pnl":
+                start = min(start, date(cutoff.year, 1, 1))
             candidates, errors = discover(root, kind, start, cutoff)
+            if kind == "pnl":
+                # Backfill enough current-year reports for pnl1's 30-point chart.
+                # Existing files stay archived; only repair dates can extend this window.
+                history_days = sorted((day for day in candidates if day.year == cutoff.year), reverse=True)[:30]
+                keep = set(history_days) | pending | set(damaged)
+                keep.update(day for day in candidates if recent <= day < date(cutoff.year, 1, 1))
+                if verified:
+                    keep.add(max(verified))
+                candidates = {day: paths for day, paths in candidates.items() if day in keep}
             pending.update(candidates)
             pending.update(damaged)
             manifest["pending_dates"] = sorted(day.isoformat() for day in pending)
