@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 
-from .statistics import FIELDS, DEFAULT_TEMPLATE
+from .statistics import FIELDS, DEFAULT_TEMPLATE, LEGACY_DEFAULT_TEMPLATES, combined_risks
 from .storage import ReportError, atomic_json
 
 LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
@@ -31,20 +31,23 @@ def money(value):
     return "未取得" if value is None else f"{Decimal(value):,.2f}"
 
 
-def table(headers, rows, highlight=None, *, summary=False):
+def table(headers, rows, highlight=None, *, summary=False, related=()):
     output = '<table width="100%" cellspacing="0" cellpadding="7" border="1"><tr>'
     output += "".join(f'<th bgcolor="#e8eef5">{escape(str(v))}</th>' for v in headers) + "</tr>"
     for index, row in enumerate(rows):
-        color = "#e1f2ec" if index == highlight else ("#ffffff" if index % 2 else "#f4f7fa")
+        color = ("#185b59" if index == highlight else "#fff0bf" if index in related
+                 else "#ffffff" if index % 2 else "#f4f7fa")
         cells = []
         for position, value in enumerate(row):
-            foreground = "#18324c"
+            foreground = "#ffffff" if index == highlight else "#18324c"
             if summary and position >= 4:
                 amount = Decimal(str(value).replace(",", ""))
                 foreground = "#b84641" if amount > 0 else "#147b6d" if amount < 0 else "#536678"
-            background = ("#e9f2fb" if index < 2 else "#e7f4ef") if summary else color
+            background = ("#e9f2fb" if index < 2 else "#e7f4ef" if index < 4 else "#ffe4a3") if summary else color
             content = escape(display(value))
-            cells.append(f'<td bgcolor="{background}"><font color="{foreground}">{"<b>" if summary else ""}{content}{"</b>" if summary else ""}</font></td>')
+            bold = summary or index == highlight or index in related
+            size = ' size="4"' if index == highlight else ''
+            cells.append(f'<td bgcolor="{background}"><font color="{foreground}"{size}>{"<b>" if bold else ""}{content}{"</b>" if bold else ""}</font></td>')
         output += "<tr>" + "".join(cells) + "</tr>"
     return output + "</table>"
 
@@ -71,32 +74,24 @@ def pnl_text(snapshot):
     pnl = snapshot["pnl"]
     if not pnl:
         return "pnl1 未生成：" + snapshot["errors"].get("pnl", "未取得报表")
-    text = (f"报表日期 {pnl['date']}，境内权益互换台累计净利润 {money(pnl['current'])} 元；"
-            f"上期报表 {pnl['previous_date'] or '未取得'} 累计净利润 {money(pnl['previous'])} 元；"
-            f"两期净利润变动 {money(pnl['change'])} 元。\n{pnl['warning']}")
-    if pnl["notes"]:
-        text += "\n" + "；".join(pnl["notes"])
-    history = snapshot.get("history", {}).get("pnl", {})
-    if history:
-        text += (f"\n收益图读取 {history['year']} 年截至本期的最近 {len(history['points'])} 份报表（最多30份）；"
-                 "左轴为累计净利润，右轴为相邻两期变动，不跨年相减。")
-    return text
+    return (f"报表 {pnl['date']}｜累计净利润：{money(pnl['current'])} 元\n"
+            f"较 {pnl['previous_date'] or '未取得上期'} 变动：{money(pnl['change'])} 元\n"
+            "原表为 T-2 口径；两期变动可能跨日，跨年不相减。")
 
 
 def risk_text(snapshot):
     config = snapshot["config"]
-    lines = [f"观察条件：|{config['metric']}| ≥ {money(config['threshold'])}；"
-             "以下仅汇总进入观察的标的，不代表全台盈亏；两份日报分别统计。"]
+    lines = [f"观察：|{config['metric']}| ≥ {money(config['threshold'])}"]
     for kind in ("swap", "strategy"):
         result = snapshot["risks"].get(kind)
         if result is None:
             lines.append(f"{LABELS[kind]}：未生成，{snapshot['errors'].get(kind, '无数据')}")
             continue
-        lines.append(f"{LABELS[kind]}（{result['date']}，剔除 {len(result['excluded'])} 个标的）：")
-        for group in result["groups"]:
-            lines.append(f"  {group['name']}：观察 {group['count']} 个，总盈亏 {money(group['total'])} 元，"
-                         f"当日盈亏 {money(group['daily'])} 元，带符号敞口合计 Σx = {money(group['net'])} 元，"
-                         f"绝对敞口合计 Σ|x| = {money(group['gross'])} 元。")
+        lines.append(f"{LABELS[kind]}：{result['date']}")
+    for group in combined_risks(snapshot["risks"]):
+        lines.append(f"• {group['name']}：总盈亏 {money(group['total'])}；"
+                     f"当日盈亏 {money(group['daily'])}；净敞口 {money(group['net'])} 元")
+    lines.append("上述为两日报观察项直接累加，日期可不同，同标的不去重；非全台盈亏。")
     return "\n".join(lines)
 
 
@@ -113,14 +108,15 @@ def render_pages(snapshot):
         grid = pnl["grid"]
         rows = [[str(line), *row] for line, row in zip(grid["source_rows"], grid["rows"])]
         body += table(["原行号", *[c["name"] for c in grid["columns"]]], rows,
-                      grid["source_rows"].index(pnl["row"]))
+                      grid["source_rows"].index(pnl["row"]),
+                      related={i for i, line in enumerate(grid["source_rows"]) if pnl["row"] < line <= pnl["row"] + 4})
         body += '<p class="note">保留原表全部有值行和列；合并区域文字位于左上角。读取 Excel 缓存净利润，不重算公式。</p>'
     else:
         body = '<p class="error">' + escape(pnl_text(snapshot)) + "</p>"
     first = document("组内收益 · pnl1", body, snapshot)
     config = snapshot["config"]
     body = (f"<p>观察条件：<b>|{escape(config['metric'])}| ≥ {money(config['threshold'])}</b></p>"
-            "<p>金额单位：元。两份日报独立统计；汇总仅含达到阈值且未剔除的标的。Delta 数量只在明细展示，不跨标的相加。</p>")
+            "<p>金额单位：元。汇总仅含达到绝对值阈值且未剔除的标的，敞口保留正负号。Delta 数量只在明细展示，不跨标的相加。</p>")
     summary = []
     for kind in ("swap", "strategy"):
         risk = snapshot["risks"].get(kind)
@@ -129,9 +125,12 @@ def render_pages(snapshot):
             continue
         for group in risk["groups"]:
             summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
-                            *[money(group[key]) for key in ("total", "daily", "net", "gross")]])
-    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "带符号敞口合计 Σx", "绝对敞口合计 Σ|x|"], summary, summary=True)
-    body += '<p class="note">x = 单个标的的 Delta总敞口金额。Σx 直接累加正负值；Σ|x| 逐项取绝对值后累加，不能用 |Σx| 替代。</p>'
+                            *[money(group[key]) for key in ("total", "daily", "net")]])
+    for group in combined_risks(snapshot["risks"]):
+        summary.append(["两日报总汇总", " / ".join(group["dates"].values()), group["name"], str(group["count"]),
+                        *[money(group[key]) for key in ("total", "daily", "net")]])
+    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "净敞口金额 Σx"], summary, summary=True)
+    body += '<p class="note">总汇总按两份日报各自日期直接累加，同标的跨日报不去重，观察数为两来源条目数之和；不是同一日的全台合并口径。任一来源失败时不生成总汇总。净敞口按原始正负值累加，不展示绝对敞口合计。</p>'
     for kind in ("swap", "strategy"):
         risk = snapshot["risks"].get(kind)
         if not risk:
@@ -143,16 +142,20 @@ def render_pages(snapshot):
                      if group["rows"] else "<p>无达到阈值的标的。</p>")
         body += '<p class="note">本表实际剔除：' + escape("、".join(risk["excluded"]) or "无") + "</p>"
     body += '<p class="note">永久剔除名单：' + escape("、".join(config["exclusions"]) or "空") + "</p>"
-    return first, document("风险观察 · 独立日报汇总", body, snapshot)
+    return first, document("风险观察 · 分日报与总汇总", body, snapshot)
 
 
 def mail_content(snapshot, values):
     dates = " / ".join(dict.fromkeys(item["date"] for key, item in snapshot["sources"].items() if key in LABELS))
     replacements = {"{{pnl1}}": pnl_text(snapshot), "{{risk}}": risk_text(snapshot), "{{dates}}": dates}
     body = values.get("template") or DEFAULT_TEMPLATE
+    if body in LEGACY_DEFAULT_TEMPLATES:
+        body = DEFAULT_TEMPLATE
     for old in ("附件为 pnl1 和风险观察两张完整统计图片。",
-                "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。"):
-        body = body.replace(old, "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。")
+                "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。",
+                "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。"):
+        body = body.replace(old, "详情见附件 pnl1.png（含当年收益图）和 risk.png。")
+    body = body.replace("顺颂商祺。", "顺颂\n  时祺")
     subject = values.get("subject") or "日报统计 {{dates}}"
     for key, value in replacements.items():
         body, subject = body.replace(key, value), subject.replace(key, value)

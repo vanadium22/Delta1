@@ -184,9 +184,9 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
                 start = min(start, date(cutoff.year, 1, 1))
             candidates, errors = discover(root, kind, start, cutoff)
             if kind == "pnl":
-                # Backfill enough current-year reports for pnl1's 30-point chart.
-                # Existing files stay archived; only repair dates can extend this window.
-                history_days = sorted((day for day in candidates if day.year == cutoff.year), reverse=True)[:30]
+                # Grow the chart from the first available report of this year.
+                # Keep old archives and the existing pending/repair rules.
+                history_days = [day for day in candidates if day.year == cutoff.year]
                 keep = set(history_days) | pending | set(damaged)
                 keep.update(day for day in candidates if recent <= day < date(cutoff.year, 1, 1))
                 if verified:

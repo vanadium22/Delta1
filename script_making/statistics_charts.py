@@ -28,7 +28,7 @@ def chart_image(snapshot, width=1600, height=780):
     history = snapshot.get("history", {}).get("pnl", {})
     points = history.get("points", [])
     text(40, 22, 1480, 44, "pnl1 · 境内权益互换台收益", 24, bold=True)
-    text(40, 76, 1480, 30, f"{history.get('year', '')}年 · 截止 {history.get('through') or '未选择'} · 最近30份盈亏统计 Excel · 金额单位：万元", 12)
+    text(40, 76, 1480, 30, f"{history.get('year', '')}年 · 年初至 {history.get('through') or '未选择'} · 当年全部已取得报表 · 金额单位：万元", 12)
     text(40, 110, 1480, 30, "横轴为报表日期。原表取 T-2 数据；柱形为相邻报表差额，缺日报时代表区间变动。", 12, "#64788e")
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor("white"))
@@ -87,7 +87,7 @@ def chart_image(snapshot, width=1600, height=780):
         painter.drawPath(path)
         painter.setBrush(QColor("white"))
         for index, amount in enumerate(totals):
-            if amount is not None:
+            if amount is not None and len(points) <= 60:
                 painter.drawEllipse(QPointF(x(index), y(amount, left_lo, left_hi)), 4, 4)
         ticks = sorted({round(i * (len(points)-1) / max(1, min(7, len(points)-1))) for i in range(min(8, len(points)))})
         for index in ticks:
@@ -105,4 +105,4 @@ def chart_html(snapshot):
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
     chart_image(snapshot).save(buffer, "PNG")
     encoded = bytes(buffer.data().toBase64()).decode("ascii")
-    return f'<p style="line-height:100%;"><img src="data:image/png;base64,{encoded}" width="1500" height="731" alt="pnl1 当年最近30份报表收益图" /></p>'
+    return f'<p style="line-height:100%;"><img src="data:image/png;base64,{encoded}" width="1500" height="731" alt="pnl1 当年累计报表收益图" /></p>'

@@ -25,7 +25,7 @@ from script_making.service import ALL_REPORTS, ReportService
 from script_making.statistics import (DEFAULT_CONFIG, FIELDS, GROUPS, build_snapshot, classify,
                                       load_config, pnl_statistics, risk_statistics, save_config,
                                       validated_config)
-from script_making.statistics_export import export_bundle, render_pages, save_image
+from script_making.statistics_export import export_bundle, render_pages, save_image, mail_content
 from script_making.statistics_widgets import StatisticsPage
 from script_making.storage import ReportError, filename, sha256
 from script_making.tests.test_reports import fixture
@@ -224,7 +224,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn('data:image/png;base64,', pages[0])
         self.assertNotIn('data:image/png;base64,', pages[1])
         body = message.get_body(preferencelist=("plain",)).get_content()
-        for expected in ("尊敬的领导、同事", "顺颂商祺", "234.56", "2026-10-14", "2026-10-19", "T-2"):
+        for expected in ("尊敬的领导、同事", "顺颂\r\n  时祺", "234.56", "2026-10-14", "2026-10-19", "T-2"):
             self.assertIn(expected, body)
         self.assertNotIn("{{", body)
         for attachment in message.iter_attachments():
@@ -269,6 +269,13 @@ class StatisticsTests(unittest.TestCase):
         dialog.generate()
         self.wait_dialog(dialog)
         self.assertEqual(dialog.snapshot["config"]["threshold"], "900000")
+        self.assertEqual(load_config(self.service.settings.root)["threshold"], "900000")
+        from script_making.daily_job import run_once
+        code, result = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 0, result)
+        cli = json.loads(Path(result["statistics_record"]).read_text(encoding="utf-8"))
+        self.assertEqual(cli["config"]["threshold"], "900000")
+        self.assertEqual(cli["risks"], dialog.snapshot["risks"])
         original = build_snapshot
         def slow(*args):
             time.sleep(.1)
@@ -283,6 +290,60 @@ class StatisticsTests(unittest.TestCase):
                 time.sleep(.01)
         self.app.processEvents()
         self.assertFalse(window.isVisible())
+
+    def test_signed_equity_etf_filter_and_cross_date_totals(self):
+        rows = [["600001.SH", "合成股票300", 100, -10, -2, -600000],
+                ["512100.SH", "合成中证1000ETF", 200, 20, -3, -500000],
+                ["159919.SZ", "合成沪深300ETF", -50, -5, 4, 700000],
+                ["512200.SH", "合成其他ETF", 30, 3, -4, -800000],
+                ["600002.SH", "合成边界内", 999, 999, 1, -499999],
+                ["159001.SZ", "中证500货币基金", 999, 999, 1, 9000000]]
+        risk_book(self.swap_path, self.selections["swap"], rows)
+        snap = self.snapshot()
+        index, equity = snap["risks"]["swap"]["groups"]
+        self.assertEqual((index["count"], index["net"]), (2, "200000"))
+        self.assertEqual((equity["count"], equity["net"]), (2, "-1400000"))
+        self.assertEqual(snap["risk_totals"][0]["total"], "550")
+        self.assertEqual(snap["risk_totals"][0]["net"], "300000")
+        self.assertEqual(snap["risk_totals"][1]["net"], "-600000")
+        self.assertEqual(snap["risk_totals"][1]["count"], 3)
+        self.assertEqual(snap["risk_totals"][0]["dates"], {"swap": "2026-10-14", "strategy": "2026-10-19"})
+        html = render_pages(snap)[1]
+        self.assertEqual(html.count("两日报总汇总"), 2)
+        self.assertNotIn("Σ|x|", html)
+        self.assertIn("-600,000.00", html)
+        self.strategy_path.write_bytes(b"bad")
+        partial = self.snapshot()
+        self.assertEqual(partial["risk_totals"], [])
+        self.assertNotIn("两日报总汇总", render_pages(partial)[1])
+
+    def test_index_etf_names_and_no_stock_or_number_substring_false_match(self):
+        for name in ("1000ETF", "中证500", "沪深300ETF", "中证50ETF", "科创50", "创业板ETF", "中证Ａ５００"):
+            self.assertEqual(classify("512100.SH", name), GROUPS[0], name)
+        for name in ("合成其他ETF", "合成3000ETF", "合成1500ETF"):
+            self.assertEqual(classify("512100.SH", name), GROUPS[1], name)
+        self.assertEqual(classify("600001.SH", "中证300合成股票"), GROUPS[1])
+        self.assertIsNone(classify("T2612.CFE", "中证500"))
+
+    def test_five_pnl_rows_highlight_and_default_mail_migration(self):
+        workbook(self.pnl_path, {"累积盈亏统计": [[], [], [None, "2026-10-19"], [],
+                    [None, "净利润", "交易台"], [None, 1234.56, "境内权益互换台"],
+                    [None, 10, "明细一"], [None, 20, "明细二"],
+                    [None, 30, "明细三"], [None, 40, "明细四"], [None, 50, "其他台"]]})
+        snap = self.snapshot()
+        html = render_pages(snap)[0]
+        self.assertIn('size="4"><b>境内权益互换台</b>', html)
+        self.assertEqual(html.count('bgcolor="#185b59"'), 4)
+        self.assertEqual(html.count('bgcolor="#fff0bf"'), 16)
+        from script_making.statistics import LEGACY_DEFAULT_TEMPLATES, DEFAULT_TEMPLATE
+        for old in LEGACY_DEFAULT_TEMPLATES:
+            self.assertEqual(validated_config({**self.config, "template": old})["template"], DEFAULT_TEMPLATE)
+            body = mail_content(snap, {**self.config, "template": old})[1]
+            self.assertTrue(body.endswith("顺颂\n  时祺"))
+            self.assertNotIn("30份", body)
+            self.assertLess(len(body), 650)
+        custom = "我的开头\n{{dates}}\n自定义结尾"
+        self.assertEqual(validated_config({**self.config, "template": custom})["template"], custom)
 
     def test_unified_queries_duplicate_headers_total_grid_and_four_download_tabs(self):
         data = self.service.query_catalog()

@@ -64,21 +64,21 @@ class DownloadTests(unittest.TestCase):
         manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
         self.assertTrue(all(not Path(v["path"]).is_absolute() for v in manifest["files"].values()))
 
-    def test_pnl_backfills_recent_30_in_current_year_and_strategy_keeps_week(self):
+    def test_pnl_backfills_current_year_and_strategy_keeps_week(self):
         days = [(date(2026, 8, 1) + timedelta(days=i)).isoformat() for i in range(40)]
         for day in days:
             sample(self.source / "2026", "pnl", day)
         sample(self.source / "2025", "pnl", "2025-12-31")
         sample(self.source / "2026", "pnl", "2026-10-21")
         result = sync_download(self.settings, "pnl", date(2026, 10, 21))
-        self.assertEqual(result["saved"], days[-30:])
+        self.assertEqual(result["saved"], days)
         sample(self.source / "2026", "strategy", "2026-09-01")
         sample(self.source / "2026", "strategy", "2026-10-19")
         self.assertEqual(sync_download(self.settings, "strategy", date(2026, 10, 21))["saved"], ["2026-10-19"])
         sample(self.source / "2027", "pnl", "2027-01-04")
         result = sync_download(self.settings, "pnl", date(2027, 1, 5))
         self.assertEqual(result["saved"], ["2027-01-04"])
-        self.assertEqual(len(local_files(archive_path(self.settings, "pnl"), "pnl")), 31)
+        self.assertEqual(len(local_files(archive_path(self.settings, "pnl"), "pnl")), 41)
 
     def test_long_gap_backfill_and_recent_late_arrival(self):
         sample(self.source, "strategy", "2026-10-19")

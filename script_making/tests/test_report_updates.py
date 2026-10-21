@@ -112,7 +112,7 @@ class RevisionTests(unittest.TestCase):
             self.assertEqual(changed["history"]["pnl"]["points"][0]["current"], "50")
             self.assertEqual(changed["history"]["pnl"]["points"][1]["change"], "250")
 
-    def test_pnl_history_last_30_cutoff_and_automatic_year_rollover(self):
+    def test_pnl_history_full_year_cutoff_and_automatic_year_rollover(self):
         for i in range(40):
             day = (date(2026, 8, 1) + timedelta(days=i)).isoformat()
             pnl_book(self.pnl_history_path(day), day, i * 100)
@@ -122,8 +122,8 @@ class RevisionTests(unittest.TestCase):
         with patch("script_making.statistics.today", return_value=date(2026, 10, 21)):
             snap = self.snapshot()
         points = snap["history"]["pnl"]["points"]
-        self.assertEqual(len(points), 30)
-        self.assertEqual(points[0]["date"], "2026-08-13")
+        self.assertEqual(len(points), 42)
+        self.assertEqual(points[0]["date"], "2026-08-01")
         self.assertIsNone(points[0]["change"])
         self.assertEqual(points[-1]["date"], "2026-10-19")
         self.assertTrue(all(key.startswith("history:pnl:") for key in snap["sources"] if key.startswith("history:")))
@@ -156,6 +156,22 @@ class RevisionTests(unittest.TestCase):
             code, repeated = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
             self.assertEqual(repeated["state"], "reused")
             self.assertEqual(repeated["export_directory"], str(directory))
+            # A complete old renderer cache must not be reused by this renderer.
+            import hashlib
+            from script_making.storage import atomic_json
+            snap = json.loads((directory / "统计记录.json").read_text(encoding="utf-8"))
+            identity = {key: value for key, value in snap.items() if key not in ("id", "created_at")}
+            old_key = hashlib.sha256(json.dumps({"version": 2, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            completed = self.service.settings.data_path() / "statistics/daily_runs/completed"
+            current_index = completed / (result["fingerprint"] + ".json")
+            atomic_json(completed / (old_key + ".json"), json.loads(current_index.read_text(encoding="utf-8")))
+            current_index.unlink()
+            code, refreshed = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+            self.assertEqual(code, 0, refreshed)
+            self.assertEqual(refreshed["state"], "success")
+            self.assertNotEqual(refreshed["export_directory"], str(directory))
+            self.assertTrue((directory / "邮件草稿.eml").exists())
+            directory = Path(refreshed["export_directory"])
             (directory / "risk.png").write_bytes(b"corrupt")
             code, repaired = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
             self.assertEqual(code, 0, repaired)
@@ -181,6 +197,17 @@ class RevisionTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertFalse(result["send_email"])
         self.assertTrue((self.service.settings.data_path() / "statistics" / "daily_runs" / "latest.json").exists())
+
+    def test_render_failure_returns_one_without_sendable_draft(self):
+        with patch("script_making.statistics_export.save_image", side_effect=OSError("synthetic render failure")):
+            code, result = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(result["state"], "failed")
+        self.assertNotIn("export_directory", result)
+        self.assertFalse(result["send_email"])
+        exports = self.service.settings.data_path() / "statistics/exports"
+        self.assertFalse(list(exports.rglob("*.eml")))
+        self.assertEqual(len(list(exports.rglob("导出未完成.txt"))), 1)
 
 
     def test_full_pipeline_with_fake_share_children_and_local_lock(self):

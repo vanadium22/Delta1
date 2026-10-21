@@ -19,13 +19,25 @@ from .storage import ReportError, atomic_json, sha256, timestamp, today
 
 FIELDS = ("标的代码", "标的", "总盈亏", "当日盈亏", "Delta总敞口", "Delta总敞口金额")
 INDEX_CODES = {"000016.SH", "000300.SH", "000905.SH", "000852.SH"}
-GROUPS = ("指数及股指期货", "个股和ETF")
+GROUPS = ("指数、指数ETF及股指期货", "个股和其他ETF")
+# Name-based classification requested by the user, restricted to fund codes.
+INDEX_ETF_NAME = re.compile(
+    r"(?<!\d)(?:50|100|180|200|300|500|800|1000|2000)(?!\d)"
+    r"|中证|上证|沪深|深证|国证|创业板|科创|恒生|纳指|纳斯达克|标普|道琼斯")
 # Fund-manager/exchange verification is documented in README. Keep OF/SH aliases
 # explicit, since replacing every .OF code with .SH would misclassify other funds.
 DEFAULT_EXCLUSIONS = ["159001.SZ", "511660.OF", "511660.SH", "511850.SH", "511990.SH"]
-DEFAULT_TEMPLATE = ("尊敬的领导、同事：\n\n现将本次日报统计汇报如下。\n\n"
-                    "一、组内收益（pnl1）\n{{pnl1}}\n\n二、风险观察\n{{risk}}\n\n"
-                    "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。\n\n顺颂商祺。")
+LEGACY_DEFAULT_TEMPLATES = {
+    "尊敬的领导、同事：\n\n现将本次日报统计汇报如下。\n\n"
+    "一、组内收益（pnl1）\n{{pnl1}}\n\n二、风险观察\n{{risk}}\n\n" + attachment + "\n\n顺颂商祺。"
+    for attachment in (
+        "附件为 pnl1 和风险观察两张完整统计图片。",
+        "附件为 pnl1、风险观察完整统计图片及两份日报今年的盈亏双轴图。",
+        "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。")
+}
+DEFAULT_TEMPLATE = ("尊敬的领导、同事：\n\n"
+                    "【组内收益】\n{{pnl1}}\n\n【风险观察】\n{{risk}}\n\n"
+                    "详情见附件 pnl1.png（含当年收益图）和 risk.png。\n\n顺颂\n  时祺")
 DEFAULT_CONFIG = {"metric": "Delta总敞口金额", "threshold": "500000",
                   "exclusions": DEFAULT_EXCLUSIONS, "to": "", "cc": "",
                   "subject": "日报统计 {{dates}}", "template": DEFAULT_TEMPLATE}
@@ -67,6 +79,8 @@ def validated_config(values):
     for field in ("to", "cc", "subject", "template"):
         if not isinstance(result[field], str):
             raise ReportError("邮件设置应为文本。")
+    if result["template"] in LEGACY_DEFAULT_TEMPLATES:
+        result["template"] = DEFAULT_TEMPLATE
     if any("\n" in result[field] or "\r" in result[field] for field in ("to", "cc", "subject")):
         raise ReportError("邮件地址和主题不能包含换行。")
     return result
@@ -126,8 +140,11 @@ def pnl_statistics(path, day, previous=None):
     return result
 
 
-def classify(code):
+def classify(code, name=""):
     if code in INDEX_CODES or re.fullmatch(r"(?:IF|IH|IC|IM)\d+\.CFE", code):
+        return GROUPS[0]
+    if (re.fullmatch(r"(?:5\d{5}\.SH|1[56]\d{4}\.SZ)", code)
+            and INDEX_ETF_NAME.search(unicodedata.normalize("NFKC", str(name or "")))):
         return GROUPS[0]
     # Recognise mainland stocks/ETFs, BSE stocks and HK stocks. Other indices,
     # bonds and open-end funds must not silently enter the equity bucket.
@@ -171,7 +188,7 @@ def risk_statistics(path, day, kind, config):
         metric = decimal_value(row[metric_index], f"第 {line} 行 {config['metric']}")
         if abs(metric) < threshold:
             continue
-        group = classify(code)
+        group = classify(code, row[1])
         if group is None:
             unknown.append(code)
             continue
@@ -191,6 +208,21 @@ def risk_statistics(path, day, kind, config):
             item[field] = str(item[field])
     return {"kind": kind, "date": day, "groups": list(groups.values()), "excluded": skipped,
             "source_count": len(seen)}
+
+
+def combined_risks(risks):
+    """Add both observed subsets by group, retaining dates and source counts."""
+    if not all(kind in risks for kind in ("swap", "strategy")):
+        return []  # A single valid source must never masquerade as a combined total.
+    totals = []
+    for name in GROUPS:
+        groups = [next(g for g in risks[kind]["groups"] if g["name"] == name)
+                  for kind in ("swap", "strategy")]
+        totals.append({"name": name, "count": sum(g["count"] for g in groups),
+                       **{field: str(sum((Decimal(g[field]) for g in groups), Decimal(0)))
+                          for field in ("total", "daily", "net")},
+                       "dates": {kind: risks[kind]["date"] for kind in ("swap", "strategy")}})
+    return totals
 
 
 def build_snapshot(service, selections, values):
@@ -219,14 +251,15 @@ def build_snapshot(service, selections, values):
                 snapshot["risks"][kind] = risk_statistics(path, day, kind, config)
         except (OSError, ValueError, KeyError, BadZipFile, ParseError) as exc:
             snapshot["errors"][kind] = str(exc)
+    snapshot["risk_totals"] = combined_risks(snapshot["risks"])
     catalog = service.query_catalog()
     year = today().year
     cache = service.settings.data_path() / "statistics" / "history_cache"
-    history = {"year": year, "through": selections.get("pnl"), "limit": 30, "points": [], "errors": {}}
+    history = {"year": year, "through": selections.get("pnl"), "limit": None, "points": [], "errors": {}}
     snapshot["history"]["pnl"] = history
     if history["through"]:
         entries = [entry for entry in catalog["dates"] if "pnl" in entry["files"]
-                   and f"{year}-01-01" <= entry["date"] <= min(history["through"], f"{year}-12-31")][:30]
+                   and f"{year}-01-01" <= entry["date"] <= min(history["through"], f"{year}-12-31")]
         prior = None
         for entry in reversed(entries):
             day = entry["date"]
