@@ -85,12 +85,29 @@ while ($folders.Count) {
         try {
             [xml]$xml = $task.Xml
             $actions = $xml.SelectNodes('//*[local-name()="Actions"]/*')
-            $text = $task.Path + ' ' + (($actions | ForEach-Object { $_.InnerText }) -join ' ')
-            $matches = $false
-            foreach ($term in $terms) {
-                if ($term -and $text.IndexOf($term, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $matches = $true; break }
-            }
-            if (-not $matches) { continue }
+            $fields = @([pscustomobject]@{field='task_path'; value=[string]$task.Path})
+            $actionDetails = @(foreach ($action in $actions) {
+                if ($action.LocalName -eq 'Exec') {
+                    $fields += [pscustomobject]@{field='command'; value=[string]$action.Command}
+                    $fields += [pscustomobject]@{field='arguments'; value=[string]$action.Arguments}
+                    $fields += [pscustomobject]@{field='working_directory'; value=[string]$action.WorkingDirectory}
+                    # Arguments can contain credentials or inline scripts. Only
+                    # known search terms are returned, never their raw values.
+                    [pscustomobject]@{type='Exec'; command=[string]$action.Command;
+                        working_directory=[string]$action.WorkingDirectory}
+                } else {
+                    $fields += [pscustomobject]@{field='other_action'; value=[string]$action.InnerText}
+                    [pscustomobject]@{type=$action.LocalName}
+                }
+            })
+            $reasons = @(foreach ($field in $fields) {
+                foreach ($term in $terms) {
+                    if ($term -and $field.value.IndexOf($term, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                        [pscustomobject]@{field=$field.field; term=$term}
+                    }
+                }
+            })
+            if (-not $reasons.Count) { continue }
             $principal = $xml.SelectSingleNode('//*[local-name()="Principal"]')
             $triggers = @($xml.SelectNodes('//*[local-name()="Triggers"]/*') | ForEach-Object {
                 [pscustomobject]@{type=$_.LocalName; start=[string]$_.StartBoundary;
@@ -101,7 +118,9 @@ while ($folders.Count) {
             $rows.Add([pscustomobject]@{id=$task.Path; name=$task.Name;
                 path=$folder.Path; state=[int]$task.State; enabled=[bool]$task.Enabled;
                 user=[string]$principal.UserId; next_run=[string]$task.NextRunTime;
-                last_run=[string]$task.LastRunTime; last_result=$task.LastTaskResult; triggers=$triggers})
+                last_run=[string]$task.LastRunTime; last_result=$task.LastTaskResult; triggers=$triggers;
+                actions=$actionDetails; match_basis=$reasons;
+                name_only_match=(@($reasons | Where-Object { $_.field -ne 'task_path' }).Count -eq 0)})
         } catch { $errors++ }
     }
 }

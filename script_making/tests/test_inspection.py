@@ -112,10 +112,19 @@ class InspectionTests(unittest.TestCase):
         fixture = r'''
 function New-Object([string]$ComObject) {
     if ($ComObject -ne 'Schedule.Service') { throw 'unexpected COM object' }
-    $xml = '<Task><Principals><Principal><UserId>synthetic-user</UserId></Principal></Principals><Triggers><CalendarTrigger><StartBoundary>2026-10-21T16:30:00</StartBoundary><ScheduleByWeek><DaysOfWeek><Monday/></DaysOfWeek></ScheduleByWeek></CalendarTrigger></Triggers><Actions><Exec><Command>C:\synthetic\renamed.cmd</Command><Arguments>PRIVATE-SHOULD-NOT-PRINT</Arguments></Exec></Actions></Task>'
+    $xml = '<Task><Principals><Principal><UserId>synthetic-user</UserId></Principal></Principals><Triggers><CalendarTrigger><StartBoundary>2026-10-21T16:30:00</StartBoundary><ScheduleByWeek><DaysOfWeek><Monday/></DaysOfWeek></ScheduleByWeek></CalendarTrigger></Triggers><Actions><Exec><Command>C:\synthetic\renamed.cmd</Command><Arguments>PRIVATE-SHOULD-NOT-PRINT</Arguments><WorkingDirectory>C:\中文 路径</WorkingDirectory></Exec></Actions></Task>'
     $task = [pscustomobject]@{Name='unrelated-name'; Path='\Nested\unrelated-name'; Xml=$xml;
         State=3; Enabled=$false; NextRunTime='2026-10-21'; LastRunTime='2026-10-20'; LastTaskResult=0}
-    $child = [pscustomobject]@{Path='\Nested'; SavedTask=$task}
+    $nameOnly = [pscustomobject]@{Name='其他日报'; Path='\Nested\其他日报';
+        Xml=$xml.Replace('renamed.cmd', 'unrelated.cmd'); State=3; Enabled=$true;
+        NextRunTime='2026-10-21'; LastRunTime='2026-10-20'; LastTaskResult=0}
+    $argumentsOnly = [pscustomobject]@{Name='another-name'; Path='\Nested\another-name';
+        Xml=$xml.Replace('renamed.cmd', 'python.exe').Replace('PRIVATE-SHOULD-NOT-PRINT', '-m script_making.daily_job --private PRIVATE-SHOULD-NOT-PRINT');
+        State=3; Enabled=$false; NextRunTime='2026-10-21'; LastRunTime='2026-10-20'; LastTaskResult=0}
+    $unmatched = [pscustomobject]@{Name='unmatched'; Path='\Nested\unmatched';
+        Xml=$xml.Replace('renamed.cmd', 'unrelated.cmd'); State=3; Enabled=$true;
+        NextRunTime='2026-10-21'; LastRunTime='2026-10-20'; LastTaskResult=0}
+    $child = [pscustomobject]@{Path='\Nested'; SavedTask=@($task, $nameOnly, $argumentsOnly, $unmatched)}
     $child | Add-Member ScriptMethod GetTasks {param($flags) if ($flags -ne 1) { throw 'hidden tasks missing' }; return @($this.SavedTask)}
     $child | Add-Member ScriptMethod GetFolders {param($flags) return @()}
     $root = [pscustomobject]@{Path='\'; Child=$child}
@@ -133,7 +142,18 @@ function New-Object([string]$ComObject) {
         result = inspection.capture_task_query(command)
         self.assertTrue(result['complete'], result)
         self.assertEqual(result['searched_folders'], 2)
-        self.assertEqual(len(result['tasks']), 1)
-        self.assertFalse(result['tasks'][0]['enabled'])
-        self.assertEqual(result['tasks'][0]['triggers'][0]['days_of_week'], ['Monday'])
+        self.assertEqual(len(result['tasks']), 3)
+        by_name = {task['name']: task for task in result['tasks']}
+        task = by_name['unrelated-name']
+        self.assertFalse(task['enabled'])
+        self.assertEqual(task['triggers'][0]['days_of_week'], ['Monday'])
+        self.assertEqual(task['actions'], [{'type':'Exec', 'command':r'C:\synthetic\renamed.cmd',
+                                           'working_directory':r'C:\中文 路径'}])
+        self.assertEqual(task['match_basis'], [{'field':'command', 'term':r'C:\synthetic\renamed.cmd'}])
+        self.assertFalse(task['name_only_match'])
+        self.assertTrue(by_name['其他日报']['name_only_match'])
+        self.assertEqual(by_name['其他日报']['match_basis'], [{'field':'task_path', 'term':'日报'}])
+        self.assertFalse(by_name['another-name']['name_only_match'])
+        self.assertEqual(by_name['another-name']['match_basis'], [{'field':'arguments', 'term':'script_making'}])
         self.assertNotIn('PRIVATE-SHOULD-NOT-PRINT', json.dumps(result))
+        self.assertNotIn('daily_job --private', json.dumps(result))
