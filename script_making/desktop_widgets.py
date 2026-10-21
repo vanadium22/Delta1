@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QModelIndex, QPersistentModelIndex, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
                               QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-                              QListWidgetItem, QPushButton, QTableView, QVBoxLayout,
+                              QListWidgetItem, QMenu, QPushButton, QTableView, QVBoxLayout,
                               QWidget)
 
 from .query import number, parse_epsilon
@@ -65,9 +65,14 @@ class FilterRow(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
+        self.join = QComboBox()
+        self.join.addItem("必须 AND", "must")
+        self.join.addItem("任一 OR", "any")
+        self.join.setFixedWidth(124)
+        self.join.setToolTip("所有必须条件都满足；所有任一条件组成一组，至少满足其中一条。空白条件不参与。")
         self.column = QComboBox()
-        self.column.setMinimumWidth(170)
-        self.column.setMaximumWidth(300)
+        self.column.setMinimumWidth(145)
+        self.column.setMaximumWidth(260)
         self.column.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.column.setToolTip("第一步：选择要筛选的列")
         for entry in columns:
@@ -75,22 +80,23 @@ class FilterRow(QWidget):
         if selected:
             self.column.setCurrentIndex(max(0, self.column.findData(selected)))
         self.value_type = QComboBox()
-        self.value_type.setMinimumWidth(100)
+        self.value_type.setMinimumWidth(85)
         for key, text in (("text", "文本"), ("number", "数字"), ("date", "日期")):
             self.value_type.addItem(text, key)
         self.value_type.setToolTip("第二步：选择内容格式。只影响此条件，不修改 Excel 原始值。")
         self.op = QComboBox()
-        self.op.setMinimumWidth(155)
+        self.op.setMinimumWidth(135)
         self.value = QLineEdit()
         self.upper = QLineEdit()
         self.value.setMinimumWidth(100)
         self.upper.setMinimumWidth(100)
         self.separator = label("至")
         self.remove_button = button("移除", lambda: self.removed.emit(self), "quiet")
-        for control in (self.column, self.value_type, self.op, self.value, self.separator,
+        for control in (self.join, self.column, self.value_type, self.op, self.value, self.separator,
                         self.upper, self.remove_button):
             row.addWidget(control, 1 if control in (self.column, self.value, self.upper) else 0)
         self.column.currentIndexChanged.connect(self._column_changed)
+        self.join.currentIndexChanged.connect(self.changed)
         self.value_type.currentIndexChanged.connect(self._type_changed)
         self.op.currentIndexChanged.connect(self._op_changed)
         self.value.textChanged.connect(self.changed)
@@ -135,7 +141,7 @@ class FilterRow(QWidget):
 
     def condition(self):
         result = {"column": self.column.currentData(), "value_type": self.value_type.currentData(),
-                  "op": self.op.currentData()}
+                  "op": self.op.currentData(), "join": self.join.currentData()}
         if result["op"] == "range":
             result.update(min=self.value.text().strip(), max=self.upper.text().strip())
         else:
@@ -192,6 +198,8 @@ class ReportModel(QAbstractTableModel):
 
 
 class CopyTable(QTableView):
+    cell_copied = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlternatingRowColors(True)
@@ -204,6 +212,37 @@ class CopyTable(QTableView):
         self.verticalHeader().setMinimumWidth(48)
         self.horizontalHeader().setMinimumSectionSize(70)
         self.horizontalHeader().setStretchLastSection(False)
+        self.setToolTip("右键可复制单个值；Ctrl+Shift+C 复制当前单元格，Ctrl+C 复制选中行。")
+
+    def can_copy_cell(self, index=None):
+        index = self.currentIndex() if index is None else index
+        return (index.isValid() and index.model() == self.model()
+                and not self.isColumnHidden(index.column()) and not self.isRowHidden(index.row())
+                and self.selectionModel().isSelected(index))
+
+    def copy_cell(self, index=None):
+        index = self.currentIndex() if index is None else index
+        if not self.can_copy_cell(index):
+            return
+        value = self.model().data(index, Qt.ItemDataRole.UserRole)
+        QApplication.clipboard().setText("" if value is None else str(value))
+        self.cell_copied.emit(str(self.model().headerData(index.column(), Qt.Orientation.Horizontal)))
+
+    def contextMenuEvent(self, event):
+        index = self.currentIndex() if event.reason() == event.Reason.Keyboard else self.indexAt(event.pos())
+        if not index.isValid():
+            return
+        if self.selectionModel().isSelected(index):
+            self.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+        else:
+            self.setCurrentIndex(index)
+        # A query may finish while the menu is open; never copy the replacement row.
+        target = QPersistentModelIndex(index)
+        menu = QMenu(self)
+        menu.addAction("复制此单元格", lambda: self.copy_cell(target))
+        menu.addAction("复制选中行（含列名）", self.copy)
+        menu.exec(event.globalPos())
+        menu.deleteLater()
 
     def copy(self):
         rows = sorted({index.row() for index in self.selectedIndexes()})
@@ -217,7 +256,10 @@ class CopyTable(QTableView):
                                                    for v in row) for row in text_rows))
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.StandardKey.Copy):
+        if event.key() == Qt.Key.Key_C and event.modifiers() == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            self.copy_cell()
+            event.accept()
+        elif event.matches(QKeySequence.StandardKey.Copy):
             self.copy()
         else:
             super().keyPressEvent(event)
@@ -382,10 +424,19 @@ class DetailDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
         actions = QHBoxLayout()
+        self.copy_cell_button = button("复制单元格", lambda: self.table.copy_cell())
+        self.copy_cell_button.setToolTip("复制当前单元格原始值，不带字段名（Ctrl+Shift+C）")
+        self.copy_cell_button.setEnabled(False)
+        self.table.selectionModel().selectionChanged.connect(self.update_copy_cell)
+        self.table.selectionModel().currentChanged.connect(self.update_copy_cell)
+        actions.addWidget(self.copy_cell_button)
         actions.addWidget(button("复制全部字段", self.copy_all))
         actions.addStretch()
         actions.addWidget(button("关闭", self.accept, "primary"))
         layout.addLayout(actions)
+
+    def update_copy_cell(self, *_):
+        self.copy_cell_button.setEnabled(self.table.can_copy_cell())
 
     def copy_all(self):
         self.table.selectAll()

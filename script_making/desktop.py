@@ -188,7 +188,7 @@ class Window(QMainWindow):
         filtering.addLayout(search_line)
         filter_heading = QHBoxLayout()
         filter_heading.addWidget(label("按列筛选", "sectionTitle"))
-        filter_heading.addWidget(label("选择列  →  内容格式  →  条件与数值", "muted"))
+        filter_heading.addWidget(label("组合关系  →  列 / 内容格式  →  条件与数值", "muted"))
         filter_heading.addStretch()
         self.add_button = button("＋ 添加条件", self.add_filter, "quiet")
         filter_heading.addWidget(self.add_button)
@@ -204,7 +204,7 @@ class Window(QMainWindow):
         self.filter_scroll.setWidget(holder)
         self.filter_scroll.setFixedHeight(40)
         filtering.addWidget(self.filter_scroll)
-        filtering.addWidget(label("文本支持简称与 / 备选词；数字支持范围与近似零。内容格式只影响当前条件，多个条件同时满足。", "muted", True))
+        filtering.addWidget(label("必须条件全部满足；若有「任一 OR」条件，至少满足一条。空白条件不参与；全字段搜索也必须满足。", "muted", True))
         outer.addWidget(filters_card)
         self.error = label("", "error", True)
         self.error.hide()
@@ -219,8 +219,12 @@ class Window(QMainWindow):
         toolbar.addStretch()
         self.selection_info = label("双击记录查看详情", "muted")
         toolbar.addWidget(self.selection_info)
-        self.copy_button = button("复制选中", lambda: self.table.copy())
+        self.copy_cell_button = button("复制单元格", lambda: self.table.copy_cell())
+        self.copy_cell_button.setToolTip("先单击要复制的值，再点击此按钮；也可右键或按 Ctrl+Shift+C")
+        self.copy_cell_button.setEnabled(False)
+        self.copy_button = button("复制选中行", lambda: self.table.copy())
         self.columns_button = button("显示列", self.choose_columns)
+        toolbar.addWidget(self.copy_cell_button)
         toolbar.addWidget(self.copy_button)
         toolbar.addWidget(self.columns_button)
         results.addLayout(toolbar)
@@ -231,6 +235,8 @@ class Window(QMainWindow):
         self.table.horizontalHeader().sectionClicked.connect(self.sort_column)
         self.table.doubleClicked.connect(self.show_detail)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.table.selectionModel().currentChanged.connect(self._selection_changed)
+        self.table.cell_copied.connect(lambda name: self.statusBar().showMessage(f"已复制「{name}」的原始值", 5000))
         self.stack = QStackedWidget()
         self.stack.addWidget(self.table)
         empty = QWidget()
@@ -296,6 +302,7 @@ class Window(QMainWindow):
         self.previous.setEnabled(False)
         self.next.setEnabled(False)
         self.copy_button.setEnabled(False)
+        self.copy_cell_button.setEnabled(False)
         self.selection_info.setText("双击记录查看详情")
 
     def _invalidate(self):
@@ -568,7 +575,7 @@ class Window(QMainWindow):
         self.page_label.setText(f"{result['page']} / {result['pages']}")
         self.previous.setEnabled(result["page"] > 1)
         self.next.setEnabled(result["page"] < result["pages"])
-        self.statusBar().showMessage("查询完成 · Ctrl / Shift 可多选记录，Ctrl+C 复制选中记录")
+        self.statusBar().showMessage("查询完成 · 右键或 Ctrl+Shift+C 复制单元格；Ctrl+C 复制选中行")
         if result.get("layout") == "grid":
             self.statusBar().showMessage("此工作表按原始单元格展示 · 列名为 Excel 列字母 · 合并单元格内容位于左上角")
         self._startup_done = True
@@ -582,6 +589,7 @@ class Window(QMainWindow):
             self.table.setColumnHidden(index, column["id"] not in self.visible)
             self.table.setColumnWidth(index, min(280, max(130, len(column["name"]) * 15 + 30)))
         self.columns_button.setText(f"显示列 {len(self.visible)} / {len(self.columns)}")
+        self._selection_changed()
 
     def choose_columns(self):
         dialog = ColumnsDialog(self.columns, self.visible, self.kind, self)
@@ -609,6 +617,7 @@ class Window(QMainWindow):
         count = len(self.table.selectionModel().selectedRows()) if self.result else 0
         self.selection_info.setText(f"已选 {count} 条 · Ctrl+C 复制" if count else "双击记录查看详情")
         self.copy_button.setEnabled(count > 0)
+        self.copy_cell_button.setEnabled(bool(self.result) and self.table.can_copy_cell())
 
     def show_detail(self, index):
         if self.result and index.isValid():

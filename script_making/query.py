@@ -245,6 +245,7 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
         if op not in ("range", "eq", "gte", "lte"):
             raise ReportError("日期列的筛选方式无效。")
         bounds = (condition.get("min"), condition.get("max")) if op == "range" else (raw, raw)
+        bounds = tuple(None if is_blank(bound) else bound for bound in bounds)
         for bound in bounds:
             if bound:
                 try:
@@ -278,6 +279,15 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
     return lambda x: not is_blank(x) and ((normalized(x) == normalized(raw)) if op == "eq" else (normalized(x) != normalized(raw)))
 
 
+def condition_is_active(condition: dict) -> bool:
+    op = condition.get("op", "fuzzy")
+    if op in ("blank", "not_blank", "zero", "nonzero"):
+        return True
+    if op == "range":
+        return not is_blank(condition.get("min")) or not is_blank(condition.get("max"))
+    return not is_blank(condition.get("value"))
+
+
 def query_table(table: dict, request: dict) -> dict:
     epsilon = parse_epsilon(request.get("epsilon", 1e-8))
     columns = table["columns"]
@@ -285,7 +295,7 @@ def query_table(table: dict, request: dict) -> dict:
     conditions = request.get("filters", [])
     if not isinstance(conditions, list) or len(conditions) > 30:
         raise ReportError("最多可组合 30 个列条件。")
-    predicates = []
+    predicates, alternatives = [], []
     for condition in conditions:
         if not isinstance(condition, dict) or condition.get("column") not in index:
             raise ReportError("筛选列不存在，请重新选择。")
@@ -293,13 +303,20 @@ def query_table(table: dict, request: dict) -> dict:
         value_type = condition.get("value_type", columns[idx]["type"])
         if value_type not in ("text", "number", "date"):
             raise ReportError("内容格式应为文本、数字或日期。")
+        join = condition.get("join", "must")
+        if join not in ("must", "any"):
+            raise ReportError("条件组合应为必须满足（must）或任一满足（any）。")
         effective_column = {**columns[idx], "type": value_type}
-        predicates.append((idx, build_predicate(effective_column, condition, epsilon)))
+        predicate = build_predicate(effective_column, condition, epsilon)
+        # A newly added, empty OR row must not make the entire OR group true.
+        if condition_is_active(condition):
+            (predicates if join == "must" else alternatives).append((idx, predicate))
     query = str(request.get("search", ""))[:500]
     matches = []
     for idx, row in enumerate(table["rows"]):
-        if all(predicate(row[col]) for col, predicate in predicates) and (
-                not query or any(fuzzy_match(value, query) for value in row if not is_blank(value))):
+        if (all(predicate(row[col]) for col, predicate in predicates)
+                and (not alternatives or any(predicate(row[col]) for col, predicate in alternatives))
+                and (not query or any(fuzzy_match(value, query) for value in row if not is_blank(value)))):
             matches.append(idx)
     sort = request.get("sort") or {}
     if sort.get("column"):

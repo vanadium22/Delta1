@@ -9,7 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QContextMenuEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
 from script_making.desktop import Window, Worker
@@ -51,6 +53,35 @@ class FormatTests(unittest.TestCase):
         result = query_table(self.table, {"filters": [{"column": "c0", "value_type": "date", "op": "range",
                                                      "min": "2026-10-01", "max": "2026-12-31"}]})
         self.assertEqual([r["excel_row"] for r in result["rows"]], [2])
+
+
+    def test_must_and_any_conditions_cross_fields_search_and_pagination(self):
+        table = {"columns": [{"id": "party", "type": "text"}, {"id": "code", "type": "text"},
+                             {"id": "amount", "type": "number"}, {"id": "day", "type": "date"}],
+                 "rows": [["A", "IF", 100, "2026-10-14"], ["A", "IC", 200, "2026-10-15"],
+                          ["A", "IH", 30, "2026-09-30"], ["B", "IF", 100, "2026-10-15"],
+                          ["A", "IH", 0, "2026-10-15"], ["A", None, None, None],
+                          ["A", "IF", 110, "2026-11-01"]], "source_rows": list(range(1, 8))}
+        must = [{"column": "party", "op": "eq", "value": "A"},
+                {"column": "day", "op": "gte", "value": "2026-10-01", "join": "must"}]
+        any_of = [{"column": "code", "op": "eq", "value": "IF", "join": "any"},
+                  {"column": "amount", "op": "gt", "value": 150, "join": "any"}]
+        query = {"filters": must + any_of}
+        self.assertEqual([r["excel_row"] for r in query_table(table, query)["rows"]], [1, 2, 7])
+        filtered = query_table(table, {**query, "search": "IC"})
+        self.assertEqual([r["excel_row"] for r in filtered["rows"]], [2])
+        page = query_table(table, {**query, "sort": {"column": "amount", "direction": "desc"}, "page_size": 1, "page": 2})
+        self.assertEqual((page["matched"], page["rows"][0]["excel_row"]), (3, 7))
+        blank_conditions = [{"column": "code", "op": "eq", "value": "  ", "join": "any"},
+                            {"column": "amount", "op": "range", "min": "", "max": "", "join": "any"},
+                            {"column": "day", "op": "range", "min": " ", "max": None, "join": "any"}]
+        self.assertEqual(query_table(table, {"filters": must + any_of + blank_conditions})["matched"], 3)
+        self.assertEqual(query_table(table, {"filters": must + blank_conditions})["matched"], 4)
+        alternatives_only = [{"column": "code", "op": "blank", "join": "any"},
+                             {"column": "amount", "op": "zero", "join": "any"}]
+        self.assertEqual([r["excel_row"] for r in query_table(table, {"filters": alternatives_only})["rows"]], [5, 6])
+        with self.assertRaisesRegex(ReportError, "条件组合"):
+            query_table(table, {"filters": [{"column": "code", "op": "eq", "join": "unknown"}]})
 
 
 class DesktopTests(unittest.TestCase):
@@ -216,6 +247,34 @@ class DesktopTests(unittest.TestCase):
         self.wait_idle()
         self.assertEqual(self.window.result["rows"][0]["values"][3], 120045)
 
+    def test_native_must_and_any_controls_and_empty_alternative(self):
+        self.load()
+        required = self.window.filters[0]
+        self.assertEqual(required.join.currentData(), "must")
+        required.value.setText("示例客户")
+        by_id = self.window.add_filter(selected="c0", schedule=False)
+        by_id.join.setCurrentIndex(by_id.join.findData("any"))
+        by_id.op.setCurrentIndex(by_id.op.findData("eq"))
+        by_id.value.setText("TEST-B")
+        by_quantity = self.window.add_filter(selected="c3", schedule=False)
+        by_quantity.join.setCurrentIndex(by_quantity.join.findData("any"))
+        by_quantity.op.setCurrentIndex(by_quantity.op.findData("zero"))
+        self.wait_idle()
+        self.assertEqual([r["values"][0] for r in self.window.result["rows"]], ["TEST-B", "TEST-D"])
+        empty = self.window.add_filter(selected="c0", schedule=False)
+        empty.join.setCurrentIndex(empty.join.findData("any"))
+        self.wait_idle()
+        self.assertEqual(self.window.result["matched"], 2)
+        by_id.join.setCurrentIndex(by_id.join.findData("must"))
+        self.assertIsNone(self.window.result)
+        self.assertFalse(self.window.copy_cell_button.isEnabled())
+        self.wait_idle()
+        self.assertEqual(self.window.result["matched"], 0)
+        self.window.clear_filters()
+        self.wait_idle()
+        self.assertEqual(self.window.result["matched"], 4)
+        self.assertEqual(self.window.filters[0].condition()["join"], "must")
+
     def test_invalid_eps_clears_old_result_and_recovers(self):
         self.load()
         self.window.epsilon.setText("-1")
@@ -270,6 +329,9 @@ class DesktopTests(unittest.TestCase):
         self.window.sort_column(2)
         self.wait_idle()
         self.assertEqual(self.window.result["rows"][0]["values"][2], 124)
+        self.window.table.setCurrentIndex(self.window.model.index(0, 0))
+        self.window.copy_cell_button.click()
+        self.assertEqual(self.app.clipboard().text(), "TEST-124")
         self.window.table.selectRow(0)
         self.window.table.copy()
         self.assertIn("TEST-124", self.app.clipboard().text())
@@ -278,6 +340,78 @@ class DesktopTests(unittest.TestCase):
         self.assertIn("124", self.app.clipboard().text())
         self.assertEqual(detail.model.rowCount(), 3)
         detail.close()
+
+    def test_single_cell_button_shortcut_raw_values_and_detail(self):
+        self.load()
+        values = ["000012345678901234567890", "字段\t原值\n第二行", .012345678912345, None]
+        self.window.columns[2]["percent"] = True
+        result = {**self.window.result, "rows": [{"excel_row": 3, "values": values}], "matched": 1, "total": 1}
+        self.window._queried(result, first=False)
+        for column, value in enumerate(values):
+            index = self.window.model.index(0, column)
+            self.window.table.scrollTo(index)
+            QTest.mouseClick(self.window.table.viewport(), Qt.MouseButton.LeftButton,
+                             Qt.KeyboardModifier.NoModifier, self.window.table.visualRect(index).center())
+            self.assertTrue(self.window.copy_cell_button.isEnabled())
+            self.window.copy_cell_button.click()
+            self.assertEqual(self.app.clipboard().text(), "" if value is None else str(value))
+        self.window.table.setCurrentIndex(self.window.model.index(0, 0))
+        QTest.keyClick(self.window.table, Qt.Key.Key_C,
+                       Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(self.app.clipboard().text(), values[0])
+        QTest.keyClick(self.window.table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(self.app.clipboard().text().startswith("交易确认书编号\t"))
+        self.assertIn(values[0], self.app.clipboard().text())
+        detail = DetailDialog(self.window.columns, result["rows"][0], "合成测试", self.window)
+        detail.table.setCurrentIndex(detail.model.index(0, 1))
+        self.assertTrue(detail.copy_cell_button.isEnabled())
+        detail.copy_cell_button.click()
+        self.assertEqual(self.app.clipboard().text(), values[0])
+        detail.close()
+        self.window.visible = ["c1", "c2", "c3"]
+        self.window._apply_columns()
+        self.assertFalse(self.window.copy_cell_button.isEnabled())
+
+    def test_context_copy_targets_clicked_cell_and_ignores_reset_results(self):
+        self.load()
+        table = self.window.table
+        table.setCurrentIndex(self.window.model.index(0, 0))
+        index = self.window.model.index(1, 1)
+        point = table.visualRect(index).center()
+        event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, table.viewport().mapToGlobal(point))
+        failures = []
+        def choose_value():
+            menu = self.app.activePopupWidget()
+            try:
+                self.assertEqual(menu.actions()[0].text(), "复制此单元格")
+                menu.actions()[0].trigger()
+            except Exception as exc:
+                failures.append(exc)
+            finally:
+                if menu:
+                    menu.close()
+        QTimer.singleShot(0, choose_value)
+        table.contextMenuEvent(event)
+        if failures:
+            raise failures[0]
+        self.assertEqual(self.app.clipboard().text(), "示例客户")
+        def query_finished_while_open():
+            menu = self.app.activePopupWidget()
+            try:
+                self.window._clear_result()
+                self.app.clipboard().setText("unchanged")
+                menu.actions()[0].trigger()
+            except Exception as exc:
+                failures.append(exc)
+            finally:
+                if menu:
+                    menu.close()
+        QTimer.singleShot(0, query_finished_while_open)
+        table.contextMenuEvent(event)
+        if failures:
+            raise failures[0]
+        self.assertEqual(self.app.clipboard().text(), "unchanged")
+        self.assertFalse(self.window.copy_cell_button.isEnabled())
 
     def test_native_settings_directory_picker_and_persistence(self):
         self.load()
