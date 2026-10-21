@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
 
 from .downloads import DOWNLOADS, source_path
 from .storage import ReportError
+from .service import ALL_REPORTS
 from .desktop_widgets import button, label
 
 
@@ -38,15 +39,17 @@ class DownloadsDialog(QDialog):
         self.resize(880, 570)
         layout = QVBoxLayout(self)
         layout.addWidget(label("日报下载", "dialogTitle"))
-        layout.addWidget(label("每次启动自动检查最新已生成日报；首次补近 7 天，之后增量补齐。可随时再次检查。", "muted", True))
+        layout.addWidget(label("全部已保存日报集中查看。互换/复核表配对同步；盈亏/策略台首次补近 7 天，之后增量补齐。", "muted", True))
         tabs = QTabWidget()
         layout.addWidget(tabs, 1)
-        for kind, spec in DOWNLOADS.items():
+        for kind, spec in ALL_REPORTS.items():
             page = QWidget()
             body = QVBoxLayout(page)
             source = label("", "muted", True)
             try:
-                source.setText("来源：" + str(source_path(service.settings.get(), kind)))
+                value = (source_path(service.settings.get(), kind) if kind in DOWNLOADS
+                         else service.settings.get().get("source_root") or "请在数据与同步中配置")
+                source.setText("来源：" + str(value))
             except ReportError as exc:
                 source.setText(str(exc))
             source.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -82,7 +85,13 @@ class DownloadsDialog(QDialog):
     def sync(self, kind):
         self.error.clear()
         self.error.hide()
-        self.start_download(kind)
+        try:
+            if kind not in DOWNLOADS and not self.service.settings.get().get("source_root"):
+                raise ReportError("请先在「数据与同步」中设置共享来源目录。")
+            self.start_download(kind)
+        except ReportError as exc:
+            self.error.setText(str(exc))
+            self.error.show()
         self.panels[kind]["fingerprint"] = None
         self.refresh()
 
@@ -118,7 +127,8 @@ class DownloadsDialog(QDialog):
                 elif state["state"] == "error":
                     text += "\n" + state.get("error", "同步失败")
                 elif result:
-                    text += f"\n{result.get('message', '检查完成')} · 新增 {len(result.get('saved', []))} 份 · 已有 {len(result.get('reused', []))} 份"
+                    text += (f"\n配对报表检查完成 · {result.get('date', '')}" if kind not in DOWNLOADS else
+                             f"\n{result.get('message', '检查完成')} · 新增 {len(result.get('saved', []))} 份 · 已有 {len(result.get('reused', []))} 份")
                     if result.get("source_latest"):
                         text += " · 本次发现最新 " + result["source_latest"]
                     if result.get("errors"):

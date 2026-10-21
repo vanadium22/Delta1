@@ -1,0 +1,195 @@
+"""Render the same statistics documents to native views, full PNGs and mail drafts."""
+from __future__ import annotations
+
+import math
+from datetime import datetime
+from decimal import Decimal
+from email.message import EmailMessage
+from email.policy import SMTP
+from email.utils import getaddresses
+from html import escape
+from pathlib import Path
+
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
+
+from .statistics import FIELDS, DEFAULT_TEMPLATE
+from .storage import ReportError, atomic_json
+
+LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
+
+
+def display(value):
+    if value is None:
+        return ""
+    if isinstance(value, (int, float, Decimal)):
+        return f"{value:,.2f}"
+    return str(value)
+
+
+def money(value):
+    return "未取得" if value is None else f"{Decimal(value):,.2f}"
+
+
+def table(headers, rows, highlight=None):
+    output = '<table width="100%" cellspacing="0" cellpadding="7" border="1"><tr>'
+    output += "".join(f'<th bgcolor="#e8eef5">{escape(str(v))}</th>' for v in headers) + "</tr>"
+    for index, row in enumerate(rows):
+        color = "#e1f2ec" if index == highlight else ("#ffffff" if index % 2 else "#f4f7fa")
+        output += "<tr>" + "".join(f'<td bgcolor="{color}">{escape(display(v))}</td>' for v in row) + "</tr>"
+    return output + "</table>"
+
+
+def document(title, body, snapshot):
+    return ("<html><head><style>body{color:#18324c;font-family:'Microsoft YaHei UI';font-size:10pt;}"
+            "h1{font-size:23pt;color:#152d49;}h2{font-size:14pt;color:#185b59;}"
+            "p{line-height:140%;}table{border-color:#d9e1ea;}th{text-align:left;}"
+            ".note{color:#536678;}.error{color:#aa3b24;}</style></head><body>"
+            f"<p>DELTA ONE · 日报统计</p><h1>{escape(title)}</h1>{body}"
+            f'<p class="note">生成时间：{escape(snapshot["created_at"])} · 记录 {snapshot["id"][:10]}</p></body></html>')
+
+
+def pnl_text(snapshot):
+    pnl = snapshot["pnl"]
+    if not pnl:
+        return "pnl1 未生成：" + snapshot["errors"].get("pnl", "未取得报表")
+    text = (f"报表日期 {pnl['date']}，境内权益互换台累计净利润 {money(pnl['current'])} 元；"
+            f"上期报表 {pnl['previous_date'] or '未取得'} 累计净利润 {money(pnl['previous'])} 元；"
+            f"两期净利润变动 {money(pnl['change'])} 元。\n{pnl['warning']}")
+    if pnl["notes"]:
+        text += "\n" + "；".join(pnl["notes"])
+    return text
+
+
+def risk_text(snapshot):
+    config = snapshot["config"]
+    lines = [f"观察条件：|{config['metric']}| ≥ {money(config['threshold'])}；"
+             "以下仅汇总进入观察的标的，不代表全台盈亏；两份日报分别统计。"]
+    for kind in ("swap", "strategy"):
+        result = snapshot["risks"].get(kind)
+        if result is None:
+            lines.append(f"{LABELS[kind]}：未生成，{snapshot['errors'].get(kind, '无数据')}")
+            continue
+        lines.append(f"{LABELS[kind]}（{result['date']}，剔除 {len(result['excluded'])} 个标的）：")
+        for group in result["groups"]:
+            lines.append(f"  {group['name']}：观察 {group['count']} 个，总盈亏 {money(group['total'])} 元，"
+                         f"当日盈亏 {money(group['daily'])} 元，Delta 净敞口金额 {money(group['net'])} 元，"
+                         f"绝对敞口金额合计 {money(group['gross'])} 元。")
+    return "\n".join(lines)
+
+
+def render_pages(snapshot):
+    pnl = snapshot["pnl"]
+    if pnl:
+        body = f"<p>报表日期：<b>{pnl['date']}</b> · 上期报表：<b>{pnl['previous_date'] or '未取得'}</b> · 金额单位：元</p>"
+        body += table(["本期累计净利润", "上期累计净利润", "两期净利润变动"],
+                      [[money(pnl["current"]), money(pnl["previous"]), money(pnl["change"])]])
+        body += f'<p class="note">{escape(pnl["warning"])}</p>'
+        body += "<h2>pnl1 · 累积盈亏统计原表内容</h2>"
+        grid = pnl["grid"]
+        rows = [[str(line), *row] for line, row in zip(grid["source_rows"], grid["rows"])]
+        body += table(["原行号", *[c["name"] for c in grid["columns"]]], rows,
+                      grid["source_rows"].index(pnl["row"]))
+        body += '<p class="note">保留原表全部有值行和列；合并区域文字位于左上角。读取 Excel 缓存净利润，不重算公式。</p>'
+    else:
+        body = '<p class="error">' + escape(pnl_text(snapshot)) + "</p>"
+    first = document("组内收益 · pnl1", body, snapshot)
+    config = snapshot["config"]
+    body = (f"<p>观察条件：<b>|{escape(config['metric'])}| ≥ {money(config['threshold'])}</b></p>"
+            "<p>金额单位：元。两份日报独立统计；汇总仅含达到阈值且未剔除的标的。Delta 数量只在明细展示，不跨标的相加。</p>")
+    summary = []
+    for kind in ("swap", "strategy"):
+        risk = snapshot["risks"].get(kind)
+        if not risk:
+            body += f'<p class="error">{LABELS[kind]}未生成：{escape(snapshot["errors"].get(kind, "无数据"))}</p>'
+            continue
+        for group in risk["groups"]:
+            summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
+                            *[money(group[key]) for key in ("total", "daily", "net", "gross")]])
+    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "Delta净敞口金额", "绝对敞口合计"], summary)
+    for kind in ("swap", "strategy"):
+        risk = snapshot["risks"].get(kind)
+        if not risk:
+            continue
+        body += f"<h2>{LABELS[kind]} · {risk['date']}</h2>"
+        for group in risk["groups"]:
+            body += f"<p><b>{group['name']} · {group['count']} 个观察标的</b></p>"
+            body += (table(FIELDS, [[*row[:2], *[money(v) for v in row[2:]]] for row in group["rows"]])
+                     if group["rows"] else "<p>无达到阈值的标的。</p>")
+        body += '<p class="note">本表实际剔除：' + escape("、".join(risk["excluded"]) or "无") + "</p>"
+    body += '<p class="note">永久剔除名单：' + escape("、".join(config["exclusions"]) or "空") + "</p>"
+    return first, document("风险观察 · 独立日报汇总", body, snapshot)
+
+
+def mail_content(snapshot, values):
+    dates = " / ".join(dict.fromkeys(item["date"] for key, item in snapshot["sources"].items() if key != "previous"))
+    replacements = {"{{pnl1}}": pnl_text(snapshot), "{{risk}}": risk_text(snapshot), "{{dates}}": dates}
+    body = values.get("template") or DEFAULT_TEMPLATE
+    subject = values.get("subject") or "日报统计 {{dates}}"
+    for key, value in replacements.items():
+        body, subject = body.replace(key, value), subject.replace(key, value)
+    return subject, body
+
+
+def save_image(html, path, width=1600):
+    doc = QTextDocument()
+    doc.setDefaultFont(QFont("Microsoft YaHei UI", 10))
+    doc.setDocumentMargin(28)
+    doc.setHtml(html)
+    doc.setTextWidth(width)
+    height = math.ceil(doc.size().height()) + 5
+    if height > 60000 or width * height > 60_000_000:
+        raise ReportError("完整页面过长，无法安全导出单张图片。请提高观察阈值后重新生成；不会截断内容。")
+    canvas = QImage(width, height, QImage.Format.Format_RGB32)
+    if canvas.isNull():
+        raise ReportError("无法分配整页图片内存，请提高阈值后重试。")
+    canvas.fill("white")
+    painter = QPainter(canvas)
+    doc.drawContents(painter, QRectF(0, 0, width, height))
+    painter.end()
+    if not canvas.save(str(path), "PNG"):
+        raise ReportError("图片保存失败，请检查目标目录。")
+    return width, height
+
+
+def export_bundle(base, snapshot, pages, values):
+    for field in ("to", "cc", "subject"):
+        if any(c in values.get(field, "") for c in "\r\n"):
+            raise ReportError("邮件地址及主题不能包含换行。")
+    addresses = {}
+    for field in ("to", "cc"):
+        raw = values.get(field, "").replace("；", ",").replace(";", ",")
+        parsed = getaddresses([raw])
+        if raw.strip() and (not parsed or any(not addr or "@" not in addr or " " in addr for _, addr in parsed)):
+            raise ReportError("邮件地址格式无效，请使用逗号分隔完整地址。")
+        addresses[field] = raw
+    folder = Path(base) / (datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + snapshot["id"][:10])
+    # Repeated exports never replace an edited mail draft.
+    suffix = 1
+    original = folder
+    while folder.exists():
+        folder = original.with_name(original.name + f"-{suffix}")
+        suffix += 1
+    folder.mkdir(parents=True)
+    try:
+        files = [folder / "pnl1.png", folder / "risk.png"]
+        for html, path in zip(pages, files):
+            save_image(html, path)
+        subject, body = mail_content(snapshot, values)
+        message = EmailMessage(policy=SMTP)
+        message["Subject"] = subject
+        for field in ("to", "cc"):
+            if addresses[field].strip():
+                message[field.title()] = addresses[field]
+        message["X-Unsent"] = "1"
+        message.set_content(body)
+        for path in files:
+            message.add_attachment(path.read_bytes(), maintype="image", subtype="png", filename=path.name)
+        (folder / "邮件草稿.eml").write_bytes(message.as_bytes())
+        (folder / "邮件正文.txt").write_text(subject + "\n\n" + body, encoding="utf-8")
+        atomic_json(folder / "统计记录.json", snapshot)
+        atomic_json(folder / "邮件设置.json", values)
+    except Exception:
+        (folder / "导出未完成.txt").write_text("本次导出未完成，请重新导出，不要使用此目录的部分附件。", encoding="utf-8")
+        raise
+    return folder

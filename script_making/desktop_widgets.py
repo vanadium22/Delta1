@@ -51,7 +51,7 @@ def button(text, callback=None, name=""):
 
 
 def default_visible(columns, kind):
-    selected = [c["id"] for c in columns if c["name"] in DEFAULT_COLUMNS[kind]]
+    selected = [c["id"] for c in columns if c["name"] in DEFAULT_COLUMNS.get(kind, [])]
     return selected if len(selected) >= 3 else [c["id"] for c in columns[:12]]
 
 

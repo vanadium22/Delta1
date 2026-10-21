@@ -20,7 +20,8 @@ NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 HEADER_ROWS = {"存续合约估值": 2, "合约交易记录": 2, "场内交易流水": 2,
                "风险盈亏统计": 6, "风险盈亏统计汇总": 6, "DMA盈亏统计": 6,
-               "簿记要素": 1, "汇总": 1}
+               "簿记要素": 1, "汇总": 1, "累积盈亏统计": 5,
+               "每日盈亏统计": 2, "合约信息": 2}
 
 
 def normalized(value) -> str:
@@ -133,7 +134,7 @@ def sheet_names(path: Path) -> list:
 
 
 @lru_cache(maxsize=4)
-def _read_table(path_text: str, size: int, modified: int, sheet: str) -> dict:
+def _read_table(path_text: str, size: int, modified: int, sheet: str, full_grid=False) -> dict:
     path = Path(path_text)
     last_row, last_col = data_bounds(path, sheet)
     book = load_workbook(path, read_only=True, data_only=True, keep_links=False)
@@ -148,7 +149,7 @@ def _read_table(path_text: str, size: int, modified: int, sheet: str) -> dict:
                     break
         # Summary sheets are read as a cell grid, retaining every column and row
         # position rather than guessing a header and dropping source content.
-        grid = header_row is None or sheet == "收益总览"
+        grid = full_grid or header_row is None or sheet in ("收益总览", "总表")
         if grid:
             header_row = 0
             selected = list(range(last_col))
@@ -191,11 +192,11 @@ def _read_table(path_text: str, size: int, modified: int, sheet: str) -> dict:
         book.close()
 
 
-def read_table(path: Path, sheet: str) -> dict:
+def read_table(path: Path, sheet: str, *, full_grid=False) -> dict:
     if sheet not in sheet_names(path):
         raise ReportError("所选工作表不存在。")
     info = path.stat()
-    return _read_table(str(path), info.st_size, info.st_mtime_ns, sheet)
+    return _read_table(str(path), info.st_size, info.st_mtime_ns, sheet, full_grid)
 
 
 def build_predicate(column: dict, condition: dict, epsilon: float):

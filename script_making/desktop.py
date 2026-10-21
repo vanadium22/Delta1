@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame, QHBox
 from .desktop_theme import STYLE
 from .desktop_widgets import (ColumnsDialog, CopyTable, DetailDialog, FilterRow,
                               ReportModel, SettingsDialog, button, default_visible, label)
-from .service import ReportService
+from .service import ALL_REPORTS, ReportService
 from .storage import REPORTS, ReportError
 from .downloads import DOWNLOADS
 from .download_widgets import DownloadsDialog, open_location
@@ -121,8 +121,12 @@ class Window(QMainWindow):
             self.nav[kind] = control
             sidebar.addWidget(control)
         self.download_button = button("日报下载", self.open_downloads, "nav")
+        self.query_button = button("日报查询 · 全部 Excel", self.open_query, "nav")
+        sidebar.addWidget(self.query_button)
         sidebar.addWidget(self.download_button)
-        self.download_notice = label("盈亏统计 / 策略台日报", "muted", True)
+        self.statistics_button = button("统计", self.open_statistics, "nav")
+        sidebar.addWidget(self.statistics_button)
+        self.download_notice = label("四类日报 · 本地归档", "muted", True)
         sidebar.addWidget(self.download_notice)
         sidebar.addStretch()
         sidebar.addWidget(label("本地工作区\n\n按报表日期查阅\n原始文件保存在本机", wrap=True))
@@ -137,11 +141,11 @@ class Window(QMainWindow):
         title_box.addWidget(label("DAILY REPORTS", "eyebrow"))
         self.title = label("存续合约查询", "title")
         title_box.addWidget(self.title)
-        title_box.addWidget(label("查阅合约、筛选交易要素，并核对每笔记录的原始值。", "muted"))
+        title_box.addWidget(label("选择 Excel、日期和工作表，查询全部已保存日报。", "muted"))
         heading.addLayout(title_box, 1)
         self.import_button = button("导入 Excel", self.choose_import)
         self.settings_button = button("数据与同步", self.open_settings)
-        self.sync_button = button("同步前一交易日", self.start_sync, "primary")
+        self.sync_button = button("同步前一交易日", self.sync_current, "primary")
         for control in (self.import_button, self.settings_button, self.sync_button):
             heading.addWidget(control)
         outer.addLayout(heading)
@@ -149,6 +153,12 @@ class Window(QMainWindow):
         outer.addWidget(self.notice)
         dataset, line = self._card(QHBoxLayout)
         line.setSpacing(12)
+        self.report_combo = QComboBox()
+        for key, spec in ALL_REPORTS.items():
+            self.report_combo.addItem(spec["label"], key)
+        self.report_combo.setMinimumWidth(155)
+        self.report_combo.currentIndexChanged.connect(lambda: self.switch_kind(self.report_combo.currentData()))
+        line.addWidget(self.report_combo)
         self.date_combo, self.sheet_combo = QComboBox(), QComboBox()
         self.date_combo.setMinimumWidth(148)
         self.sheet_combo.setMinimumWidth(170)
@@ -160,7 +170,7 @@ class Window(QMainWindow):
         for control in (label("报表日期"), self.date_combo, label("工作表"), self.sheet_combo):
             line.addWidget(control)
         line.addStretch()
-        line.addWidget(self.origin)
+        self.origin.hide()
         line.addWidget(label("容差 ε"))
         line.addWidget(self.epsilon)
         outer.addWidget(dataset)
@@ -338,8 +348,14 @@ class Window(QMainWindow):
             control.setEnabled(not busy and not self._syncing and not self._closing)
         self.settings_button.setEnabled(not busy and not self._syncing and not downloading and not self._closing)
         self.download_button.setEnabled(not self._closing)
-        self.sync_button.setEnabled(not busy and not self._syncing and not self._closing)
-        self.sync_button.setText("正在同步…" if self._syncing else "同步前一交易日")
+        self.query_button.setEnabled(not mutation and not self._closing)
+        self.statistics_button.setEnabled(not mutation and not self._closing)
+        self.report_combo.setEnabled(not mutation and not self._closing)
+        current_running = (self.service.download_status(self.kind)["state"] == "running"
+                           if self.kind in DOWNLOADS else self._syncing)
+        self.sync_button.setEnabled(not busy and not current_running and not self._closing)
+        self.sync_button.setText("正在同步…" if current_running else
+                                 "检查并同步" if self.kind in DOWNLOADS else "同步前一交易日")
         for control in (self.search, self.add_button, self.clear_button, self.epsilon,
                         self.filter_scroll, self.page_size, self.columns_button):
             control.setEnabled(bool(self.columns) and not mutation and not self._closing)
@@ -352,7 +368,7 @@ class Window(QMainWindow):
         self.debounce.stop()
         self._invalidate()
         day = preferred or self.date_combo.currentData()
-        self._submit(self.service.catalog, lambda data: self._catalog_loaded(data, day), "正在读取本地目录…")
+        self._submit(self.service.query_catalog, lambda data: self._catalog_loaded(data, day), "正在读取本地目录…")
 
     def _catalog_loaded(self, data, preferred):
         self.catalog_data = data
@@ -371,7 +387,7 @@ class Window(QMainWindow):
         self.date_combo.clear()
         for item in (self.catalog_data or {}).get("dates", []):
             if self.kind in item["files"]:
-                self.date_combo.addItem(item["date"] + (" · 未齐" if not item["complete"] else ""), item["date"])
+                self.date_combo.addItem(item["date"] + (" · 未齐" if self.kind in REPORTS and not item["complete"] else ""), item["date"])
         if preferred:
             self.date_combo.setCurrentIndex(max(0, self.date_combo.findData(preferred)))
         self.date_combo.blockSignals(False)
@@ -379,12 +395,16 @@ class Window(QMainWindow):
 
     def switch_kind(self, kind):
         if self.kind == kind:
-            self.nav[kind].setChecked(True)
+            if kind in self.nav:
+                self.nav[kind].setChecked(True)
             return
         self.kind = kind
+        self.report_combo.blockSignals(True)
+        self.report_combo.setCurrentIndex(self.report_combo.findData(kind))
+        self.report_combo.blockSignals(False)
         for key, control in self.nav.items():
             control.setChecked(key == kind)
-        self.title.setText("存续合约查询" if kind == "swap" else "簿记要素复核")
+        self.title.setText(ALL_REPORTS[kind]["label"] + "查询")
         if self.catalog_data is None:
             self.refresh_catalog()
         else:
@@ -416,7 +436,7 @@ class Window(QMainWindow):
         self.sheet_combo.blockSignals(True)
         self.sheet_combo.clear()
         self.sheet_combo.blockSignals(False)
-        self.table_title.setText(REPORTS[kind]["sheet"])
+        self.table_title.setText(ALL_REPORTS[kind]["sheet"])
         self._provenance()
         if not day:
             self._clear_result("尚未保存日报\n\n在「数据与同步」中配置路径并同步，或选择「导入 Excel」。")
@@ -429,7 +449,7 @@ class Window(QMainWindow):
     def _sheets_loaded(self, names):
         self.sheet_combo.blockSignals(True)
         self.sheet_combo.addItems(names)
-        self.sheet_combo.setCurrentIndex(max(0, self.sheet_combo.findText(REPORTS[self.kind]["sheet"])))
+        self.sheet_combo.setCurrentIndex(max(0, self.sheet_combo.findText(ALL_REPORTS[self.kind]["sheet"])))
         self.sheet_combo.blockSignals(False)
         self.query(first=True)
 
@@ -446,8 +466,10 @@ class Window(QMainWindow):
         self.file_caption.setToolTip(info["path"] if info else "")
         if not info:
             message = "尚未保存日报。请配置共享来源并同步，或导入已有 Excel。"
-        elif not item["complete"]:
+        elif self.kind in REPORTS and not item["complete"]:
             message = f"当前显示 {day}，该日期仅保存了一份报表，请补齐另一份。"
+        elif self.kind in DOWNLOADS:
+            message = f"当前显示 {day} 的{ALL_REPORTS[self.kind]['label']}。点击「检查并同步」重查此来源，或在「日报下载」查看全部文件。"
         elif info["origin"] != "共享目录下载":
             message = f"当前显示 {day} 的{info['origin']}。连接公司网络后，可同步前一交易日报表。"
         else:
@@ -609,8 +631,29 @@ class Window(QMainWindow):
     def open_downloads(self):
         DownloadsDialog(self.service, self.start_download, self).exec()
 
+    def open_query(self):
+        self.report_combo.setFocus()
+        self.report_combo.showPopup()
+
+    def open_statistics(self):
+        from .statistics_widgets import StatisticsDialog
+        try:
+            StatisticsDialog(self.service, self).exec()
+        except (ReportError, OSError) as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+
+    def sync_current(self):
+        if self.kind in DOWNLOADS:
+            self.start_download(self.kind)
+        else:
+            self.start_sync()
+
     def start_download(self, kind):
         if self._closing:
+            return
+        if kind in REPORTS:
+            self.start_sync()
             return
         self.service.start_download(kind)
         self.download_timer.start()
@@ -624,6 +667,8 @@ class Window(QMainWindow):
             self.download_timer.stop()
             self.download_notice.setText("部分同步未完成，点击查看" if any(s in ("error", "partial") for s in states)
                                          else "日报检查完成，点击查看")
+            if not self._closing:
+                self.refresh_catalog()
         self._update_controls()
         self._finish_close()
 

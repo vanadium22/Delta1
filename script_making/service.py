@@ -12,6 +12,8 @@ from .storage import (REPORTS, ReportError, Settings, catalog, identify, report_
                       save_files, timestamp, atomic_json)
 from .downloads import DOWNLOADS, archive_path, local_files
 
+ALL_REPORTS = {**REPORTS, **DOWNLOADS}
+
 
 class ReportService:
     def __init__(self, root: Path):
@@ -26,9 +28,18 @@ class ReportService:
 
     def download_status(self, kind):
         with self.lock:
-            return dict(self.download_jobs[kind])
+            return dict(self.job if kind in REPORTS else self.download_jobs[kind])
 
     def download_catalog(self, kind):
+        if kind in REPORTS:
+            data = self.catalog()
+            files = []
+            for entry in data["dates"]:
+                if kind in entry["files"]:
+                    info = dict(entry["files"][kind], date=entry["date"])
+                    info["size"] = Path(info["path"]).stat().st_size
+                    files.append(info)
+            return {"saved_dir": data["saved_dir"], "files": files, "status": self.sync_status()}
         base = archive_path(self.settings, kind)
         state = self.download_status(kind)
         if state["state"] == "idle":
@@ -51,13 +62,35 @@ class ReportService:
     def catalog(self):
         return catalog(self.settings)
 
+    def query_catalog(self):
+        data = self.catalog()
+        dates = {entry["date"]: entry for entry in data["dates"]}
+        for kind in DOWNLOADS:
+            for entry in local_files(archive_path(self.settings, kind), kind):
+                day = dates.setdefault(entry["date"], {"date": entry["date"], "complete": False, "files": {}})
+                day["files"][kind] = dict(entry, origin="本地已保存日报")
+        data["dates"] = sorted(dates.values(), key=lambda entry: entry["date"], reverse=True)
+        data["reports"] = ALL_REPORTS
+        return data
+
+    def path_for(self, kind, day):
+        if kind in REPORTS:
+            return report_path(self.settings, kind, day)
+        if kind not in DOWNLOADS:
+            raise ReportError("未知报表类型。")
+        entry = next((item for item in local_files(archive_path(self.settings, kind), kind)
+                      if item["date"] == day), None)
+        if entry is None:
+            raise ReportError("所选日期尚无本地报表，请先同步或刷新目录。")
+        return Path(entry["path"])
+
     def sheets(self, kind: str, day: str):
-        return sheet_names(report_path(self.settings, kind, day))
+        return sheet_names(self.path_for(kind, day))
 
     def query(self, request: dict):
         kind, day = request["kind"], request["date"]
-        path = report_path(self.settings, kind, day)
-        sheet = request.get("sheet") or REPORTS[kind]["sheet"]
+        path = self.path_for(kind, day)
+        sheet = request.get("sheet") or ALL_REPORTS[kind]["sheet"]
         result = query_table(read_table(path, sheet), request)
         result.update(date=day, sheet=sheet, filename=path.name)
         return result
