@@ -80,4 +80,18 @@ if ($LASTEXITCODE -ne 0) { throw '独立收益任务配置检查失败' }
 
 退出码0为成功/复用，1为失败，2为不完整，3为已有任务占用。同一目录的完整文件及哈希通过检查才可复用；失败或不完整不写本次工作台邮件结果，旧目录保留。遇到读取失败或组识别诊断，按运行记录中的原文件日期/行号核对，不把失败当作零值，也不删除旧批次、发送记录或已保存任务绕过去重。
 
+### 不完整结果的只读诊断
+
+工作台日志末尾的Conda错误会转述程序的非零退出码。若前面的JSON为 `state: incomplete`，实际原因以JSON为准。现在历史解析不完整时，日志直接包含异常日期、原始原因、错误份数及最新两期是否取得缓存/差额；当年只有一份报表时单独说明缺少上期。运行仍退出2，不交付可发送结果。
+
+对于已经生成的统计记录，无需重新同步全年报表。在以下**单行**命令中，把 `<记录ID>` 换成日志 `statistics_record` 的实际文件名（不含扩展名）；解释器沿用已验证的任务Python：
+
+```powershell
+& 'D:\conda\envs\swhy_delta1\python.exe' -B -s -X utf8 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\script_making\pnl_history_job.py' --diagnose-record 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\data\reports\swap\statistics\pnl_history_records\<记录ID>.json'
+```
+
+此入口只读取指定JSON，返回诊断、日期和完整性标志，不输出利润金额或邮箱，不加载任务本机设置、不读取源Excel、不同步、不渲染、不发信、不写文件。诊断命令成功读取时退出0；`diagnostics.complete` 才表示已有记录的历史完整性。它不核验导出文件，也不提供邮件发送清单。错误类型或缺失JSON退出1。
+
+保留原始 `errors` 及其报表日期，可直接反馈这部分输出以定位历史结构或缓存问题。已保存任务保持 `--run`；无需为了查看诊断而修改任务参数或计划。
+
 本次验证为隔离数据、合成Excel和模拟SMTP；没有在公司创建任务或发送真实邮件。

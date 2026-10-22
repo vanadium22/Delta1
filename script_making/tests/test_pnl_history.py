@@ -1,9 +1,11 @@
 """Five-to-three sector rollups and the isolated self-only history task."""
+from contextlib import redirect_stdout
 from datetime import date, timedelta
 from decimal import Decimal
 from email import policy
 from email.parser import BytesParser
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -17,7 +19,7 @@ from openpyxl.styles import Font, Alignment
 from shared_data.io import file_lock
 from script_making.downloads import archive_path
 from script_making.pnl_history import build_history, self_config, mail_manifest
-from script_making.pnl_history_job import run_once, main
+from script_making.pnl_history_job import run_once, main, history_diagnostics
 from script_making.statistics import pnl_statistics
 from script_making.statistics_export import render_pages
 from script_making.storage import ReportError, atomic_json, sha256
@@ -250,3 +252,73 @@ class PnlHistoryTests(unittest.TestCase):
         self.assertEqual(main(['--root', str(self.service.settings.root), '--run', '--local-only',
                                '--as-of', '2026-10-20', '--wa-output', str(output)]), 2)
         self.assertFalse(output.exists())
+
+    def test_incomplete_cli_reports_actual_dates_and_errors_without_manifest(self):
+        self.prepare()
+        self.previous_path.write_bytes(b'bad')
+        output, stdout = self.root / 'must-not-exist.json', io.StringIO()
+        with redirect_stdout(stdout):
+            code = main(['--root', str(self.service.settings.root), '--run', '--local-only',
+                         '--as-of', '2026-10-21', '--wa-output', str(output)])
+        record = json.loads(stdout.getvalue())
+        self.assertEqual(code, 2)
+        self.assertEqual(record['state'], 'incomplete')
+        diagnostics = record['diagnostics']
+        snapshot = json.loads(Path(record['statistics_record']).read_text(encoding='utf-8'))
+        self.assertEqual(diagnostics['errors'], snapshot['errors'])
+        self.assertEqual(diagnostics['error_count'], 1)
+        self.assertIn('2026-10-16', record['reason'])
+        self.assertIn(snapshot['errors']['2026-10-16'], record['reason'])
+        self.assertFalse(diagnostics['recent_otc'][0]['has_current'])
+        self.assertTrue(diagnostics['recent_otc'][1]['has_current'])
+        self.assertFalse(diagnostics['recent_otc'][1]['has_change'])
+        self.assertNotIn('export_directory', record)
+        self.assertFalse(output.exists())
+        self.assertFalse(list(self.service.settings.data_path().rglob('*.eml')))
+
+    def test_existing_record_diagnostic_cli_is_read_only_and_omits_mail_and_amounts(self):
+        self.prepare()
+        snapshot = build_history(self.service, '2026-10-19', {'to': 'self@example.invalid'})
+        path = self.root / 'saved-record.json'
+        atomic_json(path, snapshot)
+        digest, files = sha256(path), set(self.root.rglob('*'))
+        fresh = self.root / 'never-created'
+        stdout = io.StringIO()
+        with patch('script_making.storage.Settings', side_effect=AssertionError('must not load settings')), \
+                patch('script_making.daily_job.sync_once', side_effect=AssertionError('must not sync')), \
+                patch('script_making.pnl_history.build_history', side_effect=AssertionError('must not rebuild')), \
+                redirect_stdout(stdout):
+            code = main(['--root', str(fresh), '--diagnose-record', str(path)])
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(result['state'], 'diagnostic_only')
+        self.assertFalse(result['send_email'])
+        self.assertTrue(result['diagnostics']['complete'])
+        self.assertNotIn('self@example.invalid', stdout.getvalue())
+        self.assertEqual(set(result['diagnostics']['recent_otc'][-1]),
+                         {'date', 'previous_date', 'has_current', 'has_change'})
+        self.assertEqual(sha256(path), digest)
+        self.assertEqual(set(self.root.rglob('*')), files)
+        self.assertFalse(fresh.exists())
+        # A record without an earlier interval remains incomplete; actual zero is present.
+        snapshot['otc'] = [{'date': '2026-10-19', 'current': '0', 'change': None}]
+        snapshot['reports'] = snapshot['reports'][-1:]
+        diagnostics, reason = history_diagnostics(snapshot)
+        self.assertFalse(diagnostics['complete'])
+        self.assertTrue(diagnostics['recent_otc'][0]['has_current'])
+        self.assertIn('仅取得1份', reason)
+        snapshot['otc'][0]['change'] = '0'
+        self.assertTrue(history_diagnostics(snapshot)[0]['complete'])
+
+    def test_diagnostic_cli_rejects_wrong_or_missing_record_without_creating_output(self):
+        path = self.root / 'invalid-record.json'
+        atomic_json(path, {'kind': 'daily_report', 'errors': {}, 'otc': [], 'reports': []})
+        fresh = self.root / 'never-created'
+        for record in (path, self.root / 'missing.json'):
+            with self.subTest(record=record), redirect_stdout(io.StringIO()) as stdout:
+                self.assertEqual(main(['--root', str(fresh), '--diagnose-record', str(record)]), 1)
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result['state'], 'failed')
+            self.assertFalse(result['send_email'])
+            self.assertNotIn('export_directory', result)
+        self.assertFalse(fresh.exists())

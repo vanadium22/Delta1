@@ -17,6 +17,42 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+def history_diagnostics(snapshot):
+    """Describe an existing snapshot without exposing amounts or reading its sources."""
+    if (not isinstance(snapshot, dict) or snapshot.get('kind') != 'otc_group_history'
+            or not isinstance(snapshot.get('errors'), dict)
+            or not isinstance(snapshot.get('reports'), list)
+            or not isinstance(snapshot.get('otc'), list)):
+        raise ValueError('请指定独立收益任务的 pnl_history_records 统计记录JSON。')
+    errors, points = snapshot['errors'], snapshot['otc']
+    if (not all(isinstance(day, str) and isinstance(reason, str) for day, reason in errors.items())
+            or not all(isinstance(point, dict) and isinstance(point.get('date'), str) for point in points)):
+        raise ValueError('独立收益任务统计记录中的历史诊断结构无效。')
+    recent = [{'date': point['date'], 'previous_date': point.get('previous_date'),
+               'has_current': point.get('current') is not None,
+               'has_change': point.get('change') is not None} for point in points[-2:]]
+    complete = not errors and bool(recent) and recent[-1]['has_change']
+    diagnostics = {'through': snapshot.get('through'), 'report_count': len(snapshot['reports']),
+                   'error_count': len(errors), 'errors': dict(errors), 'recent_otc': recent,
+                   'complete': complete}
+    if errors:
+        day = max(errors)
+        reason = f'历史报表有{len(errors)}份解析失败；最近异常 {day}：{errors[day]}；不生成可发送草稿。'
+    elif not recent:
+        reason = '未取得场外业务合计历史；不生成可发送草稿。'
+    elif not recent[-1]['has_change']:
+        day = recent[-1]['date']
+        if len(points) == 1:
+            reason = f'当年仅取得1份报表，{day} 缺少可相减的上期数据；不生成可发送草稿。'
+        elif not recent[-1]['has_current']:
+            reason = f'{day} 未取得本期场外业务合计缓存；不生成可发送草稿。'
+        else:
+            reason = f'{day} 未取得可相减的上期数据或区间差额；不生成可发送草稿。'
+    else:
+        reason = '已有统计记录的历史完整性检查通过；仅诊断，未生成或发送邮件。'
+    return diagnostics, reason
+
+
 def run_once(root, as_of, *, local_only=False):
     from shared_data.io import file_lock
     from script_making.daily_job import sync_once
@@ -80,7 +116,8 @@ def run_once(root, as_of, *, local_only=False):
                     atomic_json(path, snapshot)
                     record['statistics_record'] = str(path)
                     if snapshot['errors'] or snapshot['otc'][-1]['change'] is None:
-                        record.update(state='incomplete', reason='历史分组或上期数据不完整，详见统计记录；不生成可发送草稿。')
+                        diagnostics, reason = history_diagnostics(snapshot)
+                        record.update(state='incomplete', diagnostics=diagnostics, reason=reason)
                         return 2, record
                     identity = {k: v for k, v in snapshot.items() if k not in ('id', 'created_at')}
                     fingerprint = hashlib.sha256(json.dumps({'version': VERSION, 'snapshot': identity},
@@ -136,6 +173,8 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--run', action='store_true')
     mode.add_argument('--inspect', action='store_true')
+    mode.add_argument('--diagnose-record', type=Path, metavar='JSON',
+                      help='只读诊断已有收益历史统计记录，不同步、不运行任务、不修改设置')
     mode.add_argument('--set-self-email', metavar='EMAIL', help='仅保存本任务的单一本人邮箱，不运行任务')
     parser.add_argument('--as-of', type=date.fromisoformat)
     parser.add_argument('--local-only', action='store_true')
@@ -146,7 +185,13 @@ def main(argv=None):
     from script_making.pnl_history import CONFIG_NAME, load_self_config, mail_manifest, self_config
     from script_making.storage import atomic_json, today
     try:
-        if args.set_self_email is not None:
+        if args.diagnose_record is not None:
+            snapshot = json.loads(args.diagnose_record.read_text(encoding='utf-8'))
+            diagnostics, reason = history_diagnostics(snapshot)
+            result, code = {'state': 'diagnostic_only', 'send_email': False,
+                            'statistics_record': str(args.diagnose_record.resolve()),
+                            'diagnostics': diagnostics, 'reason': reason}, 0
+        elif args.set_self_email is not None:
             config = self_config({'to': args.set_self_email})
             atomic_json(args.root / CONFIG_NAME, config)
             result, code = {'state': 'configured', 'send_email': False}, 0
