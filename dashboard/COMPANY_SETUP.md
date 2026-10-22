@@ -1,5 +1,19 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
+## 公司日常双击入口
+
+更新代码后，双击公司Git根目录的 `start_numeric_excel_company.cmd`：
+
+```text
+D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\start_numeric_excel_company.cmd
+```
+
+该入口固定使用已验证的 `D:\conda\envs\swhy_delta1\python.exe`，自动定位仓库；不需要打开PowerShell、激活Conda或设置环境变量。可为该文件建立桌面快捷方式；脚本本体保留在仓库内，后续pull继续更新。若Python路径不存在则提示并停止，不改用base或自动安装。
+
+历史补齐和VPN向导与原流程一致：先选检查并补齐或使用现有数据；补齐结束后手动切回行情VPN，再验证打开。时段外只读。保持启动终端开启；日常用此入口打开持续更新的Excel，直接双击已保存xlsx只查看快照。关闭本次Excel后启动器结束。
+
+只有发布新版本时才需要在公司Git根目录执行 `git pull --ff-only origin codex/company-apps`；日常启动不自动更新代码。高级参数仍可附加，如 `start_numeric_excel_company.cmd -ReadOnlyCache`。其他电脑继续使用dashboard/start_numeric_excel.cmd及其原解释器选择规则。
+
 ## 2026-10-22 启动解释器与错误诊断
 
 公司最新只读证据：指定 `D:\conda\envs\swhy_delta1\python.exe` 实际可导入pandas，版本3.0.6，无需安装依赖。14:44运行 `aeec426f815f44359bcb8d6d44be503a` 的run.json却记录requested_python为裸命令python；对应summary的.err在导入numeric_snapshot→pandas时退出，尚未读取历史摘要。这证明那次请求与已验证的绝对路径不一致，旧日志仍不足以确定子进程最终解析成了哪个Python，更不能认定swhy_delta1缺包或向base安装。

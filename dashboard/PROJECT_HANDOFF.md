@@ -1,5 +1,7 @@
 # 数字 Excel：公司统一分支交接
 
+公司日常入口（2026-10-22）：用户已反馈修复后似乎可以启动，尚未回传公司HEAD或完整实盘验收。新增仓库根目录start_numeric_excel_company.cmd，双击直接使用已验证的D:/conda/envs/swhy_delta1/python.exe，自动定位项目并保留原历史/VPN向导、参数和退出码；缺路径停止，不激活/安装环境、不自动pull。4项原生CMD隔离核验通过（默认参数、带空格/中文/特殊字符路径与参数、失败退出码、实际脚本缺路径提示），成功路径使用PowerShell桩和替换解释器路径的副本，无实际Excel/数据/VPN调用；公司双击仍待验收。只新增公司启动入口及说明，通用入口和App前端不变；更新与日常使用见COMPANY_SETUP顶部，证据及SHA见.deps/numeric_company_launcher/release.json。
+
 最新后续（2026-10-22启动环境与权限诊断）：公司14:44运行aeec426f815f44359bcb8d6d44be503a请求裸python，summary在numeric_snapshot导入pandas时退出，未执行摘要；另以绝对路径核验swhy_delta1实际可导入pandas 3.0.6，无需安装依赖。旧记录尚不能确定失败子进程实际解释器。启动器现固定所选可执行路径，记录requested/resolved_python；检查子进程在数值依赖前用标准库记录实际sys.executable、prefix/base_prefix、版本/PID，导入失败亦能写JSON及安全stderr并提供重试/退出，不进入VPN/无效只读流程。另修错误证据丢失、非零退出旧成功报告误用、摘要失败冒称休市；保留阶段/文件/OS码及安全调用位置，时段独立核验，未知明确重试/只读。14:32独立摘要仅证明当时索引可读（history_dates=10/20、target=10/21、gate.allowed=true），不验证完整历史/报告/DDB/VPN/实时。更早PermissionError仍需独立证据。本机锁冲突、空环境及窗口流程均为隔离合成验证；公司当前HEAD及实机恢复仍待反馈。更新与直接指定原Python的命令见COMPANY_SETUP顶部；发布证据及SHA见.deps/numeric_startup_permission/release.json。
 
 本轮重新核验72项Python回归、6个真实子进程/启动器用例、6个时段/导入分流、4条原VPN向导流程、缺配置回退/取消后进程退出及1项实际可见Excel同工作簿更新；598个受保护文件、旧工作区528个已修改/未跟踪文件字节及Git状态未变。仅数字Excel、测试和说明进入白名单，App前端保留旧本地目录。未访问公司实际数据、DDB/行情接口或改VPN；公司盘中B04.Q/B10/B09/B11与日终切换/组合仍需原流程验收。
