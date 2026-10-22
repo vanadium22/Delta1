@@ -1,5 +1,7 @@
 # 数字 Excel：公司统一分支交接
 
+2026-10-22 指标补齐与三类研究页：本轮已按真实原稿补齐非回归范围，原始/分红调整/对数口径各自注册；期现、同品种跨期、跨品种使用共享T−1实体选择及结果契约，默认4/4/6代表、详情分页，原概览与对应指数保留。取消独立组合入口，旧watchlist只读迁移，不改native/VPN配置。A13/ETF已有真实输入校验与接入，缺输入仍空；回归相关继续明确排除。两版App只在旧目录本地，数字Excel/必要后台按白名单发布。完整实施、验收边界和今后新增规范见 [INDICATOR_IMPLEMENTATION.md](INDICATOR_IMPLEMENTATION.md)，逐子项状态见 [覆盖表](INDICATOR_SUBITEM_COVERAGE.json)；下方固定25项/独立组合页为历史。真实公司输入及长期实时运行待验收，不能把公式已实现当作公司数据就绪。
+
 公司入口整理（2026-10-22，覆盖前一版根目录入口）：统一使用原dashboard/start_numeric_excel.cmd；未显式指定SWHY_DELTA1_PYTHON时优先选择公司实际存在的D:/conda/envs/swhy_delta1/python.exe，再按原仓库环境/PATH回退。保留原历史/VPN向导与参数，修正失败退出码传递。根目录重复公司脚本已移除，打开方式.md与脚本放在同一dashboard文件夹，README/设置/运行说明同步更新。7项原生CMD隔离核验通过（解释器优先级/回退、复杂路径与参数、退出码），使用PowerShell桩且仅替换公司路径，不运行实际Excel/数据/VPN。仅清理入口和说明，不动原数据、缓存、配置、实际Excel、VPN或App前端；公司HEAD及此入口实机验收仍待反馈。证据和发布SHA见.deps/numeric_launcher_folder/release.json。
 
 后续公司日志summary-5727d75248b64fb5bac768fe6afbfc02.json.err明确记录系统Python3.13.2（C:/Users/user/AppData/Local/Programs/Python/Python313/python.exe）在summary加载bars模块时缺pyarrow，尚未读取历史数据；用户看到/使用的是原dashboard/start_numeric_excel.cmd。此次入口整理使其在无显式覆盖时优先公司已有swhy_delta1，不据此往系统Python安装依赖，也不认定swhy_delta1缺pyarrow。公司更新后的实际Python/runtime仍待核验。

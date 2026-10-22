@@ -52,9 +52,15 @@ class NumericServiceTests(unittest.TestCase):
             self.assertEqual(len(value['sheets']['数字看板']),16)
             self.assertTrue(value['sheets']['研究指标'])
             from dashboard.numeric_view import METRICS
-            self.assertEqual({r[3] for r in value['sheets']['研究指标']},
-                             {m[0] for m in METRICS}|{'X','B04.Q.intraday','B09.same_time'})
-            self.assertEqual(len(value['workspace']['selection']['rows']),4)
+            actual_ids={r[3] for r in value['sheets']['研究指标']}
+            self.assertTrue({m[0] for m in METRICS}|{'X','B04.Q.intraday','B09.same_time'} <= actual_ids)
+            # These now come from real calculation paths, beyond the old 25 rows.
+            self.assertTrue({'A01.raw_bp','A01.log_bp','A03.mean','A03.std','B10.path'} <= actual_ids)
+            research=value['research']
+            self.assertEqual(set(research['pages']),{'basis','calendar','cross'})
+            self.assertEqual(len(research['pages']['basis']['entities']),4)
+            self.assertEqual(len(research['excel_pages']['basis']['entities']),4)
+            self.assertNotIn('workspace',value)
             self.assertTrue((root/'data/cache/dashboard/numeric/2026-10-02/latest.json').is_file())
             self.assertEqual((local/'native.json').read_bytes(),raw)
             self.assertEqual((store.root/'current.json').read_bytes(),pointer)

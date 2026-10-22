@@ -4,6 +4,7 @@ Missing dates are reindexed to the observed index calendar before differences;
 intraday rolling windows are calculated separately in each continuous session.
 """
 from itertools import combinations
+from copy import deepcopy
 import math
 import numpy as np
 import pandas as pd
@@ -15,7 +16,8 @@ from .instruments import UNDERLYINGS
 
 MULTIPLIERS = {"IF":300, "IH":300, "IC":200, "IM":200}
 FIELDS = ("open", "high", "low", "close", "volume", "open_interest", "turnover", "prev_close")
-INPUTS = {"future":("真实期货价格", "点"), "basis":("分红调整基差", "bp"), "annual":("分红调整年化基差", "年化百分点")}
+from .metric_inputs import INPUTS, input_value, theoretical_cost_band, etf_premium
+from .metric_components import minute_events, add_original_and_components
 
 
 def prior(s, n=20):
@@ -27,6 +29,11 @@ def statistics(s, n=20):
     z = (s-prior(s,n).mean())/sigma.where(sigma > 1e-12)
     pct = s.rolling(n+1,min_periods=n+1).apply(lambda x:100*((x[:-1]<x[-1]).sum()+.5*(x[:-1]==x[-1]).sum())/n,raw=True)
     return z, pct, s.diff(5)
+
+
+def legacy_percentile(s,n=30):
+    """Original overview tie rule; separate from the 20-value half-weight rank."""
+    return s.rolling(n+1,min_periods=n+1).apply(lambda values:100*(values[:-1]<=values[-1]).sum()/n,raw=True)
 
 
 def weighted(delta, weight, n=5):
@@ -41,7 +48,8 @@ def efficiency(s, n=5):
 
 
 def positive(s):
-    return s.where(s>0)
+    values=pd.to_numeric(s,errors='coerce').astype(float)
+    return values.where(values>0)
 
 
 def frame_index(frame):
@@ -54,13 +62,43 @@ def frame_index(frame):
     return frame.set_index("event_time").sort_index()
 
 
+def complete_history_calendar(dates):
+    """Expose whole-session holes using the bundled exchange calendar only.
+
+    Unknown years remain explicit and cannot acquire fabricated weekday rows.
+    The original timestamps remain present; all inserted daily labels are 15:00
+    Asia/Shanghai, matching the repository's daily close convention.
+    """
+    from dashboard.marketdata.trading_calendar import HOLIDAYS
+    index=pd.DatetimeIndex(sorted(set(dates)))
+    if not len(index):return pd.DatetimeIndex([],tz='UTC'), ''
+    if index.tz is None:raise ValueError('历史日线时刻必须带时区')
+    local=index.tz_convert('Asia/Shanghai')
+    unknown=sorted(set(local.year)-set(HOLIDAYS))
+    added=[]
+    for day in pd.date_range(local.min().normalize(),local.max().normalize(),freq='D'):
+        if day.year not in HOLIDAYS:continue
+        key=day.strftime('%m-%d')
+        if day.weekday()<5 and not any(a<=key<=b for a,b in HOLIDAYS[day.year]):
+            added.append((day+pd.Timedelta(hours=15)).tz_convert('UTC'))
+    expanded=index.union(pd.DatetimeIndex(added)).sort_values() if added else index
+    return expanded, '交易日历年份未认证：'+','.join(map(str,unknown)) if unknown else ''
+
+
 def single(f, spot, symbol, expiry, dividends, calendar):
     f = f.reindex(calendar).copy()
     for c in FIELDS:
         if c not in f: f[c] = np.nan
         else: f[c] = pd.to_numeric(f[c],errors='coerce')
+    for c in ('open','high','low','close','prev_close'):
+        f[c]=positive(f[c])
+    f['volume']=f.volume.where(f.volume>=0)
+    f['open_interest']=f.open_interest.where(f.open_interest>=0)
     spot = spot.reindex(calendar)
-    f["S"] = spot.get("close", pd.Series(np.nan,index=calendar))
+    f["S"] = positive(spot.get("close", pd.Series(np.nan,index=calendar)))
+    sh=spot.get('high',pd.Series(np.nan,index=calendar));sl=spot.get('low',pd.Series(np.nan,index=calendar))
+    f['spot_clv']=(2*f.S-sh-sl)/(sh-sl).where(sh>sl)
+    f['spot_volume']=spot.get('volume',pd.Series(np.nan,index=calendar))
     days = pd.Series([(pd.Timestamp(expiry).date()-t.tz_convert("Asia/Shanghai").date()).days for t in calendar], index=calendar) if expiry else pd.Series(np.nan,index=calendar)
     f["T"] = days
     f["D"] = [dividends.points(symbol,t.tz_convert("Asia/Shanghai").date()) for t in calendar]
@@ -68,6 +106,12 @@ def single(f, spot, symbol, expiry, dividends, calendar):
     f["points"] = f.close-f.S+f.D
     f["basis"] = 10000*f.points/positive(f.S)
     f["annual"] = f.basis*365/(100*days.where(days>=5))
+    f["raw_points"] = f.close-f.S
+    f["raw_basis"] = 10000*f.raw_points/positive(f.S)
+    f["log_basis"] = 10000*np.log(positive(f.close)/positive(f.S))
+    f["raw_annual"] = f.raw_basis*365/(100*days.where(days>=5))
+    f["log_annual"] = f.log_basis*365/(100*days.where(days>=5))
+    f["log_convergence"] = -f.log_basis/days.where(days>0)
     f["future"] = f.close
     f["convergence"] = -f.basis/days.where(days>0)
     # Legitimate expiry OI=0 is retained in raw data, but no expiry liquidation signal.
@@ -88,14 +132,20 @@ def single(f, spot, symbol, expiry, dividends, calendar):
 def minute_series(raw, spot, symbol, expiry, dividends, price_input):
     f = frame_index(raw)
     if f.empty: return pd.DataFrame(columns=["x", "volume", "session_id", "trade_date"])
+    if not {'close','volume','session_id','trade_date'}<=set(f):
+        return pd.DataFrame(columns=["x", "volume", "session_id", "trade_date"])
+    f['close']=positive(f.close)
+    f['volume']=pd.to_numeric(f.volume,errors='coerce')
     if price_input == "future": x = f.close
     else:
         s = frame_index(spot).reindex(f.index)
-        d = pd.Series([dividends.points(symbol,t.tz_convert("Asia/Shanghai").date()) for t in f.index],index=f.index,dtype=float)
-        x = 10000*(f.close-s.get("close",np.nan)+d)/s.get("close",pd.Series(np.nan,index=f.index))
-        if price_input == "annual":
-            days = pd.Series([(pd.Timestamp(expiry).date()-t.tz_convert("Asia/Shanghai").date()).days for t in f.index],index=f.index) if expiry else pd.Series(np.nan,index=f.index)
-            x = x*365/(100*days.where(days>=5))
+        values=[]
+        spot_values=positive(s.get('close',pd.Series(float('nan'),index=f.index)))
+        for stamp, price, spot_price in zip(f.index, f.close, spot_values):
+            day=stamp.tz_convert('Asia/Shanghai').date()
+            days=(pd.Timestamp(expiry).date()-day).days if expiry else None
+            values.append(input_value(price_input,float(price),float(spot_price),dividends.points(symbol,day),days))
+        x=pd.Series(values,index=f.index,dtype=float)
     return f.assign(x=x)
 
 
@@ -111,7 +161,7 @@ def minute_daily(frame):
         if not complete: continue
         den = g.volume.sum()
         center = (g.x*g.volume).sum()/den if den>0 else np.nan
-        rows.append(dict(event_time=expected[-1], open=g.x.iloc[0], high=g.x.max(), low=g.x.min(), close=g.x.iloc[-1], center=center, center_gap=g.x.iloc[-1]-center))
+        rows.append(dict(event_time=expected[-1], open=g.x.iloc[0], high=g.x.max(), low=g.x.min(), close=g.x.iloc[-1], center=center, center_gap=g.x.iloc[-1]-center, n=int(g.x.notna().sum()), weight_sum=den, weighted_sum=(g.x*g.volume).sum()))
     return pd.DataFrame(rows).set_index("event_time") if rows else pd.DataFrame()
 
 
@@ -140,7 +190,7 @@ def minute_diagnostics(frame, price_input):
 
 def metric(code, title, series, unit, formula, meaning, *, reason="样本不足、数据缺失或分母无效", scope="完整历史日线", current=None, current_time=None, current_reason=None):
     if not isinstance(series,pd.Series): series=pd.Series(dtype=float)
-    clean=series.replace([np.inf,-np.inf],np.nan)
+    clean=pd.to_numeric(series,errors='coerce').astype(float).replace([np.inf,-np.inf],np.nan)
     valid=clean.dropna()
     value=float(valid.iloc[-1]) if len(valid) else None
     stamp=valid.index[-1].isoformat() if len(valid) else None
@@ -149,6 +199,7 @@ def metric(code, title, series, unit, formula, meaning, *, reason="样本不足�
     return dict(id=code,title=title,value=value,unit=unit,time=stamp,scope=scope,formula=formula,meaning=meaning,
         reason=reason if value is None or last_missing else "",last_valid=last_missing,
         current=current if finite(current) else None,current_time=current_time,current_reason=current_reason,
+        current_supported=current_reason is not None or current_time is not None,
         history=[dict(time=t.isoformat(),value=float(v) if pd.notna(v) else None) for t,v in plotted.tail(400).items()])
 
 
@@ -181,8 +232,7 @@ def collection_center(samples,left,right,category,price_input,dividends,metadata
             if price_input=='future':return f
             d=dividends.points(symbol,day);expiry=metadata.get(symbol,{}).get('expiry_date')
             days=(pd.Timestamp(expiry).date()-day).days if expiry else None
-            values=adjusted_basis(f,group[UNDERLYINGS[symbol[:2]][0]]['close'],d,days)
-            return values['bp' if price_input=='basis' else 'annual_pct']
+            return input_value(price_input,f,group[UNDERLYINGS[symbol[:2]][0]]['close'],d,days)
         x=value(left);y=value(right) if category!='basis' else 0.
         if not finite(x) or not finite(y):numerator=denominator=0.;first=None;continue
         x-=y;first=first or stamp;last_x=x
@@ -192,7 +242,7 @@ def collection_center(samples,left,right,category,price_input,dividends,metadata
     return center,last_x-center,str(tail['source_event_time']),f"采集区间 {first.tz_convert('Asia/Shanghai').strftime('%H:%M:%S')} 起；HTTP接收区间增量量加权，非开盘以来VWAP/交易所分钟线"
 
 
-def calculate(left, right, category, price_input, data, minute_data, metadata, dividends, calendar, live, as_of):
+def calculate(left, right, category, price_input, data, minute_data, metadata, dividends, calendar, live, as_of, *, carry_inputs=None, etf_mapping=None, participation=None):
     """One fixed contract/pair per calculation; UI may select another afterwards."""
     rows=[]; unit=INPUTS[price_input][1]
     empty=pd.DataFrame(columns=FIELDS,index=calendar)
@@ -224,7 +274,29 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
             kwargs.setdefault("reason","需固定合约/合约对的连续窗口：Z/分位20个先前值，五期变化6个值；方差须有效")
         elif code.startswith(("B01","B02","B07","B11","A11","A12")):
             kwargs.setdefault("reason","对应频率字段缺失、同步/连续窗口不足或分母无效；不从两腿日线反推基差OHLC")
-        rows.append(metric(code,title,s,u,formula,meaning,**kwargs))
+        row=metric(code,title,s,u,formula,meaning,**kwargs)
+        row.update(input_id=price_input, formula_version='nonregression-v2',
+                   variant_id=f'{code}:{price_input}:{category}:nonregression-v2')
+        required=(6 if code.endswith('change5') or code.startswith('B10') or code.startswith('A07') else
+                  20 if code.startswith('A03.') or code.startswith(('A04.raw_','A05.log_','A06.raw_','A06.log_')) and code.rsplit('_',1)[-1] in ('mean','std','z','percentile') else
+                  31 if code=='A11' else 30 if code.startswith('A12') else
+                  240 if code.startswith('B02.') and 'collection' not in code else
+                  5 if code.startswith('B03') else 20 if code.startswith(('B09','B11')) else None)
+        if code.startswith('B11.') and code.endswith('.tr'):required=2
+        if code.startswith('B03.') and code.endswith('.doi'):required=2
+        if code=='A03.legacy_percentile30':required=30
+        row['n']=required if row['value'] is not None else None
+        row['history_cutoff']=row['time']
+        row['source_times']={'observation':row['time']} if row['time'] else {}
+        row['input_versions']={'dividend':dividends.version,'dividend_mode':dividends.mode}
+        prior_reference=(code.startswith('A03.') and not code.endswith('change5') or
+            code.startswith(('A04.raw_','A05.log_','A06.raw_','A06.log_')) and code.rsplit('_',1)[-1] in ('mean','std','z','percentile') or
+            code.startswith(('B09','B11')) and not code.endswith('.tr'))
+        if row['time'] and prior_reference:
+            before=x.index[x.index<pd.Timestamp(row['time'])]
+            row['reference_end']=before[-1].isoformat() if len(before) else None
+            row['history_cutoff']=row['reference_end']
+        rows.append(row)
     live_a=live.get(left); live_s=live.get(spot_a)
     ok,why=aligned_quotes([live_a,live_s],as_of)
     day=pd.Timestamp(as_of).tz_convert("Asia/Shanghai").date()
@@ -236,7 +308,7 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
     if category=="basis":
         for suffix,title,col,u,formula in (("points","调整基差点数","points","点","F − S + D"),("bp","调整基差","basis","bp","10000 × (F − S + D) / S")):
             add("A01."+suffix,title,a[col],u,formula,"正为升水，负为贴水；D为固定合约的分红情景。",current=current.get(suffix),current_time=current_time,current_reason=why if not ok else dividends.reason or "分红情景缺失时留空")
-        add("A02.annual","简单年化基差",a.annual,"%", "100 × (F−S+D) / S × 365/T","T为实际到期自然日；T<5隐藏当前值。",current=current.get("annual_pct"),current_time=current_time,current_reason="临到期T<5，当前年化隐藏" if days is not None and days<5 else why)
+        add("A02.annual","简单年化基差",a.annual,"年化百分点", "100 × (F−S+D) / S × 365/T","T为实际到期自然日；T<5隐藏当前值。",current=current.get("annual_pct"),current_time=current_time,current_reason="临到期T<5，当前年化隐藏" if days is not None and days<5 else why)
         add("A02.convergence","假设每日收敛量级",a.convergence,"bp/日","−调整基差bp / T (T>0)","假设线性归零的量级，不是已锁定收益。",current=current.get("convergence_bp_day"),current_time=current_time,current_reason=why)
     elif b is not None:
         if category=="calendar":
@@ -244,8 +316,8 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
             add("A04.points","分红调整跨期点差",points,"点","(F近+D近) − (F远+D远)","近减远；实际盘口与名义金额仍用真实期货。")
             add("A04.bp","分红调整标准化跨期价差",10000*points/positive(a.S),"bp","10000 × 调整点差 / S","两腿同指数、固定具体合约。")
             delta=(pd.Timestamp(metadata[right]["expiry_date"])-pd.Timestamp(metadata[left]["expiry_date"])).days if metadata.get(right,{}).get("expiry_date") and expiry else 0
-            carry=100*((b.close+b.D)/(a.close+a.D)-1)*365/delta if delta>0 else x*np.nan
-            add("A05","简单期限持有率",carry,"%","100 × [(F远+D远)/(F近+D近)−1] × 365/到期日间隔","简单口径；不与对数年化混用。")
+            carry=100*(positive(b.close+b.D)/positive(a.close+a.D)-1)*365/delta if delta>0 else x*np.nan
+            add("A05","简单期限持有率",carry,"年化百分点","100 × [(F远+D远)/(F近+D近)−1] × 365/到期日间隔","简单口径；不与对数年化混用。")
         else:
             add("A06","同月跨指数调整基差差",a.basis-b.basis,"bp","调整基差bp_A − 调整基差bp_B","先按各自指数标准化，再比较同到期月份。")
         multip_a=MULTIPLIERS[left[:2]];multip_b=MULTIPLIERS[right[:2]]
@@ -261,30 +333,41 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
         # Ensure every intervening trading observation exists for attribution.
         continuous=a.close.notna().rolling(6).sum().eq(6)&b.close.notna().rolling(6).sum().eq(6)
         for code,title,s,formula in (("actual","实际期货5日对数收益差",actual,"10000 × [Δ5 ln F_A − Δ5 ln F_B]"),("spot","指数收益差贡献",spot_return,"10000 × [Δ5 ln S_A − Δ5 ln S_B]"),("basis","未调基差贡献",raw_basis,"10000 × Δ5 [ln(F_A/S_A)−ln(F_B/S_B)]"),("scenario","分红情景变换差",scenario_move,"10000 × Δ5 [ln((F_A+D_A)/F_A) − ln((F_B+D_B)/F_B)]")):
-            add("A07."+code,title,s.where(continuous),"bp",formula,"实际期货收益差=指数贡献+未调基差贡献；分红情景变换单列，不计作期货收益。")
+            valid=continuous
+            if code in ('spot','basis'):valid=valid&a.S.notna().rolling(6).sum().eq(6)&b.S.notna().rolling(6).sum().eq(6)
+            if code=='scenario':valid=valid&positive(a.close+a.D).notna().rolling(6).sum().eq(6)&positive(b.close+b.D).notna().rolling(6).sum().eq(6)
+            add("A07."+code,title,s.where(valid),"bp",formula,"实际期货收益差=指数贡献+未调基差贡献；分红情景变换单列，不计作期货收益。")
     add("X","输入值" if b is None else "输入差",x,unit,"x_A" if b is None else "x_A − x_B","所选输入序列；双腿各按自己的指数、分红和到期日计算。")
     z,pct,change=statistics(x)
-    for code,title,s,u,formula in (("z","历史Z",z,"倍","(x_t − mean(x[t−20:t−1])) / sample_std"),("percentile","历史半权分位",pct,"%","100 × (历史<x + 0.5×历史=x) / 20"),("change5","五期变化",change,unit,"x_t − x_(t−5)，需连续6个观测")):
+    for code,title,s,u,formula in (("mean","此前20期均值",prior(x).mean(),unit,"mean(x[t−20:t−1])"),("std","此前20期样本标准差",prior(x).std(ddof=1),unit,"sample_std(x[t−20:t−1]), ddof=1"),("z","历史Z",z,"倍","(x_t − mean(x[t−20:t−1])) / sample_std"),("percentile","历史半权分位",pct,"%","100 × (历史<x + 0.5×历史=x) / 20"),("change5","五期变化",change,unit,"x_t − x_(t−5)，需连续6个观测")):
         s=s.where(x.notna().rolling(6).sum().eq(6)) if code=="change5" else s
         add("A03."+code,title,s,u,formula,"按固定合约/固定合约对计算；参照窗口不含当前观测。")
+    add('A03.legacy_percentile30','固定合约30期≤分位',legacy_percentile(x),'%','100 × N(此前30期x≤当前x)/30','原概览并列处理公式的固定合约扩展；连续到期档位分布由概览独立提供，不替代20期半权分位。')
     rv,events=minute_diagnostics(minute,price_input if b is None else "basis")
-    if price_input!="basis" and category in ("basis","calendar"):
-        em=minute_series(minute_data.get(left,pd.DataFrame()),minute_data.get(spot_a,pd.DataFrame()),left,expiry,dividends,"basis")
-        if category=="calendar" and len(em):
-            other=minute_series(minute_data.get(right,pd.DataFrame()),minute_data.get(spot_a,pd.DataFrame()),right,metadata.get(right,{}).get("expiry_date"),dividends,"basis")
-            em["x"]=em.x-other.get("x",pd.Series(dtype=float)).reindex(em.index)
-        _,events=minute_diagnostics(em,"basis")
     add("A11","短窗实现波动",rv,"bp" if price_input=="future" and b is None else unit,"sqrt(sum(最近30个连续分钟变化²))；真实单腿价格用10000ΔlnF","有符号基差用差分；缺分钟、午休、跨日重置。",scope="完整历史分钟·尾端30分钟")
-    if category in ("basis","calendar"):
-        add("A12","基差/跨期连续偏离确认",events,"次/会话","此前30分钟Z，同方向|Z|≥2连续3根，每个episode只计一次","此项固定使用调整基差/跨期bp；跨会话重置。",scope="完整历史分钟·会话累计")
-    add("A13","理论价成本带",pd.Series(dtype=float),"bp","需融资、分红、方向性交易成本","未取得融资和成本输入，不硬编码为实测。",reason="缺少融资利率、交易成本及可交易现货腿")
+    if category!='cross' or price_input!='future':
+        add("A12","连续偏离确认",events,"次/会话","此前30分钟Z，同方向|Z|≥2连续3根，每个episode只计一次","每个X独立计算；不使用回归残差。",scope="完整历史分钟·会话累计")
+        event_state=minute_events(minute)
+        for key,title,event_unit in (('first','事件首次偏离时刻','Unix秒'),('last','事件末次偏离时刻','Unix秒'),('peak','事件峰值绝对Z','倍'),('duration','事件持续分钟根数','根'),('confirmed','事件确认状态','0/1'),('recovered','事件恢复状态','0/1'),('confirmed_at','事件确认时刻','Unix秒'),('recovered_at','事件恢复时刻','Unix秒')):
+            add('A12.'+key,title,event_state.get(key,pd.Series(dtype=float)),event_unit,'同会话连续同方向偏离；第3根确认，退出阈值恢复','时刻为源分钟时刻；保留最近已确认或正在持续的事件，缺口重置。',scope='完整历史分钟·事件状态')
+    model_values,model_reason=theoretical_cost_band(live_a.get('close') if ok else None,live_s.get('close') if ok else None,days,carry_inputs,as_of,expiry=expiry) if category=='basis' else ({k:None for k in ('fair','deviation','upper','lower','long_space','short_space')},'理论成本带仅适用于可执行期现关系')
+    add('A13','理论价偏离',pd.Series(dtype=float),'bp','10000 × (F−Ffair)/S','真实输入的简单融资股息模型；方向性成本另列。',reason=model_reason or '没有已认证历史成本输入',current=model_values['deviation'],current_time=current_time,current_reason=model_reason)
+    rows[-1]['input_versions']['carry']={k:carry_inputs.get(k) for k in ('version','known_at','effective_from','effective_to','spot_leg_id','expiry_date')} if isinstance(carry_inputs,dict) else None
+    for key,title,model_unit,formula in (('fair','理论期货价格','点','S × [1+(r−q)T/365]'),('deviation','理论价偏离','bp','10000 × (F−Ffair)/S'),('upper','卖期货方向成本上界','点','Ffair + S×short_cost_bp/10000'),('lower','买期货方向成本下界','点','Ffair − S×long_cost_bp/10000'),('long_space','买期货方向带外空间','bp','−deviation − long_cost_bp'),('short_space','卖期货方向带外空间','bp','deviation − short_cost_bp')):
+        add('A13.'+key,title,pd.Series(dtype=float),model_unit,formula,'只接受显式真实条款；负空间保留，不构成交易承诺。',reason=model_reason or '没有已认证历史成本输入',current=model_values[key],current_time=current_time,current_reason=model_reason)
+        rows[-1]['input_versions']={'carry':{k:carry_inputs.get(k) for k in ('version','known_at','effective_from','effective_to','spot_leg_id','expiry_date')}} if isinstance(carry_inputs,dict) else {}
     if category=="calendar" and b is not None:
         book_ok,book_reason=aligned_quotes([live.get(left),live.get(right)],as_of)
         qa,qb=live.get(left,{}),live.get(right,{})
         for side,title,la,lb in (("buy","买近卖远一档报价","ask_price_1","bid_price_1"),("sell","卖近买远一档报价","bid_price_1","ask_price_1")):
             valid=book_ok and all(finite(q.get(k)) and q[k]>0 for q in (qa,qb) for k in ("bid_price_1","ask_price_1","bid_volume_1","ask_volume_1")) and all(q["bid_price_1"]<=q["ask_price_1"] for q in (qa,qb))
             add("A14."+side,title,pd.Series(dtype=float),"点",f"真实{la}_近 − 真实{lb}_远","源行情日期仍待认证；这是观测报价，不保证成交。",current=qa[la]-qb[lb] if valid else None,current_time=str(qa.get("source_event_time")) if valid else None,current_reason=book_reason,reason="没有历史盘口")
-    add("A14.etf","ETF折溢价",pd.Series(dtype=float),"bp","10000 × (ETF/IOPV−1)","需ETF、IOPV及同步时间。",reason="未提供ETF/IOPV")
+    premium,premium_time,premium_reason=etf_premium(etf_mapping,live,as_of,underlying=spot_a) if category=='basis' else (None,None,'ETF指标仅适用于对应指数的期现关系')
+    add("A14.etf","ETF折溢价",pd.Series(dtype=float),"bp","10000 × (ETF/IOPV−1)","显式ETF/IOPV/对应指数映射；同一源时刻校验。",reason="未提供历史ETF/IOPV",current=premium,current_time=premium_time,current_reason=premium_reason)
+    if isinstance(etf_mapping,dict):
+        rows[-1]['input_versions']['etf_iopv_mapping']={k:etf_mapping.get(k) for k in ('etf_id','iopv_id','underlying_id','version','known_at')}
+        rows[-1]['current_source_times']={etf_mapping[k]:live.get(etf_mapping[k],{}).get('source_event_time') for k in ('etf_id','iopv_id') if etf_mapping.get(k)}
+        rows[-1]['source_times']=dict(rows[-1]['current_source_times'])
     # B01/B07/B11: actual price OHLC or synchronized minute-close sample OHLC.
     oa=a if price_input=="future" else minute_daily(ma)
     ob=b if price_input=="future" else minute_daily(mb) if mb is not None else None
@@ -293,7 +376,7 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
         opening=opening_frame.get("open",x*np.nan).reindex(calendar)
         closing=opening_frame.get("close",x*np.nan).reindex(calendar)
         gap=opening-x.shift(); intra=closing-opening
-        threshold=2 if price_input=="basis" else .02 if price_input=="annual" else .0002*a.close.shift()
+        threshold=.0002*a.close.shift() if price_input=="future" else .02 if price_input.endswith('annual') or price_input=='annual' else 2
         for code,title,s,u,formula in (("gap","开盘偏离",gap,unit,"开盘x − 前收x"),("repair","开盘偏离修复比",-intra/gap.where(gap.abs()>=threshold),"倍","−(收盘x−开盘x)/(开盘x−前收x)")):
             detail="以9:31首个同步分钟收盘观测替代开盘，非两腿日线开盘拼接。" if price_input!="future" or category!="basis" else "真实期货开盘。"
             add("B01."+code,title,s,u,formula,detail+"修复比分母门槛：基差2bp、年化0.02个百分点、真实价格为前收的2bp。")
@@ -372,6 +455,7 @@ def calculate(left, right, category, price_input, data, minute_data, metadata, d
             if r["id"].startswith(("A04","A05","A06","A09","B12")):
                 r.update(current=current_values.get(r["id"]),current_time=pair_time,
                     current_reason=pair_reason if not pair_ok else "盘中截至当前累计成交容量，不能与全日量同比" if r["id"].startswith("B12") else "盘中同步观测；分红或指数腿缺失时留空，源日期推定")
+    add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,price_input,metadata,left,right,participation)
     from .intraday import apply
     return apply(rows,left=left,right=right,category=category,price=price_input,a=a,b=b,x=x,
                  minute_data=minute_data,metadata=metadata,dividends=dividends,live=live,now=as_of)
@@ -392,6 +476,12 @@ class ResearchEngine:
         index_ids={v[0] for v in UNDERLYINGS.values()}
         for symbol in model.config.get("collection_symbols",[]):
             symbols.setdefault(symbol,dict(asset_type="cn_index" if symbol in index_ids else "cn_index_future",market_region="CN"))
+        # Read configured ETF/IOPV observations already in the local store only.
+        # This does not enable collection, acquire a feed or change native config.
+        for mapping in model.config.get('research_etf_iopv_mapping',{}).values():
+            if isinstance(mapping,dict):
+                for field in ('etf_id','iopv_id'):
+                    if mapping.get(field):symbols.setdefault(mapping[field],dict(asset_type='cn_etf_reference',market_region='CN'))
         from dashboard.marketdata.contract_reference import latest_contracts
         metadata=latest_contracts(ref.data)
         # Historical reference is revised research, explicitly not PIT. No price
@@ -455,7 +545,7 @@ class ResearchEngine:
             # Include futures sessions too: a whole missing index day must remain
             # visible after futures-only backfill, not silently vanish from windows.
             dates=sorted({t for frame in self.daily.values() for t in frame.index})
-            self.calendar=pd.DatetimeIndex(dates,tz="UTC") if not dates else pd.DatetimeIndex(dates)
+            self.calendar,self.history_calendar_reason=complete_history_calendar(dates)
             self.history_key=history_key
         daily=self.daily; calendar=self.calendar
         minute_data={}
@@ -470,7 +560,7 @@ class ResearchEngine:
                         fields=[*FIELDS,"session_id"],version=frozen[identifier]["version"],allow_unverified_availability=repo.allow_unverified)
                 except ValueError:self.minute_cache[symbol]=pd.DataFrame()
             return self.minute_cache[symbol]
-        if not selection:
+        if not selection and request.get('metrics',True):
             for symbol in selected-{None}: minute_data[symbol]=load_minutes(symbol)
         metric_rows=[]
         pair_error=None
@@ -478,8 +568,26 @@ class ResearchEngine:
         if category=="cross" and (not right or right[:2]==left[:2] or (
             not request.get('allow_mixed_expiry') and (right[2:]!=left[2:] or metadata.get(left,{}).get("expiry_date")!=metadata.get(right,{}).get("expiry_date")))): pair_error="跨指数需要不同品种；普通同月视图要求相同到期日"
         if category=="cross" and price_input=="future":pair_error="跨指数点位不可直接相减；请选择各自分红调整基差或年化基差"
-        if left and len(calendar) and not pair_error and not selection:
-            metric_rows=calculate(left,right,category,price_input,daily,minute_data,metadata,dividends,calendar,live,now)
+        if left and len(calendar) and not pair_error and not selection and request.get('metrics',True):
+            carry=model.config.get('research_carry_inputs',{}).get(left)
+            mappings=model.config.get('research_etf_iopv_mapping',{})
+            mapping=mappings.get(left,mappings.get(left[:2]))
+            reference_key=tuple((s,repr(r)) for s,r in sorted(metadata.items()))
+            live_key=tuple((s,repr(q),quote_quality(q,now)['status']) for s,q in sorted(live.items()))
+            # Timestamp-sensitive input validity participates even when quotes do
+            # not change. Full-source identity prevents stale results reappearing.
+            known_valid=None
+            if isinstance(carry,dict):
+                try:known_valid=pd.Timestamp(carry.get('known_at'))<=now
+                except (ValueError,TypeError):known_valid=False
+            cache_key=(history_key,reference_key,dividends.version,dividends.mode,dividends.reason,
+                       category,price_input,left,right,str(now.tz_convert('Asia/Shanghai').date()),
+                       live_key,repr(carry),repr(mapping),repr(request.get('participation')),known_valid)
+            if cache_key not in self.cache:
+                if len(self.cache)>=48:self.cache.clear()
+                self.cache[cache_key]=calculate(left,right,category,price_input,daily,minute_data,metadata,dividends,calendar,live,now,
+                    carry_inputs=carry,etf_mapping=mapping,participation=request.get('participation'))
+            metric_rows=deepcopy(self.cache[cache_key])
             center,gap,stamp,note=collection_center(model.live_rows,left,right,category,price_input,dividends,metadata,live,now)
             for suffix,title,value in (("collection_center","采集区间成交量加权中枢",center),("collection_gap","采集区间中枢偏离",gap)):
                 metric_rows.append(metric("B02."+suffix,title,pd.Series(dtype=float),INPUTS[price_input][1],"Σ(同步观测x × 有效增量V_A) / Σ有效增量V_A",note,
@@ -526,7 +634,8 @@ class ResearchEngine:
         state=dict(as_of=now.isoformat(),product=left[:2] if left else "IC",frequency="1d",demo=False,versions=dict(key),spread=pd.DataFrame(),
             quotes=quote_rows,metrics=metric_rows,coverage=coverage,contracts=all_contracts,active_contracts=active,
             left=left,right=right,category=category,price_input=price_input,pair_error=pair_error,errors=errors,
-            dividend_info=dividends.info,dividend_reason=dividends.reason,dividend_mode=dividends.mode,dividend_version=dividends.version)
+            dividend_info=dividends.info,dividend_reason=dividends.reason,dividend_mode=dividends.mode,dividend_version=dividends.version,
+            history_calendar_reason=getattr(self,'history_calendar_reason',''))
         if selection:
             from .card_data import dashboard_cards
             state.update(dashboard_cards(self,state,request,selection,daily,calendar,metadata,dividends,live,now,load_minutes))

@@ -96,3 +96,41 @@ def add_view(feed):
     feed['headers'] = {**feed['headers'], '卡片数据': CARD_HEADERS, '指标数据': METRIC_HEADERS}
     sheets.update({'卡片数据': card_rows, '指标数据': metric_rows})
     return feed
+
+
+def add_research_view(feed, workspace):
+    """Render shared contracts, with no formulas or unit conversion in Excel."""
+    import json
+    from dashboard.indicator_catalog import PAGES
+    from dashboard.indicator_workspace import directory_rows, detail_rows
+    import pandas as pd
+    def source_label(row):
+        values=[]
+        for symbol,stamp in (row.get('source_times') or {}).items():
+            text=pd.Timestamp(stamp).tz_convert('Asia/Shanghai').strftime('%m/%d %H:%M:%S') if stamp else '未知'
+            values.append(symbol+' '+text)
+        return '\n'.join(values)
+    pages={}
+    for category in PAGES:
+        page=workspace.get('pages',{}).get(category,{})
+        entities=[]
+        for entity in page.get('entities',[]):
+            row=entity.get('primary',{})
+            note=row.get('reason') or ''
+            expiry_label=('同到期' if entity.get('expiry_type')=='same' else '异期参考' if entity.get('category')=='cross' and entity.get('expiry_type')=='mixed' else '')
+            policy='；'.join(str(s) for s in (expiry_label,entity.get('selection_type'),entity.get('decision_date'),entity.get('selection_reason')) if s)
+            entities.append([entity.get('title'),row.get('value'),row.get('unit'),row.get('time'),
+                             row.get('history_cutoff'),row.get('n'),row.get('implementation_status'),
+                             row.get('data_status'),note,policy,row.get('visibility_status')])
+        details=detail_rows(page)
+        # Add formula identity to the already shared input-version cell.
+        for target,(_,row) in zip(details,((e,r) for e in page.get('entities',[]) for r in e.get('metrics',[]))):
+            target[3]=source_label(row)
+            target[8]='\n'.join(k+': '+(json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':')) if isinstance(v,(dict,list)) else str(v))
+                for k,v in dict(variant=row.get('variant_id'),formula=row.get('formula_version'),**(row.get('input_versions') or {})).items())
+        status=workspace.get('error') or (
+            f"{page.get('selected_variant_id','')} · {page.get('total',0)} 个适用实体 · "
+            f"本页 {page.get('offset',0)} 起 {len(entities)} 个" if page.get('loaded') else '选择此页后加载；目录全部保留')
+        pages[category]=dict(directory=directory_rows(page),entities=entities,details=details,status=status)
+    feed['research']={**workspace,'excel_pages':pages}
+    return feed

@@ -59,7 +59,11 @@ def workbook_payload(payload):
         ['分红版本',payload['snapshots'][0].get('dividend_version','')],
     ] if payload['snapshots'] else []
     from dashboard.numeric_view import add_view
-    return add_view(dict(schema_version=1,generated_at=payload['generated_at'],mode=payload['mode'],headers=HEADERS,sheets=sheets))
+    result=add_view(dict(schema_version=1,generated_at=payload['generated_at'],mode=payload['mode'],headers=HEADERS,sheets=sheets))
+    if payload.get('research'):
+        from dashboard.numeric_view import add_research_view
+        add_research_view(result,payload['research'])
+    return result
 
 
 def capture(model, now=None, *, progress=None, stopped=None):
@@ -162,13 +166,15 @@ def main(argv=None):
             payload['cache_scope']=model.numeric_cache_scope
             feed=workbook_payload(payload)
             if not args.snapshot:
-                from dashboard.research_workspace import evaluate, save_preferences
+                from dashboard.indicator_workspace import evaluate, save_preferences
+                from dashboard.numeric_view import add_research_view
                 selected=None
                 if args.selection_file and args.selection_file.exists():
                     try:selected=json.loads(args.selection_file.read_text(encoding='utf-8-sig'))
                     except (OSError,ValueError):pass
                 workspace=evaluate(model,selected)
-                feed['workspace']=workspace
+                add_research_view(feed,workspace)
+                payload['research']=workspace
                 if isinstance(selected,dict) and selected.get('request_id')!=getattr(model,'saved_workspace_request',None):
                     save_preferences(model.local_root,workspace['selection'])
                     model.saved_workspace_request=selected.get('request_id')

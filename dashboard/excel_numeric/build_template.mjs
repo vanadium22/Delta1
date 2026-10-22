@@ -13,6 +13,8 @@ const headers={
  '来源与状态':['项目','内容'],
 };
 const wb=Workbook.create();
+const {addWorkspace}=await import('./workspace_template.mjs');
+addWorkspace(wb,metadata);
 Object.assign(headers,metadata.headers);
 for(const [name,cols] of Object.entries(headers)){
  const sheet=wb.worksheets.add(name);sheet.showGridLines=false;
@@ -48,11 +50,9 @@ for(const [name,cols] of Object.entries(headers)){
 }
 const {addViews}=await import('./view_template.mjs');
 addViews(wb,metadata);
-const {addWorkspace}=await import('./workspace_template.mjs');
-addWorkspace(wb);
 wb.recalculate();await fs.mkdir(path.dirname(destination),{recursive:true});
 await(await SpreadsheetFile.exportXlsx(wb)).save(destination);
-console.log(JSON.stringify({template:destination,sheets:10,containsBusinessData:false}));
+console.log(JSON.stringify({template:destination,sheets:wb.worksheets.items.length,containsBusinessData:false}));
 // Optional synthetic preview data is loaded only AFTER exporting the blank template.
 if(process.argv[4]){
  const sample=JSON.parse(await fs.readFile(process.argv[4],'utf8'));
@@ -61,16 +61,23 @@ if(process.argv[4]){
   const width=sample.headers[name].length;
   wb.worksheets.getItem(name).getRange(`A7:${String.fromCharCode(64+width)}${rows.length+6}`).values=rows;
  }
- if(sample.workspace){
-  const s=wb.worksheets.getItem('组合对比'),w=sample.workspace;
-  s.getRange(`A7:F${6+w.selection.rows.length}`).values=w.selection.rows.map(r=>['category','left','right','input','timing','date'].map(k=>r[k]));
-  s.getRange(`G7:P${6+w.comparisons.length}`).values=w.comparisons;
-  if(w.details.length)s.getRange(`A20:I${19+w.details.length}`).values=w.details;
+ if(sample.research){
+  for(const [id,name] of [['basis','期现'],['calendar','同品种跨期'],['cross','跨品种']]){
+   const s=wb.worksheets.getItem(name),p=sample.research.excel_pages[id];
+   const selected=sample.research.pages[id]?.selection||{};
+   for(const [cell,key] of [['B3','variant_id'],['E3','scope'],['H3','root'],['K3','left'],['N3','right'],['B4','timing'],['E4','date'],['H4','expiry_mode'],['K4','offset'],['N4','limit'],['B8','participation']]){
+    if(selected[key]!==undefined)s.getRange(cell).values=[[selected[key]]];
+   }
+   if(p.directory.length)s.getRange(`A13:E${12+p.directory.length}`).values=p.directory;
+   if(p.entities.length)s.getRange(`G13:Q${12+p.entities.length}`).values=p.entities;
+   if(p.details.length){s.getRange(`A280:K${279+p.details.length}`).values=p.details;s.getRange(`A280:K${279+p.details.length}`).format.autofitRows();}
+   s.getRange('A9').values=[[p.status]];
+  }
  }
  wb.recalculate();
- for(const [name,range] of [['概览','A1:S42'],['指标','A1:O35'],['组合对比','A1:P29']]){
+ for(const [name,range] of [['期现','A1:Q22'],['同品种跨期','A1:Q22'],['跨品种','A1:Q22'],['期现','A279:K284'],['来源与状态','A1:B16']]){
   const png=await wb.render({sheetName:name,range,scale:1.2,format:'png'});
-  await fs.writeFile(path.join(path.dirname(process.argv[4]),name+'.png'),new Uint8Array(await png.arrayBuffer()));
+  await fs.writeFile(path.join(path.dirname(process.argv[4]),name+(range.startsWith('A279')?'_详情':'')+'.png'),new Uint8Array(await png.arrayBuffer()));
  }
  console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1500})).ndjson);
 }

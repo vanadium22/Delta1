@@ -1,5 +1,13 @@
 # 公司所有 App：统一更新
 
+## 2026-10-22 指标补齐与三类研究页
+
+第一、第二版原稿重新核验后实施非回归子项、独立X和原稿对数/未调整口径；共享注册/结果契约及T−1全候选代表选择驱动期现、同品种跨期、跨品种，默认4/4/6、全部详情分页。原概览/对应指数保留，独立组合入口取消，旧偏好只读兼容。A13/ETF有真实输入接口和校验，缺输入不填演示值，回归相关不纳入。本次仅数字Excel、必要后台/测试/说明发布；两版App本地优化留旧工作区。原文件夹入口、行情/缓存/分红/配置/VPN及其他任务现场保留。
+
+实施与验证边界见 [指标实施](dashboard/INDICATOR_IMPLEMENTATION.md) 和 [逐子项覆盖](dashboard/INDICATOR_SUBITEM_COVERAGE.json)，本机详细证据及发布SHA见忽略目录 `.deps/metric_implementation/release.json`。公司关闭本次数值Excel/启动器，在原Git根目录 `git pull --ff-only origin codex/company-apps` 后继续双击原 `dashboard/start_numeric_excel.cmd`。无需重导数据或重配VPN；真实公司输入、历史可见性认证及长期运行仍须公司验收。
+
+最终131项相关测试、3项实际可见Excel合成验收通过；两版Qt各313个页面变体组/5682条唯一结果与Excel投影契约一致（含822条缺输入），9共享文件逐个哈希相同。原稿126子项中8条回归明确排除；公式、输入、三端和公司验收状态分开。旧目录另一指数策略任务在期间的改动原样保留，未混入本次发布；现用VPN锁不打开、不处理。
+
 ## 2026-10-22 数字Excel原文件夹入口整理
 
 日常统一双击原dashboard/start_numeric_excel.cmd，打开方式.md与脚本同放在dashboard文件夹；根目录重复的公司专用脚本已移除。原入口在无SWHY_DELTA1_PYTHON显式指定时优先选择公司实际存在的D:/conda/envs/swhy_delta1/python.exe，再回退仓库环境/PATH；自动定位项目，保留参数、失败退出码和原历史补齐/手工切回VPN向导。无需每次激活Conda或设置变量；启动不自动pull、不安装依赖或改配置。README/设置/运行说明及模块约定同步整理，数据、缓存、实际Excel、配置、VPN和旧工作区前端保留。

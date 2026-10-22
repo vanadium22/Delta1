@@ -1,6 +1,7 @@
 """Opt-in Windows Excel integration: two updates in the SAME open workbook."""
 import json
 import os
+import posixpath
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,13 +14,29 @@ from dashboard.numeric_snapshot import save_snapshot
 
 ROOT=Path(__file__).resolve().parents[1]
 NS={'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+DOCUMENT_REL='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+PACKAGE_REL='http://schemas.openxmlformats.org/package/2006/relationships'
 
 
-def cell(path, address):
+def cell(path, address, sheet_name='数字看板'):
     with zipfile.ZipFile(path) as z:
-        sheet=ET.fromstring(z.read('xl/worksheets/sheet1.xml'))
+        workbook=ET.fromstring(z.read('xl/workbook.xml'))
+        selected=next(s for s in workbook.findall('s:sheets/s:sheet',NS) if s.attrib['name']==sheet_name)
+        identifier=selected.attrib['{'+DOCUMENT_REL+'}id']
+        relationships=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+        target=next(r.attrib['Target'] for r in relationships.findall('{'+PACKAGE_REL+'}Relationship')
+                    if r.attrib['Id']==identifier)
+        member=target.lstrip('/') if target.startswith('/') else posixpath.normpath('xl/'+target)
+        sheet=ET.fromstring(z.read(member))
         v=sheet.find(f'.//s:c[@r="{address}"]/s:v',NS)
         return None if v is None else float(v.text)
+
+
+def sheet_visibility(path):
+    with zipfile.ZipFile(path) as z:
+        workbook=ET.fromstring(z.read('xl/workbook.xml'))
+        return {s.attrib['name']:s.attrib.get('state','visible')
+                for s in workbook.findall('s:sheets/s:sheet',NS)}
 
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; explicitly opt in')
@@ -289,6 +306,12 @@ $bitmap.Save($Destination,[Drawing.Imaging.ImageFormat]::Png);$graphics.Dispose(
                 self.assertEqual(cell(out,'D7'),2345.)
                 self.assertIsNone(cell(out,'E7'))
                 self.assertEqual(cell(out,'J7'),0.)
+                visibility=sheet_visibility(out)
+                self.assertEqual({name for name,state in visibility.items() if state=='visible'},
+                                 {'概览','期现','同品种跨期','跨品种','来源与状态'})
+                self.assertNotIn('组合对比',visibility)
+                self.assertNotEqual(visibility['指标'],'visible')
+                self.assertNotEqual(visibility['数字看板'],'visible')
                 with zipfile.ZipFile(out) as z:
                     self.assertEqual(len([n for n in z.namelist() if n.startswith('xl/charts/chart') and n.endswith('.xml')]),1)
             finally:

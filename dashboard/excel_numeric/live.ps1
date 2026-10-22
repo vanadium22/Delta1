@@ -49,7 +49,9 @@ function Set-ViewState([string]$Mode, [string]$Message, [string]$Identity, [stri
     $book.Worksheets.Item('概览').Range('B42').Formula=$Times
     $book.Worksheets.Item('指标').Range('B4').Formula=$Mode+' · '+$Message
     $book.Worksheets.Item('指标').Range('B35').Formula=$Identity
-    $book.Worksheets.Item('组合对比').Range('A5').Formula=$Identity+' · '+$Mode
+    foreach($name in @('期现','同品种跨期','跨品种')) {
+        $book.Worksheets.Item($name).Range('A5').Formula=$Identity+' · '+$Mode+' · '+$Message+' · '+$Times
+    }
 }
 SaveRun
 function ProducerFailure {
@@ -57,7 +59,7 @@ function ProducerFailure {
     $tail = if (Test-Path -LiteralPath $errorLog) { (Get-Content -LiteralPath $errorLog -Tail 15 -Encoding UTF8) -join [Environment]::NewLine } else { '' }
     return "数据服务退出，日志：$errorLog`n$tail"
 }
-. (Join-Path $PSScriptRoot 'workspace.ps1')
+. (Join-Path $PSScriptRoot 'research.ps1')
 $selectionFile=Join-Path $runRoot 'selection.json'
 try {
     . (Join-Path $PSScriptRoot 'startup.ps1')
@@ -105,9 +107,9 @@ try {
     $owned = $true; $excel.DisplayAlerts = $false
     $book = $excel.Workbooks.Open($Output)
     $excel.Calculation = -4105 # Automatic; selectors recalculate without another feed.
-    $book.Worksheets.Item('概览').Activate()
+    $book.Worksheets.Item('期现').Activate()
     foreach ($sheet in $book.Worksheets) {
-        if ($sheet.Name -notin @('概览','指标','组合对比','来源与状态')) { $sheet.Visible=0 }
+        if ($sheet.Name -notin @('概览','期现','同品种跨期','跨品种','来源与状态')) { $sheet.Visible=0 }
     }
     $book.Windows.Item(1).Zoom=85
     $valueAxis=$book.Worksheets.Item('概览').ChartObjects(1).Chart.Axes(2)
@@ -120,7 +122,7 @@ try {
     $run.excel_pid = $excelProcessId
     $book.Windows.Item(1).Caption = (Split-Path $Output -Leaf) + ' · Delta1 ' + $runId.Substring(0,8)
     foreach ($sheet in $book.Worksheets) {
-        if ($sheet.Name -notin @('概览','指标','组合对比')) { $sheet.Range('A1').Formula = '文件：' + $Output }
+        if ($sheet.Name -notin @('概览','指标','期现','同品种跨期','跨品种')) { $sheet.Range('A1').Formula = '文件：' + $Output }
     }
     # Excel may ignore Visible=True before it has an open workbook. Restore
     # only this owned workbook after Open; never attach to another instance.
@@ -155,9 +157,9 @@ try {
         if (-not $open) { break }
         $feed = Get-Content -LiteralPath $FeedFile -Raw -Encoding UTF8 | ConvertFrom-Json
         try { Sync-Workspace $feed; $run['workspace_error']=$null } catch {
-            $run['workspace_error']=$_.Exception.Message
-            if(-not (IsBusy $_.Exception)) { Write-Warning ('组合选择等待重试：'+$_.Exception.Message) }
-            try { $book.Worksheets.Item('组合对比').Range('A17').Formula='组合读取暂未完成；正在重试，详情见启动终端' } catch {}
+            $run['workspace_error']=$_.Exception.Message+' '+$_.ScriptStackTrace
+            if(-not (IsBusy $_.Exception)) { Write-Warning ('研究选择等待重试：'+$_.Exception.Message) }
+            try { $book.Worksheets.Item('期现').Range('A9').Formula='研究选择读取暂未完成；正在重试，详情见启动终端' } catch {}
         }
         if ($producer -and $producer.HasExited -and (-not $Once -or $feed.ready -eq $false)) { throw (ProducerFailure) }
         if ($feed.ready -ne $false -and -not $initialReady) {
@@ -210,7 +212,7 @@ try {
                     $source = if ($feed.evidence) { (Beijing $feed.evidence.oldest_source_time) + ' 至 ' + (Beijing $feed.evidence.newest_source_time) } else { '以逐行数据时间为准' }
                     $note = if ($feed.evidence) { [string]$feed.evidence.note } else { '未提供行情变化证据' }
                     foreach ($sheet in $book.Worksheets) {
-                        if ($sheet.Name -in @('概览','指标','组合对比')) { continue }
+                        if ($sheet.Name -in @('概览','指标','期现','同品种跨期','跨品种')) { continue }
                         $sheet.Range('A3').Formula = [string]$feed.mode + ' · ' + $note
                         $sheet.Range('A4').Formula = if ($feed.ready -eq $false) { '四档计算中，尚未全部就绪 · 原始数据：' + $source } else { '计算完成（北京）：' + (Beijing $calculated) + ' · 原始数据：' + $source }
                         $sheet.Range('A5').Formula = '运行 ' + $runId.Substring(0,8) + ' · 检查 ' + (Beijing ([DateTimeOffset]::Now.ToString('o'))) + ' · 仅启动器窗口持续更新；重开文件为快照'
@@ -279,7 +281,7 @@ try {
             }
             try {
                 foreach ($sheet in $book.Worksheets) {
-                    if ($sheet.Name -notin @('概览','指标','组合对比')) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
+                    if ($sheet.Name -notin @('概览','指标','期现','同品种跨期','跨品种')) { $sheet.Range('A4').Formula = $message + '；空白表示待计算，关闭窗口可停止。' }
                 }
                 Set-ViewState '计算中' $message ('维护中 · '+$runId.Substring(0,8)) '空白表示待计算'
             } catch {
@@ -292,7 +294,7 @@ try {
             $run.state='calculation_delayed'; SaveRun
             try {
                 foreach ($sheet in $book.Worksheets) {
-                    if ($sheet.Name -notin @('概览','指标','组合对比')) { $sheet.Range('A5').Formula = '计算更新延迟 · 运行 ' + $runId.Substring(0,8) + ' · 上次计算 ' + (Beijing $feed.generated_at) + '；行情是否新鲜见原始时点。' }
+                    if ($sheet.Name -notin @('概览','指标','期现','同品种跨期','跨品种')) { $sheet.Range('A5').Formula = '计算更新延迟 · 运行 ' + $runId.Substring(0,8) + ' · 上次计算 ' + (Beijing $feed.generated_at) + '；行情是否新鲜见原始时点。' }
                 }
                 Set-ViewState '更新延迟' '数据时间见各卡片' ('维护中 · '+$runId.Substring(0,8)) ('上次计算 '+(Beijing $feed.generated_at))
             } catch {
@@ -314,12 +316,12 @@ try {
     if ($book) {
         try {
             foreach ($sheet in $book.Worksheets) {
-                if ($sheet.Name -notin @('概览','指标','组合对比')) { $sheet.Range('A5').Formula = '已停止自动更新 · 运行 ' + $runId.Substring(0,8) + ' · 此文件为保存快照；数据时点见逐行列' }
+                if ($sheet.Name -notin @('概览','指标','期现','同品种跨期','跨品种')) { $sheet.Range('A5').Formula = '已停止自动更新 · 运行 ' + $runId.Substring(0,8) + ' · 此文件为保存快照；数据时点见逐行列' }
             }
             $endMode=if($run.state -eq 'failed'){'错误 · 已停止'}else{'已停止'}
             $endNote=if($run.state -eq 'failed'){'本次失败，详情见启动终端；数据时间见卡片'}else{'保存快照 · 数据时间见各卡片'}
             Set-ViewState $endMode $endNote ('已停止 · '+$runId.Substring(0,8)+' · '+(Split-Path $Output -Leaf)) ('上次成功保存 '+(Beijing $run.last_save_at))
-            $book.Worksheets.Item('组合对比').Range('A17').Formula='已停止维护 · 此文件为快照；选择不再触发计算'
+            foreach($name in @('期现','同品种跨期','跨品种')){$book.Worksheets.Item($name).Range('A9').Formula='已停止维护 · 此文件为快照；选择不再触发计算'}
             $book.Save()
             $excel.StatusBar='Delta1 · '+$endMode+' · 此文件为保存快照'
             if ($Hidden) { $book.Close($true) }

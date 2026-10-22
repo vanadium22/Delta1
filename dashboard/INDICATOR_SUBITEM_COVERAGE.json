@@ -1,0 +1,2405 @@
+{
+  "schema_version": 1,
+  "created_on": "2026-10-22",
+  "formula_version": "nonregression-v2",
+  "source_documents": [
+    {
+      "path": "P:/project/swhy/Delta1/project/dashboard/outputs/2026-10-12/股指期货基差指标计算与配对研究详解_2026-10-12.docx",
+      "sha256": "183753aab17a3b7d564a4b251b446921c77743eb2c972aa61ad0d1675e4a3fea",
+      "bytes": 152094,
+      "tables": 20,
+      "omml": 49
+    },
+    {
+      "path": "P:/project/swhy/Delta1/project/dashboard/outputs/2026-10-13/股指期货量价持仓可解释指标研究_2026-10-13.docx",
+      "sha256": "ae0f52050faeca305973a9376c235fc66f838e509310b2dd66057c1fc92bd9a3",
+      "bytes": 101082,
+      "tables": 18,
+      "omml": 37
+    }
+  ],
+  "evidence": {
+    "synthetic_formula_suite": "tests/test_indicator_formula_redesign.py",
+    "no_real_external_inputs_fetched": true,
+    "no_real_company_acceptance_run": true,
+    "synthetic_formula_tests_passed": 16,
+    "shared_formula_intraday_cards_numeric_tests_passed": 48,
+    "shared_registry_selection_contract_tests_passed": 20,
+    "backend_ready_for_individual_file_sync": true,
+    "combined_backend_contract_tests_passed": 66,
+    "backend_tests_passed": 131,
+    "native_excel_synthetic_tests_passed": 3,
+    "qt_page_variant_groups_per_edition": 313,
+    "qt_unique_results_per_edition": 5682,
+    "explicitly_missing_inputs_per_edition": 822,
+    "shared_backend_files_hash_equal": 9,
+    "contract_sha256": "843f9720c8c2cf26350c22634c073ea2e96fe0a913ea18f75713ae1c3a4ffcc5",
+    "fixture_sha256": "4eadab737fda970ffec6e39defacca6f28752c99eb2f6c8bf16ba97e93c19fc8",
+    "frozen_adapter_metric_subitems_matched": 117,
+    "native_excel_validation": "same visible owned workbook; choices, fresh/daily times, missing/zero, graph, cache/request guard, explicit p"
+  },
+  "status_note": "Implemented formulas, conditional real-input availability, frozen three-adapter equality and unrun company acceptance are separate. Eight regression exclusions remain excluded. Missing real inputs remain blank.",
+  "subitems": [
+    {
+      "source_id": "V1-2-N",
+      "metric_ids": [
+        "A09.amountA",
+        "A09.amountB"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-Bpoints",
+      "metric_ids": [
+        "A01.raw_points"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-B",
+      "metric_ids": [
+        "A01.raw_bp"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-b",
+      "metric_ids": [
+        "A01.log_bp"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-Alog",
+      "metric_ids": [
+        "A02.log_annual"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-Asimple",
+      "metric_ids": [
+        "A02.raw_annual"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-3-D",
+      "metric_ids": [
+        "A02.log_convergence"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-mean",
+      "metric_ids": [
+        "A03.mean"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-std",
+      "metric_ids": [
+        "A03.std"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-Z",
+      "metric_ids": [
+        "A03.z"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-P",
+      "metric_ids": [
+        "A03.percentile"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-Plegacy",
+      "metric_ids": [
+        "A03.legacy_percentile30",
+        "overview.chart.legacy_percentile30"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "scope_note": "overview is independently labelled continuous-slot or fixed-contract; A03 is explicit fixed-contract formula extension; neither replaces 20-point half-weight percentile",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-4-delta5",
+      "metric_ids": [
+        "A03.change5"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-5-points",
+      "metric_ids": [
+        "A04.raw_points"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-5-C",
+      "metric_ids": [
+        "A04.raw_bp",
+        "A04.raw_mean",
+        "A04.raw_std",
+        "A04.raw_z",
+        "A04.raw_change5"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-5-k",
+      "metric_ids": [
+        "A05.log_carry",
+        "A05.log_mean",
+        "A05.log_std",
+        "A05.log_z",
+        "A05.log_percentile",
+        "A05.log_change5"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-5-hedge",
+      "metric_ids": [
+        "B12.h",
+        "A09.h",
+        "A09.one_to_one_pnl5"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-6-Glog",
+      "metric_ids": [
+        "A06.log_bp"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-6-Gsimple",
+      "metric_ids": [
+        "A06.raw_bp"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-6-Gstats",
+      "metric_ids": [
+        "A06.log_mean",
+        "A06.log_std",
+        "A06.log_z",
+        "A06.raw_mean",
+        "A06.raw_std",
+        "A06.raw_z"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-7-attribution",
+      "metric_ids": [
+        "A07.actual",
+        "A07.spot",
+        "A07.basis",
+        "A07.scenario"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-8-regression",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-9-notional",
+      "metric_ids": [
+        "A09.amountA",
+        "A09.amountB"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-9-hEqual",
+      "metric_ids": [
+        "A09.h"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-9-hBeta",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-9-residual",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-10-regression",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-10-residual",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-11-RV",
+      "metric_ids": [
+        "A11"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-11-events",
+      "metric_ids": [
+        "A12",
+        "A12.first",
+        "A12.last",
+        "A12.peak",
+        "A12.duration",
+        "A12.confirmed",
+        "A12.recovered",
+        "A12.confirmed_at",
+        "A12.recovered_at"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "excluded_subitems": [
+        "regression_residual_event"
+      ],
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-fair",
+      "metric_ids": [
+        "A13.fair"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-deviation",
+      "metric_ids": [
+        "A13.deviation"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-cost",
+      "metric_ids": [
+        "A13.upper",
+        "A13.lower",
+        "A13.long_space",
+        "A13.short_space"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "scope_note": "directional explicit long/short costs replace unsigned symmetric demonstration; no default 5bp or example financing rates",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-bookLong",
+      "metric_ids": [
+        "A14.buy"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-bookShort",
+      "metric_ids": [
+        "A14.sell"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-12-ETF",
+      "metric_ids": [
+        "A14.etf"
+      ],
+      "formula_status": "implemented",
+      "input_status": "real_input_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V1-14-direction",
+      "metric_ids": [
+        "indicator_help.explain_metric"
+      ],
+      "formula_status": "explanation_implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "explanation_reviewed_nonregression_only",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "adapter_evidence": "native/indicator_help.py reviewed; no beta direction or strategy position introduced"
+    },
+    {
+      "source_id": "V1-14-Gbeta",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V1-14-attributionBeta",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "evidence_test": null,
+      "reason": "User explicitly retained non-regression scope; no beta, regression residual or beta attribution implemented."
+    },
+    {
+      "source_id": "V2-01-B01.prev",
+      "metric_ids": [
+        "B01.prev"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.open",
+      "metric_ids": [
+        "B01.open"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.close",
+      "metric_ids": [
+        "B01.close"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.gap",
+      "metric_ids": [
+        "B01.gap"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.d",
+      "metric_ids": [
+        "B01.d"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.repair",
+      "metric_ids": [
+        "B01.repair"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-01-B01.threshold",
+      "metric_ids": [
+        "B01.threshold"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.center",
+      "metric_ids": [
+        "B02.center"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.gap",
+      "metric_ids": [
+        "B02.gap"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.n",
+      "metric_ids": [
+        "B02.n"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.weight_sum",
+      "metric_ids": [
+        "B02.weight_sum"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.weighted_sum",
+      "metric_ids": [
+        "B02.weighted_sum"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.collection_center",
+      "metric_ids": [
+        "B02.collection_center"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-02-B02.collection_gap",
+      "metric_ids": [
+        "B02.collection_gap"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03",
+      "metric_ids": [
+        "B03"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.A.drift",
+      "metric_ids": [
+        "B03.A.drift"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.A.doi",
+      "metric_ids": [
+        "B03.A.doi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.A.positive_weight",
+      "metric_ids": [
+        "B03.A.positive_weight"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.B.drift",
+      "metric_ids": [
+        "B03.B.drift"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.B.doi",
+      "metric_ids": [
+        "B03.B.doi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-03-B03.B.positive_weight",
+      "metric_ids": [
+        "B03.B.positive_weight"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.A.volume",
+      "metric_ids": [
+        "B04.A.volume"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.A.previous_oi",
+      "metric_ids": [
+        "B04.A.previous_oi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.A.doi",
+      "metric_ids": [
+        "B04.A.doi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.A.Q",
+      "metric_ids": [
+        "B04.A.Q"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.A.K",
+      "metric_ids": [
+        "B04.A.K"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.B.volume",
+      "metric_ids": [
+        "B04.B.volume"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.B.previous_oi",
+      "metric_ids": [
+        "B04.B.previous_oi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.B.doi",
+      "metric_ids": [
+        "B04.B.doi"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.B.Q",
+      "metric_ids": [
+        "B04.B.Q"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.B.K",
+      "metric_ids": [
+        "B04.B.K"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-04-B04.Q.intraday",
+      "metric_ids": [
+        "B04.Q.intraday"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.M",
+      "metric_ids": [
+        "B05.M"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.R",
+      "metric_ids": [
+        "B05.R"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.N",
+      "metric_ids": [
+        "B05.N"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.doi_near",
+      "metric_ids": [
+        "B05.doi_near"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.doi_far",
+      "metric_ids": [
+        "B05.doi_far"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-05-B05.denominator",
+      "metric_ids": [
+        "B05.denominator"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-06-B06",
+      "metric_ids": [
+        "B06"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-06-B06.volume_share",
+      "metric_ids": [
+        "B06.volume_share"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-06-B06.oi_share",
+      "metric_ids": [
+        "B06.oi_share"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-06-B06.volume_denominator",
+      "metric_ids": [
+        "B06.volume_denominator"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-06-B06.oi_denominator",
+      "metric_ids": [
+        "B06.oi_denominator"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07",
+      "metric_ids": [
+        "B07"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.volume",
+      "metric_ids": [
+        "B07.volume"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "pair-only; basis page retains actual futures/index CLV and per-leg RVOL, without treating index aggregate volume as executable basket volume",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.A.clv",
+      "metric_ids": [
+        "B07.A.clv"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.A.rvol",
+      "metric_ids": [
+        "B07.A.rvol"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.A.volume_baseline",
+      "metric_ids": [
+        "B07.A.volume_baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.B.clv",
+      "metric_ids": [
+        "B07.B.clv"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.B.rvol",
+      "metric_ids": [
+        "B07.B.rvol"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-07-B07.B.volume_baseline",
+      "metric_ids": [
+        "B07.B.volume_baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "basis page CLV diagnostic uses real futures/index OHLC; X variants apply only to pair categories",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08",
+      "metric_ids": [
+        "B08"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.A.total",
+      "metric_ids": [
+        "B08.A.total"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.A.base",
+      "metric_ids": [
+        "B08.A.base"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.A.growth",
+      "metric_ids": [
+        "B08.A.growth"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.A.members",
+      "metric_ids": [
+        "B08.A.members"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.B.total",
+      "metric_ids": [
+        "B08.B.total"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.B.base",
+      "metric_ids": [
+        "B08.B.base"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.B.growth",
+      "metric_ids": [
+        "B08.B.growth"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-08-B08.B.members",
+      "metric_ids": [
+        "B08.B.members"
+      ],
+      "formula_status": "implemented",
+      "input_status": "complete_fixed_collection_required",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_workspace.py",
+      "scope_note": "frozen collection identity includes exact contract members; not changed by default representative rollover",
+      "categories": [
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09",
+      "metric_ids": [
+        "B09"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09.same_time",
+      "metric_ids": [
+        "B09.same_time"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09.A.baseline",
+      "metric_ids": [
+        "B09.A.baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09.A.rvol",
+      "metric_ids": [
+        "B09.A.rvol"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09.B.baseline",
+      "metric_ids": [
+        "B09.B.baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-09-B09.B.rvol",
+      "metric_ids": [
+        "B09.B.rvol"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-10-B10",
+      "metric_ids": [
+        "B10"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-10-B10.net",
+      "metric_ids": [
+        "B10.net"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-10-B10.path",
+      "metric_ids": [
+        "B10.path"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-10-B10.n",
+      "metric_ids": [
+        "B10.n"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11",
+      "metric_ids": [
+        "B11"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.max",
+      "metric_ids": [
+        "B11.max"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "scope_note": "daily pair maximum plus actual-F live maximum; signed-X collection-segment maxima are not substituted for full-day maximum",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.sample",
+      "metric_ids": [
+        "B11.sample"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.A.tr",
+      "metric_ids": [
+        "B11.A.tr"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.A.baseline",
+      "metric_ids": [
+        "B11.A.baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.A.pressure",
+      "metric_ids": [
+        "B11.A.pressure"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "basis",
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.B.tr",
+      "metric_ids": [
+        "B11.B.tr"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.B.baseline",
+      "metric_ids": [
+        "B11.B.baseline"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-11-B11.B.pressure",
+      "metric_ids": [
+        "B11.B.pressure"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "independent_input_ids": [
+        "future",
+        "basis",
+        "annual",
+        "raw_basis",
+        "log_basis",
+        "raw_annual",
+        "log_annual"
+      ],
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.A",
+      "metric_ids": [
+        "B12.A"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.B",
+      "metric_ids": [
+        "B12.B"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.balance",
+      "metric_ids": [
+        "B12.balance"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.h",
+      "metric_ids": [
+        "B12.h"
+      ],
+      "formula_status": "implemented",
+      "input_status": "conditional_on_complete_source_window",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.p",
+      "metric_ids": [
+        "B12.p"
+      ],
+      "formula_status": "implemented",
+      "input_status": "explicit_p_required_no_default",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.A_p",
+      "metric_ids": [
+        "B12.A_p"
+      ],
+      "formula_status": "implemented",
+      "input_status": "explicit_p_required_no_default",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-B12.B_p",
+      "metric_ids": [
+        "B12.B_p"
+      ],
+      "formula_status": "implemented",
+      "input_status": "explicit_p_required_no_default",
+      "adapter_status": "frozen_three_adapters_equal",
+      "company_acceptance": "not_run",
+      "evidence_test": "tests/test_indicator_formula_redesign.py",
+      "categories": [
+        "calendar",
+        "cross"
+      ],
+      "adapter_evidence": "313 page-variant groups / 5682 unique records; two actual Qt editions plus Excel projection; native Excel sampled acceptance"
+    },
+    {
+      "source_id": "V2-12-beta_capacity",
+      "metric_ids": [],
+      "formula_status": "excluded_by_confirmed_scope",
+      "input_status": "not_applicable",
+      "adapter_status": "not_applicable",
+      "company_acceptance": "not_run",
+      "reason": "Only same-product 1:1 and cross-product equal-notional h; no beta capacity."
+    }
+  ]
+}

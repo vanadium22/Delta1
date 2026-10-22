@@ -20,6 +20,11 @@ def cache_scope(config):
     identity['history_roots'] = sorted(str(Path(p).resolve()) for p in config.get('history_roots', []))
     for key in ('realtime_id', 'dividend_mode', 'dividend_missing_policy', 'allow_unverified'):
         identity[key] = config.get(key)
+    for key in ('research_carry_inputs','research_etf_iopv_mapping'):
+        identity[key] = config.get(key)
+    # Invalidate old result schemas without changing any market-data file.
+    from dashboard.indicator_catalog import FORMULA_VERSION
+    identity['formula_version'] = FORMULA_VERSION
     return digest(identity)
 
 

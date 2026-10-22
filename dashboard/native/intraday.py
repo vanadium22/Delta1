@@ -88,6 +88,9 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
         row.update(current=float(value) if finite(value) else None,
                    current_time=stamp if finite(value) else None, current_reason=reason,
                    current_scope=scope, current_n=n, current_supported=True)
+        if code.startswith(('A03.','B10')):
+            row['current_reference_end']=history.index[-1].isoformat() if len(history) else None
+            row['current_history_cutoff']=row['current_reference_end']
 
     def extra(code, title, value, unit, stamp, reason, formula, scope='盘中估算', n=None):
         row = metric(code, title, pd.Series(dtype=float), unit, formula, reason, scope=scope)
@@ -104,12 +107,11 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
         q = live[symbol]
         if price == 'future':
             return q['close']
-        from dashboard.marketdata.dividends import adjusted_basis
+        from .metric_inputs import input_value
         expiry = metadata.get(symbol, {}).get('expiry_date')
         days = (pd.Timestamp(expiry).date()-today).days if expiry else None
-        result = adjusted_basis(q['close'], live[UNDERLYINGS[symbol[:2]][0]]['close'],
-                                dividends.points(symbol, today), days)
-        return result['bp' if price == 'basis' else 'annual_pct']
+        return input_value(price,q['close'],live[UNDERLYINGS[symbol[:2]][0]]['close'],
+                           dividends.points(symbol,today),days)
 
     required = legs + ([UNDERLYINGS[s[:2]][0] for s in legs] if price != 'future' else [])
     ok, stamp, reason = aligned(required)
@@ -132,9 +134,13 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
     change = current-last5.iloc[0] if usable and full5 else None
     path = pd.Series([*last5.to_list(), current], dtype=float) if usable and full5 else pd.Series(dtype=float)
     eff = efficiency(path).iloc[-1] if len(path) else None
-    for code, val, n in [('A03.z',z,20), ('A03.percentile',pct,20), ('A03.change5',change,5), ('B10',eff,5)]:
+    for code, val, n in [('A03.mean',float(prior.mean()) if usable and full20 else None,20), ('A03.std',sigma if usable else None,20), ('A03.z',z,20), ('A03.percentile',pct,20), ('A03.change5',change,6), ('B10',eff,6), ('B10.net',change,6), ('B10.path',float(path.diff().abs().sum()) if len(path) else None,6), ('B10.n',6 if len(path) else None,6)]:
         publish(code, val, stamp, base_reason if not usable or finite(val) else '固定合约连续样本不足或分母无效',
                 n=n if finite(val) else None)
+    prior30=history.tail(30)
+    full30=consecutive_days(list(prior30.index.tz_convert('Asia/Shanghai').date),now,30) and prior30.notna().all()
+    rank30=100*(prior30<=current).sum()/30 if usable and full30 else None
+    publish('A03.legacy_percentile30',rank30,stamp,'此前30期≤分位；原并列规则，区别于20期半权分位',n=30 if finite(rank30) else None)
 
     # Turnover needs previous valid OI, not unreliable intraday OI.
     ok, stamp, reason = aligned([left])
@@ -181,7 +187,84 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
             stresses.append(10000*max(high-low,abs(high-prev),abs(low-prev))/prev/den if valid and finite(den) and den>0 else None)
         stress = stresses[0] if b is None else float(np.log(stresses[0]/stresses[1])) if all(v is not None and v>0 for v in stresses) else None
         publish('B11',stress,stamp,'当日已发生价格振幅 / 前20日完整振幅基准；非最终日振幅')
+        if b is not None:publish('B11.max',max(stresses) if all(finite(v) for v in stresses) else None,stamp,'双腿截至当前振幅最大压力；非最终日振幅')
+    _publish_original_current(rows,publish,aligned,left,right,category,a,b,metadata,live,now)
     return rows
+
+
+def _publish_original_current(rows,publish,aligned,left,right,category,a,b,metadata,live,now):
+    """Current original definitions retain independent inputs and reference pools."""
+    from .metric_inputs import input_value
+    from .nonregression import MULTIPLIERS
+    today=now.tz_convert('Asia/Shanghai').date()
+    rows_by_id={r['id']:r for r in rows}
+    def stats(prefix,value,series,stamp):
+        series=series[series.index.tz_convert('Asia/Shanghai').date<today]
+        previous=series.tail(20)
+        enough=consecutive_days(list(previous.index.tz_convert('Asia/Shanghai').date),now,20) and previous.notna().all()
+        sigma=previous.std(ddof=1) if enough else None
+        five=series.tail(5)
+        five_ok=consecutive_days(list(five.index.tz_convert('Asia/Shanghai').date),now,5) and five.notna().all()
+        present=finite(value)
+        values={'mean':previous.mean() if enough and present else None,
+                'std':sigma if enough and present else None,
+                'z':(value-previous.mean())/sigma if present and enough and sigma>1e-12 else None,
+                'percentile':100*((previous<value).sum()+.5*(previous==value).sum())/20 if present and enough else None,
+                'change5':value-five.iloc[0] if present and five_ok else None}
+        for key,v in values.items():
+            publish(prefix+key,v,stamp,'自身固定序列先前窗口；缺样本或零方差留空',n=(6 if key=='change5' else 20) if finite(v) else None)
+            if prefix+key in rows_by_id:
+                rows_by_id[prefix+key].update(current_reference_end=series.index[-1].isoformat() if len(series) else None,
+                                            current_history_cutoff=series.index[-1].isoformat() if len(series) else None)
+    spot_a=UNDERLYINGS[left[:2]][0]
+    if category=='basis':
+        ok,stamp,reason=aligned([left,spot_a])
+        f=live.get(left,{}).get('close');s=live.get(spot_a,{}).get('close')
+        expiry=metadata.get(left,{}).get('expiry_date')
+        days=(pd.Timestamp(expiry).date()-today).days if expiry else None
+        if ok:
+            values={code:input_value(key,f,s,None,days) for code,key in (
+                ('A01.raw_bp','raw_basis'),('A01.log_bp','log_basis'),('A02.raw_annual','raw_annual'),('A02.log_annual','log_annual'))}
+            values['A01.raw_points']=f-s if finite(f) and finite(s) and f>0 and s>0 else None
+            values['A02.log_convergence']=-values['A01.log_bp']/days if finite(values['A01.log_bp']) and days and days>0 else None
+            for code,value in values.items():publish(code,value,stamp,'同刻真实期现未调整口径；年化要求T≥5')
+        return
+    if b is None:return
+    ok,stamp,reason=aligned([left,right])
+    fa=live.get(left,{}).get('close');fb=live.get(right,{}).get('close')
+    valid=ok and all(finite(v) and v>0 for v in (fa,fb))
+    if valid:
+        h=1. if category=='calendar' else fa*MULTIPLIERS[left[:2]]/(fb*MULTIPLIERS[right[:2]])
+        publish('B12.h',h,stamp,'同品种1:1；跨品种使用真实F等名义换算')
+        va,vb=(live[s].get('volume_total') for s in (left,right))
+        p=rows_by_id.get('B12.p',{}).get('value')
+        if all(finite(v) and v>=0 for v in (va,vb)) and finite(p) and 0<=p<=1:
+            cap=min(va,vb/h)
+            for code,value in (('B12.p',p),('B12.A_p',p*cap),('B12.B_p',p*cap*h)):
+                publish(code,value,stamp,'显式p乘截至当前已发生成交基数；非可成交承诺')
+    if category=='calendar':
+        raw=fa-fb if valid else None
+        publish('A04.raw_points',raw,stamp,reason)
+        all_ok,all_stamp,_=aligned([left,right,spot_a])
+        spot=live.get(spot_a,{}).get('close')
+        raw_bp=10000*raw/spot if all_ok and finite(raw) and finite(spot) and spot>0 else None
+        publish('A04.raw_bp',raw_bp,all_stamp,'真实期货近减远并以对应指数标准化')
+        stats('A04.raw_',raw_bp,10000*(a.close-b.close)/a.S,all_stamp)
+        ea,eb=(metadata.get(s,{}).get('expiry_date') for s in (left,right))
+        delta=(pd.Timestamp(eb)-pd.Timestamp(ea)).days if ea and eb else 0
+        carry=100*np.log(fb/fa)*365/delta if valid and delta>0 else None
+        publish('A05.log_carry',carry,stamp,'原稿未调整对数期限持有率')
+        series=100*np.log(b.close/a.close)*365/delta if delta>0 else a.close*np.nan
+        stats('A05.log_',carry,series,stamp)
+    else:
+        spot_b=UNDERLYINGS[right[:2]][0]
+        all_ok,all_stamp,_=aligned([left,right,spot_a,spot_b])
+        for prefix,key in (('raw','raw_basis'),('log','log_basis')):
+            va=input_value(key,fa,live.get(spot_a,{}).get('close')) if all_ok else None
+            vb=input_value(key,fb,live.get(spot_b,{}).get('close')) if all_ok else None
+            value=va-vb if finite(va) and finite(vb) else None
+            publish('A06.'+prefix+'_bp',value,all_stamp,'每腿按自身真实指数计算后相减；未加分红')
+            stats('A06.'+prefix+'_',value,a[key]-b[key],all_stamp)
 
 
 def observations(rows, samples, left, right, category, price, data, minute_data, metadata, dividends, now, cache=None):
@@ -214,12 +297,12 @@ def observations(rows, samples, left, right, category, price, data, minute_data,
             if price=='future':
                 values.append(q['close'])
             else:
-                from dashboard.marketdata.dividends import adjusted_basis
+                from .metric_inputs import input_value
                 expiry=metadata.get(symbol,{}).get('expiry_date')
-                days=(pd.Timestamp(expiry).date()-at.tz_convert('Asia/Shanghai').date()).days if expiry else None
-                v=adjusted_basis(q['close'],quotes[UNDERLYINGS[symbol[:2]][0]]['close'],
-                                 dividends.points(symbol,at.tz_convert('Asia/Shanghai').date()),days)
-                values.append(v['bp' if price=='basis' else 'annual_pct'])
+                day=at.tz_convert('Asia/Shanghai').date()
+                days=(pd.Timestamp(expiry).date()-day).days if expiry else None
+                values.append(input_value(price,q['close'],quotes[UNDERLYINGS[symbol[:2]][0]]['close'],
+                                          dividends.points(symbol,day),days))
         if all(finite(v) for v in values):
             stamp=max(pd.Timestamp(quotes[s]['source_event_time']) for s in symbols)
             if stamp <= now:

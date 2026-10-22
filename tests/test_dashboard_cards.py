@@ -54,11 +54,12 @@ class CardDataTests(unittest.TestCase):
         cross=selections({'category':'cross','cross_pair':'IM/IC'},contracts,contracts,'IF2612.CFE')
         self.assertEqual(cross['pairs'],[('IM − IC','IM2612.CFE','IC2612.CFE')])
 
-    def test_family_dedup_only_removes_overview_metrics_not_cross_spread_percentiles(self):
+    def test_fixed_contract_percentile_is_not_hidden_by_overview_distribution(self):
         metrics=[{'id':x} for x in ('A01.points','A01.bp','A02.annual','A02.convergence','A03.z','A03.percentile','A03.change5','B02.center','B02.gap','C01','A08')]
         entities=[dict(title='IF',left='IF2612.CFE',right='000300.SH',metrics=metrics)]
         basis=group_metrics(entities,'basis','basis');ids={g['id'] for g in basis}
-        self.assertFalse(ids&{'A01','A02.annual','A03.percentile','C01','A08'})
+        self.assertFalse(ids&{'A01','A02.annual','C01','A08'})
+        self.assertIn('A03.percentile',ids)
         self.assertIn('A02.convergence',ids);self.assertIn('A03.z',ids)
         self.assertEqual(len(next(g for g in basis if g['id']=='B02')['entities'][0]['metrics']),2)
         self.assertIn('A03.percentile',{g['id'] for g in group_metrics(entities,'cross','basis')})
@@ -86,7 +87,7 @@ class CardDataTests(unittest.TestCase):
         metadata={'IF2612.CFE':dict(listing_date='2026-04-17',expiry_date='2026-12-18',known_at='v1')}
         selection=dict(pairs=[('IF','IF2612.CFE','000300.SH')],overview_symbols=[])
         book=DividendBook(reason='',version='scenario-v1')
-        def calculate(*args):
+        def calculate(*args,**kwargs):
             days=(pd.Timestamp(args[6]['IF2612.CFE']['expiry_date'])-pd.Timestamp('2026-10-14')).days
             return [metric('A02.convergence','test',pd.Series([days],index=calendar),'bp/日','test','test')]
         def snapshot():return dashboard_cards(engine,dict(category='basis',price_input='basis'),{},selection,{},calendar,metadata,book,{},now,lambda _:pd.DataFrame())
@@ -96,6 +97,22 @@ class CardDataTests(unittest.TestCase):
             metadata['IF2612.CFE']['expiry_date']='2026-12-25'
             self.assertEqual(snapshot()['entities'][0]['metrics'][0]['value'],72)
             self.assertEqual(calc.call_count,2)
+
+    def test_explicit_zero_participation_does_not_reuse_invalid_boolean_cache(self):
+        from dashboard.native.nonregression import metric
+        engine=SimpleNamespace(history_key=('v1',),card_metric_cache={},model=SimpleNamespace(live_rows=pd.DataFrame()))
+        now=pd.Timestamp('2026-10-16T10:00:00+08:00');calendar=pd.DatetimeIndex([now-pd.Timedelta(days=1)])
+        metadata={'IF2612.CFE':dict(listing_date='2026-04-17',expiry_date='2026-12-18')}
+        selection=dict(pairs=[('IF','IF2612.CFE','000300.SH')],overview_symbols=[])
+        def calculation(*args,**kwargs):
+            value=0. if kwargs['participation'] is not False else float('nan')
+            return [metric('B12.A_p','explicit p',pd.Series([value],index=calendar),'手','p capacity','explicit')]
+        def snapshot(p):
+            result=dashboard_cards(engine,dict(category='basis',price_input='basis'),{'participation':p},selection,{},calendar,metadata,DividendBook(),{},now,lambda _:pd.DataFrame())
+            return result['entities'][0]['metrics'][0]['value']
+        with patch('dashboard.native.nonregression.calculate',side_effect=calculation) as calculation_mock:
+            self.assertIsNone(snapshot(False));self.assertEqual(snapshot(0),0.)
+            self.assertIsNone(snapshot(False));self.assertEqual(calculation_mock.call_count,2)
 
 
 if __name__=='__main__':unittest.main()

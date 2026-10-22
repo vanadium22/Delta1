@@ -59,6 +59,9 @@ $native=[NumericInspect]::Window([long]$run.hwnd,[uint32]$run.excel_pid)
 $app=$native.Application
 $book=@($app.Workbooks | Where-Object { $_.FullName -eq $run.output })[0]
 $view=$book.Worksheets.Item('概览');$metrics=$book.Worksheets.Item('指标')
+# This legacy formula helper is intentionally hidden in the shipped three-page
+# product. Reveal only the test-owned synthetic workbook before exercising it.
+$metrics.Visible=-1
 $cases=@()
 foreach($slot in @(0,1,2,3)){
   $view.Range('E3').Value2=[double]$slot;$metrics.Range('E3').Value2=[double]$slot
@@ -77,6 +80,7 @@ $cases | ConvertTo-Json -Compress
                     str(ROOT/'dashboard/excel_numeric/inspect.ps1'),'-RunFile',str(run_file)],
                     check=True,capture_output=True,timeout=20,creationflags=0x08000000)
                 cases=json.loads(raw.stdout.decode('utf-8-sig'))
+                (ROOT/'.deps/numeric_ui').mkdir(parents=True,exist_ok=True)
                 (ROOT/'.deps/numeric_ui/selector-cases.json').write_text(json.dumps(cases,ensure_ascii=False,indent=2),encoding='utf8')
                 for slot,item in enumerate(cases):
                     self.assertEqual(item['future'],4100.+slot*10)

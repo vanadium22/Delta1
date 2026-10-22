@@ -2,7 +2,7 @@
 
 公司按 [首次检查及更新步骤](COMPANY_SETUP.md) 操作，统一分支 `codex/company-apps`。已有公司项目无需重新 clone、覆盖 data 或重装 Wind。
 
-日常双击本文件夹的 `start_numeric_excel.cmd`，简短步骤见同目录 [打开方式.md](打开方式.md)。公司未显式指定Python时优先使用已有swhy_delta1环境；根目录重复入口已移除。自动更新同一个已打开的 Excel 工作簿；概览四卡、25项指标矩阵、原生分位图及来源与状态供日常阅读，原完整指标表隐藏保留。运行要求为 Windows 桌面 Microsoft Excel 和 Python 数字计算依赖，无需 VBA 或看板前端。
+日常双击本文件夹的 `start_numeric_excel.cmd`，简短步骤见同目录 [打开方式.md](打开方式.md)。公司未显式指定Python时优先使用已有swhy_delta1环境；根目录重复入口已移除。自动更新同一个已打开的 Excel 工作簿；三个研究页（期现、同品种跨期、跨品种）共用独立指标变体目录、T−1代表选择及分页详情，保留概览四卡/对应指数、分位图和来源与状态。原完整指标辅助表隐藏保留，独立组合入口移除。口径及验证边界见 [指标实施](INDICATOR_IMPLEMENTATION.md)。运行要求为 Windows 桌面 Microsoft Excel 和 Python 数字计算依赖，无需 VBA 或看板前端。
 
 默认使用独立数字配置副本，先执行 `python -B -X utf8 -m dashboard.numeric_config` 离线检查，再使用 `-ReadOnlyCache` 验证已有数据。只存有原始 Wind 数据时，尚需标准化历史、合约参考表和分红输入；Git 不携带公司数据，也不会自动替换 Wind 库。
 

@@ -107,6 +107,15 @@ def overview_card(symbol, daily, calendar, metadata, dividends, live, now, chart
             eligibility=(f['T'].isna()|f['T'].ge(5)) if continuity and chart_field=='annual' else None,
             allow_partial=bool(continuity))
     chart["reference_end"]=max((r['end'] for r in chart['rows'] if r['end']),default=None)
+    legacy_history=f[chart_field].loc[f.index.tz_convert('Asia/Shanghai').normalize()<pd.Timestamp(marker_time).tz_convert('Asia/Shanghai').normalize()].tail(30) if marker_time is not None else pd.Series(dtype=float)
+    legacy_ok=len(legacy_history)==30 and legacy_history.notna().all() and finite(value)
+    chart['legacy_percentile30']=dict(
+        variant_id='overview.legacy_percentile30::'+(continuity['alias'] if continuity else symbol),
+        scope='连续到期档位' if continuity else '固定具体合约',n=int(legacy_history.notna().sum()),
+        percentile=float(100*(legacy_history<=value).sum()/30) if legacy_ok else None,
+        reference_end=legacy_history.index[-1].isoformat() if len(legacy_history) else None,
+        formula='100 × N(此前30期x≤当前x)/30；排除当前',
+        reason='' if legacy_ok else '需完整此前30期；与20期半权分位独立')
     hist = {}
     for field in ("points","basis","annual"):
         s=f[field].replace([np.inf,-np.inf],np.nan).dropna()
@@ -153,7 +162,6 @@ FAMILIES = (
 def group_metrics(entities, category, price_input):
     groups=[]
     for key,title,primary in FAMILIES:
-        if key=="A03.percentile" and category=="basis" and price_input!="future": continue
         items=[]
         for entity in entities:
             if key=="A14.book": rows=[r for r in entity["metrics"] if r["id"].startswith("A14.") and r["id"]!="A14.etf"]
@@ -199,12 +207,17 @@ def dashboard_cards(engine, state, request, selection, daily, calendar, metadata
         elif category=="cross" and metadata[left]["expiry_date"]!=metadata[right]["expiry_date"]:error="两腿到期日不一致"
         if error:
             entities.append(dict(title=title,left=left,right=right,metrics=[],error=error));continue
-        key=(engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key)
+        config=getattr(engine.model,'config',{})
+        carry=config.get('research_carry_inputs',{}).get(left)
+        mappings=config.get('research_etf_iopv_mapping',{})
+        mapping=mappings.get(left,mappings.get(left[:2]))
+        key=(engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key,repr(carry),repr(mapping),repr(request.get('participation')))
         if key not in cache:
             symbols={left,right,UNDERLYINGS[left[:2]][0]}
             if category!="basis":symbols.add(UNDERLYINGS[right[:2]][0])
             minutes={s:load_minutes(s) for s in symbols}
-            rows=calculate(left,right,category,price,daily,minutes,metadata,dividends,calendar,live,now) if len(calendar) else []
+            rows=calculate(left,right,category,price,daily,minutes,metadata,dividends,calendar,live,now,
+                carry_inputs=carry,etf_mapping=mapping,participation=request.get('participation')) if len(calendar) else []
             if category=="cross":
                 row=oi_expansion(left,right,daily,metadata,calendar)
                 if row:rows.append(row)

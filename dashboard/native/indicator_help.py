@@ -4,8 +4,9 @@
 def explain_metric(row, category='basis', price_input='basis'):
     code=row['id'];family=code.split('.')[0]
     pair=category!='basis'
-    x={'future':'真实期货价格 F','basis':'调整基差 B = 10000 × (F − S + D) / S，单位 bp',
-       'annual':'调整年化 Y = B × 365 / (100T)，单位年化百分点'}[price_input]
+    from .metric_inputs import INPUTS
+    label,unit=INPUTS[price_input]
+    x=label+'，单位 '+unit
     if pair and family in ('A03','A11','B01','B02','B10'):x+='；本项 x = A腿序列 − B腿序列'
     elif pair:x+='；各腿独立计算后再作差'
     variables=[('x',x),('t','当前完整观测；t−k 表示此前第 k 个有效交易时点，不跨缺口拼接')]
@@ -13,6 +14,12 @@ def explain_metric(row, category='basis', price_input='basis'):
     reading=[row['meaning']]
     boundaries=['缺中间交易日或相应频率数据时留空；最后有效历史值保留原日期。']
     formula=row['formula']
+    legacy={'A02.convergence','A03.z','A03.percentile','A03.change5','A04.points','A04.bp','A05','A06','A07.actual','A07.spot','A07.basis','A07.scenario','A09.h','A09.amountA','A09.amountB','A09.rounding','A11','A12','A13','A14.buy','A14.sell','A14.etf','B01.gap','B01.repair','B02.center','B02.gap','B02.collection_center','B02.collection_gap','B03','B04.Q','B04.K','B04.doi','B05.M','B05.R','B05.N','B06','B07','B07.volume','B08','B09','B10','B11','B11.max','B12.A','B12.B','B12.balance'}
+    if code not in legacy or price_input not in ('future','basis','annual'):
+        return dict(title=row['title'],formula=row['formula'],variables=variables,
+                    window='按公式注明的固定合约、窗口和采样频率；参考窗口排除当前。',
+                    reading=reading,boundaries=boundaries+['原稿未调整、对数与分红调整口径独立计算；价格必须为正，有符号输入只作差分。'],
+                    unit=row['unit'],scope=row['scope'])
     if family=='A02':
         variables=[('B','分红调整基差，单位 bp'),('T','实际到期日减观察日，自然日数')]
         formula='假设每日收敛量级 = −B / T'
@@ -61,20 +68,20 @@ def explain_metric(row, category='basis', price_input='basis'):
         boundaries=['午休、跨日、缺分钟会重置；HTTP轮询样本不作为完整分钟线。']
     elif family=='A12':
         formula='Zₜ = (xₜ − μ前30分钟) / s前30分钟\n连续3根同方向 |Z| ≥ 2 → 本次偏离事件计1次'
-        variables=[('x','固定使用调整基差 bp；跨期使用近远月调整基差之差'),('事件','首次满足连续3根计1次；持续第4根不会重复计数')]
+        variables=[('x',x),('事件','每个适用X独立确认；首次满足连续3根计1次；持续第4根不会重复计数')]
         window='前30分钟参考 + 连续3根确认；显示当前会话累计事件数。'
         reading=['用于确认偏离持续存在，不是交易触发或未来回归保证。']
         boundaries=['跨会话、缺分钟重置；零方差不产生有效Z；不使用回归残差。']
     elif family=='A13':
-        formula='当前未计算成本带；需先定义可执行现货腿、融资与借券条款、双向交易成本。'
-        variables=[('额外输入','融资、借券、双向交易成本和可执行现货腿'),('本版状态','输入不足，未输出数值成本带')]
+        formula=row['formula']
+        variables=[('额外输入','真实融资年率、预期股息年率、方向性成本和可执行现货腿'),('有效性','条款有效期、到期日、known_at和版本均须显式通过校验')]
         window='必须按同一到期日、同一时间和方向定义成本。'
-        reading=['成本带判断需要可执行输入；示意关系不代表已经实现完整定价模型。']
+        reading=['按真实显式输入计算简单理论期货价格和有方向的带外空间。','缺条款直接留空；不使用演示利率或默认对称成本。']
         boundaries=['缺输入直接不可用；不硬编码成本或利率。']
     elif family=='A14':
         if code.endswith('.etf'):
             variables=[('ETF / IOPV','同一时刻ETF价格和基金参考净值')]
-            reading=['正值为溢价，负值为折价；当前没有这两项同步输入。']
+            reading=['正值为溢价，负值为折价；仅显式匹配对应指数的ETF/IOPV映射和同步有效报价可计算。']
         else:
             formula='买近卖远：Ask近 − Bid远\n卖近买远：Bid近 − Ask远'
             variables=[('Bid / Ask','真实期货买一 / 卖一；同时校验对应挂单量'),('方向','始终以近减远表示；不是分红调整后的理论价差')]
