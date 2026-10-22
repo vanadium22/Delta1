@@ -60,8 +60,16 @@ function ProducerFailure {
 . (Join-Path $PSScriptRoot 'workspace.ps1')
 $selectionFile=Join-Path $runRoot 'selection.json'
 try {
+    . (Join-Path $PSScriptRoot 'startup.ps1')
+    Write-Output "Python请求: $Python"
+    Write-Output "启动检查日志：$runRoot"
+    if (-not $FeedFile) {
+        $Python=Resolve-NumericPython $Python
+        $run['resolved_python']=$Python
+        SaveRun
+        Write-Output "Python路径: $Python"
+    }
     if (-not ($ReadOnlyCache -or $Once -or $Hidden -or $Snapshot -or $FeedFile -or $NoPrompt)) {
-        . (Join-Path $PSScriptRoot 'startup.ps1')
         $choice=Invoke-NumericWizard $Python $LocalRoot $runRoot
         if ($choice.cancelled) { $run.state='cancelled'; return }
         $ReadOnlyCache=[bool]$choice.read_only
@@ -83,7 +91,6 @@ try {
     }
     $run.feed = [IO.Path]::GetFullPath($FeedFile)
     SaveRun
-    Write-Output "Python: $Python"
     Write-Output "正在读取本地历史和行情缓存。Excel 将先打开，四个档位计算进度会显示在窗口中。日志：$runRoot"
     $statusFile = [IO.Path]::ChangeExtension($FeedFile, '.status.json')
     $deadline = (Get-Date).AddSeconds(600)
@@ -323,6 +330,6 @@ try {
         else { $excel.DisplayAlerts = $true }
         [void][Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
     }
-    if ($run.state -ne 'failed') { $run.state='stopped' }
+    if ($run.state -notin @('failed','cancelled')) { $run.state='stopped' }
     $run.stopped_at=[DateTimeOffset]::Now.ToString('o'); SaveRun
 }

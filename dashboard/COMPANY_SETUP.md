@@ -1,5 +1,39 @@
 # 公司已有项目：数字 Excel 按顺序启用
 
+## 2026-10-22 启动解释器与错误诊断
+
+公司最新只读证据：指定 `D:\conda\envs\swhy_delta1\python.exe` 实际可导入pandas，版本3.0.6，无需安装依赖。14:44运行 `aeec426f815f44359bcb8d6d44be503a` 的run.json却记录requested_python为裸命令python；对应summary的.err在导入numeric_snapshot→pandas时退出，尚未读取历史摘要。这证明那次请求与已验证的绝对路径不一致，旧日志仍不足以确定子进程最终解析成了哪个Python，更不能认定swhy_delta1缺包或向base安装。
+
+14:32独立摘要成功只证明当时配置/历史索引可读、时段允许：日线/分钟摘要均截至10/20，目标10/21。它不验证完整历史、报告写入、DDB/VPN或实时连通；此前另一份PermissionError的路径与阶段仍待独立证据，不能与本次缺包错误合并归因。
+
+启动器仍按SWHY_DELTA1_PYTHON→仓库.venvs/numeric_excel→仓库.venv→PATH选择。仅激活Conda不保证优先于仓库环境。新版把选择固定为可执行文件完整路径，run.json分别记requested_python与resolved_python；每个检查子进程在加载数值依赖前记录sys.executable、prefix/base_prefix、版本和PID到对应的.json.runtime.json及.err的DELTA1_STARTUP_RUNTIME行。
+
+依赖导入纳入异常处理；缺模块时显示模块名、实际Python和.err位置，提供重试/退出，避免继续历史/VPN或无法运行的只读流程。错误JSON由标准库独立写入，保存被拒绝时仍保留stderr；不记录异常原文、局部变量或凭据。非零退出遗留的旧成功报告被拒绝。历史摘要读取失败时独立核验时段，未知则明确重试/只读。
+
+关闭本次数值Excel及启动器，保留其他Excel。下面直接指定已验证的Python，不依赖Conda激活或重复设置会话变量；先打印公司更新前HEAD，再核验pull结果。若分支不符或更新失败就保留现场停止：
+
+```powershell
+Set-Location -LiteralPath 'D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard'
+git status --short
+git rev-parse HEAD
+if ((git branch --show-current) -ne 'codex/company-apps') { throw '分支不符，停止并保留现场' }
+git pull --ff-only origin codex/company-apps
+if ($LASTEXITCODE -ne 0) { throw '更新失败，停止；不要强制覆盖' }
+git rev-parse HEAD
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\dashboard\excel_numeric\live.ps1' -Python 'D:\conda\envs\swhy_delta1\python.exe'
+```
+
+本次不用重导数据、修改配置或重配VPN。需要补齐时仍等历史任务退出后手工切回行情VPN；实时验收不加ReadOnlyCache。公司更新前/后HEAD、完整历史补齐、报告写入和实盘新行情仍需现场反馈；远端已发布不能证明公司已更新。
+
+若新开的PowerShell不认识conda，只说明会话可能未初始化，绝对路径Python仍可用。需要激活时仅在当前会话执行，不写配置文件：
+
+```powershell
+. 'D:\conda\shell\condabin\conda-hook.ps1'
+conda activate swhy_delta1
+```
+
+若仍失败，仅回传本次错误的action、stage、module、python、filename/filename2、errno/winerror及相应.err；不用提供native.json、连接配置或账号密码。本机独占索引/报告锁与空环境复现均用隔离合成文件，不能作为公司PermissionError的根因结论。
+
 ## 2026-10-20 盘中指标与组合分类
 
 本次无需安装依赖或重配VPN。关闭本次Excel/启动器，在此Git根目录`git pull --ff-only origin codex/company-apps`，确认`git log -1`后，以原swhy_delta1运行`.\dashboard\start_numeric_excel.cmd`。原历史补齐→手工切回行情VPN→验证打开流程保持；实时测试不加ReadOnlyCache。新增“组合对比”的黄色格选择具体合约、输入、盘中/日终/历史日，下方分类明细分列盘中与日终。

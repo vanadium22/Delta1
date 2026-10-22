@@ -8,9 +8,39 @@ import os
 from pathlib import Path
 import sys
 import time
+import uuid
 
 from dashboard.numeric_config import prepare_config
-from dashboard.numeric_snapshot import save_snapshot
+
+
+def save_snapshot(payload, path):
+    # Do not import pandas before main can record the actual child interpreter.
+    from dashboard.numeric_snapshot import save_snapshot as save
+    return save(payload, path)
+
+
+def runtime_evidence(action):
+    return dict(action=action, python=sys.executable, prefix=sys.prefix,
+                base_prefix=sys.base_prefix, version='.'.join(map(str, sys.version_info[:3])),
+                pid=os.getpid())
+
+
+def save_diagnostic(payload, path):
+    """Startup evidence must remain writable without any numerical dependency."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        with temporary.open('x', encoding='utf8') as out:
+            json.dump(payload, out, ensure_ascii=False, allow_nan=False)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def read(path):
@@ -141,6 +171,51 @@ def configure(local_root):
     print('已保存本机加密凭据和数字版配置。重开数字Excel后选择检查并补齐。')
 
 
+def startup_failure(exc, *, action, stage, local_root):
+    """Keep OS evidence, never serialize exception text, locals or credentials."""
+    names = dict(runtime='记录启动解释器', imports='加载启动依赖',
+                 prepare='准备数字配置', summary='读取历史摘要', probe='验证行情网络',
+                 history='执行历史任务', configure='配置数据库', report='保存启动检查报告')
+    detail = dict(type=type(exc).__name__, action=action, stage=stage, python=sys.executable)
+    if isinstance(exc, ImportError) and exc.name:
+        detail['module'] = exc.name
+    if isinstance(exc, OSError):
+        for key in ('errno', 'winerror', 'filename', 'filename2'):
+            value = getattr(exc, key, None)
+            if value is not None:
+                detail[key] = str(value) if key.startswith('filename') else value
+    frames = []
+    tb = exc.__traceback__
+    while tb is not None:
+        code = tb.tb_frame.f_code
+        frames.append(dict(file=code.co_filename, function=code.co_name, line=tb.tb_lineno))
+        tb = tb.tb_next
+    detail['frames'] = frames
+    message = '启动检查失败：' + type(exc).__name__ + '（' + names.get(stage, stage) + '）'
+    if stage == 'imports':
+        if detail.get('module'):
+            message += '\n模块：' + detail['module']
+        message += '\n实际Python：' + sys.executable
+    denied_path = detail.get('filename2') or detail.get('filename')
+    if denied_path:
+        message += '\n路径：' + denied_path
+    if detail.get('winerror') is not None:
+        message += '\nWindows错误码：' + str(detail['winerror'])
+    suffix = '；请核验所选解释器的已有环境后重试' if stage == 'imports' else '；可使用现有数据'
+    result = dict(state='failed', message=message + suffix,
+                  error=detail, local_root=str(local_root), python=sys.executable,
+                  runtime=runtime_evidence(action))
+    # Reading history can fail while the independent offline clock still works.
+    # A missing history summary must never turn an allowed session into off-hours.
+    try:
+        from dashboard.session_clock import session_policy
+        result['gate'] = session_policy()
+    except Exception:
+        pass  # The UI explicitly reports an unknown clock and offers retry.
+    print('DELTA1_STARTUP_ERROR ' + json.dumps(detail, ensure_ascii=False), file=sys.stderr, flush=True)
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['summary','history','probe','configure'])
@@ -149,8 +224,18 @@ def main(argv=None):
     parser.add_argument('--stop-file', type=Path)
     parser.add_argument('--vpn-mode', choices=['auto','manual'], default='auto')
     args = parser.parse_args(argv)
-    local_root = prepare_config(args.local_root)
+    local_root = args.local_root or Path(__file__).resolve().parent/'localsetting/numeric_excel'
+    runtime = runtime_evidence(args.action)
+    print('DELTA1_STARTUP_RUNTIME ' + json.dumps(runtime, ensure_ascii=False), file=sys.stderr, flush=True)
+    stage = 'runtime'
     try:
+        if args.report:
+            save_diagnostic(runtime, str(args.report) + '.runtime.json')
+        stage = 'imports'
+        from dashboard import numeric_snapshot  # Required even for read-only Excel.
+        stage = 'prepare'
+        local_root = prepare_config(args.local_root)
+        stage = args.action
         if args.action == 'configure':
             configure(local_root)
             return 0
@@ -161,13 +246,20 @@ def main(argv=None):
             result = probe_realtime(read(local_root/'native.json'))
         else:
             result = history(local_root, args.report, args.stop_file, vpn_mode=args.vpn_mode)
+        result['runtime'] = runtime
         if args.report:
+            stage = 'report'
             save_snapshot(result, args.report)
         return 0
     except Exception as exc:
-        result = dict(state='failed', message='启动检查失败：' + type(exc).__name__ + '；可使用现有数据')
+        result = startup_failure(exc, action=args.action, stage=stage, local_root=local_root)
         if args.report:
-            save_snapshot(result, args.report)
+            try:
+                save_diagnostic(result, args.report)
+            except Exception as report_exc:
+                # The launcher already owns stderr. Report write failures remain
+                # diagnosable even when the JSON result cannot be replaced.
+                startup_failure(report_exc, action=args.action, stage='report', local_root=local_root)
         else:
             print(result['message'])
         return 1

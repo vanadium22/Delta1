@@ -1,5 +1,9 @@
 # 数字 Excel：公司统一分支交接
 
+最新后续（2026-10-22启动环境与权限诊断）：公司14:44运行aeec426f815f44359bcb8d6d44be503a请求裸python，summary在numeric_snapshot导入pandas时退出，未执行摘要；另以绝对路径核验swhy_delta1实际可导入pandas 3.0.6，无需安装依赖。旧记录尚不能确定失败子进程实际解释器。启动器现固定所选可执行路径，记录requested/resolved_python；检查子进程在数值依赖前用标准库记录实际sys.executable、prefix/base_prefix、版本/PID，导入失败亦能写JSON及安全stderr并提供重试/退出，不进入VPN/无效只读流程。另修错误证据丢失、非零退出旧成功报告误用、摘要失败冒称休市；保留阶段/文件/OS码及安全调用位置，时段独立核验，未知明确重试/只读。14:32独立摘要仅证明当时索引可读（history_dates=10/20、target=10/21、gate.allowed=true），不验证完整历史/报告/DDB/VPN/实时。更早PermissionError仍需独立证据。本机锁冲突、空环境及窗口流程均为隔离合成验证；公司当前HEAD及实机恢复仍待反馈。更新与直接指定原Python的命令见COMPANY_SETUP顶部；发布证据及SHA见.deps/numeric_startup_permission/release.json。
+
+本轮重新核验72项Python回归、6个真实子进程/启动器用例、6个时段/导入分流、4条原VPN向导流程、缺配置回退/取消后进程退出及1项实际可见Excel同工作簿更新；598个受保护文件、旧工作区528个已修改/未跟踪文件字节及Git状态未变。仅数字Excel、测试和说明进入白名单，App前端保留旧本地目录。未访问公司实际数据、DDB/行情接口或改VPN；公司盘中B04.Q/B10/B09/B11与日终切换/组合仍需原流程验收。
+
 最新后续（盘中/组合）：按用户授权新增B10/A03盘中估算、B04.Q.intraday、B09.same_time及B11采集段扩展，日终序列与口径保留。Excel增加8组具体合约的组合对比、六类明细和盘中/日终分列；本地展示/开发App共用相同四个后台模块，前端仅改旧目录不提交。本次未改数据/VPN配置。口径、测试边界、版本表、公司更新/验收见 [INTRADAY_WORKSPACE.md](INTRADAY_WORKSPACE.md)；本段覆盖下方“只有日终”“合约对仅App”“旧后台未同步”等历史描述。发布SHA及核验记录在`.deps/numeric_realtime/release.json`；公司本次HEAD及实时逐项验收待用户测试。
 
 最新后续（DDB VPN）：已复用本机旧历史工具的登录实现，新增数字版自动/手动补齐选择与configure_numeric_vpn.cmd。本机已有连接先复用，有历史缺口且网络不通时才登录；历史及登录进程退出后提示用户手动切回行情VPN，不自动登出。数据库与VPN凭据分开DPAPI保存，重跑configure_numeric_history.cmd修正数据库账号保留VPN和数据路径。112项后台回归、7项证书检查、Windows向导四路径/缺配置/取消退出、1项可见Excel连续更新通过；本机真实自动VPN登录和DDB只读常量查询/关闭通过，无真实历史下载。公司SDK/账号/客户端及补齐仍需现场验收。旧App及本机凭据未改，发布核验见 `.deps/numeric_vpn/release.json`；说明以COMPANY_SETUP顶部为准。

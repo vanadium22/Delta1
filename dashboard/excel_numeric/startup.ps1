@@ -1,4 +1,9 @@
 ﻿# Startup UI only. Background actions use the numeric Python; DDB login is optional.
+function Resolve-NumericPython([string]$Interpreter) {
+    $command=Get-Command -Name $Interpreter -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    return $command.Source
+}
+
 function Invoke-NumericChoice([string]$Title, [string]$Message, [string]$Primary, [string]$Secondary) {
     $form = New-Object Windows.Forms.Form
     $form.Text=$Title; $form.Width=620; $form.Height=250; $form.StartPosition='CenterScreen'
@@ -22,6 +27,8 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
     if ($Action -eq 'history' -and $JobModule -eq 'dashboard.numeric_startup') { $argsList+=@('--vpn-mode',$VpnMode) }
     $quoted=$argsList | ForEach-Object { if ($_ -match '"') { throw '参数不得含双引号' }; '"'+$_+'"' }
     $process=Start-Process -FilePath $Interpreter -ArgumentList $quoted -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput ($report+'.out') -RedirectStandardError ($report+'.err')
+    # Keep the child handle before a fast process exits (Windows PowerShell 5).
+    $jobHandle=$process.Handle
     $started=Get-Date
     $form=New-Object Windows.Forms.Form; $form.Text='Delta1 · 正在检查'; $form.Width=620; $form.Height=220
     $form.StartPosition='CenterScreen'; $form.Font=New-Object Drawing.Font('Microsoft YaHei',10)
@@ -63,8 +70,29 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
     try {
         $timer.Start(); [void]$form.ShowDialog()
         if($state.cancelled) { return [pscustomobject]@{state='cancelled';message='已取消，历史任务已退出。';ok=$false} }
-        if(Test-Path -LiteralPath $report) { return (Get-Content -LiteralPath $report -Raw -Encoding UTF8 | ConvertFrom-Json) }
-        return [pscustomobject]@{state='failed';message='检查未完成，请检查已有Python环境或使用现有数据。';ok=$false}
+        $runtime=$null
+        try {
+            if(Test-Path -LiteralPath ($report+'.runtime.json')) {
+                $runtime=Get-Content -LiteralPath ($report+'.runtime.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            }
+        } catch {}
+        try {
+            if(Test-Path -LiteralPath $report) {
+                $result=Get-Content -LiteralPath $report -Raw -Encoding UTF8 | ConvertFrom-Json
+                if($process.ExitCode -eq 0 -or $result.state -eq 'failed') {
+                    $result | Add-Member -NotePropertyName exit_code -NotePropertyValue $process.ExitCode -Force
+                    $result | Add-Member -NotePropertyName requested_python -NotePropertyValue $Interpreter -Force
+                    if($runtime) { $result | Add-Member -NotePropertyName runtime -NotePropertyValue $runtime -Force }
+                    if($result.state -eq 'failed') {
+                        $result | Add-Member -NotePropertyName ok -NotePropertyValue $false -Force
+                        $result | Add-Member -NotePropertyName diagnostic_file -NotePropertyValue ($report+'.err') -Force
+                        $result.message=[string]$result.message+"`r`n诊断："+($report+'.err')
+                    }
+                    return $result
+                }
+            }
+        } catch {}
+        return [pscustomobject]@{state='failed';message=('检查未完成或结果不可读；Python：'+$Interpreter+"`r`n诊断："+$report+'.err');ok=$false;diagnostic_file=($report+'.err');exit_code=$process.ExitCode;requested_python=$Interpreter;runtime=$runtime}
     } finally {
         $timer.Stop(); $timer.Dispose(); $form.Dispose()
         if(-not $process.HasExited) {
@@ -75,12 +103,21 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
     }
 }
 
+function Invoke-NumericSummary([string]$Interpreter, [string]$ConfigRoot, [string]$Folder) {
+    while($true) {
+        $info=Invoke-NumericJob $Interpreter 'summary' $ConfigRoot $Folder ''
+        if($info.error.stage -ne 'imports') { return $info }
+        $choice=Invoke-NumericChoice 'Delta1 · Python环境' ([string]$info.message) '重试检查' '退出'
+        if($choice -ne 'Yes') { return [pscustomobject]@{state='cancelled'} }
+    }
+}
+
 function Invoke-NumericWizard([string]$Interpreter, [string]$ConfigRoot, [string]$Folder) {
     $done=$null
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [Windows.Forms.Application]::EnableVisualStyles()
-    $info=Invoke-NumericJob $Interpreter 'summary' $ConfigRoot $Folder ''
+    $info=Invoke-NumericSummary $Interpreter $ConfigRoot $Folder
     if($info.state -eq 'cancelled') { return @{cancelled=$true} }
     if($info.local_root) { $ConfigRoot=$info.local_root }
     $description=if($info.history_dates) {
@@ -108,8 +145,15 @@ function Invoke-NumericWizard([string]$Interpreter, [string]$ConfigRoot, [string
         }
     }
     # Refresh the clock after a possibly long history task. Never reuse the old gate.
-    $info=Invoke-NumericJob $Interpreter 'summary' $ConfigRoot $Folder ''
+    $info=Invoke-NumericSummary $Interpreter $ConfigRoot $Folder
     if($info.state -eq 'cancelled') { return @{cancelled=$true} }
+    while(-not $info.gate -or $info.gate.allowed -isnot [bool]) {
+        $choice=Invoke-NumericChoice 'Delta1 · 时段检查未完成' ("尚未取得有效时段判断，不能视为非交易时段。`r`n"+[string]$info.message) '重试检查' '只读打开'
+        if($choice -eq 'No') { return @{read_only=$true;local_root=$ConfigRoot} }
+        if($choice -ne 'Yes') { return @{cancelled=$true} }
+        $info=Invoke-NumericSummary $Interpreter $ConfigRoot $Folder
+        if($info.state -eq 'cancelled') { return @{cancelled=$true} }
+    }
     if(-not $info.gate.allowed) {
         if($done) {
             $choice=Invoke-NumericChoice 'Delta1 · 历史任务已退出' "当前不在行情接入时段，将只读打开。`r`n如需恢复公司网络，请手动切回实时行情VPN。" '只读打开' '退出'

@@ -6,6 +6,16 @@
 
 日报121项、工作台134项全量隔离回归通过；292份合成Excel及25行股票经原入口/队列至模拟SMTP，核验三图＋三附件、一图＋一附件及旧两CID兼容，完整正文预览已查看。未访问正式来源、发送真实邮件或改公司计划；证据见script_making/PROJECT_HANDOFF.md最新记录。
 
+## 2026-10-22 数字Excel启动权限诊断与时段分流
+
+公司14:44运行aeec426f815f44359bcb8d6d44be503a的run.json请求裸python，summary在numeric_snapshot导入pandas时退出、未读历史；另以绝对路径核验原swhy_delta1可导入pandas 3.0.6，无需装依赖。旧记录不能确定失败子进程实际解释器。14:32独立摘要仅证明当时配置/历史索引可读（截至10/20、目标10/21、gate.allowed=true）；此前另一份PermissionError的具体路径及阶段仍待独立核验。
+
+启动错误现保留动作、阶段、errno/可用的winerror、源/目标文件及调用位置，不记录异常原文、局部变量或凭据；JSON报告写不出时仍在本次.err保留证据。启动器拒绝非零退出进程遗留的旧成功报告。历史摘要失败时独立刷新离线时段判断；时段未知显式提示重试/只读，不冒称休市。Windows PowerShell提前保留子进程句柄以可靠取得退出码。原数据、指标、配置、VPN登录及手工切回流程未改。
+
+新版固定所选Python完整路径，run.json区分requested/resolved_python；检查子进程在数值依赖前用标准库将sys.executable、prefix/base_prefix、版本和PID写入.json.runtime.json及安全stderr。导入错误现被捕获，错误报告不依赖pandas，缺模块时显示实际Python并提供重试/退出，不进入历史/VPN或无效只读流程。公司可直接指定已验证的原Python启动，不再只重复设置会话变量；Conda未初始化与环境缺包分别判断，不盲目安装。
+
+72项Python回归、6个真实子进程/启动器用例、6个时段/导入分流、4个原VPN向导路径及缺配置回退/取消退出、1项实际可见Excel同工作簿更新通过。真实Windows独占索引/报告替换锁、空环境缺pandas均为隔离合成复现，不证明公司此前PermissionError根因。598个受保护文件及旧工作区528个已修改/未跟踪文件字节和Git状态核验未变；测试、边界及发布SHA见忽略目录.deps/numeric_startup_permission/release.json。公司当前HEAD及实机验收仍待反馈；更新与最小回传信息见dashboard/COMPANY_SETUP.md顶部。
+
 ## 2026-10-22 纯个股敞口邮件任务与前端邮箱
 
 公司已反馈原两条任务成功。新增独立纯个股邮件入口、每天09:20定义及显式幂等登记方法；正文解释敞口和筛选范围，普通附件沿用swap_stocks口径。日报前端可独立配置新任务To/CC及原本人邮箱，不改变旧任务和日程。原日报三图、本人收益两图、FOF、既有入口/指纹/批次和去重保持。
