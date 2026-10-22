@@ -50,7 +50,7 @@ class ConfigurationDialog(QDialog):
         layout.addWidget(self.template, 1)
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
-        layout.addWidget(label("本次正文预览（附件包含两张统计图片和两张年度历史图）", "muted"))
+        layout.addWidget(label("本次正文预览（附件：pnl1、risk、纯个股明细三图）", "muted"))
         layout.addWidget(self.preview, 1)
         tabs.addTab(mail, "邮件正文与地址")
         self.template.textChanged.connect(self.update_preview)
@@ -192,6 +192,7 @@ class StatisticsPage(QWidget):
         controls.addWidget(self.threshold)
         controls.addWidget(label("阈值（金额为元）", "muted"))
         self.configure_button = button("剔除名单 / 邮件设置", self.configure)
+        self.independent_mail_button = button("独立任务邮箱", self.configure_independent_mail)
         self.generate_button = button("生成并记录统计", self.generate, "primary")
         controls.addStretch()
         layout.addLayout(controls)
@@ -200,6 +201,7 @@ class StatisticsPage(QWidget):
         self.refresh_button = button("刷新本地日期", self.refresh_dates)
         actions.addWidget(self.refresh_button)
         actions.addWidget(self.configure_button)
+        actions.addWidget(self.independent_mail_button)
         actions.addWidget(self.generate_button)
         layout.addLayout(actions)
         self.notice = label("请选择日期并生成统计。", "notice", True)
@@ -280,7 +282,8 @@ class StatisticsPage(QWidget):
 
     def set_busy(self, busy):
         for widget in (*self.dates.values(), *self.source_buttons, self.previous, self.metric_combo,
-                       self.threshold, self.configure_button, self.generate_button, self.refresh_button):
+                       self.threshold, self.configure_button, self.independent_mail_button,
+                       self.generate_button, self.refresh_button):
             widget.setEnabled(not busy and not self._closing)
 
     def generate(self):
@@ -345,6 +348,14 @@ class StatisticsPage(QWidget):
             if previous_exclusions != self.config["exclusions"]:
                 self.invalidate()
         except (ReportError, OSError) as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+
+    def configure_independent_mail(self):
+        try:
+            from .independent_mail_widgets import IndependentMailDialog
+            IndependentMailDialog(self.service.settings.root, self).exec()
+        except (ReportError, OSError, ValueError) as exc:
             self.error.setText(str(exc))
             self.error.show()
 

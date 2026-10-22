@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -62,8 +63,8 @@ def main():
             'schedule': {'type': 'manual'}, 'result_mail': 'preview'}
     saved = work.save(spec)
     spec['id'] = saved['id']
-    def execute(batch):
-        run = work.enqueue(saved['id'], batch)
+    def execute(batch, task_id=None):
+        run = work.enqueue(task_id or saved['id'], batch)
         work.execute_one()
         result = work.run(run['id'])
         assert result['exit_code'] == 0 and result['status'] == 'success', result
@@ -117,11 +118,89 @@ def main():
     msg = BytesParser(policy=policy.default).parsebytes((daily_folder / '邮件草稿.eml').read_bytes())
     assert msg['To'] == 'team@example.invalid' and msg['Cc'] == 'manager@example.invalid'
     assert {p.get_filename() for p in msg.walk() if p.get_filename()} == {'pnl1.png', 'risk.png', 'swap_stocks.png'}
+    # The new stock task uses the same stock subset as the daily attachment,
+    # with separately configured recipients and the existing Work Automation API.
+    from script_making.independent_mail_widgets import IndependentMailDialog
+    from script_making.stock_task_registration import task_definition, register_with_client
+    from script_making.statistics_widgets import StatisticsPage
+    from mail_app.server import Server
+    from mail_app.client import MailClient
+    stock_rows = [[f'{600001 + i}.SH', f'合成股票{i + 1}的长名称用于检查完整明细',
+                   (i + 1) * 1000 * (-1 if i % 2 else 1), (i + 1) * 30,
+                   (i + 1) * 100, (i + 1) * 750000 * (-1 if i % 2 else 1)] for i in range(25)]
+    stock_rows.extend([['512200.SH', '其他ETF', 1, 2, 3, 9000000],
+                       ['000300.SH', '指数', 1, 2, 3, 9000000]])
+    risk_book(service.path_for('swap', '2026-10-14'), '2026-10-14', stock_rows)
+    stock_daily = build_snapshot(service, {'pnl': '2026-10-19', 'previous': '2026-10-18',
+                                          'swap': '2026-10-14', 'strategy': '2026-10-19'}, config)
+    dialog = IndependentMailDialog(service.settings.root)
+    dialog.entries['to'].setText('stock@example.invalid')
+    dialog.entries['cc'].setText('risk@example.invalid')
+    dialog.note.setPlainText('合成隔离验收；仅供本组合观察。')
+    dialog.save()
+    assert dialog.result() == dialog.DialogCode.Accepted
+    dialog.show(); app.processEvents()
+    dialog.grab().save(str(output / 'independent-mail-settings.png'))
+    dialog.close()
+    with patch('script_making.statistics_widgets.QTimer.singleShot'):
+        page = StatisticsPage(service)
+    page.resize(1120, 720); page.show(); app.processEvents()
+    page.grab().save(str(output / 'statistics-controls.png'))
+    page.close()
+    stock_spec = task_definition(service.settings.root)
+    stock_spec['arguments'] += ['--local-only', '--as-of', '2026-10-21']
+    stock_spec['result_mail'] = 'preview'
+    server = Server(('127.0.0.1', 0), store)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()  # No Engine.start or schedule worker: isolated API only.
+    try:
+        client = MailClient(f'http://127.0.0.1:{server.server_port}', store.local / 'api_token.txt')
+        registered = register_with_client(client, stock_spec)
+        assert registered['state'] == 'registered'
+        assert register_with_client(client, stock_spec)['state'] == 'already_registered'
+    finally:
+        server.shutdown(); thread.join(); server.server_close()
+    stock_id = registered['task']['id']
+    assert registered['task']['schedule'] == {'type': 'daily', 'time': '09:20'}
+    stock_preview = execute('stock-preview', stock_id)
+    stock_manifest = stock_preview['result']['mail_manifest']
+    stock_folder = Path(stock_manifest['mail']['attachments'][0]['path']).parent
+    stock_snapshot = json.loads((stock_folder / '统计记录.json').read_text(encoding='utf-8'))
+    assert stock_snapshot['swap_stocks'] == stock_daily['swap_stocks']
+    assert stock_snapshot['swap_stocks']['count'] == 25
+    assert len(store.history('outbox')) == 1
+    stock_spec['result_mail'] = 'queue'
+    work.save(stock_spec)
+    execute('stock-send', stock_id)
+    stock_smtp = FakeSMTP()
+    with patch('mail_app.mail.smtp_connection', connection(stock_smtp)):
+        transmit(store, store.claim_mail())
+    assert len(stock_smtp.sent) == 1
+    stock_sent, _, stock_recipients = stock_smtp.sent[0]
+    assert stock_recipients == ['stock@example.invalid', 'risk@example.invalid']
+    stock_parts = [part for part in stock_sent.walk() if part.get_filename()]
+    assert len(stock_parts) == 1 and stock_parts[0].get_filename() == 'swap_stocks.png'
+    assert stock_parts[0].get_content_disposition() == 'attachment' and not stock_parts[0].get('Content-ID')
+    assert stock_parts[0].get_payload(decode=True) == (stock_folder / 'swap_stocks.png').read_bytes()
+    assert '带符号Delta总敞口金额' in stock_sent.get_body(('plain',)).get_content()
+    assert stock_sent.get_body(('html',))
+    (output / 'stock-fake-smtp.eml').write_bytes(stock_sent.as_bytes())
+    work = WorkTasks(Store(store.root))
+    execute('stock-new-batch-after-restart', stock_id)
+    assert len(store.history('outbox')) == 2 and store.claim_mail() is None
+    current = {task['id']: task for task in work.tasks()}
+    for original in existing:
+        assert current[original['id']] == original
+    assert sha256(service.settings.root / 'statistics.local.json') == original_config_hash
     result = {'ok': True, 'history_export': str(history_folder), 'daily_export': str(daily_folder),
-              'evidence': str(output), 'checks': ['292-report full-year histories', 'actual selected Conda/Windows Job',
+              'evidence': str(output), 'stock_export': str(stock_folder),
+              'checks': ['292-report full-year histories', 'actual selected Conda/Windows Job',
               'exact two CID images and plain/HTML through fake SMTP', 'self-only recipient',
               'preview before send', 'restart/new-batch sends once', 'original daily/FOF definitions unchanged',
-              'main report recipients and three-image contract unchanged']}
+              'main report recipients and three-image contract unchanged',
+              'stock GUI mail settings used by next CLI', '09:20 task registration via real isolated HTTP API',
+              'stock subset equals daily attachment data', 'one normal stock attachment and explanatory plain/HTML',
+              'stock restart/new-batch sends once']}
     atomic_json(output / 'acceptance.json', result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
