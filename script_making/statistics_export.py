@@ -15,6 +15,7 @@ from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 
 from .statistics import FIELDS, DEFAULT_TEMPLATE, LEGACY_DEFAULT_TEMPLATES, combined_risks
 from .storage import ReportError, atomic_json
+from .query import number
 
 LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
 INLINE_IMAGES = (("pnl1.png", "pnl1@daily-report", "组内收益 · pnl1"),
@@ -133,12 +134,17 @@ def render_pages(snapshot):
         body += risk_summary(snapshot)
         body += "<h2>pnl1 · 组汇总及重点明细</h2>"
         view = pnl["presentation"]
-        rows = [[str(line), *row] for line, row in zip(view["rows"], view["values"])]
+        sources = view.get("row_sources", [[line] for line in view["rows"]])
+        rows = [[" + ".join(map(str, lines)),
+                 *[money(v) if len(lines) > 1 and isinstance(v, str) and number(v) is not None else v for v in row]]
+                for lines, row in zip(sources, view["values"])]
         body += table(["原行号", *view["headers"]], rows, 0,
                       related={i for i, r in enumerate(view["rows"]) if pnl["row"] < r <= pnl["row"] + 4},
                       totals={i for i, r in enumerate(view["rows"]) if r in view["total_rows"]})
         body += '<p class="note">来源：' + escape(snapshot["sources"]["pnl"]["name"]) + ' / 累积盈亏统计；原始行号见表。读取Excel保存缓存，不重算公式。</p>'
         body += '<p class="note">' + escape('；'.join(pnl["notes"])) + '</p>'
+        if any(len(lines) > 1 for lines in sources):
+            body += '<p class="note">行业合并：消费 = 消费 + 周期-消费代管；周期 = 周期 + 周期-其他。原行号用 + 标示，未重复计入境内个股期权台。</p>'
         if view["diagnostics"]:
             body += '<p class="error">组汇总识别提示：' + escape('；'.join(view["diagnostics"])) + '</p>'
 

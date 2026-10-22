@@ -1,4 +1,5 @@
 """One pnl1 history chart, embedded in the existing statistics page and attachment."""
+import math
 from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
 
@@ -13,7 +14,11 @@ def limits(values):
     return (lo - span * .12, hi + span * .12) if span else (-1., 1.)
 
 
-def chart_image(snapshot, width=1600, height=780):
+def chart_image(snapshot, width=1600, height=780, *, title="pnl1 · 境内权益互换台收益",
+                source="来源：盈亏统计 / 累积盈亏统计 / 境内权益互换台 / 净利润",
+                period_note="历史差额始终按相邻报表计算；上方卡片使用所选的本期和上期日期。",
+                timing_note="横轴为报表日期。原表取 T-2 数据；柱形为相邻报表差额，缺日报时代表区间变动。",
+                precise_ticks=False):
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor("#f3f6fb"))
     painter = QPainter(image)
@@ -27,9 +32,9 @@ def chart_image(snapshot, width=1600, height=780):
 
     history = snapshot.get("history", {}).get("pnl", {})
     points = history.get("points", [])
-    text(40, 22, 1480, 44, "pnl1 · 境内权益互换台收益", 24, bold=True)
+    text(40, 22, 1480, 44, title, 24, bold=True)
     text(40, 76, 1480, 30, f"{history.get('year', '')}年 · 年初至 {history.get('through') or '未选择'} · 当年全部已取得报表 · 金额单位：万元", 12)
-    text(40, 110, 1480, 30, "横轴为报表日期。原表取 T-2 数据；柱形为相邻报表差额，缺日报时代表区间变动。", 12, "#64788e")
+    text(40, 110, 1480, 30, timing_note, 12, "#64788e")
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor("white"))
     painter.drawRoundedRect(QRectF(30, 160, 1540, 492), 14, 14)
@@ -58,7 +63,13 @@ def chart_image(snapshot, width=1600, height=780):
             painter.drawLine(QPointF(plot.left(), pos), QPointF(plot.right(), pos))
             for value, left, color in ((left_lo + ratio * (left_hi-left_lo), 35, LINE),
                                        (right_lo + ratio * (right_hi-right_lo), plot.right()+10, "#a4514e")):
-                text(left, pos-12, 100, 25, f"{0 if abs(value) < .05 else value:,.1f}", 11, color,
+                if precise_ticks:
+                    span = (left_hi-left_lo) if left == 35 else (right_hi-right_lo)
+                    precision = max(1, min(6, 1 - math.floor(math.log10(span))))
+                    label = f"{value:,.{precision}f}"
+                else:
+                    label = f"{0 if abs(value) < .05 else value:,.1f}"
+                text(left, pos-12, 100, 25, label, 11, color,
                      align=Qt.AlignmentFlag.AlignRight if left == 35 else Qt.AlignmentFlag.AlignLeft)
         zero = y(0, right_lo, right_hi)
         painter.setPen(QPen(QColor("#c7d3e2"), 1, Qt.PenStyle.DashLine))
@@ -93,16 +104,16 @@ def chart_image(snapshot, width=1600, height=780):
         for index in ticks:
             text(x(index)-58, plot.bottom()+12, 116, 28, points[index]["date"][5:], 11, "#64788e", align=Qt.AlignmentFlag.AlignCenter)
     text(60, 604, 1480, 30, f"已读取 {len(points)} 份历史报表，{len(available)} 份有效；首份或前一份解析失败时不画差额柱，不补零、不跨年相减。", 11, "#64788e")
-    text(40, 674, 1480, 30, "历史差额始终按相邻报表计算；上方卡片使用所选的本期和上期日期。", 11, "#64788e")
+    text(40, 674, 1480, 30, period_note, 11, "#64788e")
     error_count = len(history.get("errors", {}))
-    text(40, 717, 1480, 30, f"{error_count} 份解析失败，详见统计记录。" if error_count else "来源：盈亏统计 / 累积盈亏统计 / 境内权益互换台 / 净利润", 11, "#a4514e" if error_count else "#64788e")
+    text(40, 717, 1480, 30, f"{error_count} 份解析失败，详见统计记录。" if error_count else source, 11, "#a4514e" if error_count else "#64788e")
     painter.end()
     return image
 
 
-def chart_html(snapshot):
+def chart_html(snapshot, **options):
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    chart_image(snapshot).save(buffer, "PNG")
+    chart_image(snapshot, **options).save(buffer, "PNG")
     encoded = bytes(buffer.data().toBase64()).decode("ascii")
     return f'<p style="line-height:100%;"><img src="data:image/png;base64,{encoded}" width="1500" height="731" alt="pnl1 当年累计报表收益图" /></p>'
