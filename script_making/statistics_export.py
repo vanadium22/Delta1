@@ -140,10 +140,7 @@ def render_pages(snapshot):
         body += '<p class="note">来源：' + escape(snapshot["sources"]["pnl"]["name"]) + ' / 累积盈亏统计；原始行号见表。读取Excel保存缓存，不重算公式。</p>'
         body += '<p class="note">' + escape('；'.join(pnl["notes"])) + '</p>'
         if view["diagnostics"]:
-            body += '<p class="error">各组累计净利润排名未生成：' + escape('；'.join(view["diagnostics"])) + '</p>'
-        else:
-            from .statistics_charts import ranking_html
-            body += ranking_html(pnl)
+            body += '<p class="error">组汇总识别提示：' + escape('；'.join(view["diagnostics"])) + '</p>'
 
     else:
         body = '<p class="error">' + escape(pnl_text(snapshot)) + "</p>"

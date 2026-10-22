@@ -372,7 +372,7 @@ class StatisticsPage(QWidget):
             return
         try:
             folder = export_bundle(self.output_base(), self.snapshot, self.pages, self.config)
-            self.notice.setText("pnl1（含收益图和排名）、风险汇总、纯个股附件、正文和邮件草稿已保存：" + str(folder))
+            self.notice.setText("pnl1（含收益图）、风险汇总、纯个股附件、正文和邮件草稿已保存：" + str(folder))
             open_location(folder)
         except (OSError, ReportError, ValueError) as exc:
             self.error.setText(str(exc))

@@ -52,7 +52,8 @@ class PresentationTests(unittest.TestCase):
         self.assertNotIn('上期累计净利润',html)
         self.assertNotIn('普通明细',html)
         self.assertEqual(html.count('场外业务合计'),1)
-        self.assertIn('各组累计净利润排名',html)
+        self.assertNotIn('各组累计净利润排名',html)
+        self.assertEqual(html.count('data:image/png;base64,'), 1)
 
     def test_ambiguous_hierarchy_and_missing_cache_stop_ranking(self):
         for mode in ('indent','merge','missing','duplicate'):
