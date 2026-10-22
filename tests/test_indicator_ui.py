@@ -36,12 +36,13 @@ class IndicatorControlTests(unittest.TestCase):
         self.assertEqual(saved, old)
 
     def test_not_applicable_removes_old_identity_and_never_substitutes(self):
-        for page, family, price in [('cross', 'A03.mean', 'future'),
-                                    ('basis', 'B07', 'basis'), ('basis', 'A03.z', 'unknown')]:
+        for page, family, price in [('basis', 'B07', 'basis'), ('basis', 'A03.z', 'unknown')]:
             choice = selection_from_controls(page, family, price, {'variant_id': 'A03.z::basis::v1'})
             self.assertIsNone(choice['variant_id'])
             self.assertTrue(choice['selection_error'])
-        self.assertNotIn('future', [v['input_id'] for v in input_options('cross')])
+        self.assertIn('future', [v['input_id'] for v in input_options('cross')])
+        self.assertIn('对数价比',input_label('future',page='cross'))
+        self.assertIn('期限持有率',input_label('annual',page='calendar'))
         self.assertEqual([v['input_id'] for v in input_options('basis', False)], ['future', 'basis', 'annual'])
 
     def test_fixed_economic_definition_has_only_one_identity(self):
@@ -95,7 +96,7 @@ class IndicatorControlTests(unittest.TestCase):
     def test_rejected_combination_cannot_fall_back_to_another_backend_result(self):
         from types import SimpleNamespace
         model = SimpleNamespace(local_root='unused')
-        invalid = selection_from_controls('cross', 'A03.z', 'future')
+        invalid = selection_from_controls('cross', 'A03.z', 'unknown')
         result = evaluate(model, {'active_page': 'cross', 'request_id': 'invalid',
                                   'pages': {'cross': invalid}}, now=OBSERVED_AT)
         self.assertEqual(result['pages'], {})

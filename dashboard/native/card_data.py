@@ -160,8 +160,10 @@ FAMILIES = (
 
 
 def group_metrics(entities, category, price_input):
+    from dashboard.pair_catalog import FAMILIES as PAIR_FAMILIES
     groups=[]
     for key,title,primary in FAMILIES:
+        if category in ('calendar','cross') and key in PAIR_FAMILIES:title=PAIR_FAMILIES[key][0]
         items=[]
         for entity in entities:
             if key=="A14.book": rows=[r for r in entity["metrics"] if r["id"].startswith("A14.") and r["id"]!="A14.etf"]
@@ -188,12 +190,15 @@ def oi_expansion(left, right, data, metadata, calendar):
             frames.append(oi.where(calendar.tz_convert("Asia/Shanghai").strftime("%Y-%m-%d")<metadata[s]["expiry_date"]).rename(s))
         total=pd.concat(frames,axis=1).sum(axis=1,min_count=len(frames)) if frames else pd.Series(np.nan,index=calendar)
         growth.append((100*np.log(positive(total)/positive(total.shift(5)))).where(total.notna().rolling(6).sum().eq(6)))
-    return metric("B08","同组月份持仓扩张差",growth[0]-growth[1],"对数增长百分点",
+    row=metric("B08.legacy_collection","原同组月份持仓扩张差（辅助）",growth[0]-growth[1],"对数增长百分点",
         "100 × [ln(OI_A合计/OI_A合计前5日) − ln(OI_B合计/OI_B合计前5日)]", "固定月份集合 "+", ".join(sorted(months))+"；全组齐备、到期前才更新，不拼接换月。")
+    row['role']='auxiliary'
+    return row
 
 
 def dashboard_cards(engine, state, request, selection, daily, calendar, metadata, dividends, live, now, load_minutes):
     from .nonregression import calculate,collection_center,metric,INPUTS
+    from .pair_metrics import PAIR_FORMULA_VERSION,ratio_for_day,pair_definition
     category=state["category"]; price=state["price_input"]
     entities=[]
     # Source data/quality, local date, dataset and scenario versions participate in caching.
@@ -211,7 +216,7 @@ def dashboard_cards(engine, state, request, selection, daily, calendar, metadata
         carry=config.get('research_carry_inputs',{}).get(left)
         mappings=config.get('research_etf_iopv_mapping',{})
         mapping=mappings.get(left,mappings.get(left[:2]))
-        key=(engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key,repr(carry),repr(mapping),repr(request.get('participation')))
+        key=(PAIR_FORMULA_VERSION,engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key,repr(carry),repr(mapping),repr(request.get('participation')))
         if key not in cache:
             symbols={left,right,UNDERLYINGS[left[:2]][0]}
             if category!="basis":symbols.add(UNDERLYINGS[right[:2]][0])
@@ -229,9 +234,12 @@ def dashboard_cards(engine, state, request, selection, daily, calendar, metadata
         if category!='basis': symbols.add(UNDERLYINGS[right[:2]][0])
         observations(rows,engine.model.live_rows,left,right,category,price,daily,
                      {s:load_minutes(s) for s in symbols},metadata,dividends,now,getattr(engine,'observation_cache',None))
-        center,gap,stamp,note=collection_center(engine.model.live_rows,left,right,category,price,dividends,metadata,live,now)
+        pair_ratio=ratio_for_day(daily.get(left,pd.DataFrame()),daily.get(right,pd.DataFrame()),category,left,right,now) if category!='basis' else None
+        center,gap,stamp,note=collection_center(engine.model.live_rows,left,right,category,price,dividends,metadata,live,now,pair_ratio=pair_ratio)
         for suffix,title2,value in (("collection_center","采集区间成交量加权中枢",center),("collection_gap","采集区间中枢偏离",gap)):
-            rows.append(metric("B02."+suffix,title2,pd.Series(dtype=float),INPUTS[price][1],"Σ(同步观测x × 有效增量V_A) / Σ有效增量V_A",note,
+            unit=INPUTS[price][1] if category=='basis' else pair_definition(category,price)['unit']
+            formula='Σ(同步X × min(有效ΔV_A,有效ΔV_B/h前)) / Σ匹配增量量' if category!='basis' else 'Σ(同步观测x × 有效增量V_A) / Σ有效增量V_A'
+            rows.append(metric("B02."+suffix,title2,pd.Series(dtype=float),unit,formula,note,
                 scope="采集以来·HTTP观测",reason="此项不是完整历史分钟指标",current=value,current_time=stamp,current_reason=note))
             rows[-1]['current_scope']='采集区间'
         entities.append(dict(title=title,left=left,right=right,metrics=rows,error=None))

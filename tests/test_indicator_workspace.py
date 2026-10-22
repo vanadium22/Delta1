@@ -193,12 +193,16 @@ class ContractTests(unittest.TestCase):
             model.indicator_context['daily'][symbol]=pd.DataFrame(dict(open_interest=[100,101,102,103,104,110],volume=100),index=calendar)
         state=evaluate(model,dict(page='cross',family_id='B08',input='fixed'),'2026-10-20T14:00+08:00')
         entity=state['pages']['cross']['entities'][0]
-        self.assertEqual(entity['kind'],'collection');self.assertEqual(entity['primary']['value'],0.)
-        self.assertEqual(entity['primary']['n'],6)
-        member=entity['members'][0]
+        self.assertNotEqual(entity.get('kind'),'collection')
+        auxiliary=next(r for r in entity['metrics'] if r['id']=='B08.legacy_collection')
+        self.assertEqual(auxiliary['value'],0.);self.assertEqual(auxiliary['n'],6)
+        self.assertEqual(auxiliary['role'],'auxiliary')
+        self.assertEqual(entity['primary']['id'],'B08')
+        member=auxiliary['collection_members'][0]
         model.indicator_context['daily'][member].iloc[-1,0]=None
         state=evaluate(model,dict(page='cross',family_id='B08',input='fixed'),'2026-10-20T14:00+08:00')
-        self.assertIsNone(state['pages']['cross']['entities'][0]['primary']['value'])
+        auxiliary=next(r for r in state['pages']['cross']['entities'][0]['metrics'] if r['id']=='B08.legacy_collection')
+        self.assertIsNone(auxiliary['value'])
 
     def test_all_registered_primary_metrics_exist_in_production_calculate(self):
         from tests.indicator_frozen_fixture import FrozenIndicatorModel,OBSERVED_AT
@@ -213,10 +217,12 @@ class ContractTests(unittest.TestCase):
                     cache[price]={r['id'] for r in state['metrics']}
                 self.assertIn(entry['primary'],cache[price],(category,entry['variant_id']))
 
-    def test_catalog_identity_and_matrix_exclude_cross_raw_points(self):
+    def test_catalog_identity_and_matrix_define_cross_close_as_log_ratio(self):
         rows=catalog();ids=[r['variant_id'] for r in rows]
         self.assertEqual(len(ids),len(set(ids)))
-        self.assertTrue(all(r['input_id']!='future' for r in catalog('cross')))
+        cross_close=[r for r in catalog('cross') if r['input_id']=='future']
+        self.assertTrue(cross_close)
+        self.assertTrue(all('ln(F_A/F_B)' in r['pair_construction'] for r in cross_close))
         required={'family_id','variant_id','source_ref','formula_version','categories','input_id',
                   'fixed_inputs','required_fields','frequency','window','unit','timing','missing_policy'}
         self.assertTrue(all(required.issubset(r) for r in rows))
@@ -248,10 +254,14 @@ class ContractTests(unittest.TestCase):
                         row=rows[code]
                         self.assertIsNone(row['value']);self.assertEqual(row['data_status'],'missing_input')
                         self.assertEqual(row['implementation_status'],'implemented')
-                        self.assertIn('采集区间',row['scope']);self.assertIn('非',row['reason'])
-                        self.assertTrue(row['formula']);self.assertTrue(row['current_supported'])
+                        if page=='basis' or code.startswith('B02.collection'):
+                            self.assertIn('采集区间',row['scope']);self.assertIn('非',row['reason'])
+                        else:
+                            self.assertTrue(row['current_reason']);self.assertFalse(row['current_supported'])
+                        self.assertTrue(row['formula'])
+                        self.assertEqual(row['current_supported'],page=='basis' or code.startswith('B02.collection'))
                         if code.startswith('B02.collection'):self.assertEqual(row['unit'],'年化百分点')
-                        else:self.assertEqual(row['unit'],'倍' if page=='basis' else '对数倍数')
+                        else:self.assertEqual(row['unit'],'倍')
         # No-bars/failure schemas also use each child's dimension, not B02's X.
         model.snapshot=lambda request:dict(metrics=[],versions=model.versions)
         state=evaluate(model,dict(page='basis',family_id='B02',input='basis'),OBSERVED_AT)

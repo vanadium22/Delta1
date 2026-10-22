@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from dashboard.indicator_catalog import catalog
 from dashboard.indicator_selection import all_entities
@@ -40,7 +41,6 @@ class IndicatorExcelTests(unittest.TestCase):
         for page in ('basis','calendar','cross'):
             for family in ('A03.mean','A03.std','A03.z','A03.percentile','A03.change5','B10'):
                 for input_id in ('future','basis','annual','log_basis','log_annual'):
-                    if page=='cross' and input_id=='future':continue
                     variant=family+'::'+input_id+'::v1'
                     shared=frozen_research(self.model,page=page,variant=variant)
                     original=deepcopy(shared)
@@ -75,6 +75,35 @@ class IndicatorExcelTests(unittest.TestCase):
         self.assertEqual(len(page['details']),100)
         self.assertEqual(page['summary'][0][1],0.)
         self.assertIn('完整结果见详情',page['status'])
+
+    def test_pair_projection_explains_primary_and_auxiliary_without_changing_values(self):
+        primary=dict(id='B03',title='合约对增仓漂移',value=0.,unit='bp',n=20,role='primary',
+            pair_construction='配对 X 序列',formula_version='contract-pair-v3',formula='shared formula',
+            implementation_status='implemented',data_status='daily_reference',source_times={})
+        auxiliary=dict(primary,id='B03.legacy',title='单腿漂移差',value=None,role='auxiliary',
+            reason='缺少可靠持仓')
+        workspace=dict(pages={'cross':dict(entities=[dict(title='IF / IH',primary=primary,
+            metrics=[primary,auxiliary])],total=1,loaded=True,selection=dict(
+            variant_id='B03::future::v1',family_id='B03',input='future',timing='日终'))})
+        variant=dict(variant_id='B03::future::v1',pair_construction='10000 ln(F_A / F_B)',
+            direction='上升表示 A 相对 B 增强；单位 bp',explanation='衡量配对偏离的增仓确认',
+            limitations='容量为代理估算，不等同于可成交量')
+        controls=dict(variants=[variant],families=[dict(family_id='B03',label='合约对增仓漂移')],
+            inputs=[dict(input_id='future',label='期货价格比（对数 bp）')])
+        original=deepcopy(workspace)
+        with patch('dashboard.indicator_ui.ui_controls',return_value=controls):
+            rendered=add_research_view({},workspace)['research']['excel_pages']['cross']
+        self.assertEqual(workspace,original)
+        self.assertEqual(rendered['summary'][0][1],0.)
+        self.assertEqual(rendered['details'][0][1],0.)
+        self.assertIsNone(rendered['details'][1][1])
+        self.assertTrue(rendered['details'][0][0].startswith('【主指标】'))
+        self.assertTrue(rendered['details'][1][0].startswith('【辅助解释】'))
+        self.assertIn('配对 X 序列',rendered['details'][0][10])
+        self.assertIn('contract-pair-v3',rendered['details'][0][8])
+        self.assertEqual(rendered['explanations']['pair_construction'],variant['pair_construction'])
+        self.assertEqual(rendered['explanations']['limitations'],variant['limitations'])
+        self.assertIn('期货价格比（对数 bp）',rendered['context'])
 
     def test_preferences_do_not_overwrite_legacy_watchlist(self):
         from dashboard.indicator_workspace import load_preferences,save_preferences

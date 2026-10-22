@@ -6,6 +6,8 @@ from numbers import Real
 from dashboard.marketdata.quote_quality import aligned_quotes
 from dashboard.session_clock import session_policy
 from .instruments import UNDERLYINGS
+from .pair_metrics import (PAIR_FORMULA_VERSION, pair_definition, quote_value,
+                           required_symbols, ratio_for_day)
 
 
 def finite(value):
@@ -94,6 +96,10 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
 
     def extra(code, title, value, unit, stamp, reason, formula, scope='盘中估算', n=None):
         row = metric(code, title, pd.Series(dtype=float), unit, formula, reason, scope=scope)
+        if b is not None:
+            definition=pair_definition(category,price)
+            row.update(formula_version=PAIR_FORMULA_VERSION,pair_construction=definition['construction'],pair_metadata=definition)
+            if '.legacy_' in code:row['role']='auxiliary'
         rows.append(row); row_map[code] = row
         publish(code, value, stamp, reason, scope, n)
 
@@ -114,12 +120,14 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
                            dividends.points(symbol,today),days)
 
     required = legs + ([UNDERLYINGS[s[:2]][0] for s in legs] if price != 'future' else [])
+    if b is not None:required=required_symbols(category,price,left,right)
     ok, stamp, reason = aligned(required)
     current = None
     if ok:
-        values = [value(s) for s in legs]
-        if all(finite(v) for v in values):
-            current = values[0] - (values[1] if b is not None else 0)
+        if b is not None:
+            current=quote_value(category,price,left,right,live,metadata,dividends,today)
+        else:
+            current=value(left)
     base_reason = reason if not ok else '缺分红/到期信息或临到期年化不可用' if current is None else (
         '历史未接续至上一交易日' if not daily_ok else '盘中观测加入日序列；参考窗口仅完整历史')
     usable = current is not None and daily_ok
@@ -143,7 +151,7 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
     publish('A03.legacy_percentile30',rank30,stamp,'此前30期≤分位；原并列规则，区别于20期半权分位',n=30 if finite(rank30) else None)
 
     # Turnover needs previous valid OI, not unreliable intraday OI.
-    ok, stamp, reason = aligned([left])
+    ok, stamp, reason = aligned(legs)
     qa = live.get(left, {})
     total, oi = qa.get('volume_total'), a.oi_valid.iloc[-1] if daily_ok else None
     valid = ok and daily_ok and finite(total) and total >= 0 and finite(oi) and oi > 0
@@ -155,7 +163,24 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
     doi = current_oi-oi if valid and finite(current_oi) and current_oi > 0 else None
     if doi is not None and abs(doi) > total:
         doi = None
-    for code, val in [('B04.doi',doi), ('B04.K',100*doi/total if doi is not None and total > 0 else None)]:
+    if b is not None:
+        qb=live.get(right,{})
+        h=ratio_for_day(a,b,category,left,right,now)
+        oi_b=b.oi_valid.iloc[-1] if daily_ok else None
+        total_b=qb.get('volume_total');current_b=qb.get('open_interest')
+        pair_valid=ok and daily_ok and all(finite(v) and v>=0 for v in (total,total_b,oi,oi_b)) and finite(h) and h>0
+        pair_volume=min(total,total_b/h) if pair_valid else None
+        pair_previous=min(oi,oi_b/h) if pair_valid else None
+        expiries=[metadata.get(symbol,{}).get('expiry_date') for symbol in legs]
+        oi_ok=pair_valid and all(finite(v) and v>0 for v in (current_oi,current_b)) and all(expiry and pd.Timestamp(expiry).date()>today for expiry in expiries)
+        oi_ok=oi_ok and abs(current_oi-oi)<=total and abs(current_b-oi_b)<=total_b
+        doi=min(current_oi,current_b/h)-pair_previous if oi_ok else None
+        total=pair_volume
+        row=row_map['B04.Q.intraday']
+        row.update(title='合约对日内匹配换手代理',formula='min(累计V_A,累计V_B/h_t)/min(OI_A前,OI_B前/h_t)')
+        publish('B04.Q.intraday',pair_volume/pair_previous if pair_valid and pair_previous>0 else None,stamp,
+                '双腿同步累计匹配容量 / 同h昨日匹配OI；非实际配对成交' if pair_valid else '缺双腿有效累计量/昨日OI/前收h或新鲜行情')
+    for code, val in [('B04.doi',doi), ('B04.K',100*doi/total if doi is not None and finite(total) and total > 0 else None)]:
         publish(code, val, stamp, '截至当前持仓变化；非日终' if finite(val) else '缺有效实时OI/昨日OI或净变化异常')
 
     # Cumulative current volume is compared only at its exact completed minute.
@@ -170,9 +195,13 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
         volumes.append(v/denominator if denominator and finite(v) and v >= 0 else None)
     rvol = volumes[0] if ok and len(volumes) == 1 else (
         float(np.log(volumes[0]/volumes[1])) if ok and all(v is not None and v > 0 for v in volumes) else None)
-    extra('B09.same_time', '同刻活跃度', rvol, '倍' if b is None else '对数倍数', stamp,
+    extra('B09.same_time' if b is None else 'B09.legacy_same_time', '同刻活跃度' if b is None else '原各腿同刻活跃对数比（辅助）', rvol, '倍' if b is None else '对数倍数', stamp,
           '与此前20日同一分钟累计量比较' if finite(rvol) else '等待整分钟同步累计量或缺20日同刻分钟',
           'V_当前完整分钟 / median(此前20日截至同分钟累计量)；双腿取ln比', n=20 if finite(rvol) else None)
+    if b is not None:
+        extra('B09.same_time','合约对同刻匹配量活跃度',None,'倍',None,'缺已认证的合约对前20日同刻匹配量基准；不以单腿比值代替',
+              '同刻匹配量/median(此前20日同刻匹配量)',n=None)
+        row_map['B09.same_time']['current_supported']=False
 
     if price == 'future':
         ok, stamp, reason = aligned(legs)
@@ -186,8 +215,16 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
             den = med.median() if full20 and med.notna().all() else None
             stresses.append(10000*max(high-low,abs(high-prev),abs(low-prev))/prev/den if valid and finite(den) and den>0 else None)
         stress = stresses[0] if b is None else float(np.log(stresses[0]/stresses[1])) if all(v is not None and v>0 for v in stresses) else None
-        publish('B11',stress,stamp,'当日已发生价格振幅 / 前20日完整振幅基准；非最终日振幅')
+        publish('B11' if b is None else 'B11.legacy_log_ratio',stress,stamp,'当日已发生价格振幅 / 前20日完整振幅基准；非最终日振幅')
         if b is not None:publish('B11.max',max(stresses) if all(finite(v) for v in stresses) else None,stamp,'双腿截至当前振幅最大压力；非最终日振幅')
+    if b is not None:
+        for code in ('B03','B07','B08','B09','B11'):
+            if code in row_map:
+                row_map[code].update(current=None,current_time=None,current_supported=False,
+                                     current_reason='合约对主指标需完整日终/同步分钟及匹配量基准；不以单腿比较代替')
+        extra('B11.sample','合约对采集段振幅',None,'倍',None,'缺已认证的合约对同步采集段及同口径绝对TR基准；不以单腿压力比代替',
+              '采集段X极差 / 前20日合约对绝对TR中位数')
+        row_map['B11.sample']['current_supported']=False
     _publish_original_current(rows,publish,aligned,left,right,category,a,b,metadata,live,now)
     return rows
 
@@ -234,11 +271,11 @@ def _publish_original_current(rows,publish,aligned,left,right,category,a,b,metad
     fa=live.get(left,{}).get('close');fb=live.get(right,{}).get('close')
     valid=ok and all(finite(v) and v>0 for v in (fa,fb))
     if valid:
-        h=1. if category=='calendar' else fa*MULTIPLIERS[left[:2]]/(fb*MULTIPLIERS[right[:2]])
-        publish('B12.h',h,stamp,'同品种1:1；跨品种使用真实F等名义换算')
+        h=ratio_for_day(a,b,category,left,right,now)
+        publish('B12.h',h,stamp,'同品种1:1；跨品种使用上一完整交易日真实F等名义换算')
         va,vb=(live[s].get('volume_total') for s in (left,right))
         p=rows_by_id.get('B12.p',{}).get('value')
-        if all(finite(v) and v>=0 for v in (va,vb)) and finite(p) and 0<=p<=1:
+        if all(finite(v) and v>=0 for v in (va,vb)) and finite(h) and h>0 and finite(p) and 0<=p<=1:
             cap=min(va,vb/h)
             for code,value in (('B12.p',p),('B12.A_p',p*cap),('B12.B_p',p*cap*h)):
                 publish(code,value,stamp,'显式p乘截至当前已发生成交基数；非可成交承诺')
@@ -252,9 +289,14 @@ def _publish_original_current(rows,publish,aligned,left,right,category,a,b,metad
         stats('A04.raw_',raw_bp,10000*(a.close-b.close)/a.S,all_stamp)
         ea,eb=(metadata.get(s,{}).get('expiry_date') for s in (left,right))
         delta=(pd.Timestamp(eb)-pd.Timestamp(ea)).days if ea and eb else 0
-        carry=100*np.log(fb/fa)*365/delta if valid and delta>0 else None
-        publish('A05.log_carry',carry,stamp,'原稿未调整对数期限持有率')
+        legacy_carry=100*np.log(fb/fa)*365/delta if valid and delta>0 else None
+        publish('A05.legacy_log_carry',legacy_carry,stamp,'原未设近到期门槛的对数期限持有率，仅作辅助')
+        days_a=(pd.Timestamp(ea).date()-today).days if ea else None
+        days_b=(pd.Timestamp(eb).date()-today).days if eb else None
+        carry=legacy_carry if days_a is not None and days_b is not None and days_a>=5 and days_b>=5 else None
+        publish('A05.log_carry',carry,stamp,'对数期限持有率；两腿T≥5' if finite(carry) else '缺同步价格/到期信息或任一腿T<5')
         series=100*np.log(b.close/a.close)*365/delta if delta>0 else a.close*np.nan
+        series=series.where(a['T'].ge(5)&b['T'].ge(5))
         stats('A05.log_',carry,series,stamp)
     else:
         spot_b=UNDERLYINGS[right[:2]][0]
@@ -323,6 +365,10 @@ def observations(rows, samples, left, right, category, price, data, minute_data,
         rows.append(metric(code,title,pd.Series(dtype=float),unit,formula,reason,scope='采集区间',
                            current=value,current_time=stamp if finite(value) else None,current_reason=reason))
         rows[-1].update(current_scope='采集区间',current_supported=True,current_n=len(segment))
+        if category!='basis':
+            definition=pair_definition(category,price)
+            rows[-1].update(formula_version=PAIR_FORMULA_VERSION,pair_construction=definition['construction'],pair_metadata=definition)
+            if '.legacy_' in code:rows[-1]['role']='auxiliary'
     if price!='future':
         pressures=[]
         for i,symbol in enumerate(futures):
@@ -343,7 +389,7 @@ def observations(rows, samples, left, right, category, price, data, minute_data,
             values=[v[1][i] for v in segment]
             pressures.append((max(values)-min(values))/den if len(values)>1 and finite(den) and den>0 else None)
         val=pressures[0] if len(pressures)==1 else np.log(pressures[0]/pressures[1]) if all(v is not None and v>0 for v in pressures) else None
-        append('B11.sample','采集段振幅',val,'倍' if len(pressures)==1 else '对数倍数',
+        append('B11.sample' if category=='basis' else 'B11.legacy_sample','采集段振幅' if category=='basis' else '原各腿采集段压力对数比（辅助）',val,'倍' if len(pressures)==1 else '对数倍数',
                '采集段同步观测极差 / 前20日完整绝对振幅中位；双腿取ln比',
                '自 '+segment[0][0].tz_convert('Asia/Shanghai').strftime('%H:%M:%S')+' 起；非全天振幅，缺口后重置')
     # A current cumulative observation within 3 seconds BEFORE a completed minute
@@ -362,7 +408,7 @@ def observations(rows, samples, left, right, category, price, data, minute_data,
                 values.append(v/den if den and finite(v) and v>=0 else None)
             val=values[0] if len(values)==1 else np.log(values[0]/values[1]) if all(v is not None and v>0 for v in values) else None
             for row in rows:
-                if row['id']=='B09.same_time' and finite(val):
+                if row['id']==('B09.same_time' if category=='basis' else 'B09.legacy_same_time') and finite(val):
                     row.update(current=float(val),current_time=at.isoformat(),current_scope='盘中分钟近似',
                                current_reason='历史同分钟累计量；当前观测在分钟末前0—3秒，未插值',current_n=20)
     return rows

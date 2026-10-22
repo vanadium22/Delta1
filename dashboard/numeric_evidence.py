@@ -24,7 +24,9 @@ def cache_scope(config):
         identity[key] = config.get(key)
     # Invalidate old result schemas without changing any market-data file.
     from dashboard.indicator_catalog import FORMULA_VERSION
+    from dashboard.native.pair_metrics import PAIR_FORMULA_VERSION
     identity['formula_version'] = FORMULA_VERSION
+    identity['pair_formula_version'] = PAIR_FORMULA_VERSION
     return digest(identity)
 
 

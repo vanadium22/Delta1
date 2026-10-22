@@ -204,13 +204,33 @@ def result_contract(row,variant,entity,state,context,selection,now):
                   dividend=state.get('dividend_version',context.get('dividend_version')))
     versions.update(raw.get('input_versions') or {})
     visibility=entity.get('visibility_status',VISIBILITY_UNVERIFIED)
+    role=variant.get('metric_roles',{}).get(raw.get('id'),'primary' if raw.get('id')==variant['primary'] else 'auxiliary')
+    code=raw.get('id','')
+    legacy=(code.startswith('pair.legacy_') or '.legacy_' in code and not code.startswith('A03.') or
+            code.startswith(('B03.A.','B03.B.','B04.A.','B04.B.','B07.A.','B07.B.','B09.A.','B09.B.','B11.A.','B11.B.','B08.A.','B08.B.')) or
+            code in ('B07.volume','B11.max','B12.balance'))
+    construction=(raw.get('formula','') if role=='auxiliary' else variant.get('pair_construction') or raw.get('pair_construction',''))
+    explanation=(variant.get('explanation','') if role=='primary' else
+                 raw.get('explanation') or ('原口径辅助解释：' if legacy else '构造分量/辅助解释：')+raw.get('title',raw.get('id',''))+'。'+raw.get('formula',''))
+    pair_metadata=deepcopy(raw.get('pair_metadata') or variant.get('pair_metadata') or {})
+    if pair_metadata and (variant['input_id']=='fixed' or legacy):
+        # Fixed Q/OI/capacity definitions must not inherit the default basis X
+        # merely used to request all engine outputs. Legacy rows explain themselves.
+        if legacy and not raw.get('id','').startswith('B12.legacy_'):
+            pair_metadata={k:v for k,v in pair_metadata.items() if k in ('synchronization',)}
+        pair_metadata.update(construction=raw.get('formula',''),unit=raw.get('unit',variant['unit']),
+                             formula_version=FORMULA_VERSION if legacy else variant['formula_version'])
     result={**raw,'metric_id':raw.get('id'),'family_id':variant['family_id'],'variant_id':variant['variant_id'],
             'input_id':variant['input_id'],'entity_id':entity.get('entity_id'),'value':value,'time':time,
             'daily_value':daily_value,'daily_time':daily_time,'unit':raw.get('unit',variant['unit']),
             'source_times':source_times,'history_cutoff':history_cutoff,'n':n,
             'sample_status':'provided' if n is not None else '未提供有效样本计数',
-            'input_versions':versions,'formula_version':variant['formula_version'],
-            'source_ref':variant['source_ref'],'implementation_status':impl,'data_status':status,
+            'input_versions':versions,'formula_version':FORMULA_VERSION if legacy else variant['formula_version'],
+            'source_ref':raw.get('source_ref') or variant['source_ref'].split('；原 ')[-1] if legacy else variant['source_ref'],'implementation_status':impl,'data_status':status,
+            'role':role,'pair_construction':construction,'explanation':explanation,
+            'pair_metadata':pair_metadata,
+            'direction':variant.get('direction','') if role=='primary' else '辅助解释；单位：'+str(raw.get('unit','')),
+            'limitations':variant.get('limitations',''),
             'visibility_status':visibility,'reason':reason,'observed_at':now.isoformat(),
             'display_status':'visible',
             'current_supported':bool(raw.get('current_supported',raw.get('current') is not None or raw.get('current_reason') is not None))}
@@ -297,6 +317,15 @@ def evaluate(model,selection=None,now=None,*,context=None):
                                       as_of=at.isoformat(),allow_mixed_expiry=True,
                                       participation=choice.get('participation')))
             metrics=[r for r in state.get('metrics',[]) if r['id'] in variant['metric_ids']]
+            if variant['family_id']=='B08':
+                roots=list(dict.fromkeys(item.get('roots',[])))
+                collection=next((c for c in fixed_collections(metadata,at,active) if c['roots']==roots),None)
+                if collection:
+                    for legacy in _collection_metrics(collection,context):
+                        if legacy['id']=='B08':legacy['id']='B08.legacy_collection'
+                        legacy.update(role='auxiliary',source_times=_history_sources(collection,context,legacy.get('time')),
+                                      collection_id=collection['collection_id'],collection_members=collection['members'])
+                        metrics.append(legacy)
             why=state.get('pair_error') or why
             version=state.get('versions')
             if version is not None:
@@ -336,7 +365,7 @@ def evaluate(model,selection=None,now=None,*,context=None):
     group.update(loaded=True,entities=values)
     page.update(entities=values,selected_group=group,total=total,offset=offset,limit=limit,loaded=True)
     return dict(request_id=selected.get('request_id'),selection=selected,pages=pages,catalog=catalog(),contracts=sorted(metadata),
-                observed_at=at.isoformat(),active_page=active,formula_version=FORMULA_VERSION,
+                observed_at=at.isoformat(),active_page=active,formula_version=variant['formula_version'],
                 versions=context.get('versions'),error=None)
 
 

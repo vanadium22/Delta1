@@ -1,5 +1,9 @@
 # 数字 Excel：公司统一分支交接
 
+2026-10-22最新合约对重构：用户明确要求跨期/跨品种主指标针对具体双腿自身计算，原单腿比较仅辅助。现采用 `contract-pair-v3`，跨期close为近−远、年化为远/近期限持有率，跨品种close为对数价比；量仓使用前一完整交易日h的匹配容量代理，同步分钟构造合约对OHLC。详细定义及主辅迁移见 [PAIR_INDICATORS.md](PAIR_INDICATORS.md)；旧原稿验证与本轮验证在覆盖表中分开。期现保持原数学，原指数看板、原数据与配置保留。新缓存scope含pair公式版本，稳定variant ID及旧中文偏好保持。
+
+Excel和两版本地App直接提供构造、方向/单位、意义与限制说明，主卡/主图使用合约对主值，辅助明示原公式/版本。公司仅发布数字Excel、空模板、必要无Qt后台和测试说明；App前端仍留旧目录。本轮18新数学+41原回归、76相关集成、Excel66次隐藏COM、App74组合2592结果及真实本地历史原CMD四档链通过；70组663,408字段证实期现/原概览与旧HEAD一致。最终边缘和元数据说明均有独立新进程验收。全部静默/离屏，未打开用户产品或修改实际配置；证据及后续发布SHA见 `.deps/pair_rework/`、`.deps/pair_reconstruction/`、`.deps/pair_metrics_review/`。下方“未改公式”“B08固定集合为主”“跨品种无close”均是此前版本历史，以本段为准。
+
 2026-10-22 本机入口修复：用户运行57df40d6795e41b6afb5d95338806693请求裸python，实际P:/code_content/python/install/python.exe缺requests，在NativeModel导入链退出。原start_numeric_excel.cmd现按显式覆盖→公司环境→仓库专用/通用环境→本机已有P:/code_content/python_work_env/conda_env/swhy_delta1/python.exe→PATH选择。已有swhy_delta1完整数据服务导入通过；不用安装依赖、改永久变量或改数据/VPN。上一轮FeedFile验收绕过数据服务，本次补充不设SWHY覆盖的原CMD、实际numeric_excel及隐藏Excel保存链；所有测试隔离，不自动打开成品。证据与发布SHA见.deps/ui_launcher_fix/。下方历史入口回退说明以此顺序为准。
 
 本次8项真实CMD优先级/路径/参数/失败码回归通过；原CMD的隔离合成Snapshot验收中，requested/resolved/feed runtime均为原swhy_delta1，launcher/producer均退出0，隐藏Excel写入与保存各1次并回读核对数值。此项覆盖实际producer导入，未连接真实数据或测试公司实盘。

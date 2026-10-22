@@ -36,10 +36,15 @@ def minute_events(frame):
     return {k:pd.concat(v).sort_index() if v else pd.Series(dtype=float) for k,v in result.items()}
 
 
-def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,price,metadata,left,right,participation):
+def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,price,metadata,left,right,participation,*,quantities=None):
     from .nonregression import prior,positive,statistics,weighted,minute_daily
     from .metric_inputs import INPUTS
     unit=INPUTS[price][1]
+    leg_unit=unit
+    if b is not None:
+        from .pair_metrics import pair_definition, pair_quantities, pair_ohlc_statistics, pair_daily
+        unit=pair_definition(category,price)['unit']
+        if quantities is None:quantities=pair_quantities(a,b,category,left,right)
     blank=pd.Series(np.nan,index=calendar)
 
     def emit(code,title,s,u,formula,meaning='独立计算的解释量；不合成评分。'):
@@ -74,7 +79,9 @@ def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,p
         ea,eb=(metadata.get(s,{}).get('expiry_date') for s in (left,right))
         delta=(pd.Timestamp(eb)-pd.Timestamp(ea)).days if ea and eb else 0
         carry=100*np.log(positive(b.close)/positive(a.close))*365/delta if delta>0 else blank
-        emit('A05.log_carry','原稿对数期限持有率',carry,'年化百分点','100 × ln(F远/F近) × 365/(T远−T近)')
+        emit('A05.legacy_log_carry','原对数期限持有率（未设近到期门槛，辅助）',carry,'年化百分点','100 × ln(F远/F近) × 365/(T远−T近)','旧口径辅助；主值要求两腿T≥5。')
+        carry=carry.where(a['T'].ge(5)&b['T'].ge(5))
+        emit('A05.log_carry','对数期限持有率',carry,'年化百分点','100 × ln(F远/F近) × 365/(T远−T近)，两腿T≥5')
         stats('A05.log_',carry,'年化百分点')
         emit('A09.one_to_one_pnl5','固定1:1五期未扣成本金额变化',(raw_points.diff(5)*({'IF':300,'IH':300,'IC':200,'IM':200}[left[:2]])).where(raw_points.notna().rolling(6).sum().eq(6)),'元','乘数 × Δ5(F近−F远)','固定一手近月减一手远月的金额变化；不是策略回测或年化bp损益。')
     if b is not None and category=='cross':
@@ -84,23 +91,38 @@ def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,p
             stats('A06.'+suffix+'_',series,'bp')
 
     # B01 explanations use exactly the open/close sampling used by the result.
-    opening=oa if category=='basis' else minute_daily(minute)
+    opening=oa if category=='basis' else pair_daily(minute)
     o=opening.get('open',blank).reindex(calendar)
     c=opening.get('close',blank).reindex(calendar)
-    threshold=pd.Series(.02 if price.endswith('annual') or price=='annual' else 2.,index=calendar) if price!='future' else .0002*a.close.shift()
+    threshold=pd.Series(.02 if price.endswith('annual') or price=='annual' else 2.,index=calendar) if price!='future' or category=='cross' else .0002*a.close.shift()
     for suffix,title,values,formula in (
         ('prev','前收输入',x.shift(),'x_(t−1)'),('open','开盘输入',o,'同步09:31分钟代理；单腿真实期货使用日开盘'),
         ('close','收盘输入',c,'完整日终输入'),('d','日内修复变化',c-o,'收盘x−开盘x'),('threshold','修复比分母门槛',threshold,'bp输入2bp；年化输入0.02百分点；价格前收2bp')):
         emit('B01.'+suffix,title,values,unit,formula)
-    md=minute_daily(minute)
+    md=minute_daily(minute) if b is None else pair_daily(minute)
     for suffix,title,u,formula in (('n','有效分钟数','根','完整同步分钟数'),('weight_sum','A腿权重和','手','ΣV_A,m'),('weighted_sum','A腿加权和',unit+'×手','Σx_m V_A,m')):
+        if b is not None and suffix!='n':
+            title='匹配容量代理权重和' if suffix=='weight_sum' else '合约对匹配量加权和'
+            formula='Σ min(V_A,m,V_B,m/h_t)' if suffix=='weight_sum' else 'Σ X_m min(V_A,m,V_B,m/h_t)'
         emit('B02.'+suffix,title,md.get(suffix,pd.Series(dtype=float)),u,formula)
+    if b is not None:
+        emit('B03.pair.positive_weight','合约对五期正增仓匹配权重',quantities.positive_weight.rolling(5,min_periods=5).sum(),'手','Σ5 min(max(ΔOI_A,0),max(ΔOI_B,0)/h_t)')
+        for suffix,col,title,u in (('volume','volume','匹配成交容量','手'),('previous_oi','previous_oi','同h前期匹配持仓','手'),('oi','oi','当期匹配持仓','手'),('h','h','前收匹配比例','手/手')):
+            emit('B04.pair.'+suffix,title,quantities[col],u,'匹配容量代理；同h折算，不代表实际配对成交或账户持仓')
+        for field in ('open','high','low','close'):
+            emit('B07.pair.'+field,'合约对同步分钟 '+field,md.get(field,pd.Series(dtype=float)),unit,'完整240个同步X分钟收盘观测聚合OHLC')
+        for suffix,col in (('total','oi'),('base','growth_base'),('h','h')):
+            emit('B08.pair.'+suffix,'合约对匹配持仓 '+suffix,quantities[col],'手/手' if suffix=='h' else '手','当期与五期前固定同一h_t比较；完整6点')
+        emit('B09.pair.baseline','合约对匹配量基准',prior(quantities.volume).median(),'手','median(此前20期 min(V_A,V_B/h_t))')
+        pair_ohlc=pair_ohlc_statistics(md,calendar)
+        for suffix in ('tr','baseline'):
+            emit('B11.pair.'+suffix,'合约对真实波幅' if suffix=='tr' else '合约对波幅基准',pair_ohlc[suffix],unit,'绝对TR_X' if suffix=='tr' else 'median(此前20期TR_X)')
 
     legs=[('A',a,oa)]+([('B',b,ob)] if b is not None else [])
     for leg,f,ohlc in legs:
         w=f.doi.clip(lower=0)
         for suffix,title,values,u,formula in (
-            ('drift','增仓漂移',weighted(f[price].diff(),w),unit,'Σ5(Δx max(ΔOI,0))/Σ5max(ΔOI,0)'),
+            ('drift','增仓漂移',weighted(f[price].diff(),w),leg_unit,'Σ5(Δx max(ΔOI,0))/Σ5max(ΔOI,0)'),
             ('doi','净持仓变化',f.doi,'手','OI_t−OI_(t−1)'),
             ('positive_weight','五期正增仓权重和',w.rolling(5,min_periods=5).sum(),'手','Σ5max(ΔOI,0)')):
             emit(f'B03.{leg}.{suffix}',leg+title,values,u,formula)
@@ -122,8 +144,8 @@ def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,p
         if category=='basis':clv=f.clv
         emit(f'B07.{leg}.clv',leg+'收盘位置',clv,'倍','(2C−H−L)/(H−L)；期现使用真实OHLC')
         den=prior(amp).median()
-        emit(f'B11.{leg}.tr',leg+'真实波幅',amp,'bp' if price=='future' else unit,'真实价格10000TR/前收；有符号X用绝对TR')
-        emit(f'B11.{leg}.baseline',leg+'振幅基准',den,'bp' if price=='future' else unit,'median(此前20期振幅)')
+        emit(f'B11.{leg}.tr',leg+'真实波幅',amp,'bp' if price=='future' else leg_unit,'真实价格10000TR/前收；有符号X用绝对TR')
+        emit(f'B11.{leg}.baseline',leg+'振幅基准',den,'bp' if price=='future' else leg_unit,'median(此前20期振幅)')
         emit(f'B11.{leg}.pressure',leg+'振幅压力',amp/positive(den),'倍','当期振幅/自身此前20期中位数')
     if category=='basis':
         # Preserve the real index leg of the source CLV diagnostic.
@@ -143,9 +165,9 @@ def add_original_and_components(add,a,b,x,ma,mb,oa,ob,minute,calendar,category,p
     emit('B10.n','路径观测数',pd.Series(6.,index=calendar).where(full),'根','6个连续有效观测，5个变化')
     if b is not None:
         from .nonregression import MULTIPLIERS
-        h=pd.Series(1.,index=calendar) if category=='calendar' else positive(a.close)*MULTIPLIERS[left[:2]]/(positive(b.close)*MULTIPLIERS[right[:2]])
+        h=quantities.h
         cap=pd.concat([a.volume.where(a.volume>=0),b.volume.where(b.volume>=0)/positive(h)],axis=1).min(axis=1,skipna=False)
-        emit('B12.h','明确B/A手数',h,'手/手','同品种1:1；跨品种等名义FAmA/(FBmB)')
+        emit('B12.h','前收匹配B/A手数',h,'手/手','同品种1:1；跨品种上一完整交易日FAmA/(FBmB)')
         valid_p=isinstance(participation,(int,float)) and not isinstance(participation,bool) and np.isfinite(participation) and 0<=participation<=1
         p=pd.Series(float(participation) if valid_p else np.nan,index=calendar)
         emit('B12.p','显式参与比例',p,'倍','用户明确输入0≤p≤1；未给不默认1%')

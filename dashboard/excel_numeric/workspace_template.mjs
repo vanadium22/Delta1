@@ -11,11 +11,11 @@ function link(s,range,target,label){if(range.includes(':'))s.getRange(range).mer
 function base(s,last='F',rows=42){s.showGridLines=false;const a=s.getRange(`A1:${last}${rows}`);a.format.font={name:font,size:11,color:ink};a.format.rowHeight=22;a.format.verticalAlignment='center';}
 export function addWorkspace(wb,metadata={}) {
  const choices=wb.worksheets.add('合约选项');choices.showGridLines=false;
- const directory=wb.worksheets.add('指标目录');base(directory,'F',420);
+ const directory=wb.worksheets.add('指标目录');base(directory,'J',520);
  merge(directory,'A2:F2','全部指标与独立输入口径');directory.getRange('A2').format.font={name:font,size:16,bold:true,color:ink};
  merge(directory,'A4:F4','可用 Excel 筛选查找；返回研究页选择中文指标与输入。技术 ID 可粘贴到指标格，自动迁移。');
  link(directory,'A3:B3','期现','返回期现');link(directory,'C3:D3','同品种跨期','返回同品种跨期');link(directory,'E3:F3','跨品种','返回跨品种');
- directory.getRange('A6:F6').values=[['类别','指标','输入口径','指标族 ID','独立变体 ID','适用说明']];
+ directory.getRange('A6:J6').values=[['类别','指标','输入口径','双腿构造','方向与单位','指标意义','使用限制','公式版本','指标族 ID','独立变体 ID']];
  const catalog=metadata.catalog||[];let directoryRows=[];
  for(const [i,[id,name]] of RESEARCH_PAGES.entries()) {
   const controls=metadata.ui_controls?.[id]||{families:[],inputs:[],variants:[]};
@@ -46,25 +46,31 @@ export function addWorkspace(wb,metadata={}) {
   s.getRange('E3').dataValidation={rule:{type:'list',values:[...primary.map(x=>x.label),'更多口径','固定口径']}};
   const familyCol=String.fromCharCode(66+i),advancedCol=String.fromCharCode(69+i);
   if(controls.families.length){choices.getRange(`${familyCol}7:${familyCol}${6+controls.families.length}`).values=controls.families.map(x=>[x.label]);s.getRange('B3').dataValidation={rule:{type:'list',formula1:`'合约选项'!$${familyCol}$7:$${familyCol}$${6+controls.families.length}`}};}
-  const d=wb.worksheets.add(name+'详情');base(d,'K',1800);d.tabColor='#94A3B8';
-  for(const [col,width] of Object.entries({A:30,B:22,C:14,D:28,E:23,F:8,G:17,H:24,I:48,J:50,K:58}))d.getRange(`${col}1:${col}1800`).format.columnWidth=width;
+  const d=wb.worksheets.add(name+'详情');base(d,'K',1804);d.tabColor='#94A3B8';
+  for(const [col,width] of Object.entries({A:36,B:22,C:14,D:28,E:23,F:8,G:17,H:24,I:48,J:50,K:58}))d.getRange(`${col}1:${col}1804`).format.columnWidth=width;
   merge(d,'A2:F2',name+' · 详情与高级筛选');d.getRange('A2').format.font={name:font,size:16,bold:true,color:ink};link(d,'G2:H2',name,'返回研究结果');
   for(const [label,cell,value] of [['品种','B3',''],['合约 A','E3',''],['合约 B','H3',''],['历史日期','B4',''],['期限','E4',id==='cross'?'相同到期':'全部期限'],['起始序号','H4',0],['每页实体','B5',12],['参与比例 p','E5',null],['更多口径','B7','']]){const c=cell[0],r=cell.slice(1);text(d,String.fromCharCode(c.charCodeAt(0)-1)+r,label);input(d,cell,value);}
   d.getRange('B4').setNumberFormat('@');d.getRange('E5').setNumberFormat('0.00%');
   d.getRange('B7:C7').merge();d.getRange('B7:C7').format.fill='#FFF0C2';d.getRange('B7:C7').format.wrapText=true;
   merge(d,'A6:H6','p 只用于容量演算，空白不计算；合法 0 保留。指定腿、历史日期和分页仅在相应范围生效。');
-  merge(d,'D7:H7',id==='cross'?'不同指数期货点位不直接相减，请选择适用的基差 / 年化口径。':'close 取日终收盘；盘中优先使用实际最新价，源时单列显示。');
+  merge(d,'D7:H7',controls.cross_price_note||'close 取日终收盘；盘中优先使用实际最新价，源时单列显示。');
   d.getRange('A7:H7').format.rowHeight=32;d.getRange('D7:H7').format.wrapText=true;
   merge(d,'A8:H8','当前选择 / 固定口径 / 完整缺失原因');
+  for(const [row,key,label] of (id==='basis'?[]:[[9,'pair_construction','双腿构造'],[10,'direction','方向与单位'],[11,'explanation','指标意义'],[12,'limitations','使用限制']])){
+   merge(d,`A${row}:H${row}`,chosen[key]?`${label}：${chosen[key]}`:'');d.getRange(`A${row}:H${row}`).format.wrapText=true;d.getRange(`A${row}:H${row}`).format.rowHeight=[9,12].includes(row)?48:34;
+  }
+  if(id!=='basis')d.getRange('A9:H12').format.fill=pale;
   d.getRange('B3').dataValidation={rule:{type:'list',values:['','IF','IH','IC','IM']}};d.getRange('E4').dataValidation={rule:{type:'list',values:Object.values(EXPIRY_LABELS)}};d.getRange('B5').dataValidation={rule:{type:'list',values:['4','6','12','24']}};
   const advanced=controls.inputs.filter(x=>x.advanced);if(advanced.length){text(d,'B7',advanced[0].label);choices.getRange(`${advancedCol}7:${advancedCol}${6+advanced.length}`).values=advanced.map(x=>[x.label]);d.getRange('B7').dataValidation={rule:{type:'list',formula1:`'合约选项'!$${advancedCol}$7:$${advancedCol}$${6+advanced.length}`}};}
-  d.getRange('A10:K10').values=[['实体 / 指标','值','单位','各腿源时','历史截止','n','实现状态','数据状态','输入 / 公式版本','原因 / 代表依据','公式']];
-  d.getRange('A10:K10').format={fill:blue,font:{name:font,size:11,color:'#FFFFFF',bold:true},rowHeight:28};
-  d.getRange('A11:K1800').format.rowHeight=28;d.getRange('A11:K1800').format.verticalAlignment='top';d.getRange('A11:A1800').format.wrapText=true;d.getRange('D11:D1800').format.wrapText=true;d.getRange('G11:K1800').format.wrapText=true;d.getRange('B11:B1800').setNumberFormat('0.0000');d.getRange('E11:E1800').setNumberFormat('mm/dd hh:mm:ss');d.getRange('F11:F1800').setNumberFormat('0');d.freezePanes.freezeRows(10);
-  for(const entry of applicable){const v=controls.variants.find(v=>v.variant_id===entry.variant_id)||{};directoryRows.push([name,v.family_label||entry.title,v.input_label||entry.input_id,entry.family_id,entry.variant_id,v.input_id==='fixed'?'固定经济定义，不受 X 影响':'独立输入变体']);}
+  const head=id==='basis'?10:14,start=head+1;
+  d.getRange(`A${head}:K${head}`).values=[['主辅 / 实体 / 指标','值','单位','各腿源时','历史截止','n','实现状态','数据状态','输入 / 公式版本','原因 / 代表依据','双腿构造 / 公式']];
+  d.getRange(`A${head}:K${head}`).format={fill:blue,font:{name:font,size:11,color:'#FFFFFF',bold:true},rowHeight:28};
+  d.getRange(`A${start}:K1804`).format.rowHeight=28;d.getRange(`A${start}:K1804`).format.verticalAlignment='top';d.getRange(`A${start}:A1804`).format.wrapText=true;d.getRange(`D${start}:D1804`).format.wrapText=true;d.getRange(`G${start}:K1804`).format.wrapText=true;d.getRange(`B${start}:B1804`).setNumberFormat('0.0000');d.getRange(`E${start}:E1804`).setNumberFormat('mm/dd hh:mm:ss');d.getRange(`F${start}:F1804`).setNumberFormat('0');d.freezePanes.freezeRows(head);
+  for(const entry of applicable){const v=controls.variants.find(v=>v.variant_id===entry.variant_id)||{};directoryRows.push([name,v.family_label||entry.title,v.input_label||entry.input_id,v.pair_construction||'',v.direction||'',v.explanation||'',v.limitations||'',v.formula_version||entry.formula_version||'',entry.family_id,entry.variant_id]);}
  }
- if(directoryRows.length){directory.getRange(`A7:F${6+directoryRows.length}`).values=directoryRows;directory.tables.add(`A6:F${6+directoryRows.length}`,true,'IndicatorDirectory');}
- for(const [col,width] of Object.entries({A:17,B:32,C:35,D:23,E:48,F:32}))directory.getRange(`${col}1:${col}420`).format.columnWidth=width;
+ if(directoryRows.length){directory.getRange(`A7:J${6+directoryRows.length}`).values=directoryRows;directory.tables.add(`A6:J${6+directoryRows.length}`,true,'IndicatorDirectory');directory.getRange(`A7:J${6+directoryRows.length}`).format.wrapText=true;directory.getRange(`A7:J${6+directoryRows.length}`).format.rowHeight=72;}
+ for(const [col,width] of Object.entries({A:17,B:32,C:35,D:52,E:44,F:58,G:65,H:24,I:23,J:48}))directory.getRange(`${col}1:${col}520`).format.columnWidth=width;
+ if(directoryRows.length)directory.getRange(`A7:J${6+directoryRows.length}`).format.autofitRows();
  directory.freezePanes.freezeRows(6);
  return choices;
 }

@@ -82,13 +82,15 @@ if(process.argv[4]){
    }
    d.getRange('E4').values=[[EXPIRY_LABELS[selected.expiry_mode]||'全部期限']];
    if(p.summary.length)s.getRange(`A10:F${9+p.summary.length}`).values=excelRows(p.summary);
-   if(p.details.length){d.getRange(`A11:K${10+p.details.length}`).values=excelRows(p.details);d.getRange(`A11:K${10+p.details.length}`).format.autofitRows();}
+   const detailStart=p.detail_start||(id==='basis'?11:15);
+   if(p.details.length){d.getRange(`A${detailStart}:K${detailStart-1+p.details.length}`).values=excelRows(p.details);d.getRange(`A${detailStart}:K${detailStart-1+p.details.length}`).format.autofitRows();}
    s.getRange('A6').values=[[p.status]];d.getRange('A8').values=[[p.context]];
+   for(const [row,key,label] of (id==='basis'?[]:[[9,'pair_construction','双腿构造'],[10,'direction','方向与单位'],[11,'explanation','指标意义'],[12,'limitations','使用限制']]))d.getRange(`A${row}`).values=[[p.explanations?.[key]?`${label}：${p.explanations[key]}`:'']];
    s.getRange('A5').values=[['冻结合成输入验收 · 非真实行情 · 静态预览']];
   }
  }
  wb.recalculate();
- for(const [name,range] of (sample.preview_ranges||[['期现','A1:F16'],['同品种跨期','A1:F16'],['跨品种','A1:F16'],['期现详情','A1:H16'],['指标目录','A1:F15'],['概览','A1:H38']])){
+ for(const [name,range] of (sample.preview_ranges||[['期现','A1:F16'],['同品种跨期','A1:F16'],['跨品种','A1:F16'],['期现详情','A1:H18'],['同品种跨期详情','A1:H18'],['跨品种详情','A1:H18'],['指标目录','A1:F10'],['概览','A1:H38']])){
   const png=await wb.render({sheetName:name,range,scale:1.2,format:'png'});
   await fs.writeFile(path.join(path.dirname(process.argv[4]),name+(sample.preview_suffix||'')+'.png'),new Uint8Array(await png.arrayBuffer()));
  }

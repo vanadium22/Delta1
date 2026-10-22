@@ -2401,5 +2401,3417 @@
       "company_acceptance": "not_run",
       "reason": "Only same-product 1:1 and cross-product equal-notional h; no beta capacity."
     }
-  ]
+  ],
+  "formula_version_by_category": {
+    "basis": "nonregression-v2",
+    "calendar": "contract-pair-v3",
+    "cross": "contract-pair-v3"
+  },
+  "original_evidence_scope": "The original evidence/subitems above describe the nonregression-v2 manuscript implementation. New pair-primary evidence is recorded separately below; legacy comparisons remain auxiliary.",
+  "pair_revision": {
+    "date": "2026-10-22",
+    "formula_version": "contract-pair-v3",
+    "authorization": "用户确认以具体合约对自身构造主指标，原单腿比较保留辅助；Excel与两版App同步并明确解释。",
+    "definition_document": "PAIR_INDICATORS.md",
+    "definition_module": "dashboard/pair_catalog.py",
+    "calculation_module": "dashboard/native/pair_metrics.py",
+    "mathematical_tests": "tests/test_pair_metrics.py",
+    "contract_tests": "tests/test_pair_contract.py",
+    "company_acceptance": "not_run",
+    "real_external_data_fetched": false,
+    "versions_preserved": {
+      "single_leg": "nonregression-v2",
+      "original_comparisons": "nonregression-v2",
+      "pair_primary": "contract-pair-v3"
+    },
+    "unsupported_current_children": [
+      "B09.same_time (pair)",
+      "B11.sample (pair)"
+    ],
+    "unsupported_policy": "明确显示原因；日终主指标与旧单腿盘中辅助分开，不回填伪造合约对盘中值。",
+    "variants": [
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::future::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::raw_basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::log_basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::raw_annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.mean::log_annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::future::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::raw_basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::log_basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::raw_annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.std::log_annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::future::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::raw_basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::log_basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::raw_annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.z::log_annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::future::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::raw_basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::log_basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::raw_annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.percentile::log_annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::future::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::raw_basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::log_basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::raw_annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.change5::log_annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::future::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::raw_basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::log_basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::raw_annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A03.legacy_percentile30::log_annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A04.points::fixed::v1",
+        "family_id": "A04.points",
+        "primary": "A04.points",
+        "metric_roles": {
+          "A04.points": "primary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A04.bp::fixed::v1",
+        "family_id": "A04.bp",
+        "primary": "A04.bp",
+        "metric_roles": {
+          "A04.bp": "primary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A04.raw_points::fixed::v1",
+        "family_id": "A04.raw_points",
+        "primary": "A04.raw_points",
+        "metric_roles": {
+          "A04.raw_points": "primary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A04.raw_bp::fixed::v1",
+        "family_id": "A04.raw_bp",
+        "primary": "A04.raw_bp",
+        "metric_roles": {
+          "A04.raw_bp": "primary",
+          "A04.raw_mean": "auxiliary",
+          "A04.raw_std": "auxiliary",
+          "A04.raw_z": "auxiliary",
+          "A04.raw_percentile": "auxiliary",
+          "A04.raw_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A05::fixed::v1",
+        "family_id": "A05",
+        "primary": "A05",
+        "metric_roles": {
+          "A05": "primary",
+          "A05.legacy_carry": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A05.log_carry::fixed::v1",
+        "family_id": "A05.log_carry",
+        "primary": "A05.log_carry",
+        "metric_roles": {
+          "A05.log_carry": "primary",
+          "A05.log_mean": "auxiliary",
+          "A05.log_std": "auxiliary",
+          "A05.log_z": "auxiliary",
+          "A05.log_percentile": "auxiliary",
+          "A05.log_change5": "auxiliary",
+          "A05.legacy_log_carry": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A07::fixed::v1",
+        "family_id": "A07",
+        "primary": "A07.actual",
+        "metric_roles": {
+          "A07.actual": "primary",
+          "A07.spot": "auxiliary",
+          "A07.basis": "auxiliary",
+          "A07.scenario": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A09::fixed::v1",
+        "family_id": "A09",
+        "primary": "A09.h",
+        "metric_roles": {
+          "A09.h": "primary",
+          "A09.amountA": "auxiliary",
+          "A09.amountB": "auxiliary",
+          "A09.rounding": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A09.one_to_one_pnl5::fixed::v1",
+        "family_id": "A09.one_to_one_pnl5",
+        "primary": "A09.one_to_one_pnl5",
+        "metric_roles": {
+          "A09.one_to_one_pnl5": "primary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::future::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::raw_basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::log_basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::raw_annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A11::log_annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::future::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::raw_basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::log_basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::raw_annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A12::log_annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "A14.book::fixed::v1",
+        "family_id": "A14.book",
+        "primary": "A14.buy",
+        "metric_roles": {
+          "A14.buy": "primary",
+          "A14.sell": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::future::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::raw_basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::log_basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::raw_annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B01::log_annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::future::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::raw_basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::log_basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::raw_annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B02::log_annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::future::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::raw_basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::log_basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::raw_annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B03::log_annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B04::fixed::v1",
+        "family_id": "B04",
+        "primary": "B04.Q",
+        "metric_roles": {
+          "B04.Q": "primary",
+          "B04.K": "auxiliary",
+          "B04.doi": "auxiliary",
+          "B04.Q.intraday": "auxiliary",
+          "B04.A.volume": "auxiliary",
+          "B04.A.previous_oi": "auxiliary",
+          "B04.A.doi": "auxiliary",
+          "B04.A.Q": "auxiliary",
+          "B04.A.K": "auxiliary",
+          "B04.B.volume": "auxiliary",
+          "B04.B.previous_oi": "auxiliary",
+          "B04.B.doi": "auxiliary",
+          "B04.B.Q": "auxiliary",
+          "B04.B.K": "auxiliary",
+          "B04.pair.volume": "auxiliary",
+          "B04.pair.previous_oi": "auxiliary",
+          "B04.pair.oi": "auxiliary",
+          "B04.pair.h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B05::fixed::v1",
+        "family_id": "B05",
+        "primary": "B05.M",
+        "metric_roles": {
+          "B05.M": "primary",
+          "B05.R": "auxiliary",
+          "B05.N": "auxiliary",
+          "B05.doi_near": "auxiliary",
+          "B05.doi_far": "auxiliary",
+          "B05.denominator": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B06::fixed::v1",
+        "family_id": "B06",
+        "primary": "B06",
+        "metric_roles": {
+          "B06": "primary",
+          "B06.volume_share": "auxiliary",
+          "B06.oi_share": "auxiliary",
+          "B06.volume_denominator": "auxiliary",
+          "B06.oi_denominator": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::future::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::raw_basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::log_basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::raw_annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B07::log_annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B08::fixed::v1",
+        "family_id": "B08",
+        "primary": "B08",
+        "metric_roles": {
+          "B08": "primary",
+          "B08.A.total": "auxiliary",
+          "B08.A.base": "auxiliary",
+          "B08.A.growth": "auxiliary",
+          "B08.A.members": "auxiliary",
+          "B08.B.total": "auxiliary",
+          "B08.B.base": "auxiliary",
+          "B08.B.growth": "auxiliary",
+          "B08.B.members": "auxiliary",
+          "B08.legacy_collection": "auxiliary",
+          "B08.pair.total": "auxiliary",
+          "B08.pair.base": "auxiliary",
+          "B08.pair.h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B09::fixed::v1",
+        "family_id": "B09",
+        "primary": "B09",
+        "metric_roles": {
+          "B09": "primary",
+          "B09.same_time": "auxiliary",
+          "B09.A.baseline": "auxiliary",
+          "B09.A.rvol": "auxiliary",
+          "B09.B.baseline": "auxiliary",
+          "B09.B.rvol": "auxiliary",
+          "B09.legacy_log_ratio": "auxiliary",
+          "B09.legacy_same_time": "auxiliary",
+          "B09.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::future::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::raw_basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::log_basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::raw_annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B10::log_annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::future::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::raw_basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::log_basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::raw_annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::log_annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B12::fixed::v1",
+        "family_id": "B12",
+        "primary": "B12.A",
+        "metric_roles": {
+          "B12.A": "primary",
+          "B12.B": "auxiliary",
+          "B12.balance": "auxiliary",
+          "B12.h": "auxiliary",
+          "B12.p": "auxiliary",
+          "B12.A_p": "auxiliary",
+          "B12.B_p": "auxiliary",
+          "B12.legacy_A": "auxiliary",
+          "B12.legacy_B": "auxiliary",
+          "B12.legacy_h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::future::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::raw_basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::log_basis::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::raw_annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.mean::log_annual::v1",
+        "family_id": "A03.mean",
+        "primary": "A03.mean",
+        "metric_roles": {
+          "A03.mean": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_mean": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::future::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::raw_basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::log_basis::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::raw_annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.std::log_annual::v1",
+        "family_id": "A03.std",
+        "primary": "A03.std",
+        "metric_roles": {
+          "A03.std": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_std": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::future::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::raw_basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::log_basis::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::raw_annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.z::log_annual::v1",
+        "family_id": "A03.z",
+        "primary": "A03.z",
+        "metric_roles": {
+          "A03.z": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_z": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::future::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::raw_basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::log_basis::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::raw_annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.percentile::log_annual::v1",
+        "family_id": "A03.percentile",
+        "primary": "A03.percentile",
+        "metric_roles": {
+          "A03.percentile": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_percentile": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::future::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::raw_basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::log_basis::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::raw_annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.change5::log_annual::v1",
+        "family_id": "A03.change5",
+        "primary": "A03.change5",
+        "metric_roles": {
+          "A03.change5": "primary",
+          "pair.legacy_input": "auxiliary",
+          "pair.legacy_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::future::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::raw_basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::log_basis::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::raw_annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A03.legacy_percentile30::log_annual::v1",
+        "family_id": "A03.legacy_percentile30",
+        "primary": "A03.legacy_percentile30",
+        "metric_roles": {
+          "A03.legacy_percentile30": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A06::fixed::v1",
+        "family_id": "A06",
+        "primary": "A06",
+        "metric_roles": {
+          "A06": "primary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A06.raw::fixed::v1",
+        "family_id": "A06.raw",
+        "primary": "A06.raw_bp",
+        "metric_roles": {
+          "A06.raw_bp": "primary",
+          "A06.raw_mean": "auxiliary",
+          "A06.raw_std": "auxiliary",
+          "A06.raw_z": "auxiliary",
+          "A06.raw_percentile": "auxiliary",
+          "A06.raw_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A06.log::fixed::v1",
+        "family_id": "A06.log",
+        "primary": "A06.log_bp",
+        "metric_roles": {
+          "A06.log_bp": "primary",
+          "A06.log_mean": "auxiliary",
+          "A06.log_std": "auxiliary",
+          "A06.log_z": "auxiliary",
+          "A06.log_percentile": "auxiliary",
+          "A06.log_change5": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A07::fixed::v1",
+        "family_id": "A07",
+        "primary": "A07.actual",
+        "metric_roles": {
+          "A07.actual": "primary",
+          "A07.spot": "auxiliary",
+          "A07.basis": "auxiliary",
+          "A07.scenario": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A09::fixed::v1",
+        "family_id": "A09",
+        "primary": "A09.h",
+        "metric_roles": {
+          "A09.h": "primary",
+          "A09.amountA": "auxiliary",
+          "A09.amountB": "auxiliary",
+          "A09.rounding": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::future::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::raw_basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::log_basis::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::raw_annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A11::log_annual::v1",
+        "family_id": "A11",
+        "primary": "A11",
+        "metric_roles": {
+          "A11": "primary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::future::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::raw_basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::log_basis::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::raw_annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "A12::log_annual::v1",
+        "family_id": "A12",
+        "primary": "A12",
+        "metric_roles": {
+          "A12": "primary",
+          "A12.first": "auxiliary",
+          "A12.last": "auxiliary",
+          "A12.peak": "auxiliary",
+          "A12.duration": "auxiliary",
+          "A12.confirmed": "auxiliary",
+          "A12.recovered": "auxiliary",
+          "A12.confirmed_at": "auxiliary",
+          "A12.recovered_at": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::future::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::raw_basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::log_basis::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::raw_annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B01::log_annual::v1",
+        "family_id": "B01",
+        "primary": "B01.gap",
+        "metric_roles": {
+          "B01.gap": "primary",
+          "B01.repair": "auxiliary",
+          "B01.prev": "auxiliary",
+          "B01.open": "auxiliary",
+          "B01.close": "auxiliary",
+          "B01.d": "auxiliary",
+          "B01.threshold": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::future::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::raw_basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::log_basis::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::raw_annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B02::log_annual::v1",
+        "family_id": "B02",
+        "primary": "B02.center",
+        "metric_roles": {
+          "B02.center": "primary",
+          "B02.gap": "auxiliary",
+          "B02.n": "auxiliary",
+          "B02.weight_sum": "auxiliary",
+          "B02.weighted_sum": "auxiliary",
+          "B02.collection_center": "auxiliary",
+          "B02.collection_gap": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::future::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::raw_basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::log_basis::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::raw_annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B03::log_annual::v1",
+        "family_id": "B03",
+        "primary": "B03",
+        "metric_roles": {
+          "B03": "primary",
+          "B03.A.drift": "auxiliary",
+          "B03.A.doi": "auxiliary",
+          "B03.A.positive_weight": "auxiliary",
+          "B03.B.drift": "auxiliary",
+          "B03.B.doi": "auxiliary",
+          "B03.B.positive_weight": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B03.legacy_difference": "auxiliary",
+          "B03.pair.positive_weight": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B04::fixed::v1",
+        "family_id": "B04",
+        "primary": "B04.Q",
+        "metric_roles": {
+          "B04.Q": "primary",
+          "B04.K": "auxiliary",
+          "B04.doi": "auxiliary",
+          "B04.Q.intraday": "auxiliary",
+          "B04.A.volume": "auxiliary",
+          "B04.A.previous_oi": "auxiliary",
+          "B04.A.doi": "auxiliary",
+          "B04.A.Q": "auxiliary",
+          "B04.A.K": "auxiliary",
+          "B04.B.volume": "auxiliary",
+          "B04.B.previous_oi": "auxiliary",
+          "B04.B.doi": "auxiliary",
+          "B04.B.Q": "auxiliary",
+          "B04.B.K": "auxiliary",
+          "B04.pair.volume": "auxiliary",
+          "B04.pair.previous_oi": "auxiliary",
+          "B04.pair.oi": "auxiliary",
+          "B04.pair.h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::future::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::raw_basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::log_basis::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::raw_annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B07::log_annual::v1",
+        "family_id": "B07",
+        "primary": "B07",
+        "metric_roles": {
+          "B07": "primary",
+          "B07.volume": "auxiliary",
+          "B07.A.clv": "auxiliary",
+          "B07.A.rvol": "auxiliary",
+          "B07.A.volume_baseline": "auxiliary",
+          "B07.B.clv": "auxiliary",
+          "B07.B.rvol": "auxiliary",
+          "B07.B.volume_baseline": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B07.legacy_difference": "auxiliary",
+          "B07.pair.open": "auxiliary",
+          "B07.pair.high": "auxiliary",
+          "B07.pair.low": "auxiliary",
+          "B07.pair.close": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B08::fixed::v1",
+        "family_id": "B08",
+        "primary": "B08",
+        "metric_roles": {
+          "B08": "primary",
+          "B08.A.total": "auxiliary",
+          "B08.A.base": "auxiliary",
+          "B08.A.growth": "auxiliary",
+          "B08.A.members": "auxiliary",
+          "B08.B.total": "auxiliary",
+          "B08.B.base": "auxiliary",
+          "B08.B.growth": "auxiliary",
+          "B08.B.members": "auxiliary",
+          "B08.legacy_collection": "auxiliary",
+          "B08.pair.total": "auxiliary",
+          "B08.pair.base": "auxiliary",
+          "B08.pair.h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B09::fixed::v1",
+        "family_id": "B09",
+        "primary": "B09",
+        "metric_roles": {
+          "B09": "primary",
+          "B09.same_time": "auxiliary",
+          "B09.A.baseline": "auxiliary",
+          "B09.A.rvol": "auxiliary",
+          "B09.B.baseline": "auxiliary",
+          "B09.B.rvol": "auxiliary",
+          "B09.legacy_log_ratio": "auxiliary",
+          "B09.legacy_same_time": "auxiliary",
+          "B09.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::future::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::raw_basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::log_basis::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::raw_annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B10::log_annual::v1",
+        "family_id": "B10",
+        "primary": "B10",
+        "metric_roles": {
+          "B10": "primary",
+          "B10.net": "auxiliary",
+          "B10.path": "auxiliary",
+          "B10.n": "auxiliary",
+          "pair.legacy_input": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::future::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::raw_basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::log_basis::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::raw_annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::log_annual::v1",
+        "family_id": "B11",
+        "primary": "B11",
+        "metric_roles": {
+          "B11": "primary",
+          "B11.max": "auxiliary",
+          "B11.sample": "auxiliary",
+          "B11.A.tr": "auxiliary",
+          "B11.A.baseline": "auxiliary",
+          "B11.A.pressure": "auxiliary",
+          "B11.B.tr": "auxiliary",
+          "B11.B.baseline": "auxiliary",
+          "B11.B.pressure": "auxiliary",
+          "pair.legacy_input": "auxiliary",
+          "B11.legacy_log_ratio": "auxiliary",
+          "B11.legacy_sample": "auxiliary",
+          "B11.pair.tr": "auxiliary",
+          "B11.pair.baseline": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B12::fixed::v1",
+        "family_id": "B12",
+        "primary": "B12.A",
+        "metric_roles": {
+          "B12.A": "primary",
+          "B12.B": "auxiliary",
+          "B12.balance": "auxiliary",
+          "B12.h": "auxiliary",
+          "B12.p": "auxiliary",
+          "B12.A_p": "auxiliary",
+          "B12.B_p": "auxiliary",
+          "B12.legacy_A": "auxiliary",
+          "B12.legacy_B": "auxiliary",
+          "B12.legacy_h": "auxiliary"
+        },
+        "formula_version": "contract-pair-v3"
+      }
+    ]
+  }
 }

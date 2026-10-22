@@ -8,19 +8,24 @@ import unittest
 import uuid
 
 from dashboard.indicator_workspace import evaluate
-from dashboard.indicator_ui import input_label, family_title
+from dashboard.indicator_ui import ui_controls
 from dashboard.numeric_snapshot import save_snapshot
 from dashboard.numeric_view import add_research_view
 from tests.indicator_frozen_fixture import FrozenIndicatorModel, OBSERVED_AT
 
 ROOT=Path(__file__).resolve().parents[1]
 NAMES={'basis':'期现','calendar':'同品种跨期','cross':'跨品种'}
+def input_label(input_id,page='basis'):
+    return next(item['label'] for item in ui_controls(page)['inputs'] if item['input_id']==input_id)
+def family_title(family_id,page='basis'):
+    return next(item['label'] for item in ui_controls(page)['families'] if item['family_id']==family_id)
 
 
 @unittest.skipUnless(os.environ.get('RUN_EXCEL_COM')=='1','requires desktop Excel; always hidden')
 class ExcelUiControlsTests(unittest.TestCase):
     def test_real_chinese_controls_migration_stale_results_and_paging(self):
-        folder=ROOT/'.deps/ui_simplification/excel'/('com_'+uuid.uuid4().hex[:8])
+        evidence_root=ROOT/'.deps/pair_reconstruction/excel'
+        folder=evidence_root/('com_'+uuid.uuid4().hex[:8])
         folder.mkdir(parents=True)
         model=FrozenIndicatorModel(folder/'settings')
         selection=dict(active_page='basis',request_id='initial',pages={
@@ -71,6 +76,11 @@ class ExcelUiControlsTests(unittest.TestCase):
                     from dashboard.numeric_excel import excel_time
                     self.assertAlmostEqual(a[3],excel_time(e[3]),places=8)
             self.assertEqual(done['pages'][name]['nav'],"'"+name+"详情'!A1")
+            details=feed['research']['excel_pages'][page]['details']
+            for actual,source in zip(done['pages'][name]['details'],details):
+                self.assertEqual(actual[0],source[0]);self.assertEqual(actual[2:], [source[2],source[8],source[10]])
+                if isinstance(source[1],(int,float)):self.assertAlmostEqual(actual[1],source[1],places=9)
+                else:self.assertEqual(actual[1],source[1])
             return done,feed
         def edit(page,cell,value,detail=False):return dict(sheet=NAMES[page]+('详情' if detail else ''),cell=cell,value=value)
         try:
@@ -78,10 +88,13 @@ class ExcelUiControlsTests(unittest.TestCase):
             publish(start['request']);command()
             for page in NAMES:
                 for input_id in ('future','basis','annual'):
-                    if page=='cross' and input_id=='future':continue
-                    done,feed=change(page,[edit(page,'B3',family_title('A03.mean')),edit(page,'E3',input_label(input_id))])
+                    done,feed=change(page,[edit(page,'B3',family_title('A03.mean',page)),edit(page,'E3',input_label(input_id,page))])
                     self.assertEqual(done['request']['pages'][page]['variant_id'],f'A03.mean::{input_id}::v1')
                     self.assertEqual(len(done['pages'][NAMES[page]]['rows']),6 if page=='cross' else 4)
+                    if page!='basis':
+                        self.assertTrue(done['pages'][NAMES[page]]['construction'])
+                        self.assertTrue(done['pages'][NAMES[page]]['meaning'])
+                        self.assertTrue(done['pages'][NAMES[page]]['limitations'])
             # Rapid control changes: the intermediate response must not repopulate a new title.
             old=command('期现',[edit('basis','E3',input_label('future'))]);stale=publish(old['request'])
             newer=command('期现',[edit('basis','E3',input_label('annual'))]);self.assertEqual(newer['pages']['期现']['rows'],[])
@@ -92,9 +105,20 @@ class ExcelUiControlsTests(unittest.TestCase):
             self.assertEqual(done['request']['pages']['basis']['family_id'],'A03.std')
             done,_=change('basis',[edit('basis','E3','更多口径'),edit('basis','B7',input_label('log_basis'),True)])
             self.assertEqual(done['request']['pages']['basis']['variant_id'],'A03.std::log_basis::v1')
-            done,_=change('cross',[edit('cross','E3',input_label('future'))])
-            self.assertEqual(done['pages']['跨品种']['rows'],[]);self.assertIn('不适用',done['pages']['跨品种']['status'])
-            done,_=change('cross',[edit('cross','B3',family_title('B12')),edit('cross','E5',0,True)])
+            # The former close label migrates to a real log-price ratio, not a point spread.
+            done,_=change('cross',[edit('cross','E3','期货收盘价 close')])
+            self.assertEqual(done['request']['pages']['cross']['input'],'future')
+            self.assertEqual(done['pages']['跨品种']['input'],input_label('future','cross'))
+            self.assertEqual(len(done['pages']['跨品种']['rows']),6)
+            for family in ('B03','B07','B09','B11'):
+                edits=[edit('cross','B3',family_title(family,'cross'))]
+                if family!='B09':edits.append(edit('cross','E3',input_label('future','cross')))
+                done,feed=change('cross',edits)
+                details=done['pages']['跨品种']['details']
+                self.assertTrue(any(row[0].startswith('【主指标】') for row in details))
+                self.assertTrue(any(row[0].startswith('【辅助解释】') for row in details))
+                self.assertIn('contract-pair-v3',details[0][3])
+            done,_=change('cross',[edit('cross','B3',family_title('B12','cross')),edit('cross','E5',0,True)])
             self.assertEqual(done['pages']['跨品种']['input'],'固定口径');self.assertEqual(done['pages']['跨品种']['p'],0)
             done,_=change('cross',[edit('cross','E5',None,True)])
             self.assertIsNone(done['pages']['跨品种']['p'])
@@ -109,7 +133,7 @@ class ExcelUiControlsTests(unittest.TestCase):
             done,_=change('basis',[edit('basis','E3',input_label('annual'))])
             self.assertEqual(done['pages']['期现']['rows'],[]);self.assertIn('不适用',done['pages']['期现']['status'])
             save_snapshot(dict(passed=True,checks=records,workbook=str(folder/'verified.xlsx')),folder/'evidence.json')
-            (ROOT/'.deps/ui_simplification/excel/latest_com.json').write_text(json.dumps(dict(folder=str(folder),checks=len(records),passed=True),ensure_ascii=False),encoding='utf8')
+            (evidence_root/'latest_com.json').write_text(json.dumps(dict(folder=str(folder),checks=len(records),passed=True),ensure_ascii=False),encoding='utf8')
         finally:
             (folder/'stop').write_text('stop',encoding='utf8')
             try:process.wait(timeout=15)

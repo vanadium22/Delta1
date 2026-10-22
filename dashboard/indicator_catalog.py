@@ -4,6 +4,8 @@ The catalogue describes applicability, not data availability. A registered
 formula can be implemented while its real inputs remain absent.
 """
 from copy import deepcopy
+from dashboard.pair_catalog import enrich as enrich_pair, definition as pair_metric_definition
+from dashboard.native.pair_metrics import PAIR_FORMULA_VERSION, pair_definition
 
 FORMULA_VERSION = 'nonregression-v2'
 PAGES = {'basis': '期现', 'calendar': '同品种跨期', 'cross': '跨品种'}
@@ -55,7 +57,7 @@ def _build():
         rows.append(_entry(family,title,primary,metrics,unit,**kw))
     def x(family,title,primary,metrics,unit='x',**kw):
         for key,(label,xunit) in INPUTS.items():
-            cats=tuple(c for c in kw.get('categories',ALL) if not (c=='cross' and key=='future'))
+            cats=tuple(kw.get('categories',ALL))
             if family=='B07' and key!='future': cats=tuple(c for c in cats if c!='basis')
             if not cats: continue
             options={**kw,'categories':cats}
@@ -141,7 +143,10 @@ def metric_definition(code,entry,category):
     Formula and dimensions mirror the production calculations. A missing child
     must not inherit a family's primary unit (e.g. weight_sum is hands, not bp).
     """
+    override=pair_metric_definition(code,entry,category)
+    if override is not None:return override
     price=entry['input_id'];xunit=INPUTS.get(price,('',entry['unit']))[1]
+    if category in PAIR and price!='fixed':xunit=pair_definition(category,price)['unit']
     unit=entry.get('unit_by_category',{}).get(category,entry['unit'])
     title=code;formula='';scope='完整历史日线';supported=False
     reason='缺本子项真实输入或完整连续窗口：'+', '.join(entry['required_fields'])
@@ -297,12 +302,15 @@ def catalog(category=None):
     """Return independent copies so a renderer cannot alter the shared registry."""
     entries=deepcopy([r for r in _CATALOG if category is None or category in r['categories']])
     for entry in entries:
+        entry['formula_version_by_category']={c:PAIR_FORMULA_VERSION if c in PAIR else FORMULA_VERSION for c in entry['categories']}
+        if category:enrich_pair(entry,category)
         if category=='basis' and entry['family_id'] in ('B03','B04','B09','B11'):
             entry['required_fields']=[field for field in entry['required_fields'] if not field.endswith('_B')]
             entry['fixed_inputs']=[field for field in entry['fixed_inputs'] if not field.endswith('_B')]
         matrix={code:[c for c in entry['categories'] if _metric_applies(code,entry,c)] for code in entry['metric_ids']}
         entry['metric_categories']=matrix
         entry['metric_ids']=[code for code,cats in matrix.items() if cats and (category is None or category in cats)]
+        entry.setdefault('metric_roles',{code:'primary' if code==entry['primary'] else 'auxiliary' for code in entry['metric_ids']})
         if category:
             entry['metric_definitions']={code:metric_definition(code,entry,category) for code in entry['metric_ids']}
     return entries
@@ -320,5 +328,4 @@ def applicability(variant, entity):
     if entity['category'] not in variant['categories']:return False,'指标不适用此页面'
     if variant['entity_kind']=='collection' and entity.get('kind')!='collection':return False,'此项要求冻结成员集合'
     if variant['same_expiry'] and entity.get('expiry_type')!='same':return False,'原稿同到期指标不适用异期组合'
-    if entity['category']=='cross' and variant['input_id']=='future':return False,'不同指数原始点位不可直接相减'
     return True,''

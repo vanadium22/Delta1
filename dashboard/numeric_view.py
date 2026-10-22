@@ -117,6 +117,7 @@ def add_research_view(feed, workspace):
     pages={}
     for category in PAGES:
         page=workspace.get('pages',{}).get(category,{})
+        controls=ui_controls(category)
         entities=[]
         for entity in page.get('entities',[]):
             row=entity.get('primary',{})
@@ -133,8 +134,13 @@ def add_research_view(feed, workspace):
             target[8]='\n'.join(k+': '+(json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':')) if isinstance(v,(dict,list)) else str(v))
                 for k,v in dict(variant=row.get('variant_id'),formula=row.get('formula_version'),**(row.get('input_versions') or {})).items())
         selection=page.get('selection',workspace.get('selection',{}).get('pages',{}).get(category,{}))
+        selected=next((item for item in controls['variants'] if item['variant_id']==selection.get('variant_id')), {})
+        selected_input=next((item for item in controls['inputs'] if item['input_id']==selection.get('input')), {})
+        selected_family=next((item for item in controls['families'] if item['family_id']==selection.get('family_id')), {})
         scope={'representatives':'默认代表','all':'全部合约','history':'历史合约','specified':'指定合约'}.get(selection.get('scope'),'默认代表')
-        context=' · '.join((family_title(selection.get('family_id','')),input_label(selection.get('input',''),selection.get('timing','日终')),scope,selection.get('timing','日终')))
+        context=' · '.join((selected_family.get('label') or family_title(selection.get('family_id','')),
+            selected_input.get('label') or input_label(selection.get('input',''),selection.get('timing','日终')),
+            scope,selection.get('timing','日终')))
         status=workspace.get('error') or page.get('error') or selection.get('selection_error') or (
             f"{context} · {len(entities)} / {page.get('total',0)} 个" if page.get('loaded') else '切换到此研究页后加载结果')
         summary=[]
@@ -149,10 +155,16 @@ def add_research_view(feed, workspace):
             summary.append([row[0],row[1],row[2],row[3],row[5],state])
         # Complete diagnostics remain available directly below the advanced controls.
         for target,(entity,source) in zip(details,((e,r) for e in page.get('entities',[]) for r in e.get('metrics',[]))):
+            if source.get('role') in ('primary','auxiliary'):
+                target[0]=('【主指标】' if source['role']=='primary' else '【辅助解释】')+str(source.get('title') or source.get('id') or '')+'\n'+target[0]
+            if source.get('pair_construction'):
+                target[10]='构造：'+source['pair_construction']+'\n公式：'+str(target[10] or '')
             target[6]={'implemented':'已实现','not_implemented':'未实现'}.get(target[6],target[6])
             target[7]=data_labels.get(target[7],target[7])
             target[9]='；'.join(str(x) for x in (target[9],entity.get('selection_type'),entity.get('decision_date'),entity.get('selection_reason'),source.get('visibility_status')) if x)
         if len(summary)>24:status+=' · 主表前24条，完整结果见详情'
-        pages[category]=dict(directory=directory_rows(page),entities=entities,summary=summary[:24],details=details,status=status,context=context)
+        explanations={key:str(selected.get(key) or '') for key in ('pair_construction','direction','explanation','limitations')}
+        pages[category]=dict(directory=directory_rows(page),entities=entities,summary=summary[:24],details=details,
+            status=status,context=context,explanations=explanations,detail_start=11 if category=='basis' else 15)
     feed['research']={**workspace,'excel_pages':pages,'ui_controls':{page:ui_controls(page) for page in PAGES}}
     return feed

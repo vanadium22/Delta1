@@ -6,6 +6,7 @@ calculate indicators or invent a fallback formula for an unavailable input.
 from copy import deepcopy
 
 from dashboard.indicator_catalog import INPUTS, PAGES, catalog, find_variant
+from dashboard.pair_catalog import INPUT_LABELS as PAIR_INPUT_LABELS
 
 PRIMARY_INPUTS = ('future', 'basis', 'annual')
 INPUT_LABELS = {
@@ -19,19 +20,22 @@ INPUT_LABELS = {
     'fixed': '固定口径（不随 X 改变）',
 }
 FIXED_NOTE = '固定口径 · 不随输入 X 改变'
-CROSS_PRICE_NOTE = '跨品种不适用期货点差：不同指数的原始点位不可直接相减，请选择基差或基差年化。'
+CROSS_PRICE_NOTE = '跨品种 close 构造为10000×ln(F_A/F_B)，单位对数bp；是相对价格序列，不是回归残差或实际组合盈亏。'
 
 
-def input_label(input_id, timing='日终'):
+def input_label(input_id, timing='日终', page=None):
+    if page in PAIR_INPUT_LABELS and input_id in PAIR_INPUT_LABELS[page]:
+        label=PAIR_INPUT_LABELS[page][input_id]
+        return label+'（盘中使用同步最新价）' if input_id=='future' and timing in ('盘中优先','intraday') else label
     if input_id == 'future' and timing in ('盘中优先', 'intraday'):
         return '期货最新价（盘中）/收盘价 close（日终）'
     return INPUT_LABELS.get(input_id, str(input_id or '未选择输入'))
 
 
 def input_options(page, include_advanced=True):
-    return [dict(input_id=key, label=input_label(key), advanced=key not in PRIMARY_INPUTS)
+    return [dict(input_id=key, label=input_label(key,page=page), legacy_labels=[input_label(key)], advanced=key not in PRIMARY_INPUTS)
             for key in INPUTS if (include_advanced or key in PRIMARY_INPUTS)
-            and not (page == 'cross' and key == 'future')]
+            ]
 
 
 def family_title(group_or_family_id):
@@ -51,6 +55,7 @@ def families(page):
         if key not in result:
             title = family_title(entry)
             result[key] = dict(family_id=key, title=title, label=title,
+                               legacy_labels=[entry.get('legacy_title',title).split(' · ',1)[-1]],
                                input_ids=[], fixed=entry['input_id'] == 'fixed')
         result[key]['input_ids'].append(entry['input_id'])
     return list(result.values())
@@ -58,14 +63,15 @@ def families(page):
 
 def _family_id(page, value):
     for entry in families(page):
-        if value in (entry['family_id'], entry['title'], entry['label']):
+        if value in (entry['family_id'], entry['title'], entry['label'], *entry.get('legacy_labels',[])):
             return entry['family_id']
     return value
 
 
 def _input_id(value):
     for key, label in INPUT_LABELS.items():
-        if value in (key, label, input_label(key, '盘中优先')):
+        aliases=[input_label(key,timing,page) for page in PAGES for timing in ('日终','盘中优先')]
+        if value in (key, label, input_label(key, '盘中优先'), *aliases):
             return key
     # The pre-simplification watchlist used these public names.
     return {'期货价': 'future', '基差bp': 'basis', '年化': 'annual'}.get(value, value)
@@ -82,12 +88,10 @@ def resolve_variant(page, family_id, input_id):
         return None, '该指标不适用于当前研究类别，请选择其他指标。'
     if len(choices) == 1 and choices[0]['input_id'] == 'fixed':
         return choices[0], FIXED_NOTE
-    if page == 'cross' and input_id == 'future':
-        return None, CROSS_PRICE_NOTE
     match = next((entry for entry in choices if entry['input_id'] == input_id), None)
     if match is not None:
         return match, ''
-    available = '、'.join(input_label(entry['input_id']) for entry in choices)
+    available = '、'.join(input_label(entry['input_id'],page=page) for entry in choices)
     return None, '当前指标不适用此输入；可选：' + available
 
 
@@ -130,5 +134,6 @@ def ui_controls(page):
     return dict(page=page, families=families(page), inputs=input_options(page),
                 variants=[dict(family_id=e['family_id'], variant_id=e['variant_id'],
                                input_id=e['input_id'], family_label=family_title(e),
-                               input_label=input_label(e['input_id'])) for e in catalog(page)],
+                               input_label=input_label(e['input_id'],page=page),
+                               **{k:e.get(k,'') for k in ('title','pair_construction','formula_version','metric_roles','explanation','direction','limitations')}) for e in catalog(page)],
                 cross_price_note=CROSS_PRICE_NOTE if page == 'cross' else '')
