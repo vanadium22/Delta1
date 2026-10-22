@@ -1,0 +1,134 @@
+"""Presentation-only research selectors shared by Excel and the local Apps.
+
+Resolve an explicit family and X to a registered identity. These helpers never
+calculate indicators or invent a fallback formula for an unavailable input.
+"""
+from copy import deepcopy
+
+from dashboard.indicator_catalog import INPUTS, PAGES, catalog, find_variant
+
+PRIMARY_INPUTS = ('future', 'basis', 'annual')
+INPUT_LABELS = {
+    'future': '期货收盘价 close',
+    'basis': '分红调整基差（bp）',
+    'annual': '分红调整基差年化',
+    'raw_basis': '未调整普通基差（bp）',
+    'log_basis': '未调整对数基差（bp）',
+    'raw_annual': '未调整简单年化',
+    'log_annual': '未调整对数年化',
+    'fixed': '固定口径（不随 X 改变）',
+}
+FIXED_NOTE = '固定口径 · 不随输入 X 改变'
+CROSS_PRICE_NOTE = '跨品种不适用期货点差：不同指数的原始点位不可直接相减，请选择基差或基差年化。'
+
+
+def input_label(input_id, timing='日终'):
+    if input_id == 'future' and timing in ('盘中优先', 'intraday'):
+        return '期货最新价（盘中）/收盘价 close（日终）'
+    return INPUT_LABELS.get(input_id, str(input_id or '未选择输入'))
+
+
+def input_options(page, include_advanced=True):
+    return [dict(input_id=key, label=input_label(key), advanced=key not in PRIMARY_INPUTS)
+            for key in INPUTS if (include_advanced or key in PRIMARY_INPUTS)
+            and not (page == 'cross' and key == 'future')]
+
+
+def family_title(group_or_family_id):
+    entry = group_or_family_id
+    if not isinstance(entry, dict):
+        entry = find_variant(family_id=entry)
+    if not entry:
+        return str(group_or_family_id or '未选择指标')
+    title = entry['title']
+    return title.split(' · ', 1)[-1] if entry['input_id'] != 'fixed' else title
+
+
+def families(page):
+    result = {}
+    for entry in catalog(page):
+        key = entry['family_id']
+        if key not in result:
+            title = family_title(entry)
+            result[key] = dict(family_id=key, title=title, label=title,
+                               input_ids=[], fixed=entry['input_id'] == 'fixed')
+        result[key]['input_ids'].append(entry['input_id'])
+    return list(result.values())
+
+
+def _family_id(page, value):
+    for entry in families(page):
+        if value in (entry['family_id'], entry['title'], entry['label']):
+            return entry['family_id']
+    return value
+
+
+def _input_id(value):
+    for key, label in INPUT_LABELS.items():
+        if value in (key, label, input_label(key, '盘中优先')):
+            return key
+    # The pre-simplification watchlist used these public names.
+    return {'期货价': 'future', '基差bp': 'basis', '年化': 'annual'}.get(value, value)
+
+
+def resolve_variant(page, family_id, input_id):
+    """Return (registered entry or None, explanatory note), with no fallback."""
+    if page not in PAGES:
+        return None, '未识别的研究类别'
+    family_id = _family_id(page, family_id)
+    input_id = _input_id(input_id)
+    choices = [entry for entry in catalog(page) if entry['family_id'] == family_id]
+    if not choices:
+        return None, '该指标不适用于当前研究类别，请选择其他指标。'
+    if len(choices) == 1 and choices[0]['input_id'] == 'fixed':
+        return choices[0], FIXED_NOTE
+    if page == 'cross' and input_id == 'future':
+        return None, CROSS_PRICE_NOTE
+    match = next((entry for entry in choices if entry['input_id'] == input_id), None)
+    if match is not None:
+        return match, ''
+    available = '、'.join(input_label(entry['input_id']) for entry in choices)
+    return None, '当前指标不适用此输入；可选：' + available
+
+
+def selection_from_controls(page, family, input_id, previous=None):
+    """Map Chinese controls or legacy B3 identity, retaining saved contracts.
+
+    An invalid combination explicitly removes the previous identity. Callers
+    show selection_error and refrain from requesting/rendering its old values.
+    """
+    result = deepcopy(previous or {})
+    legacy = find_variant(family, category=page) if family and '::' in family else None
+    if legacy:
+        family = legacy['family_id']
+        if not input_id:
+            input_id = legacy['input_id']
+    if not family:
+        family = result.get('family_id')
+        old = find_variant(result.get('variant_id'), category=page) if result.get('variant_id') else None
+        if old and not family:
+            family = old['family_id']
+        if not input_id:
+            input_id = result.get('input') or (old or {}).get('input_id')
+    family = _family_id(page, family or 'A03.percentile')
+    requested_input = _input_id(input_id or 'basis')
+    entry, note = resolve_variant(page, family, requested_input)
+    result.update(family_id=family, input=requested_input,
+                  variant_id=entry['variant_id'] if entry else None)
+    if entry:
+        result['input'] = entry['input_id']
+        result.pop('selection_error', None)
+    else:
+        result['selection_error'] = note
+    if previous and result.get('variant_id') != previous.get('variant_id'):
+        result['offset'] = 0
+    return result
+
+
+def ui_controls(page):
+    """Serializable selector metadata; the registry remains authoritative."""
+    return dict(page=page, families=families(page), inputs=input_options(page),
+                variants=[dict(family_id=e['family_id'], variant_id=e['variant_id'],
+                               input_id=e['input_id'], family_label=family_title(e),
+                               input_label=input_label(e['input_id'])) for e in catalog(page)],
+                cross_price_note=CROSS_PRICE_NOTE if page == 'cross' else '')

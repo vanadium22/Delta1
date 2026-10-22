@@ -58,6 +58,9 @@ def save_preferences(local_root,selection):
     value['pages']={page:{**(existing.get('pages',{}).get(page,{}) or {}),
                          **(selection.get('pages',{}).get(page,{}) or {})}
                     for page in set(existing.get('pages',{}))|set(selection.get('pages',{}))}
+    for page, updated in selection.get('pages',{}).items():
+        if updated.get('variant_id') and not updated.get('selection_error'):
+            value['pages'][page].pop('selection_error',None)
     save_snapshot({k:deepcopy(value[k]) for k in keys if k in value},Path(local_root)/PREFERENCE_FILE)
 
 
@@ -75,6 +78,11 @@ def _normalize(selection,now):
     for page in PAGES:
         raw=nested.get(page,{}) if nested else value if page==active else {}
         raw=raw if isinstance(raw,dict) else {}
+        if raw.get('selection_error'):
+            # The UI resolver deliberately rejected this family/X combination.
+            # Never turn that explicit empty state into the legacy first entry.
+            choices[page]={**raw,'variant_id':None}
+            continue
         pick=find_variant(raw['variant_id'],category=page) if raw.get('variant_id') else None
         if pick is None:pick=find_variant(family_id=raw.get('family_id') or 'A03.percentile',input_id=raw.get('input') or 'basis',category=page)
         if pick is None:pick=catalog(page)[0]
@@ -246,6 +254,9 @@ def evaluate(model,selection=None,now=None,*,context=None):
     now=_now(now)
     if selection is None:selection=load_preferences(model.local_root) or {}
     selected=_normalize(selection,now);active=selected['active_page'];choice=selected['pages'][active]
+    if choice.get('selection_error'):
+        return dict(request_id=selected.get('request_id'),selection=selected,pages={},catalog=catalog(),
+                    observed_at=now.isoformat(),error=choice['selection_error'])
     if choice['timing']=='历史日':
         date=choice.get('date','')
         try:
@@ -261,12 +272,12 @@ def evaluate(model,selection=None,now=None,*,context=None):
     pages={}
     for page,title in PAGES.items():
         prefs=selected['pages'][page]
-        variant=find_variant(prefs['variant_id'],category=page)
+        variant=find_variant(prefs['variant_id'],category=page) if prefs.get('variant_id') else None
         reps=_fixed_daily_representatives(model,context,at,page)
         directory=[{**entry,'unit':entry.get('unit_by_category',{}).get(page,entry['unit']),
                     'loaded':False,'entities':[],'representative_count':6 if page=='cross' else 4} for entry in catalog(page)]
         pages[page]=dict(id=page,title=title,groups=directory,representatives=reps,entities=[],
-                         selected_variant_id=variant['variant_id'],selected_group=None,selection=prefs,
+                         selected_variant_id=variant['variant_id'] if variant else None,selected_group=None,selection=prefs,
                          total=0,offset=0,limit=20,loaded=False)
     page=pages[active];variant=find_variant(choice['variant_id'],category=active)
     if variant['entity_kind']=='collection':

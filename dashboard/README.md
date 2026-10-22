@@ -4,6 +4,8 @@
 
 日常双击本文件夹的 `start_numeric_excel.cmd`，简短步骤见同目录 [打开方式.md](打开方式.md)。公司未显式指定Python时优先使用已有swhy_delta1环境；根目录重复入口已移除。自动更新同一个已打开的 Excel 工作簿；三个研究页（期现、同品种跨期、跨品种）共用独立指标变体目录、T−1代表选择及分页详情，保留概览四卡/对应指数、分位图和来源与状态。原完整指标辅助表隐藏保留，独立组合入口移除。口径及验证边界见 [指标实施](INDICATOR_IMPLEMENTATION.md)。运行要求为 Windows 桌面 Microsoft Excel 和 Python 数字计算依赖，无需 VBA 或看板前端。
 
+研究页首屏的中文指标和输入X分别选择，close／分红调整基差／基差年化切换到同族真实变体；默认只显示当前代表。详情、完整目录、更多口径及固定口径说明见 [界面使用说明](UI_SIMPLIFICATION.md)。
+
 默认使用独立数字配置副本，先执行 `python -B -X utf8 -m dashboard.numeric_config` 离线检查，再使用 `-ReadOnlyCache` 验证已有数据。只存有原始 Wind 数据时，尚需标准化历史、合约参考表和分红输入；Git 不携带公司数据，也不会自动替换 Wind 库。
 
 [刷新和指标规则](NUMERIC_EXCEL.md) · [Git 交付边界](GIT_WORKFLOW.md) · [交接](PROJECT_HANDOFF.md) · [数据格式](data_contract/README.md)

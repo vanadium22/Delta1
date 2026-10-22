@@ -103,6 +103,7 @@ def add_research_view(feed, workspace):
     import json
     from dashboard.indicator_catalog import PAGES
     from dashboard.indicator_workspace import directory_rows, detail_rows
+    from dashboard.indicator_ui import ui_controls, family_title, input_label
     import pandas as pd
     def source_label(row):
         values=[]
@@ -110,6 +111,9 @@ def add_research_view(feed, workspace):
             text=pd.Timestamp(stamp).tz_convert('Asia/Shanghai').strftime('%m/%d %H:%M:%S') if stamp else '未知'
             values.append(symbol+' '+text)
         return '\n'.join(values)
+    data_labels={'daily_reference':'完整日终参考','intraday_estimate':'盘中估计','old_history':'较早历史',
+                 'missing_input':'缺输入','not_applicable':'不适用','ok':'可用',
+                 'unavailable':'暂无数据','missing':'缺输入'}
     pages={}
     for category in PAGES:
         page=workspace.get('pages',{}).get(category,{})
@@ -128,9 +132,27 @@ def add_research_view(feed, workspace):
             target[3]=source_label(row)
             target[8]='\n'.join(k+': '+(json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':')) if isinstance(v,(dict,list)) else str(v))
                 for k,v in dict(variant=row.get('variant_id'),formula=row.get('formula_version'),**(row.get('input_versions') or {})).items())
-        status=workspace.get('error') or (
-            f"{page.get('selected_variant_id','')} · {page.get('total',0)} 个适用实体 · "
-            f"本页 {page.get('offset',0)} 起 {len(entities)} 个" if page.get('loaded') else '选择此页后加载；目录全部保留')
-        pages[category]=dict(directory=directory_rows(page),entities=entities,details=details,status=status)
-    feed['research']={**workspace,'excel_pages':pages}
+        selection=page.get('selection',workspace.get('selection',{}).get('pages',{}).get(category,{}))
+        scope={'representatives':'默认代表','all':'全部合约','history':'历史合约','specified':'指定合约'}.get(selection.get('scope'),'默认代表')
+        context=' · '.join((family_title(selection.get('family_id','')),input_label(selection.get('input',''),selection.get('timing','日终')),scope,selection.get('timing','日终')))
+        status=workspace.get('error') or page.get('error') or selection.get('selection_error') or (
+            f"{context} · {len(entities)} / {page.get('total',0)} 个" if page.get('loaded') else '切换到此研究页后加载结果')
+        summary=[]
+        for entity,row in zip(page.get('entities',[]),entities):
+            source=entity.get('primary',{})
+            raw_state=source.get('data_status') or ''
+            state=data_labels.get(raw_state,raw_state or '待计算')
+            reason=str(source.get('reason') or '')
+            if source.get('value') is None:
+                state=next((label for token,label in [('T<5','到期不足5天'),('分红','缺分红'),('ETF','缺 ETF / IOPV'),('IOPV','缺 ETF / IOPV'),('融资','缺融资 / 成本'),('成本','缺成本输入'),('分钟','缺分钟数据'),('OI','缺可靠持仓'),('样本','样本不足')] if token in reason), '缺输入，详见详情')
+            elif state=='ok':state='可用'
+            summary.append([row[0],row[1],row[2],row[3],row[5],state])
+        # Complete diagnostics remain available directly below the advanced controls.
+        for target,(entity,source) in zip(details,((e,r) for e in page.get('entities',[]) for r in e.get('metrics',[]))):
+            target[6]={'implemented':'已实现','not_implemented':'未实现'}.get(target[6],target[6])
+            target[7]=data_labels.get(target[7],target[7])
+            target[9]='；'.join(str(x) for x in (target[9],entity.get('selection_type'),entity.get('decision_date'),entity.get('selection_reason'),source.get('visibility_status')) if x)
+        if len(summary)>24:status+=' · 主表前24条，完整结果见详情'
+        pages[category]=dict(directory=directory_rows(page),entities=entities,summary=summary[:24],details=details,status=status,context=context)
+    feed['research']={**workspace,'excel_pages':pages,'ui_controls':{page:ui_controls(page) for page in PAGES}}
     return feed

@@ -308,7 +308,8 @@ $bitmap.Save($Destination,[Drawing.Imaging.ImageFormat]::Png);$graphics.Dispose(
                 self.assertEqual(cell(out,'J7'),0.)
                 visibility=sheet_visibility(out)
                 self.assertEqual({name for name,state in visibility.items() if state=='visible'},
-                                 {'概览','期现','同品种跨期','跨品种','来源与状态'})
+                                 {'概览','期现','同品种跨期','跨品种','期现详情',
+                                  '同品种跨期详情','跨品种详情','指标目录','来源与状态'})
                 self.assertNotIn('组合对比',visibility)
                 self.assertNotEqual(visibility['指标'],'visible')
                 self.assertNotEqual(visibility['数字看板'],'visible')

@@ -63,6 +63,19 @@ class IndicatorExcelTests(unittest.TestCase):
             outputs.append(row['value'])
         self.assertEqual(len(set(outputs)),len(outputs))
 
+    def test_legacy_large_snapshot_keeps_main_table_bounded_and_details_complete(self):
+        row=dict(id='A03.mean',value=0.,unit='bp',n=20,data_status='daily_reference',
+                 implementation_status='implemented',source_times={},formula='shared fixture')
+        entities=[dict(title='fixture-'+str(i),primary=dict(row),metrics=[dict(row)]) for i in range(100)]
+        workspace=dict(pages={'basis':dict(entities=entities,total=100,loaded=True,selection=dict(
+            family_id='A03.mean',input='basis',timing='日终',scope='all'))})
+        page=add_research_view({},workspace)['research']['excel_pages']['basis']
+        self.assertEqual(len(page['summary']),24)
+        self.assertEqual(len(page['entities']),100)
+        self.assertEqual(len(page['details']),100)
+        self.assertEqual(page['summary'][0][1],0.)
+        self.assertIn('完整结果见详情',page['status'])
+
     def test_preferences_do_not_overwrite_legacy_watchlist(self):
         from dashboard.indicator_workspace import load_preferences,save_preferences
         with tempfile.TemporaryDirectory() as folder:
