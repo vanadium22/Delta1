@@ -14,7 +14,8 @@ from .statistics_export import money, save_image, stocks_page
 from .storage import ReportError, atomic_json, sha256
 
 CONFIG = 'stock_mail.local.json'
-VERSION = 1
+VERSION = 2
+IMAGE_CID = 'swap-stocks@stock-report'
 DEFAULT = {'to': '', 'cc': '', 'subject': '收益互换纯个股敞口 {{date}}', 'note': ''}
 REQUIRED = {'swap_stocks.png', '邮件草稿.eml', '邮件正文.txt', '邮件设置.json', '统计记录.json'}
 
@@ -62,7 +63,7 @@ def content(snapshot, values):
             f"总盈亏合计 {money(group['total'])} 元；当日盈亏合计 {money(group['daily'])} 元。\n\n"
             '敞口金额按原表正负号相加；不同标的的Delta数量不相加，图片合计数量列为“—”。'
             '这是筛选后的纯个股子集，不是未筛选的全台敞口，合计不必等于包含其他ETF的原组。\n'
-            '金额单位为元；Delta数量沿用原表单位。明细及高亮合计见附件 swap_stocks.png。')
+            '金额单位为元；Delta数量沿用原表单位。明细及高亮合计见正文图片及附件 swap_stocks.png。')
     if not group['count']:
         body += '\n本次没有达到筛选条件的股票，金额合计为零；来源已成功读取。'
     if values['note'].strip():
@@ -83,9 +84,21 @@ def export(base, snapshot, values):
         message['To'], message['Subject'], message['X-Unsent'] = values['to'], subject, '1'
         if values['cc']:
             message['Cc'] = values['cc']
-        message.set_content(body)
-        message.add_alternative('<html><body><p>' + escape(body).replace('\n', '<br>') + '</p></body></html>', subtype='html')
-        message.add_attachment((folder / 'swap_stocks.png').read_bytes(), maintype='image', subtype='png', filename='swap_stocks.png')
+        alternatives = EmailMessage(policy=policy.SMTP)
+        alternatives.set_content(body)
+        html = ('<html><body><p>' + escape(body).replace('\n', '<br>') + '</p>'
+                '<h2>收益互换 · 纯个股敞口</h2>'
+                f'<img src="cid:{IMAGE_CID}" alt="收益互换纯个股敞口明细" width="1100" '
+                'style="display:block;width:100%;max-width:1600px;height:auto"></body></html>')
+        alternatives.add_alternative(html, subtype='html')
+        message.make_related()
+        message['MIME-Version'] = '1.0'
+        message.set_param('type', 'multipart/alternative')
+        message.attach(alternatives)
+        message.add_related((folder / 'swap_stocks.png').read_bytes(), maintype='image', subtype='png',
+                            filename='swap_stocks.png', cid=f'<{IMAGE_CID}>', disposition='inline')
+        message.add_attachment((folder / 'swap_stocks.png').read_bytes(), maintype='image', subtype='png',
+                               filename='swap_stocks.png')
         (folder / '邮件草稿.eml').write_bytes(message.as_bytes())
         (folder / '邮件正文.txt').write_text(subject + '\n\n' + body, encoding='utf-8')
         atomic_json(folder / '邮件设置.json', values)
@@ -108,12 +121,18 @@ def mail_manifest(folder):
     plain, html = message.get_body(('plain',)), message.get_body(('html',))
     parts = [part for part in message.walk() if part.get_filename()]
     image = folder / 'swap_stocks.png'
-    if (plain is None or html is None or len(parts) != 1 or parts[0].get_filename() != image.name
-            or parts[0].get_content_disposition() != 'attachment'
-            or parts[0].get_payload(decode=True) != image.read_bytes()):
+    if (plain is None or html is None or len(parts) != 2
+            or any(part.get_filename() != image.name or part.get_content_type() != 'image/png'
+                   or part.get_payload(decode=True) != image.read_bytes() for part in parts)
+            or parts[0].get_content_disposition() != 'inline'
+            or str(parts[0].get('Content-ID')) != f'<{IMAGE_CID}>'
+            or parts[1].get_content_disposition() != 'attachment' or parts[1].get('Content-ID') is not None
+            or f'src="cid:{IMAGE_CID}"' not in html.get_content()
+            or message.get_content_type() != 'multipart/mixed'):
         raise ReportError('纯个股草稿正文或附件无效。')
     return {'delivery_key': hashlib.sha256(('swap-stocks|' + os.path.normcase(str(folder))).encode()).hexdigest(),
             'mail': {'to': addresses(values['to']), 'cc': addresses(values['cc']), 'bcc': [],
                      'subject': str(message['Subject']), 'body': plain.get_content(), 'html_body': html.get_content(),
                      'attachments': [{'path': str(image), 'size': image.stat().st_size,
-                                      'sha256': sha256(image)}]}}
+                                      'sha256': sha256(image), 'content_id': IMAGE_CID,
+                                      'content_type': 'image/png', 'also_attach': True}]}}

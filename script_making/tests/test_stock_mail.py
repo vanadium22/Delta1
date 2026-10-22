@@ -2,8 +2,10 @@
 from contextlib import redirect_stdout
 from datetime import date
 from email import policy
+from email.message import EmailMessage
 from email.parser import BytesParser
 import io
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -17,9 +19,9 @@ from shared_data.io import file_lock
 from script_making.independent_mail_widgets import IndependentMailDialog
 from script_making.pnl_history import load_self_config
 from script_making.statistics import save_config
-from script_making.stock_mail import CONFIG, load_profile, mail_manifest, profile
+from script_making.stock_mail import CONFIG, IMAGE_CID, load_profile, mail_manifest, profile
 from script_making.stock_task_registration import register_with_client, task_definition
-from script_making.storage import atomic_json, sha256
+from script_making.storage import ReportError, atomic_json, sha256
 from script_making.swap_stocks_job import main, run_once
 from script_making.tests import test_statistics as samples
 
@@ -64,7 +66,7 @@ class StockMailTests(unittest.TestCase):
         self.assertEqual(sha256(root / CONFIG), before)
         dialog.close(); invalid.close()
 
-    def test_identical_stock_subset_to_main_report_and_one_normal_attachment(self):
+    def test_identical_stock_subset_to_main_report_and_inline_image_plus_attachment(self):
         self.configure()
         expected = self.snapshot()['swap_stocks']
         code, first = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
@@ -75,12 +77,20 @@ class StockMailTests(unittest.TestCase):
         self.assertEqual(set(snapshot['config']), {'metric', 'threshold', 'exclusions'})
         msg = BytesParser(policy=policy.default).parsebytes((folder / '邮件草稿.eml').read_bytes())
         parts = [part for part in msg.walk() if part.get_filename()]
-        self.assertEqual(len(parts), 1)
+        self.assertEqual(len(parts), 2)
         self.assertEqual(parts[0].get_filename(), 'swap_stocks.png')
-        self.assertEqual(parts[0].get_content_disposition(), 'attachment')
-        self.assertIsNone(parts[0].get('Content-ID'))
+        self.assertEqual(msg.get_content_type(), 'multipart/mixed')
+        self.assertEqual(parts[0].get_content_disposition(), 'inline')
+        self.assertEqual(str(parts[0].get('Content-ID')), f'<{IMAGE_CID}>')
+        self.assertEqual(parts[1].get_filename(), 'swap_stocks.png')
+        self.assertEqual(parts[1].get_content_disposition(), 'attachment')
+        self.assertIsNone(parts[1].get('Content-ID'))
+        self.assertEqual(parts[1].get_payload(decode=True), (folder / 'swap_stocks.png').read_bytes())
+        self.assertIn(f'src="cid:{IMAGE_CID}"', msg.get_body(('html',)).get_content())
+        self.assertEqual(parts[0].get_payload(decode=True), (folder / 'swap_stocks.png').read_bytes())
         mail = mail_manifest(folder)['mail']
-        self.assertEqual(set(mail['attachments'][0]), {'path', 'size', 'sha256'})
+        self.assertEqual(set(mail['attachments'][0]), {'path', 'size', 'sha256', 'content_id', 'content_type', 'also_attach'})
+        self.assertIs(mail['attachments'][0]['also_attach'], True)
         self.assertIn('带符号Delta总敞口金额', mail['body'])
         self.assertIn('不同标的的Delta数量不相加', mail['body'])
         self.assertIsNotNone(msg.get_body(('html',)))
@@ -120,6 +130,45 @@ class StockMailTests(unittest.TestCase):
         self.assertNotIn('export_directory', json.loads(stdout.getvalue()))
         self.assertFalse(output.exists())
         self.assertTrue((Path(empty['export_directory']) / '邮件草稿.eml').is_file())
+
+    def test_legacy_attachment_cache_is_preserved_but_not_reused_and_bad_cid_is_rejected(self):
+        self.configure()
+        root, day = self.service.settings.root, date(2026, 10, 21)
+        code, first = run_once(root, day, local_only=True)
+        self.assertEqual(code, 0, first)
+        old = Path(first['export_directory'])
+        snapshot = json.loads((old / '统计记录.json').read_text(encoding='utf-8'))
+        legacy = EmailMessage(policy=policy.SMTP)
+        legacy['To'], legacy['Cc'], legacy['Subject'] = 'stock@example.invalid', 'risk@example.invalid', '旧普通附件'
+        legacy.set_content('旧版纯文本')
+        legacy.add_alternative('<html><body>旧版普通附件</body></html>', subtype='html')
+        legacy.add_attachment((old / 'swap_stocks.png').read_bytes(), maintype='image', subtype='png', filename='swap_stocks.png')
+        (old / '邮件草稿.eml').write_bytes(legacy.as_bytes())
+        old_digest = sha256(old / '邮件草稿.eml')
+        identity = {k: v for k, v in snapshot.items() if k not in ('id', 'created_at')}
+        old_key = hashlib.sha256(json.dumps({'version': 1, 'snapshot': identity, 'mail': load_profile(root)},
+                                           ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        completed = self.service.settings.data_path() / 'statistics/swap_stock_runs/completed'
+        index = completed / (first['fingerprint'] + '.json')
+        prior = json.loads(index.read_text(encoding='utf-8'))
+        prior['files']['邮件草稿.eml'] = old_digest
+        atomic_json(completed / (old_key + '.json'), prior)
+        index.unlink()
+        code, upgraded = run_once(root, day, local_only=True)
+        self.assertEqual(code, 0, upgraded)
+        self.assertNotEqual(upgraded['fingerprint'], old_key)
+        self.assertEqual(upgraded['state'], 'success')
+        self.assertNotEqual(upgraded['export_directory'], str(old))
+        self.assertEqual(sha256(old / '邮件草稿.eml'), old_digest)
+        self.assertTrue((completed / (old_key + '.json')).is_file())
+        fresh = Path(upgraded['export_directory'])
+        mail_manifest(fresh)
+        message = BytesParser(policy=policy.default).parsebytes((fresh / '邮件草稿.eml').read_bytes())
+        part = next(p for p in message.walk() if p.get_filename())
+        part.replace_header('Content-ID', '<wrong@id>')
+        (fresh / '邮件草稿.eml').write_bytes(message.as_bytes())
+        with self.assertRaises(ReportError):
+            mail_manifest(fresh)
 
     def test_only_pair_sync_frozen_settings_no_stale_fallback_and_source_change(self):
         self.configure()

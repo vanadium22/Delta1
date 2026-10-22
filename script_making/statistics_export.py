@@ -19,7 +19,8 @@ from .query import number
 
 LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
 INLINE_IMAGES = (("pnl1.png", "pnl1@daily-report", "组内收益 · pnl1"),
-                 ("risk.png", "risk@daily-report", "风险观察 · 分日报明细"))
+                 ("risk.png", "risk@daily-report", "风险观察 · 分日报明细"),
+                 ("swap_stocks.png", "swap-stocks@daily-report", "收益互换 · 纯个股敞口"))
 
 
 def display(value):
@@ -270,6 +271,7 @@ def export_bundle(base, snapshot, pages, values):
             save_image(html, path)
         stock_file = folder / "swap_stocks.png"
         save_image(stocks_page(snapshot), stock_file)
+        files.append(stock_file)
         subject, body = mail_content(snapshot, values)
         message = EmailMessage(policy=SMTP)
         message["Subject"] = subject
@@ -280,8 +282,8 @@ def export_bundle(base, snapshot, pages, values):
         alternatives = EmailMessage(policy=SMTP)
         alternatives.set_content(body)
         alternatives.add_alternative(mail_html(body), subtype="html")
-        # The related root is the plain/HTML alternative. The same two image
-        # parts remain downloadable without duplicating their bytes as attachments.
+        # CID resources render in the body. Separate attachment parts keep the
+        # original PNG files visible in clients that hide inline resources.
         message.make_related()
         message["MIME-Version"] = "1.0"
         message.set_param("type", "multipart/alternative")
@@ -289,7 +291,8 @@ def export_bundle(base, snapshot, pages, values):
         for path, (_, cid, _) in zip(files, INLINE_IMAGES):
             message.add_related(path.read_bytes(), maintype="image", subtype="png",
                                 filename=path.name, cid=f"<{cid}>", disposition="inline")
-        message.add_attachment(stock_file.read_bytes(), maintype="image", subtype="png", filename=stock_file.name)
+        for path in files:
+            message.add_attachment(path.read_bytes(), maintype="image", subtype="png", filename=path.name)
         (folder / "邮件草稿.eml").write_bytes(message.as_bytes())
         (folder / "邮件正文.txt").write_text(subject + "\n\n" + body, encoding="utf-8")
         atomic_json(folder / "统计记录.json", snapshot)

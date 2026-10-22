@@ -15,6 +15,25 @@ PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT))
 
 
+def verify_images(message, paths, *, regular):
+    """Inspect the actual SMTP MIME, including independent downloadable files."""
+    expected = {path.name: path for path in paths}
+    parts = [p for p in message.walk() if p.get_filename()]
+    assert len(parts) == len(expected) * (2 if regular else 1)
+    assert message.get_body(('plain',)) and message.get_body(('html',))
+    for disposition in (('inline', 'attachment') if regular else ('inline',)):
+        selected = [p for p in parts if p.get_content_disposition() == disposition]
+        assert len(selected) == len(expected)
+        assert {p.get_filename() for p in selected} == set(expected)
+        for part in selected:
+            assert part.get_payload(decode=True) == expected[part.get_filename()].read_bytes()
+            if disposition == 'inline':
+                assert part.get('Content-ID')
+                assert 'cid:' + str(part['Content-ID'])[1:-1] in message.get_body(('html',)).get_content()
+            else:
+                assert part.get('Content-ID') is None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work-root', required=True, type=Path)
@@ -118,6 +137,7 @@ def main():
     msg = BytesParser(policy=policy.default).parsebytes((daily_folder / '邮件草稿.eml').read_bytes())
     assert msg['To'] == 'team@example.invalid' and msg['Cc'] == 'manager@example.invalid'
     assert {p.get_filename() for p in msg.walk() if p.get_filename()} == {'pnl1.png', 'risk.png', 'swap_stocks.png'}
+    verify_images(msg, [daily_folder / name for name in ('pnl1.png', 'risk.png', 'swap_stocks.png')], regular=True)
     # The new stock task uses the same stock subset as the daily attachment,
     # with separately configured recipients and the existing Work Automation API.
     from script_making.independent_mail_widgets import IndependentMailDialog
@@ -178,16 +198,35 @@ def main():
     assert len(stock_smtp.sent) == 1
     stock_sent, _, stock_recipients = stock_smtp.sent[0]
     assert stock_recipients == ['stock@example.invalid', 'risk@example.invalid']
-    stock_parts = [part for part in stock_sent.walk() if part.get_filename()]
-    assert len(stock_parts) == 1 and stock_parts[0].get_filename() == 'swap_stocks.png'
-    assert stock_parts[0].get_content_disposition() == 'attachment' and not stock_parts[0].get('Content-ID')
-    assert stock_parts[0].get_payload(decode=True) == (stock_folder / 'swap_stocks.png').read_bytes()
+    verify_images(stock_sent, [stock_folder / 'swap_stocks.png'], regular=True)
+    assert stock_manifest['mail']['attachments'][0]['also_attach'] is True
     assert '带符号Delta总敞口金额' in stock_sent.get_body(('plain',)).get_content()
     assert stock_sent.get_body(('html',))
     (output / 'stock-fake-smtp.eml').write_bytes(stock_sent.as_bytes())
     work = WorkTasks(Store(store.root))
     execute('stock-new-batch-after-restart', stock_id)
     assert len(store.history('outbox')) == 2 and store.claim_mail() is None
+    # The existing saved daily entry carries three CIDs and three attachments.
+    daily_task = work.save({'name': '合成日报三图CID验收',
+                           'program': str(args.work_root / 'integrations/daily_report/entry.py'),
+                           'interpreter': str(args.task_python), 'cwd': str(PROJECT), 'enabled': False,
+                           'arguments': ['--project', str(PROJECT), '--root', str(service.settings.root),
+                                         '--run', '--local-only', '--as-of', '2026-10-21'],
+                           'schedule': {'type': 'manual'}, 'result_mail': 'queue'})
+    daily_run = execute('daily-three-cid', daily_task['id'])
+    daily_manifest = daily_run['result']['mail_manifest']
+    assert len(daily_manifest['mail']['attachments']) == 3
+    daily_smtp = FakeSMTP()
+    with patch('mail_app.mail.smtp_connection', connection(daily_smtp)):
+        transmit(store, store.claim_mail())
+    assert len(daily_smtp.sent) == 1
+    daily_sent, _, daily_recipients = daily_smtp.sent[0]
+    assert daily_recipients == ['team@example.invalid', 'manager@example.invalid']
+    verify_images(daily_sent, [Path(a['path']) for a in daily_manifest['mail']['attachments']], regular=True)
+    assert all(a['also_attach'] is True for a in daily_manifest['mail']['attachments'])
+    (output / 'daily-three-cid-fake-smtp.eml').write_bytes(daily_sent.as_bytes())
+    execute('daily-three-cid-new-batch', daily_task['id'])
+    assert len(store.history('outbox')) == 3 and store.claim_mail() is None
     current = {task['id']: task for task in work.tasks()}
     for original in existing:
         assert current[original['id']] == original
@@ -199,8 +238,9 @@ def main():
               'preview before send', 'restart/new-batch sends once', 'original daily/FOF definitions unchanged',
               'main report recipients and three-image contract unchanged',
               'stock GUI mail settings used by next CLI', '09:20 task registration via real isolated HTTP API',
-              'stock subset equals daily attachment data', 'one normal stock attachment and explanatory plain/HTML',
-              'stock restart/new-batch sends once']}
+              'stock subset equals daily attachment data', 'one CID stock image plus separate attachment and explanatory plain/HTML',
+              'stock restart/new-batch sends once', 'saved daily adapter to SMTP preserves three CIDs plus three regular attachments',
+              'daily three-CID new-batch sends once']}
     atomic_json(output / 'acceptance.json', result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

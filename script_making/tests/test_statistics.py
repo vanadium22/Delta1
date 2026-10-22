@@ -213,7 +213,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIsNotNone(snap["pnl"])
         self.assertIn("未生成", render_pages(snap)[1])
 
-    def test_full_image_and_mail_same_snapshot_two_attachments(self):
+    def test_full_image_and_mail_same_snapshot_three_inline_images_and_attachments(self):
         snap = self.snapshot()
         pages = render_pages(snap)
         values = {**self.config, "to": "test@example.com", "cc": "copy@example.com"}
@@ -226,16 +226,24 @@ class StatisticsTests(unittest.TestCase):
         html = message.get_body(preferencelist=('html',)).get_content()
         self.assertIn('src="cid:pnl1@daily-report"', html)
         self.assertIn('src="cid:risk@daily-report"', html)
+        self.assertIn('src="cid:swap-stocks@daily-report"', html)
         self.assertIn('&nbsp;&nbsp;时祺', html)
-        self.assertEqual(len([p for p in message.walk() if p.get_content_maintype() == 'image']), 3)
+        self.assertEqual(len([p for p in message.walk() if p.get_content_maintype() == 'image']), 6)
         self.assertIn('data:image/png;base64,', pages[0])
         self.assertNotIn('data:image/png;base64,', pages[1])
         body = message.get_body(preferencelist=("plain",)).get_content()
         for expected in ("尊敬的领导、同事", "顺颂\r\n  时祺", "234.56", "2026-10-14", "2026-10-19", "T-2"):
             self.assertIn(expected, body)
         self.assertNotIn("{{", body)
-        for attachment in (p for p in message.walk() if p.get_filename()):
-            self.assertEqual(attachment.get_content_disposition(), 'attachment' if attachment.get_filename() == 'swap_stocks.png' else 'inline')
+        parts = [p for p in message.walk() if p.get_filename()]
+        for disposition in ('inline', 'attachment'):
+            self.assertEqual({p.get_filename() for p in parts if p.get_content_disposition() == disposition},
+                             {'pnl1.png', 'risk.png', 'swap_stocks.png'})
+        for attachment in parts:
+            if attachment.get_content_disposition() == 'inline':
+                self.assertIn('src="cid:' + str(attachment['Content-ID'])[1:-1] + '"', html)
+            else:
+                self.assertIsNone(attachment.get('Content-ID'))
             self.assertEqual(attachment.get_payload(decode=True), (folder / attachment.get_filename()).read_bytes())
         long = pages[1].replace("</body>", "<p>末尾行</p>" * 60 + "</body>")
         _, height = save_image(long, self.root / "long.png")

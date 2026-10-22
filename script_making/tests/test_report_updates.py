@@ -161,7 +161,7 @@ class RevisionTests(unittest.TestCase):
             from script_making.storage import atomic_json
             snap = json.loads((directory / "统计记录.json").read_text(encoding="utf-8"))
             identity = {key: value for key, value in snap.items() if key not in ("id", "created_at")}
-            old_key = hashlib.sha256(json.dumps({"version": 7, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            old_key = hashlib.sha256(json.dumps({"version": 9, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             completed = self.service.settings.data_path() / "statistics/daily_runs/completed"
             current_index = completed / (result["fingerprint"] + ".json")
             atomic_json(completed / (old_key + ".json"), json.loads(current_index.read_text(encoding="utf-8")))
