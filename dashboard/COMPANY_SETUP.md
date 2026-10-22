@@ -2,25 +2,27 @@
 
 ## 公司日常双击入口
 
-更新代码后，双击公司Git根目录的 `start_numeric_excel_company.cmd`：
+更新代码后，双击本dashboard文件夹原有的 `start_numeric_excel.cmd`；简短说明在同目录 [打开方式.md](打开方式.md)：
 
 ```text
-D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\start_numeric_excel_company.cmd
+D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\dashboard\start_numeric_excel.cmd
 ```
 
-该入口固定使用已验证的 `D:\conda\envs\swhy_delta1\python.exe`，自动定位仓库；不需要打开PowerShell、激活Conda或设置环境变量。可为该文件建立桌面快捷方式；脚本本体保留在仓库内，后续pull继续更新。若Python路径不存在则提示并停止，不改用base或自动安装。
+该入口在未显式指定SWHY_DELTA1_PYTHON时优先使用公司已有且已验证的 `D:\conda\envs\swhy_delta1\python.exe`，自动定位仓库；不需要打开PowerShell、激活Conda或设置变量。可为它建立桌面快捷方式，脚本本体保留在本文件夹。根目录重复的公司专用脚本已移除；仅清理入口与说明，数据、配置、缓存和实际Excel保留。
 
 历史补齐和VPN向导与原流程一致：先选检查并补齐或使用现有数据；补齐结束后手动切回行情VPN，再验证打开。时段外只读。保持启动终端开启；日常用此入口打开持续更新的Excel，直接双击已保存xlsx只查看快照。关闭本次Excel后启动器结束。
 
-只有发布新版本时才需要在公司Git根目录执行 `git pull --ff-only origin codex/company-apps`；日常启动不自动更新代码。高级参数仍可附加，如 `start_numeric_excel_company.cmd -ReadOnlyCache`。其他电脑继续使用dashboard/start_numeric_excel.cmd及其原解释器选择规则。
+只有发布新版本时才需要在公司Git根目录执行 `git pull --ff-only origin codex/company-apps`；日常启动不自动更新代码。高级参数仍可附加，如 `start_numeric_excel.cmd -ReadOnlyCache`。
 
 ## 2026-10-22 启动解释器与错误诊断
+
+后续summary-5727d75248b64fb5bac768fe6afbfc02.json.err已记录实际解释器为系统Python3.13.2（C:/Users/user/AppData/Local/Programs/Python/Python313/python.exe），缺pyarrow，在summary加载bars模块时退出，尚未读取历史数据。原文件夹入口现优先选择公司已有swhy_delta1，更新后仍需以本次启动的Python路径/runtime记录核对；这份日志不证明swhy_delta1缺pyarrow。
 
 公司最新只读证据：指定 `D:\conda\envs\swhy_delta1\python.exe` 实际可导入pandas，版本3.0.6，无需安装依赖。14:44运行 `aeec426f815f44359bcb8d6d44be503a` 的run.json却记录requested_python为裸命令python；对应summary的.err在导入numeric_snapshot→pandas时退出，尚未读取历史摘要。这证明那次请求与已验证的绝对路径不一致，旧日志仍不足以确定子进程最终解析成了哪个Python，更不能认定swhy_delta1缺包或向base安装。
 
 14:32独立摘要成功只证明当时配置/历史索引可读、时段允许：日线/分钟摘要均截至10/20，目标10/21。它不验证完整历史、报告写入、DDB/VPN或实时连通；此前另一份PermissionError的路径与阶段仍待独立证据，不能与本次缺包错误合并归因。
 
-启动器仍按SWHY_DELTA1_PYTHON→仓库.venvs/numeric_excel→仓库.venv→PATH选择。仅激活Conda不保证优先于仓库环境。新版把选择固定为可执行文件完整路径，run.json分别记requested_python与resolved_python；每个检查子进程在加载数值依赖前记录sys.executable、prefix/base_prefix、版本和PID到对应的.json.runtime.json及.err的DELTA1_STARTUP_RUNTIME行。
+启动器按SWHY_DELTA1_PYTHON→公司已有D:/conda/envs/swhy_delta1/python.exe→仓库.venvs/numeric_excel→仓库.venv→PATH选择。公司路径仅在实际存在时参与默认选择；显式指定仍优先。仅激活Conda不保证优先于仓库环境。新版把选择固定为可执行文件完整路径，run.json分别记requested_python与resolved_python；每个检查子进程在加载数值依赖前记录sys.executable、prefix/base_prefix、版本和PID到对应的.json.runtime.json及.err的DELTA1_STARTUP_RUNTIME行。
 
 依赖导入纳入异常处理；缺模块时显示模块名、实际Python和.err位置，提供重试/退出，避免继续历史/VPN或无法运行的只读流程。错误JSON由标准库独立写入，保存被拒绝时仍保留stderr；不记录异常原文、局部变量或凭据。非零退出遗留的旧成功报告被拒绝。历史摘要读取失败时独立核验时段，未知则明确重试/只读。
 

@@ -12,7 +12,7 @@
 
 ## 打开与刷新
 
-- 公司日常自动更新：双击仓库根目录 `start_numeric_excel_company.cmd`，固定使用已验证的公司swhy_delta1 Python，无需激活Conda或设置变量；也可为它建立桌面快捷方式。其他电脑继续使用 `dashboard/start_numeric_excel.cmd`。先选择“检查并补齐”或“使用现有数据”；补齐可选“自动连接并补齐”或“已手动连接，开始补齐”。自动模式先复用已通DDB网络，有实际历史缺口且网络不通时才使用本机VPN配置登录。历史进程退出后提示手动切回实时行情VPN，验证成功再打开Excel；失败可只读进入，时段外跳过实时接入。
+- 日常自动更新：双击本dashboard文件夹的 `start_numeric_excel.cmd`，打开说明在同目录 [打开方式.md](打开方式.md)。未显式指定Python时优先选择公司已有swhy_delta1环境，无需激活Conda或设置变量；也可为脚本建立桌面快捷方式。根目录重复的公司入口已移除。先选择“检查并补齐”或“使用现有数据”；补齐可选“自动连接并补齐”或“已手动连接，开始补齐”。自动模式先复用已通DDB网络，有实际历史缺口且网络不通时才使用本机VPN配置登录。历史进程退出后提示手动切回实时行情VPN，验证成功再打开Excel；失败可只读进入，时段外跳过实时接入。
 - 只跟随本地缓存，不创建采集器：`dashboard/start_numeric_excel.cmd -ReadOnlyCache`。
 - 已手动完成准备、需要跳过向导：`dashboard/start_numeric_excel.cmd -NoPrompt`，仍受时段守卫与连接验证。Once/Hidden/Snapshot/外部Feed也不弹向导。
 - 一次性生成当前本地结果：`dashboard/export_numeric.cmd`。

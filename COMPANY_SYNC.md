@@ -1,10 +1,10 @@
 # 公司所有 App：统一更新
 
-## 2026-10-22 数字Excel公司双击入口
+## 2026-10-22 数字Excel原文件夹入口整理
 
-新增仓库根目录start_numeric_excel_company.cmd，固定使用已验证的D:/conda/envs/swhy_delta1/python.exe；自动定位仓库，保留参数、退出码及原历史补齐/手工切回VPN向导，无需每次激活Conda或设置变量。路径缺失明确停止；启动不自动pull、不安装依赖或改配置。公司更新一次后日常双击该文件，可建立桌面快捷方式。更新与使用见dashboard/COMPANY_SETUP顶部。
+日常统一双击原dashboard/start_numeric_excel.cmd，打开方式.md与脚本同放在dashboard文件夹；根目录重复的公司专用脚本已移除。原入口在无SWHY_DELTA1_PYTHON显式指定时优先选择公司实际存在的D:/conda/envs/swhy_delta1/python.exe，再回退仓库环境/PATH；自动定位项目，保留参数、失败退出码和原历史补齐/手工切回VPN向导。无需每次激活Conda或设置变量；启动不自动pull、不安装依赖或改配置。README/设置/运行说明及模块约定同步整理，数据、缓存、实际Excel、配置、VPN和旧工作区前端保留。
 
-4项原生CMD核验通过，覆盖默认向导参数、空格/中文/特殊字符路径与参数、子进程失败退出码及实际脚本缺路径提示。成功路径用隔离PowerShell桩和仅替换Python路径的脚本副本验证，未运行真实Excel或接入数据/VPN；前一轮Excel实测不冒充此入口的公司验收。证据与发布SHA见.deps/numeric_company_launcher/release.json。
+7项原生CMD隔离核验通过，覆盖公司环境优先于仓库环境、显式覆盖、两种仓库环境/PATH回退、空格/中文/特殊字符路径与参数、失败退出码；确认根目录重复入口已移除、打开说明与原入口同目录。证据与发布SHA见.deps/numeric_launcher_folder/release.json。本轮用PowerShell桩且仅替换公司路径做隔离验证，不运行真实Excel或接入数据/VPN，先前Excel实测不替代整理后入口的公司验收。公司更新一次后继续双击原文件夹同一个入口即可。
 
 ## 2026-10-22 邮件图片全部正文内嵌
 
