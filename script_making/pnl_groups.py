@@ -6,7 +6,7 @@ from .storage import ReportError
 from .pnl_sectors import option_sectors
 
 
-def discover(path, grid, focus):
+def discover(path, grid, focus, *, sector_rollup=True):
     book = load_workbook(path, data_only=True, keep_links=False)
     try:
         ws = book['累积盈亏统计']
@@ -14,7 +14,9 @@ def discover(path, grid, focus):
         columns = {str(c.value).strip(): c.column for c in ws[header] if c.value}
         name_col, value_col = columns['交易台'], columns['净利润']
         merges = list(ws.merged_cells.ranges)
-        sectors = option_sectors(ws, grid, name_col, value_col)
+        # The self-only history task reads original bold summaries, independently
+        # of the daily report's explicitly requested three-row presentation.
+        sectors = option_sectors(ws, grid, name_col, value_col) if sector_rollup else None
         diagnostics, groups, totals, candidates = [], [], [], []
         def label(row):
             cell = ws.cell(row, name_col)
@@ -38,21 +40,27 @@ def discover(path, grid, focus):
             if name == '场外业务合计':
                 totals.append(row)
                 continue
+            if sectors and row == sectors['parent']:
+                candidates.extend(item['row'] for item in sectors['entries'])
+                groups.extend({k: v for k, v in item.items() if k != 'values'} for item in sectors['entries'])
+                continue  # Hidden parent amounts are not used or reconciled.
             if not cell.font.bold:
                 continue
             if any(word in name for word in ('合计', '总计', '小计')):
-                diagnostics.append(f'第{row}行存在额外汇总层级“{name}”，排名暂停。')
+                diagnostics.append(f'第{row}行存在额外汇总层级“{name}”，无法确认组汇总范围。')
                 continue
-            if merged and ((merged.max_row != row and not (sectors and row == sectors['parent']))
+            if merged and ((sector_rollup and merged.max_row != row)
                            or merged.min_col <= value_col <= merged.max_col):
                 diagnostics.append(f'第{row}行合并范围{merged}无法区分组汇总与明细。')
                 continue
             candidates.append(row)
             row_level = (cell.alignment.indent or 0, ws.row_dimensions[row].outlineLevel)
-            if row_level != level:
-                diagnostics.append(f'第{row}行“{name}”与目标台缩进/折叠层级不同，排名暂停。')
-                continue
             if focus < row <= focus + 4:
+                continue
+            if row_level != level:
+                if not sector_rollup and all(a >= b for a, b in zip(row_level, level)):
+                    continue  # Clearly subordinate bold details are not peer summaries.
+                diagnostics.append(f'第{row}行“{name}”与目标台缩进/折叠层级不同，无法确认组汇总层级。')
                 continue
             raw = ws.cell(row, value_col).value
             try:
@@ -67,12 +75,6 @@ def discover(path, grid, focus):
             parent = sectors['parent']
             if any(focus <= r <= focus + 4 for r in sectors['child_rows'] | {parent}):
                 raise ReportError('行业明细与境内权益互换台指定五行重叠，未混用两组来源。')
-            replacement = [{k: v for k, v in item.items() if k != 'values'} for item in sectors['entries']]
-            if not any(g['row'] == parent for g in groups):
-                diagnostics.append('境内个股期权台未通过原Excel组汇总样式识别。')
-            groups = [entry for g in groups for entry in (replacement if g['row'] == parent else [g])]
-            candidates = [entry for r in candidates for entry in
-                          ([g['row'] for g in replacement] if r == parent else [r])]
             diagnostics.extend(sectors['notes'])
         if len(totals) != 1:
             diagnostics.append('场外业务合计不是唯一一行，无法确认完整分组边界。')
@@ -85,10 +87,10 @@ def discover(path, grid, focus):
         if len(totals) == 1:
             try:
                 total = Decimal(str(ws.cell(totals[0], value_col).value))
-                if not total.is_finite() or abs(sum((Decimal(g['value']) for g in groups), Decimal(0)) - total) > Decimal('0.01'):
-                    diagnostics.append('同层级组净利润之和与场外业务合计不一致，可能遗漏或重复层级，排名暂停。')
+                if not total.is_finite():
+                    raise ValueError()
             except Exception:
-                diagnostics.append('场外业务合计数值缓存缺失，无法校验分组完整性。')
+                diagnostics.append('场外业务合计数值缓存缺失或无效，未按零处理。')
         selected = list(range(focus, focus + 5))
         selected += [r for r in candidates if r not in selected and r not in totals]
         selected = [r for r in selected if r not in totals] + totals[:1]

@@ -134,7 +134,7 @@ def pnl_value(path, day):
         book.close()
 
 
-def pnl_statistics(path, day, previous=None):
+def pnl_statistics(path, day, previous=None, *, sector_rollup=True):
     current, line = pnl_value(path, day)
     grid = read_table(path, "累积盈亏统计", full_grid=True)
     result = {"date": day, "current": str(current), "previous_date": None,
@@ -143,7 +143,7 @@ def pnl_statistics(path, day, previous=None):
                         if isinstance(v, str) and ("T-2" in v or v.startswith("注"))],
               "warning": "未取得更早报表，上期净利润和两期变动暂缺。"}
     from .pnl_groups import discover
-    result["presentation"] = discover(path, grid, line)
+    result["presentation"] = discover(path, grid, line, sector_rollup=sector_rollup)
     if previous:
         previous_path, previous_day = previous
         if previous_day >= day:

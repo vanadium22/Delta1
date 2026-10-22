@@ -38,7 +38,8 @@ def main():
     service.update_settings({'data_dir': str(output / 'synthetic-data'), 'source_root': '', 'pnl_source': '', 'strategy_source': ''})
     for i in range(292):
         day = (date(2026, 1, 1) + timedelta(days=i)).isoformat()
-        sector_book(archive_path(service.settings, 'pnl') / day / f'盈亏统计_{day}_new_adjust.xlsx', day, i - 160)
+        sector_book(archive_path(service.settings, 'pnl') / day / f'盈亏统计_{day}_new_adjust.xlsx',
+                    day, i - 160, option_value=79)  # Deliberately differs from the five industries.
     for kind, day in (('swap', '2026-10-14'), ('strategy', '2026-10-19')):
         path = (service.settings.data_path() / day / filename('swap', day) if kind == 'swap' else
                 archive_path(service.settings, kind) / day / f'D1策略台日报_{day}.xlsx')
@@ -72,6 +73,9 @@ def main():
     assert manifest['mail']['to'] == ['self@example.invalid']
     assert manifest['mail']['cc'] == manifest['mail']['bcc'] == []
     assert len(manifest['mail']['attachments']) == 2
+    history_record = json.loads((Path(manifest['mail']['attachments'][0]['path']).parent / '统计记录.json').read_text(encoding='utf-8'))
+    assert [g['name'] for g in history_record['groups']] == [
+        '境内权益互换台', '境内个股期权台', '用于验证长名称换行的其他业务汇总组']
     assert store.history('outbox') == []
     history_folder = Path(manifest['mail']['attachments'][0]['path']).parent
     spec['result_mail'] = 'queue'
@@ -106,6 +110,9 @@ def main():
     snap = build_snapshot(service, {'pnl': '2026-10-19', 'previous': '2026-10-18',
                                    'swap': '2026-10-14', 'strategy': '2026-10-19'}, config)
     pages = render_pages(snap)
+    assert '13 + 14' in pages[0] and '15 + 16' in pages[0]
+    assert '<b>境内个股期权台</b>' not in pages[0]
+    assert not snap['errors']
     daily_folder = export_bundle(output / 'daily-export', snap, pages, config)
     msg = BytesParser(policy=policy.default).parsebytes((daily_folder / '邮件草稿.eml').read_bytes())
     assert msg['To'] == 'team@example.invalid' and msg['Cc'] == 'manager@example.invalid'

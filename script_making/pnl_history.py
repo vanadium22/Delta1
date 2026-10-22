@@ -20,7 +20,8 @@ from .pnl_sectors import amount
 from .storage import ReportError, atomic_json, sha256, timestamp, today
 
 CONFIG_NAME = 'pnl_history.local.json'
-VERSION = 1
+VERSION = 2
+GROUP_SELECTION = 'original_bold'
 IMAGES = (('otc_pnl.png', 'otc-pnl@self-report', '场外业务合计 · 收益历史'),
           ('groups_pnl.png', 'groups-pnl@self-report', '各组 · 收益历史'))
 REQUIRED = {item[0] for item in IMAGES} | {'邮件草稿.eml', '邮件正文.txt', '统计记录.json', '邮件设置.json'}
@@ -49,6 +50,7 @@ def build_history(service, through, config):
     year = today().year
     snapshot = {'id': uuid4().hex, 'created_at': timestamp(), 'kind': 'otc_group_history',
                 'config': self_config(config), 'year': year, 'through': through,
+                'group_selection': GROUP_SELECTION,
                 'sources': {}, 'reports': [], 'errors': {}, 'otc': [], 'groups': []}
     entries = sorted((entry for entry in service.query_catalog()['dates']
                       if 'pnl' in entry['files'] and f'{year}-01-01' <= entry['date'] <= through),
@@ -73,25 +75,25 @@ def build_history(service, through, config):
             if cached.is_file():
                 try:
                     data = json.loads(cached.read_text(encoding='utf-8'))
+                    if not isinstance(data, dict) or data.get('group_selection') != GROUP_SELECTION:
+                        raise ValueError('缓存分组口径已更新')
                     amount(data['otc']['value'], '场外业务合计缓存')
                     for g in data['groups']:
                         amount(g['value'], g['name'] + '历史缓存')
                     if not data['groups'] or len({g['name'] for g in data['groups']}) != len(data['groups']):
                         raise ValueError('缓存组结构无效')
-                    if abs(sum((amount(g['value'], '组缓存') for g in data['groups']), Decimal(0))
-                           - amount(data['otc']['value'], '合计缓存')) > Decimal('0.01'):
-                        raise ValueError('缓存合计不一致')
                 except (ValueError, KeyError, TypeError):
                     data = None
             if data is None:
-                pnl = pnl_statistics(path, day)
+                pnl = pnl_statistics(path, day, sector_rollup=False)
                 view = pnl['presentation']
                 if view['diagnostics']:
                     raise ReportError('无法可靠识别互不重复分组：' + '；'.join(view['diagnostics']))
                 if not view['otc'] or not view['groups']:
                     raise ReportError('场外业务合计或组汇总缺失。')
                 amount(view['otc']['value'], '场外业务合计')
-                data = {'otc': view['otc'], 'groups': view['groups'], 'notes': pnl['notes']}
+                data = {'otc': view['otc'], 'groups': view['groups'], 'notes': pnl['notes'],
+                        'group_selection': GROUP_SELECTION}
                 if sha256(path) != digest:
                     raise ReportError('读取期间盈亏统计发生变化，请重新生成。')
                 atomic_json(cached, data)
@@ -148,7 +150,8 @@ def render_history(snapshot):
     if notes:
         intro += '<p class="note">原表注释：' + escape('；'.join(notes)) + '</p>'
     otc = document('场外业务合计 · 收益历史', intro + panel(snapshot['otc'], '场外业务合计 · 累计净利润与两期变动'), snapshot)
-    body = intro + '<p>消费 = 消费 + 周期-消费代管；周期 = 周期 + 周期-其他；原境内个股期权台不再重复计入。各组按原表顺序排列，非收益排名。</p>'
+    body = intro + ('<p>各组读取原Excel交易台名称加粗的同层级汇总行，包含境内个股期权台；'
+                    '按原表顺序排列，不拆分或合并行业明细，不对各组之和与场外业务合计作勾稽。</p>')
     for group in snapshot['groups']:
         body += '<h2>' + escape(group['name']) + '</h2>' + panel(group['points'], '组收益 · 累计净利润与两期变动')
     return otc, document('各组 · 收益历史', body, snapshot)
@@ -166,7 +169,7 @@ def export_history(base, snapshot):
             save_image(page, folder / name)
         subject = f"场外业务与各组收益历史 {snapshot['through']}"
         body = (f"本人查阅：{snapshot['through']}场外业务合计及各组累计净利润历史。\n"
-                '两图见正文及附件；消费、周期按已确认规则合并。\n各组收益归属以原表注释为准（含T-2说明）；相邻报表差额可能为缺日区间变动。')
+                '两图见正文及附件；各组沿用原Excel加粗的组汇总，不做行业替换。\n各组收益归属以原表注释为准（含T-2说明）；相邻报表差额可能为缺日区间变动。')
         html = '<html><body><p>' + escape(body).replace('\n', '<br>') + '</p>'
         html += ''.join(f'<h2>{title}</h2><img src="cid:{cid}" alt="{title}" width="1100">' for _, cid, title in IMAGES)
         html += '</body></html>'

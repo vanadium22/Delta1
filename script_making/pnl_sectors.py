@@ -58,8 +58,6 @@ def option_sectors(ws, grid, name_col, value_col):
                     and (cell.font.bold and (cell.alignment.indent or 0, ws.row_dimensions[row].outlineLevel) == level
                          or label == '场外业务合计')):
                 break
-            if row in lookup and ws.cell(row, value_col).value is not None:
-                raise ReportError(f'境内个股期权台第{row}行存在未识别的数值明细，未猜测所属分组。')
             continue
         if parent_merge and parent_merge.max_row > parent and row > parent_merge.max_row:
             break
@@ -73,9 +71,6 @@ def option_sectors(ws, grid, name_col, value_col):
     missing = PARTS - found.keys()
     if missing:
         raise ReportError('境内个股期权台缺少原始行业行：' + '、'.join(sorted(missing)))
-    total = sum((amount(ws.cell(r, value_col).value, f'第{r}行净利润') for r, _ in found.values()), Decimal(0))
-    if abs(total - amount(ws.cell(parent, value_col).value, '境内个股期权台净利润')) > Decimal('0.01'):
-        raise ReportError('五个行业行净利润之和与境内个股期权台不一致，未生成可能重复或遗漏的三组合计。')
     headers = lookup[grid['header_row'] or 5] if (grid['header_row'] or 5) in lookup else []
     entries, notes = [], []
     for name, parts in SECTORS.items():

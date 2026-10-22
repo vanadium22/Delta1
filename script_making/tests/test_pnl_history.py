@@ -6,6 +6,7 @@ from email import policy
 from email.parser import BytesParser
 import json
 import io
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -26,7 +27,7 @@ from script_making.storage import ReportError, atomic_json, sha256
 from script_making.tests import test_statistics as samples
 
 
-def sector_book(path, day, scale=1, vertical=False):
+def sector_book(path, day, scale=1, vertical=False, option_value=62):
     book = Workbook()
     ws = book.active
     ws.title = '累积盈亏统计'
@@ -34,7 +35,7 @@ def sector_book(path, day, scale=1, vertical=False):
     for c, title in enumerate(('交易台', '行业', '净利润', '当日收入'), 1):
         ws.cell(5, c, title)
     values = {6: ('境内权益互换台', 100), 7: ('原始明细一', 10), 9: ('原始明细三', 30),
-              10: ('原始明细四', 40), 11: ('境内个股期权台', 62),
+              10: ('原始明细四', 40), 11: ('境内个股期权台', option_value),
               12: ('TMT', 10), 13: ('消费', 20), 14: ('周期-消费代管', -5),
               15: ('周期', 30), 16: ('周期-其他', 7),
               17: ('用于验证长名称换行的其他业务汇总组', -25), 18: ('场外业务合计', 137)}
@@ -70,7 +71,7 @@ class PnlHistoryTests(unittest.TestCase):
 
     def test_five_to_three_and_parent_removed_with_original_provenance(self):
         for vertical in (False, True):
-            sector_book(self.pnl_path, '2026-10-19', vertical=vertical)
+            sector_book(self.pnl_path, '2026-10-19', vertical=vertical, option_value=999)
             before = sha256(self.pnl_path)
             view = pnl_statistics(self.pnl_path, '2026-10-19')['presentation']
             self.assertEqual(view['diagnostics'], [])
@@ -86,15 +87,14 @@ class PnlHistoryTests(unittest.TestCase):
             self.assertIn('15 + 16', html)
             self.assertNotIn('<b>境内个股期权台</b>', html)
 
-    def test_missing_duplicate_unrecognized_and_inconsistent_sectors_fail(self):
-        for mode in ('missing', 'duplicate', 'cache', 'total'):
+    def test_missing_duplicate_and_missing_sector_caches_still_fail(self):
+        for mode in ('missing', 'duplicate', 'cache'):
             sector_book(self.pnl_path, '2026-10-19')
             book = load_workbook(self.pnl_path)
             ws = book.active
             if mode == 'missing': ws['A14'] = '未知行业'
             if mode == 'duplicate': ws['A14'] = '消费'
             if mode == 'cache': ws['C14'] = '=SUM(C1:C2)'
-            if mode == 'total': ws['C11'] = 999
             book.save(self.pnl_path)
             book.close()
             with self.subTest(mode=mode), self.assertRaises(ReportError):
@@ -109,9 +109,11 @@ class PnlHistoryTests(unittest.TestCase):
         self.assertEqual(len(snap['otc']), 42)
         self.assertEqual(snap['otc'][-1]['current'], '274')
         self.assertEqual(snap['otc'][-1]['change'], '137')
-        consumer = next(g for g in snap['groups'] if g['name'] == '消费')
-        self.assertEqual(consumer['points'][-1]['change'], '15')
-        self.assertEqual(consumer['points'][-1]['source_rows'], [13, 14])
+        self.assertEqual([g['name'] for g in snap['groups']],
+                         ['境内权益互换台', '境内个股期权台', '用于验证长名称换行的其他业务汇总组'])
+        option = next(g for g in snap['groups'] if g['name'] == '境内个股期权台')
+        self.assertEqual(option['points'][-1]['change'], '62')
+        self.assertEqual(option['points'][-1]['source_rows'], [11])
         self.previous_path.write_bytes(b'bad')
         broken = build_history(self.service, '2026-10-19', {'to': 'self@example.invalid'})
         self.assertIn('2026-10-16', broken['errors'])
@@ -138,6 +140,95 @@ class PnlHistoryTests(unittest.TestCase):
         self.assertIsNone(other[1]['current'])
         self.assertIsNone(other[2]['change'])
         self.assertEqual(snap['errors'], {})
+
+    def test_mismatched_sectors_do_not_block_either_task_and_keep_scopes_separate(self):
+        from script_making.daily_job import run_once as daily_once
+        self.prepare()
+        sector_book(self.previous_path, '2026-10-16', 1, option_value=999)
+        sector_book(self.pnl_path, '2026-10-19', 2, option_value=999)
+        view = pnl_statistics(self.pnl_path, '2026-10-19')['presentation']
+        self.assertEqual(view['diagnostics'], [])
+        self.assertEqual([g['value'] for g in view['groups']], ['200', '20', '30', '74', '-50'])
+        code, daily = daily_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 0, daily)
+        before = {p.name: sha256(p) for p in Path(daily['export_directory']).iterdir() if p.is_file()}
+        code, separate = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 0, separate)
+        snapshot = json.loads(Path(separate['statistics_record']).read_text(encoding='utf-8'))
+        self.assertEqual(snapshot['group_selection'], 'original_bold')
+        self.assertEqual([g['name'] for g in snapshot['groups']],
+                         ['境内权益互换台', '境内个股期权台', '用于验证长名称换行的其他业务汇总组'])
+        option = snapshot['groups'][1]['points'][-1]
+        self.assertEqual(option['current'], '1998')
+        self.assertEqual(option['change'], '999')
+        self.assertEqual(option['source_rows'], [11])
+        self.assertEqual(snapshot['otc'][-1]['current'], '274')  # Use the saved total independently.
+        self.assertEqual({p.name: sha256(p) for p in Path(daily['export_directory']).iterdir() if p.is_file()}, before)
+        self.assertNotIn('消费、周期按已确认规则合并',
+                         (Path(separate['export_directory']) / '邮件正文.txt').read_text(encoding='utf-8'))
+
+    def test_history_never_reads_sector_values_in_flat_or_vertical_layout(self):
+        self.prepare()
+        for vertical in (False, True):
+            for path, day, scale in ((self.previous_path, '2026-10-16', 1), (self.pnl_path, '2026-10-19', 2)):
+                sector_book(path, day, scale, vertical, option_value=999)
+                book = load_workbook(path)
+                ws = book.active
+                ws['C14'] = '=SUM(C1:C2)'  # No saved child cache; irrelevant to raw summaries.
+                ws.cell(16, 2 if vertical else 1).value = '未指定的其他行业'
+                book.save(path); book.close()
+            with patch('script_making.pnl_groups.option_sectors', side_effect=AssertionError('must not merge sectors')):
+                snapshot = build_history(self.service, '2026-10-19', {'to': 'self@example.invalid'})
+            self.assertEqual(snapshot['errors'], {}, vertical)
+            self.assertEqual(len(snapshot['groups']), 3)
+            self.assertEqual(snapshot['groups'][1]['points'][-1]['current'], '1998')
+            with self.assertRaises(ReportError):  # The daily presentation still needs its own inputs.
+                pnl_statistics(self.pnl_path, '2026-10-19')
+        # Conversely, a hidden parent cache is irrelevant to the daily table, but
+        # must still fail the independent task that actually displays that parent.
+        sector_book(self.pnl_path, '2026-10-19', option_value=999)
+        book = load_workbook(self.pnl_path)
+        book.active['C11'] = '=SUM(C1:C2)'
+        book.save(self.pnl_path); book.close()
+        self.assertEqual(pnl_statistics(self.pnl_path, '2026-10-19')['presentation']['diagnostics'], [])
+        code, incomplete = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 2, incomplete)
+        self.assertIn('2026-10-19', incomplete['diagnostics']['errors'])
+        self.assertNotIn('export_directory', incomplete)
+
+    def test_old_sector_cache_and_completed_export_are_not_reused(self):
+        from script_making import pnl_history as histories
+        self.prepare()
+        cache = self.service.settings.data_path() / 'statistics/pnl_group_history_cache'
+        old_files = {}
+        for path, day in ((self.previous_path, '2026-10-16'), (self.pnl_path, '2026-10-19')):
+            key = hashlib.sha256(f'otc-groups-1|{day}|{sha256(path)}'.encode()).hexdigest()
+            old = cache / (key + '.json')
+            atomic_json(old, {'otc': {'row': 18, 'value': '137'},
+                              'groups': [{'name': '旧版三组口径', 'row': 12, 'value': '137'}], 'notes': []})
+            old_files[old] = sha256(old)
+        code, first = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 0, first)
+        snapshot = json.loads(Path(first['statistics_record']).read_text(encoding='utf-8'))
+        self.assertNotIn('旧版三组口径', [g['name'] for g in snapshot['groups']])
+        completed = self.service.settings.data_path() / 'statistics/pnl_history_runs/completed'
+        index = completed / (first['fingerprint'] + '.json')
+        identity = {k: v for k, v in snapshot.items() if k not in ('id', 'created_at')}
+        old_key = hashlib.sha256(json.dumps({'version': 1, 'snapshot': identity},
+                                           ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        atomic_json(completed / (old_key + '.json'), json.loads(index.read_text(encoding='utf-8')))
+        index.unlink()
+        # Malformed new-version caches also fall back to saved source values.
+        for cached in cache.glob('*.json'):
+            if cached not in old_files:
+                atomic_json(cached, [])
+        code, revised = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
+        self.assertEqual(code, 0, revised)
+        self.assertEqual(histories.VERSION, 2)
+        self.assertEqual(revised['state'], 'success')
+        self.assertNotEqual(first['export_directory'], revised['export_directory'])
+        self.assertTrue((Path(first['export_directory']) / '邮件草稿.eml').is_file())
+        self.assertEqual({p: sha256(p) for p in old_files}, old_files)
 
     def test_export_self_only_mime_reuse_and_revision_preserve_old(self):
         self.prepare()

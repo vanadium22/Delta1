@@ -144,7 +144,7 @@ def render_pages(snapshot):
         body += '<p class="note">来源：' + escape(snapshot["sources"]["pnl"]["name"]) + ' / 累积盈亏统计；原始行号见表。读取Excel保存缓存，不重算公式。</p>'
         body += '<p class="note">' + escape('；'.join(pnl["notes"])) + '</p>'
         if any(len(lines) > 1 for lines in sources):
-            body += '<p class="note">行业合并：消费 = 消费 + 周期-消费代管；周期 = 周期 + 周期-其他。原行号用 + 标示，未重复计入境内个股期权台。</p>'
+            body += '<p class="note">行业展示：消费 = 消费 + 周期-消费代管；周期 = 周期 + 周期-其他。原行号用 + 标示；隐藏境内个股期权台，不核对三行之和与原台合计。</p>'
         if view["diagnostics"]:
             body += '<p class="error">组汇总识别提示：' + escape('；'.join(view["diagnostics"])) + '</p>'
 
