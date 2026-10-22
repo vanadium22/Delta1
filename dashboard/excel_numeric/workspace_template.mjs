@@ -28,7 +28,7 @@ export function addWorkspace(wb,metadata={}) {
   s.getRange('B3:C3').format.wrapText=true;s.getRange('E3:F3').format.wrapText=true;s.getRange('A3:F3').format.rowHeight=32;
   text(s,'A4','观察时点');input(s,'B4:C4','日终');text(s,'D4','观察范围');input(s,'E4:F4','默认代表');
   merge(s,'A5:F5','未连接。请使用原启动器打开维护中的工作簿。');
-  merge(s,'A6:F6','等待当前指标结果');s.getRange('A6:F6').format.rowHeight=30;
+  merge(s,'A6:F6','等待当前指标结果');s.getRange('A6:F6').format.rowHeight=34;s.getRange('A6:F6').format.wrapText=true;
   link(s,'A7:B7',name+'详情','展开详情 / 高级筛选');link(s,'C7:D7','指标目录','全部指标 / 更多口径');link(s,'E7:F7','概览','对应指数看板');
   s.getRange('A9:F9').values=[['代表 / 合约','数值','单位','源时（北京）','有效 n','数据状态']];
   s.getRange('A9:F9').format={fill:blue,font:{name:font,size:11,color:'#FFFFFF',bold:true},rowHeight:26};
@@ -63,10 +63,14 @@ export function addWorkspace(wb,metadata={}) {
   d.getRange('B3').dataValidation={rule:{type:'list',values:['','IF','IH','IC','IM']}};d.getRange('E4').dataValidation={rule:{type:'list',values:Object.values(EXPIRY_LABELS)}};d.getRange('B5').dataValidation={rule:{type:'list',values:['4','6','12','24']}};
   const advanced=controls.inputs.filter(x=>x.advanced);if(advanced.length){text(d,'B7',advanced[0].label);choices.getRange(`${advancedCol}7:${advancedCol}${6+advanced.length}`).values=advanced.map(x=>[x.label]);d.getRange('B7').dataValidation={rule:{type:'list',formula1:`'合约选项'!$${advancedCol}$7:$${advancedCol}$${6+advanced.length}`}};}
   const head=id==='basis'?10:14,start=head+1;
-  d.getRange(`A${head}:K${head}`).values=[['主辅 / 实体 / 指标','值','单位','各腿源时','历史截止','n','实现状态','数据状态','输入 / 公式版本','原因 / 代表依据','双腿构造 / 公式']];
+  d.getRange(`A${head}:K${head}`).values=[['主辅 / 实体 / 指标','值','单位','各腿源时','历史截止','n','实现状态','数据状态','版本 / 配对观测','原因 / 代表依据','双腿构造 / 公式']];
   d.getRange(`A${head}:K${head}`).format={fill:blue,font:{name:font,size:11,color:'#FFFFFF',bold:true},rowHeight:28};
   d.getRange(`A${start}:K1804`).format.rowHeight=28;d.getRange(`A${start}:K1804`).format.verticalAlignment='top';d.getRange(`A${start}:A1804`).format.wrapText=true;d.getRange(`D${start}:D1804`).format.wrapText=true;d.getRange(`G${start}:K1804`).format.wrapText=true;d.getRange(`B${start}:B1804`).setNumberFormat('0.0000');d.getRange(`E${start}:E1804`).setNumberFormat('mm/dd hh:mm:ss');d.getRange(`F${start}:F1804`).setNumberFormat('0');d.freezePanes.freezeRows(head);
-  for(const entry of applicable){const v=controls.variants.find(v=>v.variant_id===entry.variant_id)||{};directoryRows.push([name,v.family_label||entry.title,v.input_label||entry.input_id,v.pair_construction||'',v.direction||'',v.explanation||'',v.limitations||'',v.formula_version||entry.formula_version||'',entry.family_id,entry.variant_id]);}
+  for(const entry of applicable){
+   const v=controls.variants.find(v=>v.variant_id===entry.variant_id)||{},live=v.intraday_definition||{};
+   const combined=(key,liveKey=key)=>(v[key]||'')+(live[liveKey]?`\n盘中优先：${live[liveKey]}`:'');
+   directoryRows.push([name,v.family_label||entry.title,v.input_label||entry.input_id,combined('pair_construction','formula'),combined('direction'),combined('explanation'),combined('limitations')+(live.title?'\n盘中缺失时逐实体显示有日期的日终参考，并保留缺失原因。':''),combined('formula_version')||entry.formula_version||'',entry.family_id,entry.variant_id]);
+  }
  }
  if(directoryRows.length){directory.getRange(`A7:J${6+directoryRows.length}`).values=directoryRows;directory.tables.add(`A6:J${6+directoryRows.length}`,true,'IndicatorDirectory');directory.getRange(`A7:J${6+directoryRows.length}`).format.wrapText=true;directory.getRange(`A7:J${6+directoryRows.length}`).format.rowHeight=72;}
  for(const [col,width] of Object.entries({A:17,B:32,C:35,D:52,E:44,F:58,G:65,H:24,I:23,J:48}))directory.getRange(`${col}1:${col}520`).format.columnWidth=width;

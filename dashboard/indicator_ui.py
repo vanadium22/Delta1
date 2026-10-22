@@ -135,5 +135,5 @@ def ui_controls(page):
                 variants=[dict(family_id=e['family_id'], variant_id=e['variant_id'],
                                input_id=e['input_id'], family_label=family_title(e),
                                input_label=input_label(e['input_id'],page=page),
-                               **{k:e.get(k,'') for k in ('title','pair_construction','formula_version','metric_roles','explanation','direction','limitations')}) for e in catalog(page)],
+                               **{k:e.get(k,'') for k in ('title','pair_construction','formula_version','metric_roles','explanation','direction','limitations','daily_primary','intraday_primary','intraday_definition')}) for e in catalog(page)],
                 cross_price_note=CROSS_PRICE_NOTE if page == 'cross' else '')

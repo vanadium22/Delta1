@@ -25,8 +25,9 @@ try {
      $s=$book.Worksheets.Item($name);$d=$book.Worksheets.Item($name+'详情')
      $rows=@();for($r=10;$r -le 33;$r++){$line=@();for($c=1;$c -le 6;$c++){$line+=,$s.Cells.Item($r,$c).Value2};if($null -ne $line[0]){$rows+=,$line}}
      $start=if($name -eq '期现'){11}else{15}
-     $details=@();for($r=$start;$r -le 80;$r++){if($null -eq $d.Cells.Item($r,1).Value2){break};$line=@();foreach($c in @(1,2,3,9,11)){$line+=,$d.Cells.Item($r,$c).Value2};$details+=,$line}
+     $details=@();$notes=@();for($r=$start;$r -le 80;$r++){if($null -eq $d.Cells.Item($r,1).Value2){break};$line=@();foreach($c in @(1,2,3,9,11)){$line+=,$d.Cells.Item($r,$c).Value2};$details+=,$line;$note=$d.Cells.Item($r,9).Comment;if($note){$notes+=,@{text=$note.Text();visible=$note.Visible}}else{$notes+=,$null}}
      $states[$name]=[ordered]@{family=$s.Range('B3').Value2;input=$s.Range('E3').Value2;timing=$s.Range('B4').Value2;scope=$s.Range('E4').Value2;status=$s.Range('A6').Value2;rows=$rows;p=$d.Range('E5').Value2;offset=$d.Range('H4').Value2;limit=$d.Range('B5').Value2;old_row=$s.Range('A34').Value2;detail=$d.Range('A15').Value2;details=$details;construction=$d.Range('A9').Value2;direction=$d.Range('A10').Value2;meaning=$d.Range('A11').Value2;limitations=$d.Range('A12').Value2;nav=$s.Range('A7').Hyperlinks.Item(1).SubAddress;input_validation=$s.Range('E3').Validation.Formula1}
+     $states[$name].notes=$notes
     }
     $book.Save()
     $response=[ordered]@{id=$cmd.id;hwnd=$excel.Hwnd;full_name=$book.FullName;visible=$excel.Visible;active_sheet=$book.ActiveSheet.Name;scroll=$book.Windows.Item(1).ScrollRow;selection=$excel.ActiveCell.Address();pages=$states;chart_count=$book.Worksheets.Item('概览').ChartObjects().Count}

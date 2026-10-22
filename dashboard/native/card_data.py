@@ -199,6 +199,7 @@ def oi_expansion(left, right, data, metadata, calendar):
 def dashboard_cards(engine, state, request, selection, daily, calendar, metadata, dividends, live, now, load_minutes):
     from .nonregression import calculate,collection_center,metric,INPUTS
     from .pair_metrics import PAIR_FORMULA_VERSION,ratio_for_day,pair_definition
+    from .pair_intraday import PAIR_INTRADAY_VERSION
     category=state["category"]; price=state["price_input"]
     entities=[]
     # Source data/quality, local date, dataset and scenario versions participate in caching.
@@ -216,7 +217,7 @@ def dashboard_cards(engine, state, request, selection, daily, calendar, metadata
         carry=config.get('research_carry_inputs',{}).get(left)
         mappings=config.get('research_etf_iopv_mapping',{})
         mapping=mappings.get(left,mappings.get(left[:2]))
-        key=(PAIR_FORMULA_VERSION,engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key,repr(carry),repr(mapping),repr(request.get('participation')))
+        key=(PAIR_FORMULA_VERSION,PAIR_INTRADAY_VERSION,engine.history_key, reference_key, dividends.mode, dividends.version, dividends.reason, category, price, left, right, str(now.tz_convert("Asia/Shanghai").date()),live_key,repr(carry),repr(mapping),repr(request.get('participation')))
         if key not in cache:
             symbols={left,right,UNDERLYINGS[left[:2]][0]}
             if category!="basis":symbols.add(UNDERLYINGS[right[:2]][0])

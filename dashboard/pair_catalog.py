@@ -4,6 +4,7 @@ The original manuscript's single-leg comparisons remain auxiliary outputs.
 This module describes the new definitions; it performs no calculations.
 """
 from dashboard.native.pair_metrics import PAIR_FORMULA_VERSION, pair_definition
+from dashboard.native.pair_intraday import PAIR_INTRADAY_VERSION
 
 INPUT_LABELS = {
     'calendar': {'future':'跨期价差 close（近−远）','basis':'分红调整跨期基差（bp）',
@@ -72,6 +73,58 @@ EXTRA_IDS = {
  'B12':['B12.legacy_A','B12.legacy_B','B12.legacy_h'],
 }
 
+INTRADAY_IDS = {'B09': 'B09.same_time', 'B11': 'B11.sample'}
+
+
+def intraday_definition(family):
+    """Each live branch owns its formula and interpretation, including fallback."""
+    if family == 'B09':
+        return dict(title='合约对同刻累计成交活跃度',formula_version=PAIR_INTRADAY_VERSION,
+            formula='min(当前累计V_A,当前累计V_B/h今日) / median_前20日[min(当日同刻累计V_A,当日同刻累计V_B/h当日)]',
+            scope='盘中同刻累计',
+            explanation='先将两腿从开盘至同一完整分钟的成交量分别累计，再取可匹配量；除以前20个连续交易日同刻匹配量的中位数。不是逐分钟匹配量之和，也不是两腿活跃度相减。当前允许分钟边界前最多3秒的明确近似，绝不使用边界后的量倒填。',
+            direction='倍；1为自身过去20日同刻的典型水平，2为两倍；双腿同时放量也会升高。当前累计量为0且历史分母为正时，结果0有效。',
+            limitations='历史每一天先累计双腿分钟成交，再按当日h配对；跨期h=1，跨品种h只用该日之前一个完整交易日的等名义手数比。缺一天、缺分钟、负量、重复、过期、异步或历史分母为0均留空。匹配量是容量代理，不能证明真实配对成交。')
+    if family == 'B11':
+        return dict(title='合约对采集段振幅压力',formula_version=PAIR_INTRADAY_VERSION,
+            formula='[max(连续同步采集段X)−min(连续同步采集段X)] / median_前20日[TR_X]；TR_X=max(H_X−L_X,|H_X−C_X前|,|L_X−C_X前|)',
+            scope='采集区间·非全天振幅',
+            explanation='每个同步时点先用双腿构造X，再算当前连续HTTP采集段的最大值减最小值；历史分母来自前20个完整交易日各自的合约对绝对TR，需要21日完整240分钟及前收衔接。支持close、基差和基差年化及保留的高级输入；X可跨零，不除以X本身。',
+            direction='倍；这是已采集区间相对典型完整日振幅的比例，不代表全天振幅或全天压力预测。至少2个同步样本；段内X不变且历史分母为正时0有效。',
+            limitations='超过30秒间断、重连、采集运行变化、午休、跨日、缺腿、异步或无效样本均断段；至少重新积累2个同步样本。整次请求失败且没有任何观测行时无法即时识别，最多沿用至源时后30秒并显示原源时。未来样本不提供当前值。分母只用此前连续完整交易日，不拼接到日终历史。年化任一腿T<5时留空；跨品种异期同时含期限差异，close对数价比不是实际交易盈亏。')
+    return None
+
+
+def intraday_construction(family, price, category):
+    construction=intraday_definition(family)['formula']+'。'+('A=近月，B=远月。' if category=='calendar' else 'A=左腿，B=右腿，固定具体合约。')
+    if family=='B09':construction+=QUANTITY
+    else:construction+='X='+pair_definition(category,price)['construction']+'。'+SYMBOLS
+    return construction
+
+
+def for_timing(entry, category, timing):
+    """Change only the requested headline; stable variant identity is preserved."""
+    from copy import deepcopy
+    entry = deepcopy(entry)
+    if category not in ('calendar', 'cross') or entry['family_id'] not in INTRADAY_IDS:
+        return entry
+    entry['daily_primary'] = entry['family_id']
+    entry['intraday_primary'] = INTRADAY_IDS[entry['family_id']]
+    entry['requested_primary_id'] = entry['primary']
+    entry['daily_definition']={key:deepcopy(entry.get(key)) for key in
+        ('title','explanation','direction','limitations','pair_construction','formula_version')}
+    if timing != '盘中优先':
+        return entry
+    meta = intraday_definition(entry['family_id'])
+    construction=intraday_construction(entry['family_id'],entry['input_id'],category)
+    entry.update(meta)
+    entry.update(primary=entry['intraday_primary'], requested_primary_id=entry['intraday_primary'],
+                 formula_version=PAIR_INTRADAY_VERSION,
+                 pair_construction=construction,
+                 limitations=meta['limitations']+' 缺盘中输入时逐实体显示有日期的日终参考，并保留盘中缺失原因。'+LIMITS)
+    entry['metric_roles']={code:'primary' if code==entry['primary'] else 'auxiliary' for code in entry['metric_ids']}
+    return entry
+
 def enrich(entry, category):
     if category not in ('calendar','cross'):
         return entry
@@ -107,6 +160,9 @@ def enrich(entry, category):
         if family.startswith('A03.') and family.split('.')[-1] in ('mean','std','z','percentile','change5'):
             entry['metric_ids'].append('pair.legacy_'+family.split('.')[-1])
     if family in ('B09','B11'):entry['unit_by_category'][category]='倍'
+    if family in INTRADAY_IDS:
+        entry.update(daily_primary=entry['primary'],intraday_primary=INTRADAY_IDS[family],
+                     intraday_definition=intraday_definition(family))
     entry['metric_ids']=list(dict.fromkeys(entry['metric_ids']+EXTRA_IDS.get(family,[])))
     # The stable variant has one designated headline; all components remain visible.
     entry['metric_roles']={code:'primary' if code==entry['primary'] else 'auxiliary' for code in entry['metric_ids']}
@@ -191,5 +247,8 @@ def definition(code, entry, category):
                  'p':'用户显式0≤p≤1','A_p':'p×min(V_A,V_B/h前)','B_p':'p×h前×min(V_A,V_B/h前)'}[suffix]
         unit='手/手' if suffix=='h' else '倍' if suffix in ('p','balance') else '手'
     if formula is None:return None
+    if code in INTRADAY_IDS.values():
+        meta=intraday_definition(code.split('.')[0])
+        return dict(id=code,unit='倍',missing_reason=meta['limitations'],current_supported=True,**meta)
     return dict(id=code,title=title,unit=unit,formula=formula,scope=scope,
                 missing_reason=reason,current_supported=supported)

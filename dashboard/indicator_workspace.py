@@ -10,6 +10,9 @@ from pathlib import Path
 import pandas as pd
 
 from dashboard.indicator_catalog import catalog,find_variant,applicability,PAGES,FORMULA_VERSION
+from dashboard.pair_catalog import for_timing, INTRADAY_IDS, intraday_definition, intraday_construction
+from dashboard.native.pair_metrics import PAIR_FORMULA_VERSION
+from dashboard.native.pair_intraday import PAIR_INTRADAY_VERSION
 from dashboard.indicator_selection import (all_entities,representatives,fixed_collections,
                                            paginate,VISIBILITY_UNVERIFIED)
 
@@ -167,7 +170,7 @@ def _history_sources(entity,context,time):
 def result_contract(row,variant,entity,state,context,selection,now):
     """Project a metric without inventing sample counts or visibility evidence."""
     raw=deepcopy(row)
-    live=selection['timing']=='盘中优先' and raw.get('current') is not None
+    live=selection['timing']=='盘中优先' and _isfinite(raw.get('current'))
     daily_value=raw.get('value');daily_time=raw.get('time')
     value=raw.get('current') if live else daily_value
     time=raw.get('current_time') if live else daily_time
@@ -192,7 +195,7 @@ def result_contract(row,variant,entity,state,context,selection,now):
         leg_times={s:quote_map.get(s,{}).get('source_event_time') for s in entity.get('legs',[])}
     else:leg_times=_history_sources(entity,context,time)
     source_times=source_times if live and raw.get('current_source_times') else {**leg_times,**source_times}
-    history_cutoff=(raw.get('current_reference_end') or raw.get('current_history_cutoff')) if live else None
+    history_cutoff=(raw.get('current_history_cutoff') or raw.get('current_reference_end')) if live else None
     if history_cutoff is None:history_cutoff=raw.get('reference_end') or raw.get('history_cutoff')
     if history_cutoff is None and not live and time:
         history_cutoff=time
@@ -206,12 +209,24 @@ def result_contract(row,variant,entity,state,context,selection,now):
     visibility=entity.get('visibility_status',VISIBILITY_UNVERIFIED)
     role=variant.get('metric_roles',{}).get(raw.get('id'),'primary' if raw.get('id')==variant['primary'] else 'auxiliary')
     code=raw.get('id','')
+    pair_branch=entity.get('category') in ('calendar','cross') and variant['family_id'] in INTRADAY_IDS
+    own_meta={}
+    if pair_branch and code==INTRADAY_IDS[variant['family_id']]:
+        own_meta={**intraday_definition(variant['family_id']),'formula_version':PAIR_INTRADAY_VERSION,
+                  'pair_construction':intraday_construction(variant['family_id'],variant['input_id'],entity['category'])}
+    elif pair_branch and code==variant['family_id']:
+        own_meta=variant.get('daily_definition') or variant
     legacy=(code.startswith('pair.legacy_') or '.legacy_' in code and not code.startswith('A03.') or
             code.startswith(('B03.A.','B03.B.','B04.A.','B04.B.','B07.A.','B07.B.','B09.A.','B09.B.','B11.A.','B11.B.','B08.A.','B08.B.')) or
             code in ('B07.volume','B11.max','B12.balance'))
     construction=(raw.get('formula','') if role=='auxiliary' else variant.get('pair_construction') or raw.get('pair_construction',''))
     explanation=(variant.get('explanation','') if role=='primary' else
                  raw.get('explanation') or ('原口径辅助解释：' if legacy else '构造分量/辅助解释：')+raw.get('title',raw.get('id',''))+'。'+raw.get('formula',''))
+    if own_meta:
+        explanation=own_meta.get('explanation',explanation)
+        construction=own_meta.get('pair_construction') or own_meta.get('formula') or construction
+    formula_version=(FORMULA_VERSION if legacy else own_meta.get('formula_version') or
+                     (PAIR_FORMULA_VERSION if pair_branch else variant['formula_version']))
     pair_metadata=deepcopy(raw.get('pair_metadata') or variant.get('pair_metadata') or {})
     if pair_metadata and (variant['input_id']=='fixed' or legacy):
         # Fixed Q/OI/capacity definitions must not inherit the default basis X
@@ -219,22 +234,24 @@ def result_contract(row,variant,entity,state,context,selection,now):
         if legacy and not raw.get('id','').startswith('B12.legacy_'):
             pair_metadata={k:v for k,v in pair_metadata.items() if k in ('synchronization',)}
         pair_metadata.update(construction=raw.get('formula',''),unit=raw.get('unit',variant['unit']),
-                             formula_version=FORMULA_VERSION if legacy else variant['formula_version'])
+                             formula_version=formula_version)
     result={**raw,'metric_id':raw.get('id'),'family_id':variant['family_id'],'variant_id':variant['variant_id'],
             'input_id':variant['input_id'],'entity_id':entity.get('entity_id'),'value':value,'time':time,
             'daily_value':daily_value,'daily_time':daily_time,'unit':raw.get('unit',variant['unit']),
             'source_times':source_times,'history_cutoff':history_cutoff,'n':n,
             'sample_status':'provided' if n is not None else '未提供有效样本计数',
-            'input_versions':versions,'formula_version':FORMULA_VERSION if legacy else variant['formula_version'],
+            'input_versions':versions,'formula_version':formula_version,
             'source_ref':raw.get('source_ref') or variant['source_ref'].split('；原 ')[-1] if legacy else variant['source_ref'],'implementation_status':impl,'data_status':status,
             'role':role,'pair_construction':construction,'explanation':explanation,
             'pair_metadata':pair_metadata,
-            'direction':variant.get('direction','') if role=='primary' else '辅助解释；单位：'+str(raw.get('unit','')),
-            'limitations':variant.get('limitations',''),
+            'direction':own_meta.get('direction') or (variant.get('direction','') if role=='primary' else '辅助解释；单位：'+str(raw.get('unit',''))),
+            'limitations':own_meta.get('limitations') or variant.get('limitations',''),
             'visibility_status':visibility,'reason':reason,'observed_at':now.isoformat(),
             'display_status':'visible',
             'current_supported':bool(raw.get('current_supported',raw.get('current') is not None or raw.get('current_reason') is not None))}
-    if selection['timing']!='盘中优先':result.update(current=None,current_time=None,current_n=None)
+    if own_meta.get('title'):result['title']=own_meta['title']
+    if own_meta.get('scope'):result['scope']=own_meta['scope']
+    if selection['timing']!='盘中优先':result.update(current=None,current_time=None,current_n=None,current_history=[])
     return result
 
 
@@ -294,12 +311,12 @@ def evaluate(model,selection=None,now=None,*,context=None):
         prefs=selected['pages'][page]
         variant=find_variant(prefs['variant_id'],category=page) if prefs.get('variant_id') else None
         reps=_fixed_daily_representatives(model,context,at,page)
-        directory=[{**entry,'unit':entry.get('unit_by_category',{}).get(page,entry['unit']),
+        directory=[{**for_timing(entry,page,prefs.get('timing','盘中优先')),'unit':entry.get('unit_by_category',{}).get(page,entry['unit']),
                     'loaded':False,'entities':[],'representative_count':6 if page=='cross' else 4} for entry in catalog(page)]
         pages[page]=dict(id=page,title=title,groups=directory,representatives=reps,entities=[],
                          selected_variant_id=variant['variant_id'] if variant else None,selected_group=None,selection=prefs,
                          total=0,offset=0,limit=20,loaded=False)
-    page=pages[active];variant=find_variant(choice['variant_id'],category=active)
+    page=pages[active];variant=for_timing(find_variant(choice['variant_id'],category=active),active,choice['timing'])
     if variant['entity_kind']=='collection':
         entities=fixed_collections(metadata,at,active)
         page['representatives']=deepcopy(entities)
@@ -353,14 +370,27 @@ def evaluate(model,selection=None,now=None,*,context=None):
         if not valid:
             for r in output:r.update(data_status='not_applicable',value=None,reason=why)
         primary=next((r for r in output if r['id']==variant['primary']),output[0])
+        if (valid and active in ('calendar','cross') and variant['family_id'] in INTRADAY_IDS
+                and choice['timing']=='盘中优先' and primary['data_status']!='intraday_estimate'):
+            requested=primary
+            daily=next((r for r in output if r['id']==variant['family_id']),None)
+            if daily is not None:
+                primary=daily
+                primary.update(scope='完整日终参考',fallback_from=requested['id'],
+                    reason='；'.join(s for s in ('盘中分支不可用：'+(requested.get('reason') or '缺同步输入'),
+                        '显示有日期的日终参考' if _isfinite(daily.get('value')) else '日终参考也缺有效数据',daily.get('reason')) if s))
+        for row in output:row['role']='primary' if row is primary else 'auxiliary'
         values.append({**item,'metrics':output,'primary':primary,'error':why or None,
+                       'requested_primary_id':variant['primary'],
                        'selection_type':item.get('selection_type','指定具体实体'),
                        'visibility_status':item.get('visibility_status',VISIBILITY_UNVERIFIED)})
     if versions_changed:
         for item in values:
             item['error']='计算期间数据版本改变；请刷新完整页面'
             for row in item['metrics']:
-                row.update(value=None,current=None,data_status='input_version_changed',reason=item['error'])
+                row.update(value=None,time=None,n=None,current=None,current_time=None,current_n=None,current_history=[],
+                           current_source_times={},history=[],daily_value=None,daily_time=None,
+                           data_status='input_version_changed',reason=item['error'])
     group=next(g for g in page['groups'] if g['variant_id']==variant['variant_id'])
     group.update(loaded=True,entities=values)
     page.update(entities=values,selected_group=group,total=total,offset=offset,limit=limit,loaded=True)

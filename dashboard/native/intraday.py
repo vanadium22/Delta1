@@ -226,6 +226,11 @@ def apply(rows, *, left, right, category, price, a, b, x, minute_data, metadata,
               '采集段X极差 / 前20日合约对绝对TR中位数')
         row_map['B11.sample']['current_supported']=False
     _publish_original_current(rows,publish,aligned,left,right,category,a,b,metadata,live,now)
+    if b is not None:
+        from .pair_intraday import update_pair_intraday
+        update_pair_intraday(rows,left=left,right=right,category=category,price=price,
+                             data={left:a,right:b},minute_data=minute_data,metadata=metadata,
+                             dividends=dividends,now=now,live=live)
     return rows
 
 
@@ -314,6 +319,11 @@ def observations(rows, samples, left, right, category, price, data, minute_data,
     from .nonregression import minute_series, minute_daily, metric
     cache = {} if cache is None else cache
     now = pd.Timestamp(now)
+    if category != 'basis':
+        from .pair_intraday import update_pair_intraday
+        update_pair_intraday(rows,left=left,right=right,category=category,price=price,
+                             data=data,minute_data=minute_data,metadata=metadata,
+                             dividends=dividends,now=now,samples=samples,cache=cache)
     if samples.empty or not session_policy(now.to_pydatetime())['allowed']:
         return rows
     futures = [left] + ([right] if category != 'basis' else [])

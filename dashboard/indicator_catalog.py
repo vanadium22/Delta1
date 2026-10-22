@@ -129,7 +129,7 @@ _CATALOG = _build()
 
 
 def _metric_applies(code,entry,category):
-    if code=='B11.sample' and entry['input_id']=='future':return False
+    if code=='B11.sample' and entry['input_id']=='future' and category=='basis':return False
     if category=='basis':
         if code.startswith(('B03.B.','B04.B.','B09.B.','B11.B.')):return False
         if code in ('B11.max','B07.volume'):return False

@@ -206,8 +206,11 @@ class PairCapacityTests(unittest.TestCase):
         result=rows(f)
         expected=min(a.oi_valid.iloc[-1]+20,b.oi_valid.iloc[-1]+10)-min(a.oi_valid.iloc[-1],b.oi_valid.iloc[-1])
         self.assertEqual(result['B04.doi']['current'],expected)
-        for code in ('B03','B07','B08','B09','B11','B09.same_time','B11.sample'):
+        for code in ('B03','B07','B08','B09','B11'):
             self.assertFalse(result[code]['current_supported'],code)
+            self.assertIsNone(result[code]['current'],code)
+        for code in ('B09.same_time','B11.sample'):
+            self.assertTrue(result[code]['current_supported'],code)
             self.assertIsNone(result[code]['current'],code)
 
 

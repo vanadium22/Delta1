@@ -127,5 +127,40 @@ class IndicatorExcelTests(unittest.TestCase):
             self.assertEqual(retained['pages']['cross']['participation'],0.)
             self.assertEqual(path.read_bytes(),raw)
 
+    def test_intraday_pair_scope_zero_fallback_and_evidence_are_not_relabelled(self):
+        for metric,label in (('B09.same_time','同刻累计'),('B11.sample','采集段')):
+            with self.subTest(metric=metric):
+                family=metric.split('.')[0]
+                current=dict(id=metric,title='实际盘中分支',value=0.,unit='倍',n=20,role='primary',
+                    data_status='intraday_estimate',implementation_status='implemented',source_times={},
+                    formula_version='contract-pair-intraday-v1',pair_construction='共享同步构造',
+                    explanation='共享的当前分支说明',direction='倍；0合法',limitations='当前采集段不代表全天',
+                    pair_intraday=dict(numerator=0.,denominator=2.,h=1.5),pair_metadata=dict(current=dict(effective_h=1.5)))
+                daily=dict(current,id=family,title='日终参考',value=2.,role='auxiliary',data_status='daily_reference',pair_intraday={})
+                input_id='fixed' if family=='B09' else 'future'
+                entry=dict(family_id=family,input=input_id,variant_id=family+'::'+input_id+'::v1',timing='盘中优先')
+                page=dict(loaded=True,total=1,selection=entry,entities=[dict(title='IF / IH',primary=current,metrics=[daily,current])])
+                workspace=dict(pages={'cross':page})
+                before=deepcopy(workspace)
+                rendered=add_research_view({},workspace)['research']['excel_pages']['cross']
+                self.assertEqual(workspace,before)
+                self.assertEqual(rendered['summary'][0][1],0.)
+                self.assertIn(label,rendered['context']);self.assertIn(label,rendered['summary'][0][-1])
+                self.assertEqual(rendered['explanations']['explanation'],'共享的当前分支说明')
+                self.assertIn('分子：0；历史分母：2',rendered['details'][0][8])
+                self.assertTrue(rendered['details'][0][0].startswith('【主指标】'))
+                self.assertTrue(rendered['details'][1][0].startswith('【辅助解释】'))
+                self.assertEqual(json.loads(rendered['detail_notes'][0]),dict(pair_intraday=current['pair_intraday'],pair_metadata=current['pair_metadata']))
+                fallback=dict(daily,role='primary')
+                page['entities'].append(dict(title='IF / IC',primary=fallback,metrics=[fallback]));page['total']=2
+                mixed=add_research_view({},workspace)['research']['excel_pages']['cross']
+                self.assertIn('口径逐行标示',mixed['context'])
+                self.assertEqual(mixed['summary'][1][1],2.)
+                self.assertEqual(mixed['summary'][1][-1],'完整日终参考')
+                calendar_page=deepcopy(page)
+                calendar_page['entities'][0]['primary']['pair_intraday'].update(effective_h=1.,ratio_source_time=None)
+                calendar=add_research_view({},dict(pages={'calendar':calendar_page}))['research']['excel_pages']['calendar']
+                self.assertIn('跨期固定 1:1',calendar['details'][0][8])
+
 
 if __name__=='__main__':unittest.main()

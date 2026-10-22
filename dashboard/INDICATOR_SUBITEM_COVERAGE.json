@@ -2424,10 +2424,7 @@
       "original_comparisons": "nonregression-v2",
       "pair_primary": "contract-pair-v3"
     },
-    "unsupported_current_children": [
-      "B09.same_time (pair)",
-      "B11.sample (pair)"
-    ],
+    "unsupported_current_children": [],
     "unsupported_policy": "明确显示原因；日终主指标与旧单腿盘中辅助分开，不回填伪造合约对盘中值。",
     "variants": [
       {
@@ -5812,6 +5809,170 @@
         },
         "formula_version": "contract-pair-v3"
       }
-    ]
+    ],
+    "unsupported_current_children_at_initial_revision": [
+      "B09.same_time (pair)",
+      "B11.sample (pair)"
+    ],
+    "current_children_followup": "pair_intraday_revision；此前缺失的B09/B11双腿盘中已实现，实际可用性仍取决于完整输入。"
+  },
+  "pair_intraday_revision": {
+    "date": "2026-10-22",
+    "formula_version": "contract-pair-intraday-v1",
+    "metric_ids": [
+      "B09.same_time",
+      "B11.sample"
+    ],
+    "categories": [
+      "calendar",
+      "cross"
+    ],
+    "definition_document": "PAIR_INDICATORS.md",
+    "calculation_module": "dashboard/native/pair_intraday.py",
+    "mathematical_tests": "tests/test_pair_intraday.py",
+    "contract_tests": "tests/test_pair_intraday_contract.py",
+    "fixture": "tests/pair_intraday_fixture.py",
+    "company_acceptance": "not_run",
+    "real_external_data_fetched": false,
+    "daily_formula_version": "contract-pair-v3",
+    "legacy_formula_version": "nonregression-v2",
+    "input_status": "conditional_on_complete_synchronized_history_and_fresh_observations",
+    "fallback": "逐实体使用实际盘中主值，合法0保留；缺输入时明确有日期的日终参考，盘中行保持空和缺失原因。",
+    "no_current_to_daily_writeback": true,
+    "old_data_and_config_preserved": true,
+    "basis_overview_and_other_pair_parity": {
+      "baseline": "18d7518d7f6f66cb2279a1c45f86fba4a901f8e8",
+      "synthetic_cases": 98,
+      "numeric_time_fields": 1124354,
+      "differences": 0
+    },
+    "variants": [
+      {
+        "page": "calendar",
+        "variant_id": "B09::fixed::v1",
+        "daily_primary": "B09",
+        "requested_intraday_primary": "B09.same_time",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::future::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::raw_basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::log_basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::raw_annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "calendar",
+        "variant_id": "B11::log_annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B09::fixed::v1",
+        "daily_primary": "B09",
+        "requested_intraday_primary": "B09.same_time",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::future::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::raw_basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::log_basis::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::raw_annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      },
+      {
+        "page": "cross",
+        "variant_id": "B11::log_annual::v1",
+        "daily_primary": "B11",
+        "requested_intraday_primary": "B11.sample",
+        "formula_version": "contract-pair-intraday-v1"
+      }
+    ],
+    "validation": {
+      "mathematical_and_existing_regression_tests": 59,
+      "new_mathematical_tests": 25,
+      "shared_contract_projection_cases_after_corrections": 56,
+      "native_excel_synthetic_scenarios": 22,
+      "native_excel_hidden_responses": 46,
+      "original_cmd_synthetic_snapshot": "passed; actual producer; existing swhy_delta1; Hidden/NoPrompt; no real collection",
+      "protected_original_files": 96464,
+      "protected_original_files_changed": 0,
+      "app_evidence": "Two local Qt editions, offscreen; final detailed evidence .deps/pair_intraday/app",
+      "final_qt_scenarios_per_edition": 12,
+      "shared_modules_identical": 11,
+      "no_visible_windows_or_dialogs": true
+    }
   }
 }

@@ -125,7 +125,7 @@ function Sync-Workspace($Feed) {
             $excel.ScreenUpdating=$false;$script:researchRequest=[guid]::NewGuid().ToString('N');$selection.request_id=$script:researchRequest
             $tmp=$selectionFile+'.tmp';[IO.File]::WriteAllText($tmp,($selection | ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false));Move-Item -LiteralPath $tmp -Destination $selectionFile -Force
             $script:researchSignature=$signature
-            foreach($name in $script:researchPages.Values){$s=$book.Worksheets.Item($name);$s.Range('A10:F33').ClearContents();$d=$book.Worksheets.Item($name+'详情');$start=if($name -eq '期现'){11}else{15};$d.Range('A'+$start+':K1804').ClearContents();if($start -eq 15){$d.Range('A9:H12').ClearContents()};$s.Range('A6').Formula='正在加载当前选择…'}
+            foreach($name in $script:researchPages.Values){$s=$book.Worksheets.Item($name);$s.Range('A10:F33').ClearContents();$d=$book.Worksheets.Item($name+'详情');$start=if($name -eq '期现'){11}else{15};$d.Range('A'+$start+':K1804').ClearContents();$d.Range('I'+$start+':I1804').ClearComments();if($start -eq 15){$d.Range('A9:H12').ClearContents()};$s.Range('A6').Formula='正在加载当前选择…'}
             $script:researchRendered=$null;$script:workspaceChanged=$true
         }
         if($w.request_id -ne $script:researchRequest){return}
@@ -134,8 +134,11 @@ function Sync-Workspace($Feed) {
         foreach($id in $script:researchPages.Keys) {
             $p=$w.excel_pages.$id;if(-not $p){continue};$s=$book.Worksheets.Item($script:researchPages[$id]);$d=$book.Worksheets.Item($script:researchPages[$id]+'详情')
             $start=if($id -eq 'basis'){11}else{15}
-            $s.Range('A10:F33').ClearContents();$d.Range('A'+$start+':K1804').ClearContents()
+            $s.Range('A10:F33').ClearContents();$d.Range('A'+$start+':K1804').ClearContents();$d.Range('I'+$start+':I1804').ClearComments()
             Write-ResearchRows $s 10 1 $p.summary 6;Write-ResearchRows $d $start 1 $p.details 11
+            for($i=0;$i -lt $p.detail_notes.Count;$i++){
+                if($p.detail_notes[$i]){$note=$d.Cells.Item(($start+$i),9).AddComment([string]$p.detail_notes[$i]);$note.Visible=$false}
+            }
             if($p.details.Count -gt 0){[void]$d.Range('A'+$start+':K'+[string]($start-1+$p.details.Count)).Rows.AutoFit()}
             $s.Range('A6').Formula=[string]$p.status;$d.Range('A8').Formula=[string]$p.context
             if($id -ne 'basis'){foreach($item in @(@(9,'pair_construction','双腿构造'),@(10,'direction','方向与单位'),@(11,'explanation','指标意义'),@(12,'limitations','使用限制'))){

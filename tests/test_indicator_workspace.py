@@ -257,9 +257,9 @@ class ContractTests(unittest.TestCase):
                         if page=='basis' or code.startswith('B02.collection'):
                             self.assertIn('采集区间',row['scope']);self.assertIn('非',row['reason'])
                         else:
-                            self.assertTrue(row['current_reason']);self.assertFalse(row['current_supported'])
+                            self.assertTrue(row['current_reason']);self.assertTrue(row['current_supported'])
                         self.assertTrue(row['formula'])
-                        self.assertEqual(row['current_supported'],page=='basis' or code.startswith('B02.collection'))
+                        self.assertTrue(row['current_supported'])
                         if code.startswith('B02.collection'):self.assertEqual(row['unit'],'年化百分点')
                         else:self.assertEqual(row['unit'],'倍')
         # No-bars/failure schemas also use each child's dimension, not B02's X.

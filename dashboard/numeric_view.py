@@ -127,18 +127,49 @@ def add_research_view(feed, workspace):
             entities.append([entity.get('title'),row.get('value'),row.get('unit'),row.get('time'),
                              row.get('history_cutoff'),row.get('n'),row.get('implementation_status'),
                              row.get('data_status'),note,policy,row.get('visibility_status')])
-        details=detail_rows(page)
+        ordered_entities=[{**entity,'metrics':sorted(entity.get('metrics',[]),
+            key=lambda row:category in ('calendar','cross') and row.get('id')!=entity.get('primary',{}).get('id'))} for entity in page.get('entities',[])]
+        details=detail_rows({**page,'entities':ordered_entities})
+        detail_notes=[]
         # Add formula identity to the already shared input-version cell.
-        for target,(_,row) in zip(details,((e,r) for e in page.get('entities',[]) for r in e.get('metrics',[]))):
+        for target,(_,row) in zip(details,((e,r) for e in ordered_entities for r in e.get('metrics',[]))):
             target[3]=source_label(row)
+            version_fields=dict(variant=row.get('variant_id'),formula=row.get('formula_version'),**(row.get('input_versions') or {}))
+            evidence_fields={key:row[key] for key in ('pair_metadata','pair_intraday') if row.get(key)}
             target[8]='\n'.join(k+': '+(json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':')) if isinstance(v,(dict,list)) else str(v))
-                for k,v in dict(variant=row.get('variant_id'),formula=row.get('formula_version'),**(row.get('input_versions') or {})).items())
+                for k,v in version_fields.items())
+            detail_notes.append(json.dumps(evidence_fields,ensure_ascii=False,sort_keys=True,indent=2) if evidence_fields else None)
+            observed=row.get('pair_intraday') or {}
+            if observed:
+                def stamp(key):
+                    return pd.Timestamp(observed[key]).tz_convert('Asia/Shanghai').strftime('%m/%d %H:%M:%S') if observed.get(key) else '缺失'
+                def number(key):
+                    return format(observed[key],'.6g') if observed.get(key) is not None else '缺失'
+                evidence=[f"分子：{number('numerator')}；历史分母：{number('denominator')}"]
+                if observed.get('effective_h') is not None:
+                    basis='跨期固定 1:1' if category=='calendar' and observed['effective_h']==1 and not observed.get('ratio_source_time') else '依据 '+stamp('ratio_source_time')
+                    evidence.append(f"h（B手/A手）：{number('effective_h')}；{basis}")
+                evidence.append(f"基准 {observed.get('baseline_n',0)} 日：{stamp('baseline_start')} → {stamp('baseline_end')}")
+                if observed.get('minute_count') is not None:evidence.append(f"每日同刻累计 {observed['minute_count']} 分钟；边界 {stamp('boundary')}")
+                if observed.get('sample_n') is not None:evidence.append(f"本采集段 {observed['sample_n']} 个同步样本（非全天）")
+                evidence.append(f"采集段：{stamp('segment_start')} → {stamp('segment_end')}（北京）")
+                if observed.get('approximation'):evidence.append('当前为分钟边界前 0—3 秒近似')
+                target[8]='\n'.join(evidence)+'\n'+target[8]
+            if evidence_fields:target[8]+='\n配对原始元数据全文见本格批注（默认隐藏）'
         selection=page.get('selection',workspace.get('selection',{}).get('pages',{}).get(category,{}))
         selected=next((item for item in controls['variants'] if item['variant_id']==selection.get('variant_id')), {})
         selected_input=next((item for item in controls['inputs'] if item['input_id']==selection.get('input')), {})
         selected_family=next((item for item in controls['families'] if item['family_id']==selection.get('family_id')), {})
+        primary=next((entity.get('primary',{}) for entity in page.get('entities',[]) if entity.get('primary')), {})
+        primary_ids={entity.get('primary',{}).get('id') for entity in page.get('entities',[])}
+        intraday_ids=primary_ids & {'B09.same_time','B11.sample'} if category in ('calendar','cross') else set()
+        intraday_pair=bool(intraday_ids) and len(primary_ids)==1
+        headline=selected_family.get('label') or family_title(selection.get('family_id',''))
+        if intraday_pair:
+            headline='合约对同刻累计活跃度' if primary['id']=='B09.same_time' else '合约对采集段振幅（非全天）'
+        elif intraday_ids:headline+='（口径逐行标示）'
         scope={'representatives':'默认代表','all':'全部合约','history':'历史合约','specified':'指定合约'}.get(selection.get('scope'),'默认代表')
-        context=' · '.join((selected_family.get('label') or family_title(selection.get('family_id','')),
+        context=' · '.join((headline,
             selected_input.get('label') or input_label(selection.get('input',''),selection.get('timing','日终')),
             scope,selection.get('timing','日终')))
         status=workspace.get('error') or page.get('error') or selection.get('selection_error') or (
@@ -152,19 +183,25 @@ def add_research_view(feed, workspace):
             if source.get('value') is None:
                 state=next((label for token,label in [('T<5','到期不足5天'),('分红','缺分红'),('ETF','缺 ETF / IOPV'),('IOPV','缺 ETF / IOPV'),('融资','缺融资 / 成本'),('成本','缺成本输入'),('分钟','缺分钟数据'),('OI','缺可靠持仓'),('样本','样本不足')] if token in reason), '缺输入，详见详情')
             elif state=='ok':state='可用'
+            if category in ('calendar','cross') and source.get('value') is not None and raw_state=='intraday_estimate':
+                state={'B09.same_time':'盘中同刻累计','B11.sample':'采集段估计（非全天）'}.get(source.get('id'),state)
             summary.append([row[0],row[1],row[2],row[3],row[5],state])
         # Complete diagnostics remain available directly below the advanced controls.
-        for target,(entity,source) in zip(details,((e,r) for e in page.get('entities',[]) for r in e.get('metrics',[]))):
+        for target,(entity,source) in zip(details,((e,r) for e in ordered_entities for r in e.get('metrics',[]))):
             if source.get('role') in ('primary','auxiliary'):
                 target[0]=('【主指标】' if source['role']=='primary' else '【辅助解释】')+str(source.get('title') or source.get('id') or '')+'\n'+target[0]
             if source.get('pair_construction'):
                 target[10]='构造：'+source['pair_construction']+'\n公式：'+str(target[10] or '')
             target[6]={'implemented':'已实现','not_implemented':'未实现'}.get(target[6],target[6])
             target[7]=data_labels.get(target[7],target[7])
+            if category in ('calendar','cross') and source.get('value') is not None and source.get('data_status')=='intraday_estimate':
+                target[7]={'B09.same_time':'盘中同刻累计','B11.sample':'采集段估计（非全天）'}.get(source.get('id'),target[7])
             target[9]='；'.join(str(x) for x in (target[9],entity.get('selection_type'),entity.get('decision_date'),entity.get('selection_reason'),source.get('visibility_status')) if x)
         if len(summary)>24:status+=' · 主表前24条，完整结果见详情'
         explanations={key:str(selected.get(key) or '') for key in ('pair_construction','direction','explanation','limitations')}
-        pages[category]=dict(directory=directory_rows(page),entities=entities,summary=summary[:24],details=details,
+        if intraday_pair:
+            explanations.update({key:str(primary[key]) for key in explanations if primary.get(key)})
+        pages[category]=dict(directory=directory_rows(page),entities=entities,summary=summary[:24],details=details,detail_notes=detail_notes,
             status=status,context=context,explanations=explanations,detail_start=11 if category=='basis' else 15)
     feed['research']={**workspace,'excel_pages':pages,'ui_controls':{page:ui_controls(page) for page in PAGES}}
     return feed
