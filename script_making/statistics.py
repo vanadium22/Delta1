@@ -109,12 +109,29 @@ def pnl_value(path, day):
     if headers.count("交易台") != 1 or headers.count("净利润") != 1:
         raise ReportError("pnl1 缺少唯一的交易台/净利润列。")
     index = headers.index("交易台")
-    matches = [(row, line) for row, line in zip(table["rows"], table["source_rows"])
-               if str(row[index] or "").strip() == "境内权益互换台"]
-    if len(matches) != 1:
-        raise ReportError("pnl1 未找到唯一的境内权益互换台行。")
-    row, line = matches[0]
-    return decimal_value(row[headers.index("净利润")], "境内权益互换台净利润"), line
+    from openpyxl import load_workbook
+    from .query import HEADER_ROWS
+    book = load_workbook(path, data_only=True, keep_links=False)
+    try:
+        ws = book['累积盈亏统计']
+        header = HEADER_ROWS[ws.title]
+        columns = {str(c.value).strip(): c.column for c in ws[header] if c.value}
+        matches = []
+        for line in table['source_rows']:
+            cell = ws.cell(line, columns['交易台'])
+            merged = next((m for m in ws.merged_cells.ranges if cell.coordinate in m), None)
+            if merged:
+                if merged.min_row != line:
+                    continue
+                cell = ws.cell(merged.min_row, merged.min_col)
+            if str(cell.value or '').strip() == '境内权益互换台':
+                matches.append((ws.cell(line, columns['净利润']).value, line))
+        if len(matches) != 1:
+            raise ReportError('pnl1 未找到唯一的境内权益互换台行。')
+        value, line = matches[0]
+        return decimal_value(value, '境内权益互换台净利润'), line
+    finally:
+        book.close()
 
 
 def pnl_statistics(path, day, previous=None):
@@ -125,6 +142,8 @@ def pnl_statistics(path, day, previous=None):
               "notes": [str(v) for row in grid["rows"] for v in row
                         if isinstance(v, str) and ("T-2" in v or v.startswith("注"))],
               "warning": "未取得更早报表，上期净利润和两期变动暂缺。"}
+    from .pnl_groups import discover
+    result["presentation"] = discover(path, grid, line)
     if previous:
         previous_path, previous_day = previous
         if previous_day >= day:
@@ -203,7 +222,7 @@ def risk_statistics(path, day, kind, config):
     if unknown:
         raise ReportError("达到阈值的标的无法归入两类，未发布部分汇总：" + "、".join(unknown[:20]))
     for item in groups.values():
-        item["rows"].sort(key=lambda row: abs(Decimal(row[metric_index])), reverse=True)
+        item["rows"].sort(key=lambda row: (bool(re.fullmatch(r"(?:IF|IH|IC|IM)\d+\.CFE", row[0])), -abs(Decimal(row[metric_index]))))
         for field in ("total", "daily", "net", "gross"):
             item[field] = str(item[field])
     return {"kind": kind, "date": day, "groups": list(groups.values()), "excluded": skipped,
@@ -211,18 +230,21 @@ def risk_statistics(path, day, kind, config):
 
 
 def combined_risks(risks):
-    """Add both observed subsets by group, retaining dates and source counts."""
-    if not all(kind in risks for kind in ("swap", "strategy")):
-        return []  # A single valid source must never masquerade as a combined total.
-    totals = []
-    for name in GROUPS:
-        groups = [next(g for g in risks[kind]["groups"] if g["name"] == name)
-                  for kind in ("swap", "strategy")]
-        totals.append({"name": name, "count": sum(g["count"] for g in groups),
-                       **{field: str(sum((Decimal(g[field]) for g in groups), Decimal(0)))
-                          for field in ("total", "daily", "net")},
-                       "dates": {kind: risks[kind]["date"] for kind in ("swap", "strategy")}})
-    return totals
+    """Totals within each source; never combine different reports."""
+    return [{"kind": kind, "name": "观察项合计", "date": risk["date"],
+             "count": sum(g["count"] for g in risk["groups"]),
+             **{key: str(sum((Decimal(g[key]) for g in risk["groups"]), Decimal(0)))
+                for key in ("total", "daily", "net")}}
+            for kind, risk in risks.items()]
+
+
+def stock_subset(risk):
+    rows = [row for group in risk["groups"] for row in group["rows"]
+            if re.fullmatch(r"(?:6\d{5}\.SH|[03]\d{5}\.SZ|\d{6}\.BJ|\d{4,5}\.HK)", row[0])
+            and "ETF" not in unicodedata.normalize("NFKC", row[1]).upper()]
+    return {"date": risk["date"], "rows": rows, "count": len(rows),
+            **{key: str(sum((Decimal(row[index]) for row in rows), Decimal(0)))
+               for key, index in (("total", 2), ("daily", 3), ("net", 5))}}
 
 
 def build_snapshot(service, selections, values):
@@ -252,6 +274,7 @@ def build_snapshot(service, selections, values):
         except (OSError, ValueError, KeyError, BadZipFile, ParseError) as exc:
             snapshot["errors"][kind] = str(exc)
     snapshot["risk_totals"] = combined_risks(snapshot["risks"])
+    snapshot["swap_stocks"] = stock_subset(snapshot["risks"]["swap"]) if "swap" in snapshot["risks"] else None
     catalog = service.query_catalog()
     year = today().year
     cache = service.settings.data_path() / "statistics" / "history_cache"

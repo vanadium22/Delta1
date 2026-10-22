@@ -33,12 +33,12 @@ def money(value):
     return "未取得" if value is None else f"{Decimal(value):,.2f}"
 
 
-def table(headers, rows, highlight=None, *, summary=False, related=()):
+def table(headers, rows, highlight=None, *, summary=False, related=(), totals=()):
     output = '<table width="100%" cellspacing="0" cellpadding="7" border="1"><tr>'
     output += "".join(f'<th bgcolor="#e8eef5">{escape(str(v))}</th>' for v in headers) + "</tr>"
     for index, row in enumerate(rows):
         color = ("#185b59" if index == highlight else "#fff0bf" if index in related
-                 else "#ffffff" if index % 2 else "#f4f7fa")
+                 else "#ffe4a3" if index in totals else "#ffffff" if index % 2 else "#f4f7fa")
         cells = []
         for position, value in enumerate(row):
             foreground = "#ffffff" if index == highlight else "#18324c"
@@ -47,7 +47,7 @@ def table(headers, rows, highlight=None, *, summary=False, related=()):
                 foreground = "#b84641" if amount > 0 else "#147b6d" if amount < 0 else "#536678"
             background = ("#e9f2fb" if index < 2 else "#e7f4ef" if index < 4 else "#ffe4a3") if summary else color
             content = escape(display(value))
-            bold = summary or index == highlight or index in related
+            bold = summary or index == highlight or index in related or index in totals
             size = ' size="4"' if index == highlight else ''
             cells.append(f'<td bgcolor="{background}"><font color="{foreground}"{size}>{"<b>" if bold else ""}{content}{"</b>" if bold else ""}</font></td>')
         output += "<tr>" + "".join(cells) + "</tr>"
@@ -56,10 +56,10 @@ def table(headers, rows, highlight=None, *, summary=False, related=()):
 
 def metric_cards(pnl):
     cards = []
-    for title, key in (("本期累计净利润", "current"), ("上期累计净利润", "previous"), ("两期净利润变动", "change")):
+    for title, key in (("本期累计净利润", "current"), ("两期净利润变动", "change")):
         value = pnl[key]
         color = "#b84641" if value is not None and Decimal(value) > 0 else "#147b6d" if value is not None and Decimal(value) < 0 else "#18324c"
-        cards.append(f'<td width="33%" bgcolor="#eaf1f8"><p>{title} · 元</p><p><font size="6" color="{color}"><b>{money(value)}</b></font></p></td>')
+        cards.append(f'<td width="50%" bgcolor="#eaf1f8"><p>{title} · 元</p><p><font size="6" color="{color}"><b>{money(value)}</b></font></p></td>')
     return '<table width="100%" cellpadding="16" cellspacing="5"><tr>' + "".join(cards) + "</tr></table>"
 
 
@@ -91,9 +91,9 @@ def risk_text(snapshot):
             continue
         lines.append(f"{LABELS[kind]}：{result['date']}")
     for group in combined_risks(snapshot["risks"]):
-        lines.append(f"• {group['name']}：总盈亏 {money(group['total'])}；"
+        lines.append(f"• {LABELS[group['kind']]} {group['date']} 观察项合计：总盈亏 {money(group['total'])}；"
                      f"当日盈亏 {money(group['daily'])}；净敞口 {money(group['net'])} 元")
-    lines.append("上述为两日报观察项直接累加，日期可不同，同标的不去重；非全台盈亏。")
+    lines.append("各日报内部两类观察项合计；非未经筛选的全台合计。")
     return "\n".join(lines)
 
 
@@ -106,13 +106,20 @@ def render_pages(snapshot):
         if snapshot.get("history", {}).get("pnl"):
             from .statistics_charts import chart_html
             body += chart_html(snapshot)
-        body += "<h2>pnl1 · 累积盈亏统计原表内容</h2>"
-        grid = pnl["grid"]
-        rows = [[str(line), *row] for line, row in zip(grid["source_rows"], grid["rows"])]
-        body += table(["原行号", *[c["name"] for c in grid["columns"]]], rows,
-                      grid["source_rows"].index(pnl["row"]),
-                      related={i for i, line in enumerate(grid["source_rows"]) if pnl["row"] < line <= pnl["row"] + 4})
-        body += '<p class="note">保留原表全部有值行和列；合并区域文字位于左上角。读取 Excel 缓存净利润，不重算公式。</p>'
+        body += "<h2>pnl1 · 组汇总及重点明细</h2>"
+        view = pnl["presentation"]
+        rows = [[str(line), *row] for line, row in zip(view["rows"], view["values"])]
+        body += table(["原行号", *view["headers"]], rows, 0,
+                      related={i for i, r in enumerate(view["rows"]) if pnl["row"] < r <= pnl["row"] + 4},
+                      totals={i for i, r in enumerate(view["rows"]) if r in view["total_rows"]})
+        body += '<p class="note">来源：' + escape(snapshot["sources"]["pnl"]["name"]) + ' / 累积盈亏统计；原始行号见表。读取Excel保存缓存，不重算公式。</p>'
+        body += '<p class="note">' + escape('；'.join(pnl["notes"])) + '</p>'
+        if view["diagnostics"]:
+            body += '<p class="error">各组累计净利润排名未生成：' + escape('；'.join(view["diagnostics"])) + '</p>'
+        else:
+            from .statistics_charts import ranking_html
+            body += ranking_html(pnl)
+
     else:
         body = '<p class="error">' + escape(pnl_text(snapshot)) + "</p>"
     first = document("组内收益 · pnl1", body, snapshot)
@@ -129,10 +136,10 @@ def render_pages(snapshot):
             summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
                             *[money(group[key]) for key in ("total", "daily", "net")]])
     for group in combined_risks(snapshot["risks"]):
-        summary.append(["两日报总汇总", " / ".join(group["dates"].values()), group["name"], str(group["count"]),
+        summary.append([LABELS[group["kind"]], group["date"], "观察项合计", str(group["count"]),
                         *[money(group[key]) for key in ("total", "daily", "net")]])
     body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "净敞口金额 Σx"], summary, summary=True)
-    body += '<p class="note">总汇总按两份日报各自日期直接累加，同标的跨日报不去重，观察数为两来源条目数之和；不是同一日的全台合并口径。任一来源失败时不生成总汇总。净敞口按原始正负值累加，不展示绝对敞口合计。</p>'
+    body += '<p class="note">观察项合计仅加总同一日报内部的两类别，各自使用来源日期；来源读取失败不显示该来源合计。净敞口按原始正负值累加，不展示绝对敞口合计。</p>'
     for kind in ("swap", "strategy"):
         risk = snapshot["risks"].get(kind)
         if not risk:
@@ -140,11 +147,28 @@ def render_pages(snapshot):
         body += f"<h2>{LABELS[kind]} · {risk['date']}</h2>"
         for group in risk["groups"]:
             body += f"<p><b>{group['name']} · {group['count']} 个观察标的</b></p>"
-            body += (table(FIELDS, [[*row[:2], *[money(v) for v in row[2:]]] for row in group["rows"]])
-                     if group["rows"] else "<p>无达到阈值的标的。</p>")
+            body += detail_table(group)
         body += '<p class="note">本表实际剔除：' + escape("、".join(risk["excluded"]) or "无") + "</p>"
     body += '<p class="note">永久剔除名单：' + escape("、".join(config["exclusions"]) or "空") + "</p>"
     return first, document("风险观察 · 分日报与总汇总", body, snapshot)
+
+
+def detail_table(group):
+    rows = [[*row[:2], *[money(v) for v in row[2:]]] for row in group["rows"]]
+    rows.append(["观察项合计", str(group["count"]) + " 项", money(group["total"]), money(group["daily"]), "—", money(group["net"])])
+    return ("<p>无达到阈值的标的。</p>" if not group["rows"] else "") + table(FIELDS, rows, totals={len(rows)-1})
+
+
+def stocks_page(snapshot):
+    group = snapshot.get("swap_stocks")
+    if group is None:
+        raise ReportError("收益互换来源读取失败，不能导出纯个股附件。")
+    config = snapshot["config"]
+    body = f"<p>来源：收益互换日报 / 风险盈亏统计 · {group['date']} · 金额单位：元</p>"
+    body += f"<p>筛选后纯个股子集：|{escape(config['metric'])}| ≥ {money(config['threshold'])}；不含指数、股指期货及ETF。合计不必等于包含其他ETF的原组。</p>"
+    body += detail_table(group)
+    body += '<p>永久剔除名单：' + escape('、'.join(config['exclusions'])) + '</p>'
+    return document("收益互换 · 筛选后纯个股", body, snapshot)
 
 
 def mail_content(snapshot, values):
@@ -158,6 +182,8 @@ def mail_content(snapshot, values):
                 "附件为 pnl1 完整统计图片（含当年最近30份报表的收益图）及风险观察汇总图片。"):
         body = body.replace(old, "详情见附件 pnl1.png（含当年收益图）和 risk.png。")
     body = body.replace("顺颂商祺。", "顺颂\n  时祺")
+    if "swap_stocks.png" not in body:
+        body = body.replace("\n\n顺颂", "\n\n另附 swap_stocks.png：本次筛选后纯个股明细。\n\n顺颂") if "\n\n顺颂" in body else body + "\n\n另附 swap_stocks.png：本次筛选后纯个股明细。"
     subject = values.get("subject") or "日报统计 {{dates}}"
     for key, value in replacements.items():
         body, subject = body.replace(key, value), subject.replace(key, value)
@@ -203,6 +229,8 @@ def mail_html(body):
 
 
 def export_bundle(base, snapshot, pages, values):
+    if snapshot["errors"] or not snapshot["pnl"] or snapshot["pnl"]["change"] is None or any(h["errors"] for h in snapshot.get("history", {}).values()):
+        raise ReportError("统计不完整，不能导出可发送草稿。")
     for field in ("to", "cc", "subject"):
         if any(c in values.get(field, "") for c in "\r\n"):
             raise ReportError("邮件地址及主题不能包含换行。")
@@ -225,6 +253,8 @@ def export_bundle(base, snapshot, pages, values):
         files = [folder / "pnl1.png", folder / "risk.png"]
         for html, path in zip(pages, files):
             save_image(html, path)
+        stock_file = folder / "swap_stocks.png"
+        save_image(stocks_page(snapshot), stock_file)
         subject, body = mail_content(snapshot, values)
         message = EmailMessage(policy=SMTP)
         message["Subject"] = subject
@@ -244,6 +274,7 @@ def export_bundle(base, snapshot, pages, values):
         for path, (_, cid, _) in zip(files, INLINE_IMAGES):
             message.add_related(path.read_bytes(), maintype="image", subtype="png",
                                 filename=path.name, cid=f"<{cid}>", disposition="inline")
+        message.add_attachment(stock_file.read_bytes(), maintype="image", subtype="png", filename=stock_file.name)
         (folder / "邮件草稿.eml").write_bytes(message.as_bytes())
         (folder / "邮件正文.txt").write_text(subject + "\n\n" + body, encoding="utf-8")
         atomic_json(folder / "统计记录.json", snapshot)

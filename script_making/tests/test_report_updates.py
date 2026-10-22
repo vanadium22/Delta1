@@ -152,7 +152,7 @@ class RevisionTests(unittest.TestCase):
             self.assertEqual(code, 0, result)
             self.assertEqual(result["state"], "success")
             directory = Path(result["export_directory"])
-            self.assertEqual({p.name for p in directory.glob("*.png")}, {"pnl1.png", "risk.png"})
+            self.assertEqual({p.name for p in directory.glob("*.png")}, {"pnl1.png", "risk.png", "swap_stocks.png"})
             code, repeated = run_once(self.service.settings.root, date(2026, 10, 21), local_only=True)
             self.assertEqual(repeated["state"], "reused")
             self.assertEqual(repeated["export_directory"], str(directory))
@@ -161,7 +161,7 @@ class RevisionTests(unittest.TestCase):
             from script_making.storage import atomic_json
             snap = json.loads((directory / "统计记录.json").read_text(encoding="utf-8"))
             identity = {key: value for key, value in snap.items() if key not in ("id", "created_at")}
-            old_key = hashlib.sha256(json.dumps({"version": 3, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            old_key = hashlib.sha256(json.dumps({"version": 4, "snapshot": identity}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             completed = self.service.settings.data_path() / "statistics/daily_runs/completed"
             current_index = completed / (result["fingerprint"] + ".json")
             atomic_json(completed / (old_key + ".json"), json.loads(current_index.read_text(encoding="utf-8")))
@@ -270,7 +270,7 @@ class RevisionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         output = json.loads(result.stdout)
         self.assertEqual(output["state"], "success")
-        self.assertEqual(len(list(Path(output["export_directory"]).glob("*.png"))), 2)
+        self.assertEqual(len(list(Path(output["export_directory"]).glob("*.png"))), 3)
         record = json.loads((target / "statistics" / "daily_runs" / "latest.json").read_text(encoding="utf-8"))
         self.assertEqual(record["report_dates"], self.selections)
         self.assertTrue(all(item["state"] == "success" for item in record["sync"].values()))

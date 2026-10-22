@@ -117,7 +117,7 @@ class StatisticsBrowser(QTextBrowser):
                 if fragment.isValid() and fragment.charFormat().isImageFormat():
                     fmt = fragment.charFormat().toImageFormat()
                     if abs(fmt.width() - width) > 1:
-                        fmt.setHeight(width * 780 / 1600)
+                        fmt.setHeight(width * fmt.height() / fmt.width())
                         fmt.setWidth(width)
                         edits.append((fragment.position(), fragment.length(), fmt))
                 item += 1
@@ -214,7 +214,7 @@ class StatisticsPage(QWidget):
         layout.addWidget(self.tabs, 1)
         bottom = QHBoxLayout()
         self.image_button = button("保存本页完整图片", self.export_image)
-        self.export_button = button("导出两图和邮件草稿", self.export, "primary")
+        self.export_button = button("导出三图和邮件草稿", self.export, "primary")
         self.folder_button = button("打开统计保存位置", self.reveal_output)
         for widget in (self.image_button, self.export_button, self.folder_button):
             bottom.addWidget(widget)
@@ -372,7 +372,7 @@ class StatisticsPage(QWidget):
             return
         try:
             folder = export_bundle(self.output_base(), self.snapshot, self.pages, self.config)
-            self.notice.setText("pnl1（含收益图）、风险汇总、正文和邮件草稿已保存：" + str(folder))
+            self.notice.setText("pnl1（含收益图和排名）、风险汇总、纯个股附件、正文和邮件草稿已保存：" + str(folder))
             open_location(folder)
         except (OSError, ReportError, ValueError) as exc:
             self.error.setText(str(exc))
