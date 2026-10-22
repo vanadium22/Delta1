@@ -7,6 +7,8 @@ rem Prefer the verified company environment when no explicit override was suppli
 if not defined DASHBOARD_PYTHON if exist "D:\conda\envs\swhy_delta1\python.exe" set "DASHBOARD_PYTHON=D:\conda\envs\swhy_delta1\python.exe"
 if not defined DASHBOARD_PYTHON if exist ".venvs\numeric_excel\Scripts\python.exe" set "DASHBOARD_PYTHON=%CD%\.venvs\numeric_excel\Scripts\python.exe"
 if not defined DASHBOARD_PYTHON if exist ".venv\Scripts\python.exe" set "DASHBOARD_PYTHON=%CD%\.venv\Scripts\python.exe"
+rem Reuse the existing development environment before falling back to system PATH.
+if not defined DASHBOARD_PYTHON if exist "P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe" set "DASHBOARD_PYTHON=P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe"
 if not defined DASHBOARD_PYTHON set "DASHBOARD_PYTHON=python"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0excel_numeric\live.ps1" -Python "%DASHBOARD_PYTHON%" %*
 set "NUMERIC_EXIT_CODE=%ERRORLEVEL%"

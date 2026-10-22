@@ -26,7 +26,7 @@ D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\dashboard\start_numeric_exce
 
 14:32独立摘要成功只证明当时配置/历史索引可读、时段允许：日线/分钟摘要均截至10/20，目标10/21。它不验证完整历史、报告写入、DDB/VPN或实时连通；此前另一份PermissionError的路径与阶段仍待独立证据，不能与本次缺包错误合并归因。
 
-启动器按SWHY_DELTA1_PYTHON→公司已有D:/conda/envs/swhy_delta1/python.exe→仓库.venvs/numeric_excel→仓库.venv→PATH选择。公司路径仅在实际存在时参与默认选择；显式指定仍优先。仅激活Conda不保证优先于仓库环境。新版把选择固定为可执行文件完整路径，run.json分别记requested_python与resolved_python；每个检查子进程在加载数值依赖前记录sys.executable、prefix/base_prefix、版本和PID到对应的.json.runtime.json及.err的DELTA1_STARTUP_RUNTIME行。
+启动器按SWHY_DELTA1_PYTHON→公司已有D:/conda/envs/swhy_delta1/python.exe→仓库.venvs/numeric_excel→仓库.venv→开发机已有P:/code_content/python_work_env/conda_env/swhy_delta1/python.exe→PATH选择。已知环境路径仅在实际存在时参与默认选择；显式指定仍优先，公司原环境优先级不变。仅激活Conda不保证优先于仓库环境。新版把选择固定为可执行文件完整路径，run.json分别记requested_python与resolved_python；每个检查子进程在加载数值依赖前记录sys.executable、prefix/base_prefix、版本和PID到对应的.json.runtime.json及.err的DELTA1_STARTUP_RUNTIME行。
 
 依赖导入纳入异常处理；缺模块时显示模块名、实际Python和.err位置，提供重试/退出，避免继续历史/VPN或无法运行的只读流程。错误JSON由标准库独立写入，保存被拒绝时仍保留stderr；不记录异常原文、局部变量或凭据。非零退出遗留的旧成功报告被拒绝。历史摘要读取失败时独立核验时段，未知则明确重试/只读。
 

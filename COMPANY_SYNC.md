@@ -1,5 +1,13 @@
 # 公司所有 App：统一更新
 
+## 2026-10-22 本机数字 Excel 默认 Python 修复
+
+本机运行 `57df40d6795e41b6afb5d95338806693` 请求裸 `python`，实际解析到 `P:/code_content/python/install/python.exe`，在数据服务导入 `requests` 时失败。原入口在仓库虚拟环境之后、系统 PATH 之前补选本机已有 `P:/code_content/python_work_env/conda_env/swhy_delta1/python.exe`；显式覆盖和公司 `D:/conda/envs/swhy_delta1/python.exe` 的优先级保持。无需向系统 Python 安装包、修改永久环境变量、重建数据或调整 VPN。
+
+本机仍双击原 `dashboard/start_numeric_excel.cmd`。公司在原 Git 根目录 `git pull --ff-only origin codex/company-apps` 后沿用原入口和环境。先前冻结 FeedFile 入口验收跳过数据服务导入，不能证明默认 Python 选择正确；本次另外验证无解释器覆盖的原 CMD 到实际数据服务及隐藏 Excel 保存。本机证据及发布 SHA 见 `.deps/ui_launcher_fix/`。
+
+8项真实CMD隔离回归通过，覆盖全部优先级、中文/空格/特殊字符路径与参数、失败退出码。原CMD以隔离合成Snapshot实际启动numeric_excel，requested/resolved/runtime三处均为已有swhy_delta1，启动器和producer退出码均0；隐藏Excel写入/保存各1次，数值回读通过。未安装包、连接公司接口、改真实配置或弹出窗口；真实公司外部数据与实时运行边界不变。
+
 ## 2026-10-22 Excel 与本地 App 研究界面简化
 
 数字 Excel 与本地两版 App 独立选择中文指标族和输入 X（close／分红调整基差／基差年化），切换请求同族对应变体；固定经济定义明确标识，无匹配清空提示，不回退到目录首项。首屏仅显示当前4/4/6代表，完整目录、原始/对数、子输出、公式及诊断进入详情。概览及对应指数、原生图表、开发版设置/维护和原数据配置保留；旧B3及关注偏好兼容。计算、T−1代表、T<5、完整历史/盘中隔离与接入时段口径保持。

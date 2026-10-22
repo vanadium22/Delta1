@@ -1,5 +1,9 @@
 # 数字 Excel：公司统一分支交接
 
+2026-10-22 本机入口修复：用户运行57df40d6795e41b6afb5d95338806693请求裸python，实际P:/code_content/python/install/python.exe缺requests，在NativeModel导入链退出。原start_numeric_excel.cmd现按显式覆盖→公司环境→仓库专用/通用环境→本机已有P:/code_content/python_work_env/conda_env/swhy_delta1/python.exe→PATH选择。已有swhy_delta1完整数据服务导入通过；不用安装依赖、改永久变量或改数据/VPN。上一轮FeedFile验收绕过数据服务，本次补充不设SWHY覆盖的原CMD、实际numeric_excel及隐藏Excel保存链；所有测试隔离，不自动打开成品。证据与发布SHA见.deps/ui_launcher_fix/。下方历史入口回退说明以此顺序为准。
+
+本次8项真实CMD优先级/路径/参数/失败码回归通过；原CMD的隔离合成Snapshot验收中，requested/resolved/feed runtime均为原swhy_delta1，launcher/producer均退出0，隐藏Excel写入与保存各1次并回读核对数值。此项覆盖实际producer导入，未连接真实数据或测试公司实盘。
+
 2026-10-22 后续界面简化：Excel与本地两版App改为独立中文指标族＋输入X选择，切换真正解析到同族独立变体，无匹配清空并提示；首屏只显示当前代表，完整目录、原始/对数、诊断与高级筛选通过详情访问。原概览及对应指数、开发版设置/维护、数据配置与计算口径保留。旧B3和关注偏好兼容，前端仅旧工作区本地。用户后续要求无弹窗、不打断工作，后续验收后台/离屏进行且不自动打开成品。具体操作、测试边界和本机证据见 [UI_SIMPLIFICATION.md](UI_SIMPLIFICATION.md)；本段覆盖下方旧的宽目录、第280行详情及B8参与比例布局描述。
 
 2026-10-22 指标补齐与三类研究页：本轮已按真实原稿补齐非回归范围，原始/分红调整/对数口径各自注册；期现、同品种跨期、跨品种使用共享T−1实体选择及结果契约，默认4/4/6代表、详情分页，原概览与对应指数保留。取消独立组合入口，旧watchlist只读迁移，不改native/VPN配置。A13/ETF已有真实输入校验与接入，缺输入仍空；回归相关继续明确排除。两版App只在旧目录本地，数字Excel/必要后台按白名单发布。完整实施、验收边界和今后新增规范见 [INDICATOR_IMPLEMENTATION.md](INDICATOR_IMPLEMENTATION.md)，逐子项状态见 [覆盖表](INDICATOR_SUBITEM_COVERAGE.json)；下方固定25项/独立组合页为历史。真实公司输入及长期实时运行待验收，不能把公式已实现当作公司数据就绪。
