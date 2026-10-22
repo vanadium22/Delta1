@@ -18,7 +18,7 @@ from .storage import ReportError, atomic_json
 
 LABELS = {"swap": "收益互换日报", "strategy": "D1策略台日报", "pnl": "盈亏统计"}
 INLINE_IMAGES = (("pnl1.png", "pnl1@daily-report", "组内收益 · pnl1"),
-                 ("risk.png", "risk@daily-report", "风险观察 · 分日报与总汇总"))
+                 ("risk.png", "risk@daily-report", "风险观察 · 分日报明细"))
 
 
 def display(value):
@@ -97,6 +97,30 @@ def risk_text(snapshot):
     return "\n".join(lines)
 
 
+def risk_conditions(snapshot):
+    config = snapshot["config"]
+    return (f"<p>观察条件：<b>|{escape(config['metric'])}| ≥ {money(config['threshold'])}</b></p>"
+            "<p>金额单位：元。仅含达到绝对值阈值且未剔除的标的，敞口保留正负号。Delta 数量只在明细展示，不跨标的相加。</p>")
+
+
+def risk_summary(snapshot):
+    body = "<h2>风险观察 · 分日报汇总</h2>" + risk_conditions(snapshot)
+    summary = []
+    for kind in ("swap", "strategy"):
+        risk = snapshot["risks"].get(kind)
+        if not risk:
+            body += f'<p class="error">{LABELS[kind]}未生成：{escape(snapshot["errors"].get(kind, "无数据"))}</p>'
+            continue
+        for group in risk["groups"]:
+            summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
+                            *[money(group[key]) for key in ("total", "daily", "net")]])
+    for group in combined_risks(snapshot["risks"]):
+        summary.append([LABELS[group["kind"]], group["date"], "观察项合计", str(group["count"]),
+                        *[money(group[key]) for key in ("total", "daily", "net")]])
+    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "净敞口金额 Σx"], summary, summary=True)
+    return body + '<p class="note">观察项合计仅加总同一日报内部的两类别，各自使用来源日期；来源读取失败不显示该来源合计。净敞口按原始正负值累加，不展示绝对敞口合计。</p>'
+
+
 def render_pages(snapshot):
     pnl = snapshot["pnl"]
     if pnl:
@@ -106,6 +130,7 @@ def render_pages(snapshot):
         if snapshot.get("history", {}).get("pnl"):
             from .statistics_charts import chart_html
             body += chart_html(snapshot)
+        body += risk_summary(snapshot)
         body += "<h2>pnl1 · 组汇总及重点明细</h2>"
         view = pnl["presentation"]
         rows = [[str(line), *row] for line, row in zip(view["rows"], view["values"])]
@@ -122,27 +147,14 @@ def render_pages(snapshot):
 
     else:
         body = '<p class="error">' + escape(pnl_text(snapshot)) + "</p>"
+        body += risk_summary(snapshot)
     first = document("组内收益 · pnl1", body, snapshot)
     config = snapshot["config"]
-    body = (f"<p>观察条件：<b>|{escape(config['metric'])}| ≥ {money(config['threshold'])}</b></p>"
-            "<p>金额单位：元。汇总仅含达到绝对值阈值且未剔除的标的，敞口保留正负号。Delta 数量只在明细展示，不跨标的相加。</p>")
-    summary = []
+    body = risk_conditions(snapshot)
     for kind in ("swap", "strategy"):
         risk = snapshot["risks"].get(kind)
         if not risk:
             body += f'<p class="error">{LABELS[kind]}未生成：{escape(snapshot["errors"].get(kind, "无数据"))}</p>'
-            continue
-        for group in risk["groups"]:
-            summary.append([LABELS[kind], risk["date"], group["name"], str(group["count"]),
-                            *[money(group[key]) for key in ("total", "daily", "net")]])
-    for group in combined_risks(snapshot["risks"]):
-        summary.append([LABELS[group["kind"]], group["date"], "观察项合计", str(group["count"]),
-                        *[money(group[key]) for key in ("total", "daily", "net")]])
-    body += table(["日报", "日期", "分组", "观察数", "总盈亏", "当日盈亏", "净敞口金额 Σx"], summary, summary=True)
-    body += '<p class="note">观察项合计仅加总同一日报内部的两类别，各自使用来源日期；来源读取失败不显示该来源合计。净敞口按原始正负值累加，不展示绝对敞口合计。</p>'
-    for kind in ("swap", "strategy"):
-        risk = snapshot["risks"].get(kind)
-        if not risk:
             continue
         body += f"<h2>{LABELS[kind]} · {risk['date']}</h2>"
         for group in risk["groups"]:
@@ -150,7 +162,7 @@ def render_pages(snapshot):
             body += detail_table(group)
         body += '<p class="note">本表实际剔除：' + escape("、".join(risk["excluded"]) or "无") + "</p>"
     body += '<p class="note">永久剔除名单：' + escape("、".join(config["exclusions"]) or "空") + "</p>"
-    return first, document("风险观察 · 分日报与总汇总", body, snapshot)
+    return first, document("风险观察 · 分日报明细", body, snapshot)
 
 
 def detail_table(group):

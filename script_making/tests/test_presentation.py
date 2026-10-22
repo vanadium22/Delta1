@@ -36,7 +36,19 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(view['rows'],[6,7,8,9,10,11,13,14])
         self.assertEqual([g['row'] for g in view['ranking']],[11,6,13])
         self.assertEqual(view['values'][2],[None,None,None])
-        snap=self.snapshot(); html=render_pages(snap)[0]
+        snap=self.snapshot(); html, risk_html=render_pages(snap)
+        summary_title = '<h2>风险观察 · 分日报汇总</h2>'
+        self.assertLess(html.index('alt="pnl1 当年累计报表收益图"'), html.index(summary_title))
+        self.assertLess(html.index(summary_title), html.index('<h2>pnl1 · 组汇总及重点明细</h2>'))
+        summary_table = html.split(summary_title, 1)[1].split('</table>', 1)[0]
+        self.assertEqual(summary_table.count('<tr>'), 7)  # Header plus the original six summary rows.
+        self.assertEqual(summary_table.count('观察项合计'), 2)
+        self.assertIn('2026-10-14', summary_table)
+        self.assertIn('2026-10-19', summary_table)
+        self.assertIn('净敞口金额 Σx', summary_table)
+        self.assertNotIn(summary_title, risk_html)
+        self.assertNotIn('净敞口金额 Σx', risk_html)
+        self.assertEqual(risk_html.count('—'), 4)  # All four detail totals remain.
         self.assertNotIn('上期累计净利润',html)
         self.assertNotIn('普通明细',html)
         self.assertEqual(html.count('场外业务合计'),1)
