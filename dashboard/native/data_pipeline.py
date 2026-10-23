@@ -27,6 +27,7 @@ class DataPipeline(QObject):
         self.enabled=enabled;self.closing=False;self.action=None;self.deep=False;self.once=False;self.force=False;self.pending_reference=None;self.force_reference=False
         self.next_retry=0;self.history_retry=0;self.history_not_before=0;self.quick_due=0;self.last_day=None
         self.run_id=uuid.uuid4().hex;self.samples=deque(maxlen=900);self.applied={}
+        self.realtime_dialog=None;self.prompted_key=None;self.awaiting_realtime=False
         self.report_path=Path(__file__).resolve().parents[1]/'runtime/app_sessions'/self.run_id/'status.json'
         self.timer=QTimer(self);self.timer.setInterval(1000);self.timer.timeout.connect(self.tick);self.timer.start()
         if auto_inspect:QTimer.singleShot(0,self.inspect)
@@ -66,12 +67,14 @@ class DataPipeline(QObject):
 
     def request_history(self,deep=False,*,force=True):
         if self.closing:return
+        self.dismiss_realtime_prompt();self.awaiting_realtime=False;self.prompted_key=None
         self.enabled=True;self.action='history';self.deep=deep;self.force=force;self.history_retry=time.monotonic()+300
         self.collection.stop();self.model.realtime_verified=False
         self.set_state('draining_realtime','等待本轮实时请求与落库安全结束，再开始'+('后台深核' if deep else '日期增量维护'))
 
     def request_realtime(self,once=False,*,force_reference=False):
         if self.closing:return
+        self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=True;self.action='realtime';self.once=once;self.next_retry=0
         self.force_reference=force_reference
         self.history.pause()
@@ -79,6 +82,7 @@ class DataPipeline(QObject):
         self.set_state('draining_history','等待历史会话和本轮采集安全退出，再有限验证实时接口；网络需人工切换')
 
     def readonly(self):
+        self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=False;self.action=None;self.history.pause();self.collection.stop()
         self.set_state('draining','正在安全停止本轮后台；保留已发布数据')
 
@@ -105,7 +109,9 @@ class DataPipeline(QObject):
                     self.set_state('collecting','有限验证成功；已请求持续采集，等待首批有效行情落库')
                     if self.once:self.enabled=False;self.once=False
                 except Exception as exc:self.set_state('failed','采集启动失败：'+type(exc).__name__)
-            else:self.set_state('waiting_network',result.get('message','有限验证失败；保留缓存，30秒后重试'))
+            else:
+                self.set_state('waiting_network',result.get('message','有限验证失败；保留缓存，30秒后重试'))
+                self.offer_realtime_prompt(result)
         def work():
             result=probe_realtime(config)
             if force_reference or not result.get('ok') and result.get('diagnostics',{}).get('stage')=='reference_read':
@@ -118,8 +124,53 @@ class DataPipeline(QObject):
             return result
         self.submit(work,done)
 
+    def dismiss_realtime_prompt(self):
+        dialog=self.realtime_dialog;self.realtime_dialog=None
+        if dialog is not None:
+            dialog.blockSignals(True);dialog.close();dialog.deleteLater()
+
+    def offer_realtime_prompt(self,result):
+        from dashboard.session_clock import realtime_prompt_policy
+        policy=realtime_prompt_policy()
+        diagnostics=result.get('diagnostics') or {}
+        stage=diagnostics.get('stage','')
+        # A held lock or bad contract reference is not a request to switch VPN.
+        network_failure=stage=='http_request' and diagnostics.get('status') in (
+            'timeout','connection_error','proxy_error','request_error','tls_error','http_error')
+        if not (self.enabled and not self.closing and policy['allowed'] and network_failure):return
+        if self.history.process is not None or self.collection.running() or self.realtime_dialog is not None:return
+        if self.prompted_key==policy['key']:return
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QMessageBox
+        self.prompted_key=policy['key'];self.awaiting_realtime=True
+        dialog=QMessageBox(self.window);self.realtime_dialog=dialog
+        dialog.setWindowTitle('请手动连接实时行情 VPN')
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setWindowModality(Qt.WindowModality.NonModal)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating,True)
+        history=self.history.state()
+        note=history.get('message') or '历史任务已退出；已有数据保持可读。'
+        dialog.setText('当前处于盘中，实时接口尚未连通。\n本轮历史会话和登录辅助任务已退出。\n请在 VPN 客户端手动切换到实时行情网络。')
+        dialog.setInformativeText(note+'\n连接完成后点击“已连接，验证并开始”。程序不会自动登录实时 VPN 或自动退出 DDB VPN。')
+        connected=dialog.addButton('已连接，验证并开始',QMessageBox.ButtonRole.AcceptRole)
+        later=dialog.addButton('稍后连接（只读）',QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(later)
+        def finished(_):
+            if self.realtime_dialog is not dialog:return
+            accepted=dialog.clickedButton() is connected
+            self.dismiss_realtime_prompt();self.awaiting_realtime=False
+            if accepted:self.request_realtime()
+            else:self.readonly()
+        dialog.finished.connect(finished)
+        self.set_state('waiting_realtime_vpn','请手动连接实时行情VPN；连接后确认，或选择稍后只读')
+        dialog.show()
+
     def tick(self):
         code=self.history.tick()
+        if self.realtime_dialog is not None:
+            from dashboard.session_clock import realtime_prompt_policy
+            if not realtime_prompt_policy()['allowed']:
+                self.dismiss_realtime_prompt();self.awaiting_realtime=False
         reference=self.collection.state().get('reference',{}).get('reference_file') or self.pending_reference
         if reference and reference!=self.model.config.get('reference_file') and not self.window.busy:
             self.model.config['reference_file']=reference;self.pending_reference=None
@@ -161,19 +212,21 @@ class DataPipeline(QObject):
                 if not any(v.get('quality',{}).get('usable') for v in sources):
                     message='请求及落库在推进；当前已显示版本无新鲜有效行情，展开诊断查看源延迟/计算延迟'
             self.set_state('collecting',message)
+        elif self.awaiting_realtime:
+            self.set_state('waiting_realtime_vpn','等待你手动连接实时VPN；程序不会自动切回DDB网络')
         elif not self.enabled:
             self.set_state('cache','只读缓存；未把计算时间当作行情时间')
         elif not self.task and time.monotonic()>=self.next_retry:
             self.next_retry=time.monotonic()+30;self.start_probe()
-        if not self.closing and self.enabled and not self.task and not self.collection.running() and self.history.process is None and not self.action:
+        if not self.closing and self.enabled and not self.awaiting_realtime and not self.task and not self.collection.running() and self.history.process is None and not self.action:
             from dashboard.session_clock import session_policy
             from zoneinfo import ZoneInfo
             day=datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
             if self.last_day is None:self.last_day=day
             elif self.last_day!=day:
                 self.last_day=day;self.request_history(force=False)
-            elif self.phase=='waiting_network' and time.monotonic()>=self.history_retry:
-                self.request_history(force=False)
+            # Realtime retries must never reconnect the DDB VPN behind the user.
+            # Further history work starts only for a new day or an explicit retry.
         self.write_report();self.changed.emit()
 
     def record_applied(self,value):
@@ -187,7 +240,8 @@ class DataPipeline(QObject):
             'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
-            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code')}
+            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn')}
+        vpn=h.get('ddb_vpn') or {}
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
             history_pid=self.history.process.pid if self.history.process else None,
@@ -195,7 +249,9 @@ class DataPipeline(QObject):
             finite_probe=self.probe,collection=collection,history=history,applied=self.applied,
             calculation=getattr(self.model,'refresh_trace',{}),queue=dict(active=int(self.window.busy),pending=int(self.window.pending)),
             paths={k:config.get(k) for k in ('history_roots','reference_file','realtime_root')},
-            local_root=str(self.model.local_root),vpn_changed=False)
+            local_root=str(self.model.local_root),network_policy='auto_ddb_manual_realtime',
+            vpn_changed=None if vpn.get('state') in ('connecting','failed','cancelled') else vpn.get('mode')=='native_login',
+            realtime_vpn_automatic=False,awaiting_realtime_vpn=self.awaiting_realtime)
 
     def write_report(self):
         try:
@@ -209,6 +265,7 @@ class DataPipeline(QObject):
         return path
 
     def stop(self):
+        self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.closing=True;self.enabled=False;self.history.stop();self.collection.stop();self.write_report()
 
     def drained(self):

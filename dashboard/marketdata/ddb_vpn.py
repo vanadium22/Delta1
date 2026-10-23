@@ -29,7 +29,9 @@ class VPNCancelled(Exception):
 
 
 def check_stop(stop_file):
-    if stop_file and Path(stop_file).exists():
+    # App workers also observe the exact owning process while a login is pending.
+    requested=stop_file() if callable(stop_file) else bool(stop_file and Path(stop_file).exists())
+    if requested:
         raise VPNCancelled()
 
 

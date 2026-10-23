@@ -7,20 +7,31 @@
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
   "excel": "frozen_preserved",
-  "network_policy": "existing_route_only_no_vpn_change",
+  "network_policy": "auto_ddb_manual_realtime",
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "d0176c922687213bc2b2429dc07a63ec7477bc65",
-    "scope": "Prevent Windows PowerShell stderr from interrupting the App; preserve real process exit evidence",
+    "base_commit": "71d488c42db32d7734670a9f932ffef01e301f1d",
+    "scope": "Automatic DDB VPN for history gaps; manual realtime VPN prompt only during continuous trading sessions",
     "files": [
+      "AGENTS.md",
       "COMPANY_SYNC.md",
+      "dashboard/AGENTS.md",
+      "dashboard/README.md",
+      "dashboard/打开方式.md",
+      "dashboard/COMPANY_SETUP.md",
+      "dashboard/PROJECT_HANDOFF.md",
       "dashboard/APP_COMPANY_TEST.md",
       "dashboard/APP_VALIDATION.md",
       "dashboard/APP_RELEASE.json",
-      "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/start_app.ps1",
-      "tests/test_app_launcher.py"
+      "dashboard/app_config.py",
+      "dashboard/marketdata/ddb_vpn.py",
+      "dashboard/marketdata/history_maintenance.py",
+      "dashboard/native/history_maintenance.py",
+      "dashboard/session_clock.py",
+      "dashboard/native/data_pipeline.py",
+      "dashboard/native/inline_settings.py",
+      "tests/test_app_vpn.py"
     ]
   },
   "files": [
@@ -73,7 +84,11 @@
     "tests/test_app_collection.py",
     "tests/test_app_launcher.py",
     "tests/test_app_history.py",
-    "tests/test_app_pipeline.py"
+    "tests/test_app_pipeline.py",
+    "dashboard/marketdata/ddb_vpn.py",
+    "dashboard/session_clock.py",
+    "tests/test_app_vpn.py",
+    "dashboard/marketdata/ddb_vpn.ps1"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",

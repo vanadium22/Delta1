@@ -1,3 +1,9 @@
+# 2026-10-23 展示版：自动 DDB 数据 VPN、盘中手动实时 VPN 提醒
+
+按用户最新要求，App 有历史缺口才按需自动连接 DDB 数据 VPN，复用已有当前用户加密配置、证书信任和客户端；网络已通则跳过登录。历史下载、校验、发布及登录辅助任务退出后检查实时接口，未连通才在交易日09:30–11:30、13:00–15:00弹窗请用户手动连接。确认后再次验证并启动连续采集，稍后则只读；不自动登出 DDB、不操作实时 VPN、不因实时重试自动重连 DDB。配置异常/二次认证仍在窗口说明，保留原数据和配置。
+
+公司仍使用一次 git pull --ff-only 后重开原 start_presentation.vbs。本机两版同步必要修复；测试结果见 dashboard/APP_VALIDATION.md，操作与15分钟诊断见 dashboard/APP_COMPANY_TEST.md。真实公司自动登录、补库和持续行情须用户现场验收；指标与美术继续等待。
+
 # 2026-10-23 展示版打开后自行退出：启动器修复
 
 公司反馈双击 start_presentation.vbs 约15秒、状态更新后窗口关闭。本机复现 Windows PowerShell 5.1 在 ErrorActionPreference=Stop 下把子进程 stderr 普通提示转成 RemoteException，重定向管道随之中断，子进程未完成。启动器改用隐藏子进程直接分别保存 stdout/stderr，等待真实退出码；新增 launcher.json 和 Python faulthandler。没有扩大自动退出条件或自动重启，没有改指标、网络和数据配置。

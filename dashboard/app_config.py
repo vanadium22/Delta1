@@ -51,6 +51,25 @@ def history_python(config):
     return str(legacy) if legacy.is_file() else sys.executable
 
 
+def vpn_profile(config,local_root):
+    """Resolve existing VPN references, including older App copies, without writes."""
+    local=Path(local_root);fallback={}
+    if local.name=='app':
+        numeric=local.parent/'numeric_excel'
+        try:fallback=json.loads((numeric/'native.json').read_text(encoding='utf-8-sig'))
+        except (OSError,ValueError):pass
+    else:numeric=local
+    def select(key,filename):
+        if config.get(key):return str(config[key])
+        if fallback.get(key):return str(fallback[key])
+        for base in (local,numeric):
+            if (base/filename).is_file():return str(base/filename)
+        return str(local/filename)
+    return dict(config=select('history_vpn_config','ddb_vpn.local.json'),
+                trust=select('history_vpn_trust','ddb_vpn.trust.local.json'),
+                powershell=config.get('history_vpn_powershell') or fallback.get('history_vpn_powershell'))
+
+
 def credential_state(config,local_root=None):
     """Read/decrypt locally; export only availability and scheme, never secrets."""
     from index_strategy.history.credentials import load_config
@@ -65,9 +84,11 @@ def credential_state(config,local_root=None):
                       stage='credential_decryption')
         value.clear();raw.clear()
     except Exception as exc:result['error_type']=type(exc).__name__
-    # VPN credentials remain a separate reference and are never used to log in.
-    vpn=config.get('history_vpn_config') or config.get('ddb_vpn_config') or (Path(local_root)/'ddb_vpn.local.json' if local_root else None)
-    info=dict(reference=str(vpn) if vpn else None,used=False,policy='manual_network_only',available=False)
+    # Credential inspection itself never logs in; the owned history worker may.
+    profile=vpn_profile(config,local_root or MODULE_ROOT/'localsetting/app')
+    vpn=profile['config']
+    info=dict(reference=str(vpn),trust_reference=profile['trust'],used=False,
+              policy='auto_ddb_manual_realtime',available=False)
     if vpn and Path(vpn).is_file():
         try:
             raw=json.loads(Path(vpn).read_text(encoding='utf-8-sig'))

@@ -1,4 +1,4 @@
-"""Resumable direct-route DDB maintenance. Never operates a VPN or reads a Z drive."""
+"""Resumable DDB maintenance; optional owned VPN login, never realtime VPN control."""
 from contextlib import ExitStack
 from datetime import date, datetime, timezone
 import hashlib
@@ -37,6 +37,8 @@ MESSAGES = {
     'date_checked':'日期增量检查已完成；尚未深核的历史分钟范围保留待核验',
     'authenticating':'正在复用本机数据库凭据，建立已有网络上的 DDB 会话',
     'publishing':'正在共同发布已校验历史版本',
+    'connecting_vpn':'有历史缺口，正在检查DDB网络并按需自动连接数据VPN；请勿手动切换网络',
+    'waiting_vpn':'DDB数据VPN未就绪；已发布数据保留，请查看配置或认证提示',
 }
 
 
@@ -93,7 +95,7 @@ def latest_rows(rows):
 def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, checkpoint=lambda cache:None, total_progress=lambda n:None, metrics=None):
     measured=metrics if metrics is not None else {}
     measured.update(cache_hits=0,cache_misses=0,partition_stats=0,read_seconds=0,checkpoint_seconds=0)
-    began=time.perf_counter();last_checkpoint=began
+    began=time.perf_counter();last_checkpoint=began;checkpointed_groups=0
     coverage={};updated={};groups={}
     for key,snapshot in snapshots.items():
         for part in snapshot['parts']:
@@ -124,7 +126,10 @@ def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, ch
                 t=time.perf_counter()
                 checkpoint({**cache,**updated})
                 measured['checkpoint_seconds']+=time.perf_counter()-t
-                last_checkpoint=time.perf_counter()
+                last_checkpoint=time.perf_counter();checkpointed_groups=len(updated)
+    if len(updated)>checkpointed_groups:
+        t=time.perf_counter();checkpoint({**cache,**updated})
+        measured['checkpoint_seconds']+=time.perf_counter()-t
     progress(len(groups))
     measured.update(groups=len(groups),seconds=time.perf_counter()-began)
     return coverage,updated
@@ -251,15 +256,15 @@ def run_cycle(local_root, **kwargs):
         return _run_cycle(local_root, **kwargs)
 
 
-def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None):
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual'):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
     if reference_file:config['reference_file']=str(reference_file)
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
     controls=local_root/'history_control.json'
     def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(controls).get('paused',False)
-    state=read_json(root/'status.json');state.update(network_policy='existing_route_only_no_vpn_change',roots=roots)
+    state=read_json(root/'status.json');state.update(network_policy='auto_ddb_manual_realtime' if vpn_mode=='auto' else 'existing_route_only_no_vpn_change',roots=roots)
     def status(name, **values):
-        state.update(state=name,message=MESSAGES[name],updated_at=now_iso(),**values)
+        state.update(state=name,message=values.pop('message',MESSAGES[name]),updated_at=now_iso(),**values)
         from dashboard.history_status import progress_text
         state['progress_message']=progress_text(state)
         _atomic_bytes(root/'status.json',_json_bytes(state))
@@ -277,6 +282,7 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                pending_scan_id=None,pending_target=None,current_job=None,target=None,start=None,versions={})
         state['verification_scope']='incremental' if incremental else 'deep'
         state['unknown_groups']=None
+        state['ddb_vpn']=dict(state='not_needed',mode=None)
         try:
             stores={};kind_keys={}
             for path in roots:
@@ -340,8 +346,34 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             selected=[j for j in jobs if force or job_state.get(job_key(j),{}).get('retry_at',0)<=time.time()]
             if not selected:
                 status('partial',next_retry=min(job_state[job_key(j)].get('retry_at',time.time()+300) for j in jobs));return state
+            connection_file=connection_path(config)
+            if vpn_mode=='auto':
+                from . import ddb_vpn
+                from dashboard.app_config import vpn_profile
+                from index_strategy.history.credentials import load_config
+                profile=vpn_profile(config,local_root)
+                try:connection=load_config(connection_file)
+                except Exception:raise CredentialsUnavailable() from None
+                if not all(connection.get(k) for k in ('host','port','username','password')):
+                    connection.clear();raise CredentialsUnavailable()
+                try:
+                    state['ddb_vpn']=dict(state='connecting',mode=None)
+                    status('connecting_vpn')
+                    vpn_result=ddb_vpn.ensure_connected(connection,profile['config'],profile['trust'],
+                        stop_file=stopped,interpreter=profile['powershell'])
+                    state['ddb_vpn']={k:vpn_result.get(k) for k in ('state','mode','tcp_verified','tls_pin_verified')}
+                except ddb_vpn.VPNCancelled:
+                    state['ddb_vpn']=dict(state='cancelled',mode=None)
+                    raise Stopped() from None
+                except ddb_vpn.VPNError as exc:
+                    state['ddb_vpn']=dict(state='failed',mode=None,error_code=exc.code)
+                    status('waiting_vpn',message=ddb_vpn.message(exc).replace('运行 configure_numeric_vpn.cmd，或','核对内联设置中的VPN配置与信任文件，或'),
+                           error_type=type(exc).__name__,next_retry=time.time()+300)
+                    return state
+                finally:connection.clear()
+            if stopped():raise Stopped()
             status('authenticating')
-            client=direct_factory(connection_path(config))
+            client=direct_factory(connection_file)
             deadline=time.monotonic()+budget;query_failed=False
             for job in selected[:limit]:
                 if stopped():raise Stopped()
@@ -431,12 +463,13 @@ def main():
     parser.add_argument('--incremental',action='store_true')
     parser.add_argument('--owner-pid',type=int)
     parser.add_argument('--reference-file',type=Path)
+    parser.add_argument('--vpn-mode',choices=('auto','manual'),default='manual')
     args=parser.parse_args()
     try:
         from dashboard.process_lifetime import LauncherLifetime
         with LauncherLifetime(args.owner_pid,stop_file=args.stop_file) as lifetime:
             result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing,
-                             incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file)
+                             incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file,vpn_mode=args.vpn_mode)
         print(json.dumps({k:result.get(k) for k in ('state','target','pending_symbol_days','inserted')},ensure_ascii=False))
         return 0 if result.get('state') in ('complete','date_checked') else 2
     except OSError:

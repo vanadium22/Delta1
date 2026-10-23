@@ -27,6 +27,18 @@ def session_policy(now=None, calendar_cache=None):
     return dict(allowed=allowed, reason=reason, checked_at=local.isoformat())
 
 
+def realtime_prompt_policy(now=None,calendar_cache=None):
+    """Only continuous trading sessions may show the manual-VPN reminder."""
+    local=(now or datetime.now(ZoneInfo('Asia/Shanghai')))
+    if local.tzinfo is None:raise ValueError('Session clock requires an aware timestamp')
+    local=local.astimezone(ZoneInfo('Asia/Shanghai'))
+    policy=session_policy(local,calendar_cache)
+    clock=local.time().replace(tzinfo=None)
+    session='am' if time(9,30)<=clock<time(11,30) else 'pm' if time(13)<=clock<time(15) else None
+    return dict(allowed=bool(policy['allowed'] and session),reason=policy['reason'],
+                key=f'{local.date()}:{session}' if session else None)
+
+
 class SessionStop:
     """Recheck the clock after every collector wait, before reference/HTTP access."""
     def __init__(self, event, policy=session_policy):

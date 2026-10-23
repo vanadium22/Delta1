@@ -40,6 +40,7 @@ class HistoryMaintenance:
         cmd=[str(interpreter),'-B','-s','-X','utf8','-m','dashboard.marketdata.history_maintenance',
              '--once','--local-root',str(self.model.local_root),'--stop-file',str(self.stop_file)]
         if force:cmd+=['--force']
+        cmd+=['--vpn-mode',self.model.config.get('history_vpn_mode','auto')]
         if self.model.config.get('reference_file'):cmd+=['--reference-file',self.model.config['reference_file']]
         if os.name=='nt':cmd+=['--owner-pid',str(os.getpid())]
         if not deep:cmd+=['--incremental']

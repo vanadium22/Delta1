@@ -15,13 +15,18 @@ class InlineSettings(QWidget):
         config=pipeline.model.config
         self.paths=QPlainTextEdit('\n'.join(config.get('history_roots',[])));self.paths.setMaximumHeight(60)
         form.addRow('已有标准历史目录（每行一个）',self.paths)
-        from dashboard.app_config import connection_path
+        from dashboard.app_config import connection_path,vpn_profile
+        vpn=vpn_profile(config,pipeline.model.local_root)
         for key,title in [('reference_file','合约参考文件'),('realtime_root','已有实时目录'),('dividend_root','分红目录'),
-                          ('history_python','历史 Python（空白自动选择）'),('history_connection_file','DDB 配置引用')]:
+                          ('history_python','历史 Python（空白自动选择）'),('history_connection_file','DDB 配置引用'),
+                          ('history_vpn_config','已有 DDB VPN 配置'),('history_vpn_trust','已有 VPN 证书信任文件'),
+                          ('history_vpn_powershell','VPN PowerShell 7（空白自动选择）')]:
             value=str(connection_path(config)) if key=='history_connection_file' else str(config.get(key) or '')
+            if key in ('history_vpn_config','history_vpn_trust','history_vpn_powershell'):
+                value=str(vpn[{'history_vpn_config':'config','history_vpn_trust':'trust','history_vpn_powershell':'powershell'}[key]] or '')
             field=QLineEdit(value);self.fields[key]=field;form.addRow(title,field)
         save=QPushButton('保存路径（保留原库与其他设置）');form.addRow(save);save.clicked.connect(self.save_paths)
-        self.notice=QLabel('已保存密码自动复用；仅凭据不可解密/认证失败时需要在本机重新设置。VPN 由你手动操作。')
+        self.notice=QLabel('已保存数据库与VPN凭据分别复用；有缺口时按需自动连接DDB VPN。实时VPN由你手动连接，盘中会提示。')
         self.notice.setWordWrap(True);form.addRow(self.notice)
         for key,title in [('host','DDB 地址'),('port','端口'),('username','数据库账号'),('password','新密码（留空保留已有）')]:
             field=QLineEdit();self.fields[key]=field;form.addRow(title,field)
@@ -38,7 +43,8 @@ class InlineSettings(QWidget):
     def save_paths(self):
         if not self.idle():return
         p=self.pipeline;candidate=deepcopy(p.model.config)
-        candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','history_python','history_connection_file')})
+        candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','history_python','history_connection_file',
+                         'history_vpn_config','history_vpn_trust','history_vpn_powershell')})
         candidate['history_roots']=[s.strip() for s in self.paths.toPlainText().splitlines() if s.strip()]
         p.window.busy=True
         def work():p.model.save_config(candidate);return {}
