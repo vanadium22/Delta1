@@ -1,5 +1,7 @@
 # 数字 Excel：公司统一分支交接
 
+2026-10-23 公司报告跟进：10:17报告确认历史任务09:20成功发布到10月22日（40次查询、补入4,820条），连接验证止于 `msvcrt.locking`、尚未HTTP；不能把开发机超时归因公司VPN。用户回传的Python/Excel列表未识别模块，原因之一是原手动正则未兼容启动器给全部参数加引号。新增可选 `connection_check --lock-owners`，通过Windows自带Restart Manager只查询锁文件使用进程、CIM输出安全摘要，识别带引号模块；不隐含联网，不控制进程或删除锁，不触碰业务配置。文件使用者并非字节锁的直接持有者证明，PID需联合创建时间判断。说明与公司回传命令见 [CONNECTION_DIAGNOSIS.md](CONNECTION_DIAGNOSIS.md)。诊断后台同步旧App目录；前端、数据和配置不发布。本机隔离验证证据在 `.deps/lock_diagnostics/`。
+
 2026-10-23：修复历史扫描沿用旧缺口数量，以及连接验证只显示异常类型的问题。状态新增scan_id/scan_complete，扫描开始清空当前数量；pending绑定扫描编号/目标/版本，扫描未完成或停止时三端显示待核验。`probe_realtime` 记录时段、参考读取、网络锁、客户端、HTTP及清理阶段，安全保留errno/winerror/文件路径/调用位置；HTTP捕获的传输异常保留类型和错误码，丢弃原异常文本/头/正文。Excel本轮JSON和两版App独立runtime报告同步显示。新增 `python -m dashboard.connection_check --all-profiles --connect --output ...`，只读配置、有限验证、DNS/TCP/所选路由，无窗口/采集/VPN操作；网络诊断同样遵守互斥及时段。公司PermissionError尚待该机报告，开发机结果不得归因公司。说明见 [CONNECTION_DIAGNOSIS.md](CONNECTION_DIAGNOSIS.md)，本机证据 `.deps/startup_diagnostics/`。App前端修改仅旧目录；旧App原有凭据函数保留，未执行迁移或修改配置。
 
 本轮新增21项测试、原39项回归通过，覆盖扫描被停止/合法0、真实Windows字节锁、文件ACL异常、套接字10013、HTTP超时/TLS/状态、清理阶段、错误解释器及配置不变。实际numeric_startup子进程的锁失败报告、3项Windows PowerShell格式化、展示/开发两模式共用向导异步回填均已验证，Qt离屏图已检查。45个配置/参考/数据索引文件哈希未变；所有测试在隔离目录，未请求真实接口、补库、打开可见窗口或切换VPN。公司报告未收到前，不宣称公司连接故障已解决。

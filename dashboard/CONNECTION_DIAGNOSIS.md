@@ -1,6 +1,30 @@
 # 历史扫描与公司实时连接诊断
 
-2026-10-23：Excel 与两版本地 App 共用新的扫描结果和验证诊断。公司电脑上的 `PermissionError` 尚需该机的新报告定位；开发机的网络结果不能作为公司原因的证据。
+2026-10-23：Excel 与两版本地 App 共用新的扫描结果和验证诊断。公司10:17报告已定位到 `network_session/writer.lock` 的字节锁申请，HTTP尚未发出；仍需该机查询文件使用进程以确认持有者。开发机的网络结果不能作为公司原因的证据。
+
+## 已收到的公司证据与下一步
+
+公司10:17报告中，历史任务09:20完成40次查询、补入4,820条，指数与期货共同发布到2026-10-22。其扫描编号等新字段为空，属于旧格式历史记录；保留完成/发布时间，但旧0缺口不能作为新版重扫结果。
+
+`PermissionError` 发生在 `bars._writer_lock` 的 `msvcrt.locking(..., LK_NBLCK, 1)`，锁文件可打开写权限、读取首字节失败，指向已有进程持有字节锁。`http_attempted=false`，HTTP/DNS/TCP没有执行，当前不能判断公司VPN和接口是否正常。
+
+随后返回的进程摘要包含跨日Python与两个Excel，但不能据此认定谁异常。上一条手动PowerShell匹配规则未兼容带引号的 `"-m" "dashboard.numeric_excel"`；数字Excel启动器实际会给每个参数加引号，因此“other Python”也可能是看板后台，不代表已确认与本项目无关。
+
+在公司原Git根目录执行以下命令，保留当前相关进程与锁文件。这一步不请求行情、不开始采集或补历史，不需要切换VPN：
+
+```powershell
+git pull --ff-only origin codex/company-apps
+if ($LASTEXITCODE -ne 0) { throw '更新失败，保留现场停止' }
+$report = Join-Path $PWD ('dashboard\runtime\company_lock_' + (Get-Date -Format yyyyMMdd_HHmmss_fff) + '.json')
+& 'D:\conda\envs\swhy_delta1\python.exe' -B -X utf8 -m dashboard.connection_check --all-profiles --lock-owners --output $report
+$report
+```
+
+`--lock-owners` 不隐含 `--connect`。它通过Windows自带的 [Restart Manager资源查询接口](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/nf-restartmanager-rmgetlist) 取得各锁文件的使用进程PID与创建时间，再用本机CIM补充Python/Excel及相关PID的程序路径、父PID、创建时间、看板模块名。模块识别兼容带引号的参数；完整命令行、其他参数、进程窗口标题和文档名不进入报告。查询只建立并结束自己的系统查询会话，不调用关闭/重启应用接口，不结束业务进程、不删锁文件、不弹窗或申请提权。
+
+报告每份配置的 `network_lock.file_users_query` 与顶层 `processes` 可对应PID和 `started_filetime`；同时核对创建时间，避免PID被复用。`file_users` 是文件使用者候选，不直接证明谁持有哪一段字节锁；多个使用者、空结果、访问拒绝或进程已退出时，需结合本轮锁访问结果继续判断。`state=unavailable` 与 `missing` 不解释为“锁已释放”；API错误、CIM失败与超时分别保留，查询失败不会自动停止任务或尝试管理员权限。
+
+原生查询在单独隐藏子进程内最多20秒，进程摘要最多12秒；超时仅清理本次诊断自己的子进程。普通历史/行情后台保持原状。当前若正常实时采集已经持锁，另一个验证任务被拦截是互斥行为，不能据此认定原采集器已断线。
 
 ## 扫描结果如何显示
 
@@ -45,5 +69,7 @@ $report
 Excel 启动验证的JSON仍在本轮 `runtime/numeric_live` 目录，错误提示显示该报告位置。两版 App 的共用向导将每次验证写入本地 `runtime/connection_checks/connection-*.json`，错误提示可直接看到阶段、错误码、相关路径和报告位置。诊断保存失败单独报告，不覆盖原始连接失败原因。
 
 ## 验证范围
+
+文件使用进程诊断新增9项用例与原17项连接诊断回归通过，共26项：真实Windows字节锁、查询后锁仍有效、释放后使用者消失、不同路径结果隔离、带引号模块、中文/空格/特殊字符路径、权限失败、列表变化和超时均已检查。两工作区的原配置无联网CLI链通过，44个原配置/参考/索引文件未变。所有原生查询仅作用于自己的查询会话，不结束用户进程；本机运行结果不代替公司的进程和网络证据。
 
 本地用隔离数据测试：扫描被停止而旧缺口为0、真实Windows字节锁、文件拒绝访问、套接字权限错误、超时/TLS/HTTP状态、清理失败和错误Python依赖。Excel 的实际启动子进程与PowerShell格式化、两版App共用向导的离屏异步回填均已核验。未访问公司真实接口、修改原数据/配置、打开可见窗口或切换VPN。公司具体故障结论以该机返回的新报告为准。

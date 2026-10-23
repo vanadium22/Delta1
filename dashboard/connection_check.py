@@ -109,7 +109,7 @@ def network_checks():
     return result
 
 
-def collect(local_roots, *, connect=False):
+def collect(local_roots, *, connect=False, lock_owners=False):
     result=dict(schema='company-connection-diagnostic-v1',observed_at=datetime.now(timezone.utc).isoformat(),
                 python=sys.executable,python_version=sys.version.split()[0],prefix=sys.prefix,
                 pid=os.getpid(),profiles=[],continuous_collection_started=False,vpn_changed=False)
@@ -123,6 +123,15 @@ def collect(local_roots, *, connect=False):
             from dashboard.session_guard import probe_realtime
             profile['probe']=probe_realtime(config)
         result['profiles'].append(profile)
+    if lock_owners:
+        from dashboard.lock_processes import file_users,process_summary
+        paths=[p['network_lock']['path'] for p in result['profiles'] if 'network_lock' in p]
+        users=file_users(paths)
+        by_path={os.path.normcase(item['path']):item for item in users}
+        for profile in result['profiles']:
+            lock=profile.get('network_lock')
+            if lock is not None:lock['file_users_query']=by_path.get(os.path.normcase(str(Path(lock['path']).resolve())))
+        result['processes']=process_summary([user['pid'] for item in users for user in item.get('file_users',[])])
     denied=any(p.get('probe',{}).get('error',{}).get('stage')=='network_lock' for p in result['profiles'])
     if not connect:result['network']={'skipped':'connect_not_requested'}
     elif not session_policy()['allowed']:result['network']={'skipped':'outside_session'}
@@ -147,6 +156,7 @@ def main(argv=None):
     parser.add_argument('--local-root',type=Path)
     parser.add_argument('--all-profiles',action='store_true',help='Read existing Excel and App configs without creating either')
     parser.add_argument('--connect',action='store_true',help='One bounded quote check per existing profile and DNS/TCP checks during session')
+    parser.add_argument('--lock-owners',action='store_true',help='Query lock-file users and safe process metadata; does not imply --connect')
     parser.add_argument('--output',type=Path)
     args=parser.parse_args(argv)
     module=Path(__file__).resolve().parent
@@ -158,7 +168,7 @@ def main(argv=None):
     code=0
     try:
         if not roots:raise FileNotFoundError('No existing profile')
-        report=collect(roots,connect=args.connect)
+        report=collect(roots,connect=args.connect,lock_owners=args.lock_owners)
     except Exception as exc:
         report['error']=error_detail(exc,'imports' if isinstance(exc,ImportError) else 'config_read');code=1
     if args.output:
