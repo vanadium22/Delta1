@@ -24,6 +24,10 @@ UI 包固定版本安装在仓库 `.deps/dashboard_native`，`--no-deps` 不升�
 
 日常双击 **`dashboard/start_presentation.vbs`**。它隐藏启动控制台，只显示 App 主窗口。命令行或现有快捷方式也可调用 `dashboard/start_presentation.cmd`。两者走同一入口，不依赖 Excel/COM 或开发版。
 
+已修复 Windows PowerShell 将 Python/Qt/采集器的 stderr 普通提示当作致命错误、中断 App 的问题。启动器现在直接隐藏启动子进程，将普通输出和错误输出分开写入 `.log` / `.stderr.log`，不因提示日志结束 App。`run-<PID>/launcher.json` 记录启动阶段和真实退出码，Python 原生崩溃栈也尽可能保存在 stderr 日志。
+
+如果更新后仍自行关闭，先保留最新 `run-<PID>` 目录。`launcher.json` 的 `phase=app_exited` 表示已观察到子进程退出，`exit_code` 为其真实代码；`launcher_failed` 表示启动器自身失败。`app_running` 是启动时记录，不能独立证明进程仍存活。正常日常入口没有15秒或3分钟自动关闭规则，自动退出只用于显式离屏测试参数。公司日志与下面的持续更新报告一起用于定位，不重新录入密码或删除数据试错。
+
 ## 数据与自动连接
 
 已有 App 专用配置优先。没有专用配置时，从已验证的 `localsetting/numeric_excel/native.json` 创建一次 App 副本，保留全部公司路径；没有数字版配置的旧本机 App 继续原 `localsetting/native.json`。原配置不覆盖。DDB/VPN 凭据保留原引用，不复制密码，不迁移或重置保护方式。显式 `--local-root` 可选已有配置。

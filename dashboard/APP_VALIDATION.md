@@ -2,6 +2,14 @@
 
 状态：本地源码、离屏界面和受控数据链路回归已验证；**待公司主要功能实测**。本次没有连接公司网络、登录或切换 VPN，没有以模拟请求证明公司盘中行情可用。公司请按 [测试清单](APP_COMPANY_TEST.md) 先验收，再反馈运行和更新问题；指标及进一步美术不在本轮验收范围。
 
+## 公司自行退出反馈后的启动器回归
+
+用户反馈公司双击VBS打开约15秒、状态更新后关闭。本机用原启动脚本同样的 Windows PowerShell 重定向和 Stop 错误策略复现：无害 stderr 提示立即触发 `System.Management.Automation.RemoteException`，日志为空，子进程只写出开始标记，没有写出完成标记。正常展示入口没有15秒自动退出定时器；测试专用退出参数也不会由VBS默认加入。
+
+改用 `Start-Process -WindowStyle Hidden -Wait -PassThru`，stdout/stderr 分别重定向至文件，避免将 stderr 经 PowerShell 错误流处理；保留真实非零退出码。新增按实例保存的 launcher.json 和 faulthandler 日志。不自动重启或忽略真实失败。
+
+`tests.test_app_launcher` 实际调用 Windows PowerShell 的3项测试通过：预检和App的普通stderr不结束进程、中文/空格/特殊字符/尾反斜杠路径正确传递、预检失败不启动App并保留退出码7、App失败保留退出码23。真实Qt展示界面离屏测试在15.166秒输出warning，之后19.468至31.294秒仍完成6次页面刷新，32.172秒由测试主动正常关闭，启动器记录退出码0。所有测试未连接公司网络；公司的实际退出原因仍需现场日志核对。证据位于忽略目录 `.deps/app_exit/`。
+
 ## 基线与最小迁移
 
 公司 worktree 初始分支 `codex/company-apps`、提交 `c07eec9c795c7eb506c0e5176487ecba5b54a62b`，提交前远端仍为此版本。旧本机目录处于另一历史分支，含未提交的看板及其他项目工作；未切换、重置、清理或提交该目录。

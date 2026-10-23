@@ -1,3 +1,9 @@
+# 2026-10-23 展示版打开后自行退出：启动器修复
+
+公司反馈双击 start_presentation.vbs 约15秒、状态更新后窗口关闭。本机复现 Windows PowerShell 5.1 在 ErrorActionPreference=Stop 下把子进程 stderr 普通提示转成 RemoteException，重定向管道随之中断，子进程未完成。启动器改用隐藏子进程直接分别保存 stdout/stderr，等待真实退出码；新增 launcher.json 和 Python faulthandler。没有扩大自动退出条件或自动重启，没有改指标、网络和数据配置。
+
+实际启动脚本3项回归通过；真实展示界面离屏第15秒输出提示后仍连续回填6次，32秒由测试主动关闭，退出码0。本机两版共用启动器已同步。公司尚需一次 git pull --ff-only 后重开验证；未直接访问公司终端，现场根因仍需其日志确认。
+
 # 2026-10-23 看板公司展示版第一阶段
 
 新增 dashboard/start_presentation.vbs / start_presentation.cmd 和必要 Qt 组件、独立依赖清单、内联设置/数据更新/诊断。公司原 Git 根目录不变，一次 git pull --ff-only。Excel 冻结维护，原数据/配置/分红/凭据保留，不动券源、日报和其他模块。

@@ -10,6 +10,19 @@
   "network_policy": "existing_route_only_no_vpn_change",
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
+  "latest_update": {
+    "base_commit": "d0176c922687213bc2b2429dc07a63ec7477bc65",
+    "scope": "Prevent Windows PowerShell stderr from interrupting the App; preserve real process exit evidence",
+    "files": [
+      "COMPANY_SYNC.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/APP_RELEASE.json",
+      "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/start_app.ps1",
+      "tests/test_app_launcher.py"
+    ]
+  },
   "files": [
     "AGENTS.md",
     "COMPANY_SYNC.md",
@@ -58,6 +71,7 @@
     "dashboard/native/trading_axis.py",
     "dashboard/native/widgets.py",
     "tests/test_app_collection.py",
+    "tests/test_app_launcher.py",
     "tests/test_app_history.py",
     "tests/test_app_pipeline.py"
   ],

@@ -6,13 +6,51 @@ $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
 $runtime=Join-Path $PSScriptRoot ('runtime/app_startup/run-'+$PID)
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+
+function ConvertTo-AppArgument {
+    param([AllowEmptyString()][string]$Value)
+    # Start-Process joins ArgumentList into one Windows command line.
+    # Preserve spaces, quotes and trailing backslashes for the child argv.
+    '"' + (($Value -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Invoke-AppProcess {
+    param([string]$Interpreter,[string[]]$Arguments,[string]$LogName)
+    $commandLine=($Arguments | ForEach-Object { ConvertTo-AppArgument $_ }) -join ' '
+    # Keep native stderr outside PowerShell's ErrorActionPreference pipeline.
+    # Qt / collector warnings are diagnostics, not requests to stop the App.
+    $child=Start-Process -FilePath $Interpreter -ArgumentList $commandLine -WorkingDirectory $repository `
+        -WindowStyle Hidden -Wait -PassThru `
+        -RedirectStandardOutput (Join-Path $runtime ($LogName+'.log')) `
+        -RedirectStandardError (Join-Path $runtime ($LogName+'.stderr.log'))
+    $child.ExitCode
+}
+
+$launchState=@{schema='app-launch-v1';edition=$Edition;launcher_pid=$PID;phase='preflight';
+    started_at=[DateTimeOffset]::Now.ToString('o');updated_at=$null;python=$null;exit_code=$null}
+function Save-LaunchState {
+    $launchState.updated_at=[DateTimeOffset]::Now.ToString('o')
+    $launchState | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'launcher.json') -Encoding utf8
+}
 try {
     $interpreter=Get-AppPython $repository
-    & $interpreter -B -s -X utf8 -m dashboard.app_check --output (Join-Path $runtime 'preflight.json') *> (Join-Path $runtime 'preflight.log')
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & $interpreter -B -s -X utf8 -m dashboard.native.editions_current --edition $Edition @AppArguments *> (Join-Path $runtime ('app-'+$PID+'.log'))
-    exit $LASTEXITCODE
+    $launchState.python=$interpreter;Save-LaunchState
+    $preflightCode=Invoke-AppProcess $interpreter @('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.app_check','--output',(Join-Path $runtime 'preflight.json')) 'preflight'
+    if ($preflightCode -ne 0) {
+        $launchState.phase='preflight_failed';$launchState.exit_code=$preflightCode;Save-LaunchState
+        exit $preflightCode
+    }
+    $launchState.phase='app_running';Save-LaunchState
+    $appParameters=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.native.editions_current','--edition',$Edition)
+    if ($null -ne $AppArguments) { $appParameters+=$AppArguments }
+    $appCode=Invoke-AppProcess $interpreter $appParameters ('app-'+$PID)
+    $launchState.phase='app_exited';$launchState.exit_code=$appCode;Save-LaunchState
+    exit $appCode
 } catch {
+    $launchState.phase='launcher_failed';$launchState.exit_code=1
+    $launchState.error_type=$_.Exception.GetType().FullName
+    $launchState.error_id=$_.FullyQualifiedErrorId
+    Save-LaunchState
     $_.Exception.GetType().FullName | Out-File -LiteralPath (Join-Path $runtime 'launcher-error.log') -Encoding utf8
     exit 1
 }
