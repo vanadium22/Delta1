@@ -1,9 +1,15 @@
-# 数字 Excel 公司交付
+# 公司展示版与本机两版 App
 
-遵循根目录 AGENTS.md：统一使用 `codex/company-apps`。数字版日常只使用本文件夹的 `start_numeric_excel.cmd`，简短步骤在同目录打开方式.md，部署按 COMPANY_SETUP.md；不再在Git根目录另建数字Excel入口。解释器顺序为显式SWHY_DELTA1_PYTHON、公司实际存在的D:/conda/envs/swhy_delta1/python.exe、仓库.venvs/numeric_excel、仓库.venv、本机实际存在的P:/code_content/python_work_env/conda_env/swhy_delta1/python.exe，最后PATH。公司原有 Wind 环境、数据和本机设置必须保留。
+遵循根目录 AGENTS.md：所有发布统一 `codex/company-apps`。2026-10-23 用户明确授权公司展示版；本文件覆盖此前“仅数字 Excel、App local-only/do-not-stage”限制。公司只提供展示版入口及所需 Qt/共享后台；本机展示版、开发版同步必要修复。按 APP_RELEASE.json 明确白名单提交，不整体覆盖旧工作区或混入券源、日报、指数策略桌面等其他工作。
 
-本目录在统一分支只发布数字 Excel、空白模板及必要计算/数据后台。native 目录中的模块为无 Qt 的计算依赖；不表示已发布看板界面。新展示版、开发版、前端入口/图标/快捷方式及其未提交改动仍留在旧工作目录，不复制、不暂存、不推送。
+Excel 冻结功能维护，源码、模板、产物、数据和设置保留，不自动打开或结束 Excel。共享 history_status/session_guard/connection_diagnostics/connection_check/lock_processes/process_lifetime/numeric_recovery 安全能力保留。
 
-默认数字配置为 `localsetting/numeric_excel/native.json`，首次从既有 `localsetting/native.json` 复制；已有副本不覆盖。不自动迁移 Wind 库，不把供应商原始库当标准化 Parquet 数据集，不从开发机复制公司凭据。
+公司真实 Git 根目录是 D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard。更新一次 git pull --ff-only；入口 dashboard/start_presentation.vbs（隐藏启动控制台）或 start_presentation.cmd。依赖检查与安装见 APP_COMPANY_TEST.md；保留原 Wind 环境。
 
-仅 `excel_numeric/template.xlsx` 可提交 Excel 文件，必须保持无实际行情、宏或外链。真实数据、每日缓存、导出、runtime、localsetting 均不提交。公共 realtime_store 改动必须验证旧库只读保持、备份迁移、旧分片不变及采集回归；不连真实公司接口来跑自动测试。
+原本机 App 配置、公司 numeric_excel 配置、数据根路径、分红、缓存及当前用户凭据均须保留。自动连接仅复用已有网络上的数据库/实时接口会话；禁止自动登录、切换、退出 VPN。凭据不打印、导出或提交，不复制开发机 DPAPI 秘密到公司。
+
+启动/进度/设置/错误/重试/导出在主窗口内联显示；不用模态向导或文件对话框，不激活或抢焦点。开发验证离屏或隐藏；不可用真实 VPN/公司接口做自动测试。历史任务取消和关闭走停止标记及原拥有者进程句柄，等写入/发布/会话退出，禁止 terminate 慢写入者。
+
+第一阶段只修运行、增量更新、持续采集与回填、现有交互及基本可读性。先交付并由用户公司主要功能实测；之后必须同时得到公司反馈、明确继续指标优化授权、最新指标 doc 才能重构指标。美术细化也等待公司主要功能反馈。不得擅自改公式、删指标、用模拟行情或重画时间伪装新鲜度。
+
+真实数据、设置、凭据、运行日志、诊断 JSON、缓存不提交；历史唯一获准 xlsx 是既有无数据模板 excel_numeric/template.xlsx，本轮不修改它。不 reset/clean、全量暂存、强推或切换旧工作区。发布前核对明确清单、原数据配置保护、相关回归和远端；本地验证与公司实测分开报告。

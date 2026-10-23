@@ -1,0 +1,5 @@
+# Install into repository .deps/dashboard_native; do not upgrade the Wind environment.
+PySide6-Essentials==6.11.2
+shiboken6==6.11.2
+pyqtgraph==0.14.0
+colorama==0.4.6

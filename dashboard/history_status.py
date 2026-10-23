@@ -22,6 +22,8 @@ def progress_text(state):
     target = state.get('target') or '待确定'
     if counts_ready(state):
         detail = f"剩余 {state['pending_symbol_days']} 项，{state['missing_bars']} 条"
+        if state.get('unknown_groups'):
+            detail = '已知'+detail+f"；另 {state['unknown_groups']} 组历史分钟尚未深核"
     else:
         done = state.get('scan_groups') or 0
         total = state.get('scan_total')

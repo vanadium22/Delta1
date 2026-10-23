@@ -570,7 +570,9 @@ class ResearchEngine:
 
     def snapshot(self, request):
         model=self.model
-        repo=model.configure_repository(False); frozen=repo.freeze()
+        repo=model.configure_repository(False)
+        frozen=getattr(model,'_app_capture_frozen',None)
+        if frozen is None:frozen=repo.freeze()
         ref=ReferenceBook(model.config.get("reference_file") or None)
         now=pd.Timestamp(request.get("as_of") or pd.Timestamp.now(tz="UTC"))
         symbols=repo.symbols(frozen)

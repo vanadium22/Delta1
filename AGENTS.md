@@ -1,3 +1,5 @@
+**2026-10-23 看板范围更新：公司日常入口改为展示版 App，覆盖此前仅发布数字 Excel / App 前端 local-only 的限制。Excel 冻结维护且所有历史产物保留；本机展示/开发两版同步必要修复。先完成运行与数据更新、由用户公司主要功能实测，再考虑指标与美术。全程无弹窗/抢焦点，不自动操作 VPN。具体见 dashboard/AGENTS.md、dashboard/APP_COMPANY_TEST.md。**
+
 # Delta1 多项目开发与公司统一更新
 
 公司已确认 `D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard` 本身就是 Git 仓库根目录。家里主工作目录为 `P:/project/swhy/Delta1/project`，独立 worktree 位置可能不同；每次先用 `git rev-parse --show-toplevel`、`git worktree list`、`git status --short` 确认实际状态。

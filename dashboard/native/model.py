@@ -155,12 +155,20 @@ class NativeModel:
                 "$spot":symbols.get(order[0],{}).get("underlying_id",UNDERLYINGS[product][0]) if order else UNDERLYINGS[product][0]},order,bool(verified)
 
     def _live(self,instruments,as_of=None):
+        import time
+        from dashboard.refresh_evidence import utc_now
+        read_started=time.perf_counter()
         root=self.config.get("realtime_root")
         if self.demo or not root:
             return {}
         path=Path(root)/"live"/"quotes.sqlite3"
         if not path.is_file():
             return {}
+        if getattr(self,'_app_capture_live_loaded',False):
+            eligible=self.live_rows
+            if as_of is not None and len(eligible):eligible=eligible[eligible['observed_at']<=pd.Timestamp(as_of)]
+            return {str(row.instrument_id):row.to_dict() for _,row in eligible.sort_values('sequence').drop_duplicates('instrument_id',keep='last').iterrows()} if len(eligible) else {}
+        self.live_read_trace=dict(started_at=utc_now(),cursor_before=self.live_cursor)
         identifier=self.config.get("realtime_id") or hashlib.sha256(str(Path(root).resolve()).encode()).hexdigest()[:16]
         # Reset when the caller-selected database is replaced, not just when its path changes.
         stat=path.stat()
@@ -172,8 +180,11 @@ class NativeModel:
             self.live_key=key
         frame,cursor=read_realtime_observations(root,dataset_id=identifier,instruments=instruments,after_sequence=self.live_cursor,limit=10000)
         self.live_cursor=cursor["sequence"]
+        self.live_read_trace.update(finished_at=utc_now(),seconds=time.perf_counter()-read_started,
+                                   cursor_after=self.live_cursor,rows=len(frame))
         if len(frame):
             self.live_rows=pd.concat([self.live_rows,frame],ignore_index=True).drop_duplicates("observation_id").tail(10000)
+        if hasattr(self,'_app_capture_live_loaded'):self._app_capture_live_loaded=True
         eligible=self.live_rows
         if as_of is not None and len(eligible): eligible=eligible[eligible["observed_at"]<=pd.Timestamp(as_of)]
         return {str(row.instrument_id):row.to_dict() for _,row in eligible.sort_values("sequence").drop_duplicates("instrument_id",keep="last").iterrows()} if len(eligible) else {}

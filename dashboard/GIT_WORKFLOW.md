@@ -1,34 +1,11 @@
-# 数字 Excel 交付隔离
+# 公司展示版交付范围
 
-遵循根目录 AGENTS.md：公司所有 App 统一使用 `codex/company-apps`。仓库为 `https://github.com/vanadium22/Delta1.git`（公开）。用户已授权验证通过的代码、测试及说明推送该统一分支；后续不再更新或推送模块分支。
+统一使用 codex/company-apps，远端 https://github.com/vanadium22/Delta1.git。用户授权本轮验证通过的源码、测试与说明提交推送。2026-10-23 授权覆盖旧“仅 Excel、App 前端不发布”限制。
 
-早前数字版本发布于独立看板分支，其提交 `a070339` 仅作为本次选取已提交源码的历史来源。不要再让公司切换那个分支；不整体合并其历史，不覆盖公司最新 CFFEX/Wind 修复。现有旧工作目录的未提交前端、其他任务修改、数据和配置保持原样。
+公司只交付展示版入口和必要 UI/共享数据后台；开发类窗口保留为共享实现和本机同步依赖，开发入口只在原本机目录。范围见 APP_RELEASE.json。保留旧工作区其他未完成工作，逐文件同步需要的修复，不全量覆盖。
 
-## 本次边界
+所有真实行情、分红、配置、凭据、DPAPI、诊断日志、成品、缓存与下载均不提交。本轮不改 Excel 界面/模板/工作簿。使用明确文件白名单，不 git add . / -A，不 reset/clean、强推或强制切换。
 
-- 允许：数字服务/启动器、独立配置检查、空白 Excel 模板、数据与指标计算依赖、时段和缓存守卫、必要公共实时库兼容代码、针对性测试和说明。
-- 暂不发布：current.py、native/app.py、native/editions_current.py、static 网页、展示/开发版入口、图标及快捷方式。native 目录内发布的是计算后台，无 Qt 前端。
-- 不发布：公司 Wind/HTTP/DDB 实际数据、真实 Excel 成品、私有分红、缓存、配置、凭据、DPAPI 文件、其他任务修改。唯一允许的 xlsx 为无行情行/宏/外链的 `excel_numeric/template.xlsx`。
-- 只用明确文件白名单暂存；不全量 add，不通过 skip-worktree 隐藏差异，不强推、不清理或强制切换旧工作目录。
+发布前：核对源码/Git差异、离屏窗口及后台回归、原配置保护和暂存差异。提交后 git push origin codex/company-apps，再用 git ls-remote --heads origin codex/company-apps 核验与 HEAD 相同。公司盘中测试单独标待验，不把模拟请求算公司通过。
 
-## 核验与发布
-
-先核验统一分支与远端关系、模板无数据、后台测试及实际 Excel 连续更新；审查暂存文件清单和差异，验证未改基差 Wind/其他 App。提交后正常推送：
-
-```powershell
-git push origin codex/company-apps
-git rev-parse HEAD
-git ls-remote --heads origin codex/company-apps
-```
-
-远端 SHA 与本地 HEAD 相同才算发布完成。测试和远端核对记录保存于被忽略的 `.deps/numeric_integration/`；本模块交接和根 COMPANY_SYNC.md 记载结果。公司更新见 [COMPANY_SETUP.md](COMPANY_SETUP.md)，不把“已获授权”写成“已推送”。
-
-## 离线代码
-
-2026-10-20 刷新证据交付使用 `company-apps-numeric-refresh-20261020.bundle`，代码修复包头为 `60e5446`，以前提提交 `f8c1d2f` 构建，后续公司诊断说明提交不在该包内；文件位于本机 `dashboard/runtime/distribution/`，校验记录在 `.deps/numeric_refresh/release.json`。旧numeric/shortfiles/startup/status/visible包保留，均不会自动获得本次修复。普通公司更新优先pull，无需导入任何数据包。版本对照见 [REFRESH_DIAGNOSIS.md](REFRESH_DIAGNOSIS.md)。
-
-历史2026-10-19首次数字版 bundle 名为 `company-apps-numeric-20261019.bundle`，仅包含当时统一分支代码增量，以 `f8c1d2f` 为前提提交，不包含后续刷新修复。保存在本机 `dashboard/runtime/distribution/`，不上传业务数据。公司默认在线 pull，无需反复导入 bundle。
-
-旧数据 zip 保留为独立私有数据交付，不加入 Git 或公开 bundle。安装需显式使用 dashboard 专属增量安装器，不解压覆盖公司 data。
-
-2026-10-19 短文件名后续交付：新增 `company-apps-shortfiles-20261019.bundle`，仍以 `f8c1d2f` 为前提，包含数字版接入及本次后台修复。新数据 ZIP `dashboard-data-short-v2-20261019.zip` 单独私有交付，不加入 bundle/Git。公司步骤见 SHORT_FILENAMES.md。当前真实发布 SHA 与包校验记录见本机 `.deps/numeric_integration/short_release/`。
+旧离线 bundle 和私有数据包原样保留。日常以一次 git pull --ff-only 更新，不需重导数据。

@@ -1,13 +1,13 @@
-# 数字 Excel 看板
+# Delta1 公司展示版
 
-公司按 [首次检查及更新步骤](COMPANY_SETUP.md) 操作，统一分支 `codex/company-apps`。已有公司项目无需重新 clone、覆盖 data 或重装 Wind。
+公司日常入口改为 **start_presentation.vbs**（隐藏启动控制台），现有命令/快捷方式可用 start_presentation.cmd。一次 git pull --ff-only 更新，分支 codex/company-apps。依赖准备、运行步骤和五项现场测试见 [公司展示版测试](APP_COMPANY_TEST.md)。
 
-日常双击本文件夹的 `start_numeric_excel.cmd`，简短步骤见同目录 [打开方式.md](打开方式.md)。公司未显式指定Python时优先使用已有swhy_delta1环境；根目录重复入口已移除。自动更新同一个已打开的 Excel 工作簿；三个研究页（期现、同品种跨期、跨品种）共用独立指标变体目录、T−1代表选择及分页详情，保留概览四卡/对应指数、分位图和来源与状态。原完整指标辅助表隐藏保留，独立组合入口移除。口径及验证边界见 [指标实施](INDICATOR_IMPLEMENTATION.md)。运行要求为 Windows 桌面 Microsoft Excel 和 Python 数字计算依赖，无需 VBA 或看板前端。
+主窗口显示现有概览/对应指数、期现/跨期/跨品种指标、参数与输入 X、图像和解释。后台共用日期快检、增量维护、已有 DDB 凭据复用、联合校验发布、有限实时验证与持续采集；等待、重试、取消、设置和诊断内联。不会自动操作 VPN，不依赖 Excel/COM。
 
-研究页首屏的中文指标和输入X分别选择，close／分红调整基差／基差年化切换到同族真实变体；默认只显示当前代表。详情、完整目录、更多口径及固定口径说明见 [界面使用说明](UI_SIMPLIFICATION.md)。
+数据、分红、配置、凭据保持原位；已有数字版配置只创建一次 App 副本。首屏可回看同配置的缓存，保留实际源时；完整历史分钟深核为可取消后台任务。发布元数据覆盖不等于分钟完整性。行情、接收、落库、计算、页面应用均有独立证据。
 
-默认使用独立数字配置副本，先执行 `python -B -X utf8 -m dashboard.numeric_config` 离线检查，再使用 `-ReadOnlyCache` 验证已有数据。只存有原始 Wind 数据时，尚需标准化历史、合约参考表和分红输入；Git 不携带公司数据，也不会自动替换 Wind 库。
+本机展示/开发两版共享引擎与修复，公司只交付展示入口。公/私主题仅改配色，不改变公式或合约集合。Excel 已冻结功能维护，历史文件全部保留。
 
-[刷新和指标规则](NUMERIC_EXCEL.md) · [Git 交付边界](GIT_WORKFLOW.md) · [交接](PROJECT_HANDOFF.md) · [数据格式](data_contract/README.md)
+[部署与现场测试](APP_COMPANY_TEST.md) · [交接](PROJECT_HANDOFF.md) · [发布清单](APP_RELEASE.json) · [验证证据说明](APP_VALIDATION.md) · [Git边界](GIT_WORKFLOW.md) · [指标口径](PAIR_INDICATORS.md)
 
-本分支暂不提供看板展示版/开发版前端。数字版已有历史选择/网络向导：DDB及其VPN分别用 `configure_numeric_history.cmd`、`configure_numeric_vpn.cmd` 在本机配置，补齐可复用现有连接或自动登录DDB VPN。历史进程退出后提示用户手动切回实时行情VPN，再验证打开；不自动登出或切回。前端App仍在旧工作目录保留。
+当前为第一阶段：待公司主要功能实测。没有最新指标 doc 或没有公司反馈/明确继续授权时，不开展最终指标重构；美术细化随后安排。

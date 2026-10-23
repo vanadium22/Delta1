@@ -3,6 +3,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 import re
 import threading
+import time
 
 from dashboard.marketdata.repository import ReferenceBook
 from index_strategy.instant_dld.client import MarketDataClient
@@ -93,7 +94,7 @@ class CollectionJob:
     def running(self):
         return self.worker is not None and self.worker.is_alive()
 
-    def start(self,root,symbols,index_ids,reference_file=None,once=False,client_factory=MarketDataClient,auto_roll=False):
+    def start(self,root,symbols,index_ids,reference_file=None,once=False,client_factory=MarketDataClient,auto_roll=False,config=None):
         from dashboard.session_clock import session_policy, SessionStop
         policy = self._policy()
         if not policy['allowed']:
@@ -126,7 +127,8 @@ class CollectionJob:
                 import json
                 from dashboard.session_guard import network_lease
                 path=self.local_root/'native.json'
-                lease=network_lease(json.loads(path.read_text(encoding='utf8')) if path.exists() else {})
+                self.status.update(stage='network_lock',started_at=datetime.now(timezone.utc).isoformat())
+                lease=network_lease(config if config is not None else json.loads(path.read_text(encoding='utf8')) if path.exists() else {})
                 lease.__enter__()
                 leased=True
                 if not self._policy()['allowed']:
@@ -137,11 +139,16 @@ class CollectionJob:
                     if not self._policy()['allowed']:
                         self.stop_event.set()
                         return dict(status='session_closed', received_at=datetime.now(timezone.utc).isoformat(), elapsed_seconds=0)
-                    return raw_fetch(symbols)
+                    started=time.perf_counter()
+                    self.status.update(stage='request',request_started_at=datetime.now(timezone.utc).isoformat())
+                    result=raw_fetch(symbols)
+                    self.status.update(request_seconds=time.perf_counter()-started,received_at=result.get('received_at'))
+                    return result
                 client.fetch=guarded_fetch
                 with DualIdentityStore(Path(root)) as store:
                     original=store.batch
                     def batch(record):
+                        started=time.perf_counter();self.status['stage']='validation_and_storage'
                         original(record)
                         with self.lock:
                             good=record.get("status") in {"success", "partial"}
@@ -150,12 +157,21 @@ class CollectionJob:
                                                last_result=record.get("status"),error=None if good else record.get("error",record.get("status")))
                             self.status['missing_symbols']=record.get('missing_symbols',[])
                             self.status['reference']=getattr(resolver,'status',{})
+                            if good:self.status['last_success_at']=record['received_at']
+                            else:self.status.update(last_failure_at=record['received_at'],last_failure_status=record.get('status'))
+                            self.status.update(stage='waiting_new_quote' if good else 'request_failed',
+                                storage_finished_at=datetime.now(timezone.utc).isoformat(),storage_seconds=time.perf_counter()-started,
+                                data_sequence=max((r['sequence'] for r in store.last_rows),default=self.status.get('data_sequence',0)),
+                                valid_rows=len(store.last_rows),validation_status=(store.last_report or {}).get('status'),
+                                invalid_symbols=(store.last_report or {}).get('failed_symbols',[]))
                     store.batch=batch
                     collect(client,store,[symbols_file],interval=2,max_polls=1 if once else 0,
                             stop=SessionStop(self.stop_event, self._policy),resolver=resolver)
                 with self.lock: self.status["status"]="stopped" if not self.status.get("error") else "failed"
             except Exception as exc:
-                with self.lock: self.status.update(status="failed",error=str(exc))
+                from dashboard.connection_diagnostics import error_detail
+                with self.lock:self.status.update(status="failed",error=type(exc).__name__,
+                    diagnostics=error_detail(exc,self.status.get('stage','collection')))
             finally:
                 try:
                     if client is not None: client.close()

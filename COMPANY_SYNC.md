@@ -1,3 +1,11 @@
+# 2026-10-23 看板公司展示版第一阶段
+
+新增 dashboard/start_presentation.vbs / start_presentation.cmd 和必要 Qt 组件、独立依赖清单、内联设置/数据更新/诊断。公司原 Git 根目录不变，一次 git pull --ff-only。Excel 冻结维护，原数据/配置/分红/凭据保留，不动券源、日报和其他模块。
+
+自动连接只复用现有网络与已保存数据库凭据；不自动切换/退出VPN。日期快检、近期增量、后台深核与持续实时接入分开，显示源/接收/存储/计算/前端版本。部署与现场5项测试：dashboard/APP_COMPANY_TEST.md；验证范围：dashboard/APP_VALIDATION.md；发布白名单：dashboard/APP_RELEASE.json。远端核验完成后以本条对应 Git 提交为交付版本。
+
+用户下一步先在公司测试主要功能，当前标记待公司实测；指标与进一步美术之后再安排。
+
 # 公司所有 App：统一更新
 
 ## 2026-10-23 修复数字Excel窗口退出后的后台残留

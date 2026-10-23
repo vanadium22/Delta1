@@ -34,6 +34,9 @@ MESSAGES = {
     'paused':'历史维护已暂停，实时采集继续', 'failed':'历史维护失败，已发布版本保留；稍后重试',
     'review':'发现数据校验或来源冲突，原数据保留；请查看缺口原因',
     'stopped':'历史任务已结束，已发布版本保留', 'busy':'另一历史任务正在维护相同目录',
+    'date_checked':'日期增量检查已完成；尚未深核的历史分钟范围保留待核验',
+    'authenticating':'正在复用本机数据库凭据，建立已有网络上的 DDB 会话',
+    'publishing':'正在共同发布已校验历史版本',
 }
 
 
@@ -49,6 +52,21 @@ def read_json(path, default=None):
 
 
 def now_iso():return datetime.now(timezone.utc).isoformat()
+
+
+def normalized_rows(rows):
+    """Validate Arrow schema without repeated optional timezone-module imports."""
+    import pyarrow as pa
+    from .bars import TIME_FIELDS
+    table=normalize_bars(rows)
+    columns=[name for name in table.column_names if name in TIME_FIELDS]
+    for name in columns:
+        table=table.set_column(table.schema.get_field_index(name),name,table[name].cast(pa.int64()))
+    result=table.to_pylist()
+    for row in result:
+        for name in columns:
+            if row[name] is not None:row[name]=pd.Timestamp(row[name],unit='ns',tz='UTC')
+    return result
 
 
 def valid_slot(row, symbol, frequency, day):
@@ -72,7 +90,10 @@ def latest_rows(rows):
     return result
 
 
-def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, checkpoint=lambda cache:None, total_progress=lambda n:None):
+def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, checkpoint=lambda cache:None, total_progress=lambda n:None, metrics=None):
+    measured=metrics if metrics is not None else {}
+    measured.update(cache_hits=0,cache_misses=0,partition_stats=0,read_seconds=0,checkpoint_seconds=0)
+    began=time.perf_counter();last_checkpoint=began
     coverage={};updated={};groups={}
     for key,snapshot in snapshots.items():
         for part in snapshot['parts']:
@@ -85,18 +106,27 @@ def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, ch
         store=stores[key]
         token=hashlib.sha256(_json_bytes(['coverage-v2',str(store.root),[
             (p['sha256'],store._path(p['path']).stat().st_size,store._path(p['path']).stat().st_mtime_ns) for p in parts]])).hexdigest()
+        measured['partition_stats']+=2*len(parts)
         entry=cache.get(token)
         if entry is None:
+            measured['cache_misses']+=1;t=time.perf_counter()
             rows=store._rows({**snapshots[key],'parts':parts})
-            rows=normalize_bars(rows).to_pylist()
+            rows=normalized_rows(rows)
             latest=latest_rows(rows)
             slots={valid_slot(r,symbol,freq,day) for r in latest.values()};slots.discard(None)
             entry=dict(slots=sorted(slots),invalid=sum(valid_slot(r,symbol,freq,day) is None for r in latest.values()))
+            measured['read_seconds']+=time.perf_counter()-t
+        else:measured['cache_hits']+=1
         updated[token]=entry;coverage[symbol,freq,day]=entry
         if i%100==0:
             progress(i)
-            checkpoint({**cache,**updated})
+            if time.perf_counter()-last_checkpoint>=5:
+                t=time.perf_counter()
+                checkpoint({**cache,**updated})
+                measured['checkpoint_seconds']+=time.perf_counter()-t
+                last_checkpoint=time.perf_counter()
     progress(len(groups))
+    measured.update(groups=len(groups),seconds=time.perf_counter()-began)
     return coverage,updated
 
 
@@ -109,9 +139,13 @@ def plan(coverage, metadata, days, start, end):
         if not eligible:continue
         for freq in ('1d','1m'):
             expected={900} if freq=='1d' else MINUTES
-            missing=[];latest=None;complete=None;contiguous=True
+            missing=[];latest=None;complete=None;contiguous=True;unknown=0
             for day in eligible:
                 entry=coverage.get((symbol,freq,day),{'slots':[],'invalid':0})
+                if entry.get('unverified'):
+                    unknown+=1;contiguous=False
+                    if entry.get('date_present'):latest=day
+                    continue
                 present=set(entry['slots']);absent=expected-present
                 if present:latest=day
                 if absent or entry['invalid']:
@@ -120,7 +154,7 @@ def plan(coverage, metadata, days, start, end):
                         missing=len(absent),invalid=entry['invalid']))
                 elif contiguous:complete=day
             summary.append(dict(symbol=symbol,frequency=freq,start=eligible[0],target=eligible[-1],
-                latest=latest,complete_through=complete,missing_days=len(missing)))
+                latest=latest,complete_through=complete,missing_days=len(missing),unverified_days=unknown))
     jobs.sort(key=lambda j:(j['frequency']!='1d',-date.fromisoformat(j['day']).toordinal(),j['symbol']))
     return jobs,summary
 
@@ -175,7 +209,7 @@ def fetch_job(client, job, destination):
         units=info.get('units') or {},unit_factors=info.get('unit_factors') or {})
     _atomic_bytes(path.with_suffix('.json'),_json_bytes(item))
     rows,skipped=convert_file(item)
-    rows=normalize_bars(rows).to_pylist()
+    rows=normalized_rows(rows)
     if skipped.get('unfinished') or skipped.get('invalid_close') or any(r.get(k) is None for r in rows for k in ('open','high','low','close')):
         raise SourcePending('source_not_final')
     if any(valid_slot(r,symbol,freq,day) is None for r in rows):raise ValueError('invalid_download')
@@ -217,11 +251,12 @@ def run_cycle(local_root, **kwargs):
         return _run_cycle(local_root, **kwargs)
 
 
-def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False):
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
+    if reference_file:config['reference_file']=str(reference_file)
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
     controls=local_root/'history_control.json'
-    def stopped():return bool(stop_file and Path(stop_file).exists()) or read_json(controls).get('paused',False)
+    def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(controls).get('paused',False)
     state=read_json(root/'status.json');state.update(network_policy='existing_route_only_no_vpn_change',roots=roots)
     def status(name, **values):
         state.update(state=name,message=MESSAGES[name],updated_at=now_iso(),**values)
@@ -233,13 +268,15 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
         actual_today=str(pd.Timestamp.now(tz='Asia/Shanghai').date()) if today is None else str(today)
         if not force and state.get('next_retry') and state['next_retry']>time.time() and state.get('today')==actual_today:return state
         if not force and state.get('state')=='waiting_credentials':return state
-        client=None;pending={};evidence=[];job_state=read_json(root/'jobs.json');cache=read_json(root/'coverage_cache.json')
+        client=None;pending={};evidence=[];job_state=read_json(root/'jobs.json');cache={} if incremental else read_json(root/'coverage_cache.json')
         quality=read_json(root/'quality_notes.json',{'schema':'history_source_notes_v1','entries':[]});new_notes=[]
         state['source_discrepancies']=len(quality['entries'])
         status('scanning',today=actual_today,next_retry=None,error_type=None,queries=0,inserted=0,
                scan_id=uuid.uuid4().hex,scan_started_at=now_iso(),scan_complete=False,
                scan_groups=0,scan_total=None,pending_symbol_days=None,missing_bars=None,
                pending_scan_id=None,pending_target=None,current_job=None,target=None,start=None,versions={})
+        state['verification_scope']='incremental' if incremental else 'deep'
+        state['unknown_groups']=None
         try:
             stores={};kind_keys={}
             for path in roots:
@@ -269,10 +306,22 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             if any(sum(r['listing_date']<=end<=r['expiry_date'] for s,r in metadata.items() if s.startswith(p))!=4 for p in UNDERLYINGS):
                 status('waiting_reference',target=end,start=start,next_retry=time.time()+300);return state
             status('scanning',target=end,start=start)
-            coverage,cache=scan(stores,snapshots,cache,stopped,lambda n:status('scanning',scan_groups=n),
-                lambda data:_atomic_bytes(root/'coverage_cache.json',_json_bytes(data)),
-                total_progress=lambda n:status('scanning',scan_total=n))
-            _atomic_bytes(root/'coverage_cache.json',_json_bytes(cache))
+            from .history_quick import incremental_scan,save_ledger,save_summary
+            measurements={}
+            if incremental:
+                recent=days[-3] if len(days)>=3 else start
+                coverage,ledger,measurements=incremental_scan(stores,snapshots,read_json(root/'coverage_ledger.json'),
+                    recent_start=recent,stop=stopped,progress=lambda n:status('scanning',scan_groups=n),
+                    known_jobs=read_json(root/'pending.json').get('jobs',[]))
+                state['scan_total']=measurements['groups']
+            else:
+                coverage,cache=scan(stores,snapshots,cache,stopped,lambda n:status('scanning',scan_groups=n),
+                    lambda data:_atomic_bytes(root/'coverage_cache.json',_json_bytes(data)),
+                    total_progress=lambda n:status('scanning',scan_total=n),metrics=measurements)
+                _atomic_bytes(root/'coverage_cache.json',_json_bytes(cache))
+            state['scan_metrics']=measurements
+            state['unknown_groups']=sum(bool(v.get('unverified')) for v in coverage.values())
+            save_ledger(root,stores,snapshots,coverage)
             jobs,summary=plan(coverage,metadata,days,start,end)
             def save_pending():
                 enriched=[{**j,**job_state.get(job_key(j),{})} for j in jobs]
@@ -281,15 +330,18 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                               scan_id=state['scan_id'],versions=versions,generated_at=now_iso())))
                 state.update(pending_symbol_days=len(jobs),missing_bars=sum(j['missing'] for j in jobs),start=start,target=end,
                     versions=versions,scan_complete=True,pending_scan_id=state['scan_id'],pending_target=end)
+                save_summary(root,snapshots,summary,jobs,coverage,end)
             save_pending()
             if not jobs:
-                status('complete',failures=0,last_complete_at=now_iso(),next_retry=time.time()+1800);return state
+                name='date_checked' if state['unknown_groups'] else 'complete'
+                status(name,failures=0,next_retry=time.time()+1800,**({'last_complete_at':now_iso()} if name=='complete' else {}));return state
             if stopped():raise Stopped()
-            from index_strategy.history.downloader import DEFAULT_CONFIG
+            from dashboard.app_config import connection_path
             selected=[j for j in jobs if force or job_state.get(job_key(j),{}).get('retry_at',0)<=time.time()]
             if not selected:
                 status('partial',next_retry=min(job_state[job_key(j)].get('retry_at',time.time()+300) for j in jobs));return state
-            client=direct_factory(config.get('history_connection_file') or DEFAULT_CONFIG)
+            status('authenticating')
+            client=direct_factory(connection_path(config))
             deadline=time.monotonic()+budget;query_failed=False
             for job in selected[:limit]:
                 if stopped():raise Stopped()
@@ -342,16 +394,18 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                         combined={job_key(n):n for n in [*quality['entries'],*new_notes]}
                         quality['entries']=list(combined.values());state['source_discrepancies']=len(combined)
                         _atomic_bytes(root/'quality_notes.json',_json_bytes(quality))
+                    status('publishing')
                     publish(pointer,stores,next_snapshots,published_at=now_iso(),target=end)
                     sync_current(stores,next_snapshots)
                 snapshots=next_snapshots;state['last_published_at']=now_iso()
             jobs,summary=plan(coverage,metadata,days,start,end);save_pending()
+            save_ledger(root,stores,snapshots,coverage)
             state['failures']=state.get('failures',0)+1 if query_failed else 0
             due=min((job_state.get(job_key(j),{}).get('retry_at',time.time()+5) for j in jobs),default=time.time()+1800)
             if query_failed:due=max(due,time.time()+RETRY[min(state['failures']-1,2)])
-            name='partial' if jobs else 'complete'
+            name='partial' if jobs else 'date_checked' if state['unknown_groups'] else 'complete'
             if jobs and all(job_state.get(job_key(j),{}).get('reason') in ('conflict_requires_review','validation_failed') for j in jobs):name='review'
-            if not jobs:state['last_complete_at']=now_iso()
+            if not jobs and not state['unknown_groups']:state['last_complete_at']=now_iso()
             status(name,next_retry=max(time.time()+5,due),current_job=None)
         except Stopped:status('paused' if read_json(controls).get('paused') else 'stopped',next_retry=None)
         except Exception as exc:
@@ -374,11 +428,17 @@ def main():
     parser.add_argument('--force',action='store_true',help='Ignore cooldowns for this run')
     parser.add_argument('--preserve-existing',action='store_true',help='Explicitly retain differing existing values, fill missing keys only, and record source discrepancies')
     parser.add_argument('--stop-file',type=Path)
+    parser.add_argument('--incremental',action='store_true')
+    parser.add_argument('--owner-pid',type=int)
+    parser.add_argument('--reference-file',type=Path)
     args=parser.parse_args()
     try:
-        result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing)
+        from dashboard.process_lifetime import LauncherLifetime
+        with LauncherLifetime(args.owner_pid,stop_file=args.stop_file) as lifetime:
+            result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing,
+                             incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file)
         print(json.dumps({k:result.get(k) for k in ('state','target','pending_symbol_days','inserted')},ensure_ascii=False))
-        return 0 if result.get('state')=='complete' else 2
+        return 0 if result.get('state') in ('complete','date_checked') else 2
     except OSError:
         print('{"state":"busy_or_local_io_error"}');return 3
     except Exception:
