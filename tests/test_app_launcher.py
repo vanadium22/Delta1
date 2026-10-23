@@ -70,5 +70,25 @@ class AppLauncherTests(unittest.TestCase):
         self.assertEqual(json.loads((root/'completed.json').read_text())['argv'],['--edition','presentation'])
         self.assertEqual(report['phase'],'app_exited');self.assertEqual(report['exit_code'],23)
 
+    def test_console_hidden_without_hiding_first_gui_window(self):
+        root,dashboard=self.fixture()
+        (dashboard/'native/editions_current.py').write_text('''
+import ctypes,json
+from ctypes import wintypes as w
+from pathlib import Path
+class StartupInfo(ctypes.Structure):
+    _fields_=[('cb',w.DWORD),('reserved',w.LPWSTR),('desktop',w.LPWSTR),('title',w.LPWSTR)]+[(x,w.DWORD) for x in ('x','y','width','height','cols','rows','fill','flags')]+[('show',w.WORD),('reserved_size',w.WORD),('reserved_bytes',ctypes.c_void_p),('stdin',w.HANDLE),('stdout',w.HANDLE),('stderr',w.HANDLE)]
+info=StartupInfo();info.cb=ctypes.sizeof(info)
+ctypes.windll.kernel32.GetStartupInfoW(ctypes.byref(info))
+ctypes.windll.kernel32.GetConsoleWindow.restype=w.HWND
+Path('window-startup.json').write_text(json.dumps(dict(flags=info.flags,show=info.show,console=ctypes.windll.kernel32.GetConsoleWindow())))
+''',encoding='utf8')
+        result,run,report=self.launch(dashboard)
+        self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        state=json.loads((root/'window-startup.json').read_text())
+        self.assertFalse(state['flags'] & 1 and state['show']==0,
+                         'STARTF_USESHOWWINDOW + SW_HIDE hides Qt main window')
+        self.assertFalse(state['console'],'Console must remain hidden')
+
 
 if __name__=='__main__':unittest.main()

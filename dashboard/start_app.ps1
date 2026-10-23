@@ -17,13 +17,29 @@ function ConvertTo-AppArgument {
 function Invoke-AppProcess {
     param([string]$Interpreter,[string[]]$Arguments,[string]$LogName)
     $commandLine=($Arguments | ForEach-Object { ConvertTo-AppArgument $_ }) -join ' '
-    # Keep native stderr outside PowerShell's ErrorActionPreference pipeline.
-    # Qt / collector warnings are diagnostics, not requests to stop the App.
-    $child=Start-Process -FilePath $Interpreter -ArgumentList $commandLine -WorkingDirectory $repository `
-        -WindowStyle Hidden -Wait -PassThru `
-        -RedirectStandardOutput (Join-Path $runtime ($LogName+'.log')) `
-        -RedirectStandardError (Join-Path $runtime ($LogName+'.stderr.log'))
-    $child.ExitCode
+    # Hide only the console. SW_HIDE in STARTUPINFO also hides Qt's first
+    # top-level window, so do not use Start-Process -WindowStyle Hidden here.
+    $info=New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName=$Interpreter;$info.Arguments=$commandLine
+    $info.WorkingDirectory=$repository;$info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    $stdout=[System.IO.File]::Create((Join-Path $runtime ($LogName+'.log')))
+    $stderr=[System.IO.File]::Create((Join-Path $runtime ($LogName+'.stderr.log')))
+    $child=New-Object System.Diagnostics.Process
+    $child.StartInfo=$info
+    try {
+        [void]$child.Start()
+        # Drain both pipes concurrently: warning output must not stop or
+        # deadlock a long-running App. Preserve bytes and the actual exit code.
+        $outCopy=$child.StandardOutput.BaseStream.CopyToAsync($stdout)
+        $errCopy=$child.StandardError.BaseStream.CopyToAsync($stderr)
+        $child.WaitForExit()
+        [void]$outCopy.GetAwaiter().GetResult();[void]$errCopy.GetAwaiter().GetResult()
+        $child.ExitCode
+    } finally {
+        $stdout.Dispose();$stderr.Dispose();$child.Dispose()
+    }
 }
 
 $launchState=@{schema='app-launch-v1';edition=$Edition;launcher_pid=$PID;phase='preflight';
