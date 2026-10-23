@@ -53,7 +53,7 @@ def _capture(model, request, selection=None, display=False):
         state = display_snapshot(model, request)
     else:
         state = model.snapshot(request)
-    research = evaluate(model, selection,now=state['as_of'])
+    research = None if getattr(model,'indicator_v6_active',False) else evaluate(model, selection,now=state['as_of'])
     state['research_pages'] = research
     request_id = (selection or {}).get('request_id')
     if request_id and request_id != getattr(model, 'saved_indicator_request', None):
@@ -851,6 +851,9 @@ class ResearchPage(QWidget):
 
 
 def add_research_pages(window, tabs, on_change):
+    if not getattr(window,'frozen_payload',None) or window.frozen_payload.get('research_v6'):
+        from .research_v6_view import add_pages
+        return add_pages(window,tabs)
     window.research_pages = {}
     for key, title in PAGE_TITLES.items():
         page = ResearchPage(key); window.research_pages[key] = page
@@ -873,3 +876,5 @@ def active_selection(window):
 def render_pages(window, research):
     for page in window.research_pages.values():
         page.render(research)
+    if getattr(window,'state',None) is not None and getattr(window.model,'indicator_v6_active',False):
+        window.state['research_v6']={key:page.result for key,page in window.research_pages.items() if page.result}

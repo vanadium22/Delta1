@@ -40,6 +40,8 @@ def export_window(window,payload):
 
 def freeze_window(state):
     payload=freeze_state(state)
+    if state.get('research_v6'):
+        payload['research_v6']=state['research_v6']
     if state.get('research_pages'):
         # Preserve the shared result contract and its visible entity page.
         # Export never reloads a changed source or substitutes another selection.
@@ -74,6 +76,8 @@ class PresentationWindow(QMainWindow):
             # A frozen export carries only the groups evaluated at capture.
             # Keep it readable without allowing filters to imply recalculation.
             for page in self.research_pages.values():
+                if hasattr(page,'freeze'):
+                    page.freeze();continue
                 page.read_only=True
                 for widget in (page.input,page.family,page.more_inputs,page.scope,page.product,page.timing,page.expiry,
                                page.left,page.right,page.date,page.participation,page.apply,page.expand,page.representatives,page.directory,page.search):
@@ -164,11 +168,13 @@ class PresentationWindow(QMainWindow):
                 date=stamp(when,True)[:5] if when else '缺数'
                 lines.append(f"{short[code]} {number(value,2)} {m['unit']} · {kind} {date}")
             self.indicator_numbers[c['root']].setText('\n'.join('    |    '.join(lines[i:i+2]) for i in range(0,len(lines),2)) or '暂无可用研究指标；需要对应频率历史数据')
+        research_v6=self.pages.currentWidget() in self.research_pages.values() and getattr(self.model,'indicator_v6_active',False)
         self.notice.setText('保存行情冻结回放 · 非当前实时' if self.frozen_payload else
-            '固定分红情景 · 缺失分红按已披露前一合约继承 · 陈旧行情保留日期，不能视为实时')
+            '第六版研究 · 未调整基差与相对定价；各输出保留真实观测时间与数据来源' if research_v6 else
+            '原行情概览 · 固定分红情景 · 缺失分红按已披露前一合约继承 · 陈旧行情保留日期，不能视为实时')
         s=self.collection.state()
         self.network.setText('冻结快照' if self.frozen_payload else ('持续采集 · 时效见卡片' if self.collection.running() else '只读缓存 / 未采集'))
-        self.status.setText('观察时点 '+stamp(state['as_of'])+' · 分位和有效 n 见各窗口；单位见卡片')
+        self.status.setText(('页面刷新 ' if research_v6 else '观察时点 ')+stamp(state['as_of'])+' · 指标真实观测时间、频率和单位见各输出')
         from dashboard.refresh_evidence import applied
         applied(self,state)
         self.loaded.emit(state)
@@ -187,7 +193,7 @@ class PresentationWindow(QMainWindow):
         if hasattr(self,'pipeline'):
             self.pipeline.stop()
             if not self.pipeline.drained():event.ignore();QTimer.singleShot(100,self.close);return
-        if self.busy or self.collection.running():event.ignore();QTimer.singleShot(100,self.close);return
+        if self.busy or self.collection.running() or any(getattr(p,'busy',False) for p in self.research_pages.values()):event.ignore();QTimer.singleShot(100,self.close);return
         if hasattr(self,'pipeline'):self.pipeline.timer.stop()
         self.model.close();event.accept()
 

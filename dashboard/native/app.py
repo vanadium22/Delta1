@@ -198,6 +198,9 @@ class ResearchWindow(QMainWindow):
         state=self.state
         if not state:return
         self.dividend_banner.setToolTip('')
+        if getattr(self.model,'indicator_v6_active',False) and self.pages.currentWidget() in self.research_pages.values():
+            self.dividend_banner.setText('第六版研究 · 未调整基差与相对定价；各输出保留真实观测时间与数据来源')
+            return
         info=state["dividend_info"]
         if state["dividend_reason"]:text="分红不可用："+state["dividend_reason"]
         elif state["dividend_mode"]=="fixed_snapshot":
@@ -318,7 +321,7 @@ class ResearchWindow(QMainWindow):
         self.history_maintenance.stop();self.history_maintenance.tick()
         if self.history_maintenance.process is not None:
             event.ignore();QTimer.singleShot(100,self.close);return
-        if self.busy or self.collection.running():
+        if self.busy or self.collection.running() or any(getattr(p,'busy',False) for p in self.research_pages.values()):
             event.ignore();QTimer.singleShot(100,self.close);return
         if hasattr(self,'pipeline'):self.pipeline.timer.stop()
         self.model.close();event.accept()

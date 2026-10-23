@@ -1,0 +1,228 @@
+[
+  {
+    "id": "T4",
+    "input": {
+      "F": 99,
+      "S": 100,
+      "T": 4
+    },
+    "expected": {
+      "b": -100.5033585350145,
+      "a": null
+    },
+    "reason": "DTE_LT5"
+  },
+  {
+    "id": "T5",
+    "input": {
+      "F": 99,
+      "S": 100,
+      "T": 5
+    },
+    "expected": {
+      "a": -73.36745173056059
+    },
+    "reason": null
+  },
+  {
+    "id": "calendar_near4",
+    "input": {
+      "F_n": 101,
+      "F_f": 100,
+      "T_n": 4,
+      "T_f": 67,
+      "DeltaT": 63
+    },
+    "expected": {
+      "ac": 5.7648742244545295
+    },
+    "reason": null
+  },
+  {
+    "id": "constant_rank",
+    "input": {
+      "history": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "current": 2
+    },
+    "expected": {
+      "percentile": 50,
+      "z": null
+    },
+    "reason": "STD_ZERO仅作用Z"
+  },
+  {
+    "id": "constant_path",
+    "input": {
+      "X": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "returns": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "expected": {
+      "E": null,
+      "RV": 0
+    },
+    "reason": "FLAT_PATH仅作用E"
+  },
+  {
+    "id": "zero_weights",
+    "input": {
+      "delta": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "weight": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "expected": {
+      "weight_sum": 0,
+      "advance": null
+    },
+    "reason": "NO_WEIGHT"
+  },
+  {
+    "id": "candidate_missing",
+    "input": {
+      "z": 0,
+      "K": null,
+      "other_conditions_valid": true
+    },
+    "expected": {
+      "candidate": null
+    },
+    "reason": "DEPENDENCY_NULL，不允许因z未过阈值短路为0"
+  },
+  {
+    "id": "candidate_valid_zero",
+    "input": {
+      "z": 0,
+      "K": 0.01,
+      "rvol": 1,
+      "E": 0.1,
+      "stress": 1
+    },
+    "expected": {
+      "candidate": 0
+    },
+    "reason": null
+  },
+  {
+    "id": "minute_session_start",
+    "input": {
+      "first_bar": "09:31",
+      "N": 30,
+      "M": 30,
+      "L": 3
+    },
+    "expected": {
+      "first_z": "10:01",
+      "first_rv": "10:01",
+      "first_residual": "10:02",
+      "first_event": "10:03"
+    },
+    "reason": null
+  },
+  {
+    "id": "noon_axis",
+    "input": {
+      "left": "11:30",
+      "right": "13:01"
+    },
+    "expected": {
+      "left_x": 119,
+      "right_x": 120
+    },
+    "reason": null
+  },
+  {
+    "id": "missing_minute",
+    "input": {
+      "missing_time": "10:00"
+    },
+    "expected": {
+      "x_29": null,
+      "x_30_time": "10:01",
+      "compress_missing": false
+    },
+    "reason": "WINDOW_GAP"
+  },
+  {
+    "id": "zero_capacity",
+    "input": {
+      "V_u": 0,
+      "V_v": 100,
+      "OI_u": 100,
+      "OI_v": 100,
+      "h": 1
+    },
+    "expected": {
+      "cap": 0
+    },
+    "reason": null
+  }
+]

@@ -52,7 +52,8 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
             window.navigate(args.capture_page)
             def capture():
                 nonlocal saved
-                if window.busy or window.pending:
+                active_page=window.pages.currentWidget()
+                if window.busy or window.pending or getattr(active_page,'busy',False):
                     QTimer.singleShot(100,capture);return
                 args.capture.parent.mkdir(parents=True,exist_ok=True)
                 saved=window.grab().save(str(args.capture));window.close()

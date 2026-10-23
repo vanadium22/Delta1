@@ -1,0 +1,5418 @@
+{
+  "schema_version": "6.0.0",
+  "title": "股指期货指标前端实现规范",
+  "language": "zh-CN",
+  "edition_date": "2026-10-23",
+  "reading_order": [
+    "common",
+    "units",
+    "coordinates",
+    "operators",
+    "indicators",
+    "datasets",
+    "acceptance_cases"
+  ],
+  "groups": [
+    {
+      "id": "A",
+      "name": "期指",
+      "count": 12,
+      "direction": "+1代表多期货、空对应现货"
+    },
+    {
+      "id": "B",
+      "name": "跨期",
+      "count": 10,
+      "direction": "+1代表多近月、空远月"
+    },
+    {
+      "id": "C",
+      "name": "跨指数期货",
+      "count": 10,
+      "direction": "+1代表多IF、空IC；手数须单独指定"
+    }
+  ],
+  "common": {
+    "timezone": "Asia/Shanghai",
+    "timestamp_convention": "结束时刻标记；1m结束且数据到齐后才可输出；1d只使用已完成交易日",
+    "expiry": {
+      "dte": "expiry_date - trading_date，以本地自然日差取整数；非交易日也计入T",
+      "min_annual_dte": 5,
+      "inclusive": true,
+      "expiry_day": "T=0基本价差可使用该合约最后有效交易时段内价格；年化为空；之后EXPIRED",
+      "calendar_annual": "使用固定expiry_far-expiry_near>0；不因near剩余4日就清空年化跨期",
+      "cross_annual": "默认同到期日；逐腿T>=5才可计算Ga",
+      "note": "T>=5是本研究有效性门槛，不是交易所停止交易规则"
+    },
+    "validation_order": [
+      "参数存在及范围",
+      "合约标的/到期/身份",
+      "时间同步及观测收完",
+      "输入有限且价格/数量/OHLC有效",
+      "对应年化期限",
+      "连续窗口长度与缺失",
+      "分母/权重/回归退化",
+      "算值与单位",
+      "组合条件判断",
+      "逐输出序列化"
+    ],
+    "raw_constraints": {
+      "prices": "F/S/O/H/L/C必须有限且>0；按实际依赖字段检查",
+      "quantities": "V/OI必须有限且>=0；0是有效数量",
+      "multiplier": "必须有限且>0，来源为合约元数据",
+      "ohlc": "H>=max(O,C)，L<=min(O,C)，H>=L；H=L只使CLV无定义",
+      "synchronization": "同一分钟多腿使用相同timestamp；不同步不使用最近值前填",
+      "net_oi": "OI和V口径一致时，abs(delta OI)>V将K判为异常；依赖K的筛选为空",
+      "missing": "禁止把缺失填0、forward-fill或用min/sum(skipna=True)忽略必需腿"
+    },
+    "window_policy": {
+      "identity": "单一具体合约/固定合约对；每个观测按自身日期年化",
+      "calendar": "按照交易所日历补足应有行后检查连续窗口；不得dropna后重新凑N个观测",
+      "prior": "所有历史位置、RVOL、TR压力与回归训练窗口排除当前",
+      "current": "变化、路径、权重窗口和实现波动包含当前",
+      "roll": "新身份使用其自身已存在历史；展示换月断线，但不强制丢弃该新合约已完成的合法预热",
+      "minute_reset": [
+        "午休",
+        "隔夜",
+        "实际缺失交易分钟",
+        "合约身份变化"
+      ],
+      "cumulative": "中枢从当日09:31累计；午休保留；实际缺失必要分钟使累计结果为空，补齐后可重算"
+    },
+    "result_contract": {
+      "value": "finite number or null；禁止NaN/Infinity/空字符串/以0占位",
+      "status": [
+        "VALID",
+        "INVALID"
+      ],
+      "reason_codes": "VALID时[]；INVALID至少1项；依赖为空加DEPENDENCY_NULL并传根原因",
+      "field_level": "逐输出判断；一个输出无效不清空同指标其他独立输出",
+      "card_status": "全部有效VALID，全部无效INVALID，部分有效PARTIAL",
+      "rounding": "运算及JSON保留浮点精度；仅显示时四舍五入",
+      "null_display": "显示—及原因提示，不绘制为0，不连接缺失"
+    },
+    "numbers": {
+      "z_std": "样本标准差ddof=1；回归残差Z使用训练残差样本标准差ddof=1，不是自由度n-2的回归标准误",
+      "regression": "含截距；小数对数收益var(x)<=1e-20退化；训练残差std<=1e-12只使Z为空",
+      "percentile": "100*(历史小于当前数+0.5*历史等于当前数)/N；默认不取整后比较",
+      "annual_change": "Δa包含基差变化和期限缩短，不能直接视为收益",
+      "volatility": "sqrt(sum(r^2))，未减均值，不额外年化；完整零收益返回0"
+    }
+  },
+  "units": {
+    "point": {
+      "label": "指数点",
+      "storage": "number",
+      "display_decimals": 2
+    },
+    "bp": {
+      "label": "bp",
+      "storage": "number；1bp=0.0001",
+      "display_decimals": 2
+    },
+    "pct": {
+      "label": "%",
+      "storage": "百分数数值；例如-8.825表示-8.825%，不是-0.08825",
+      "display_decimals": 2
+    },
+    "pp": {
+      "label": "个百分点",
+      "storage": "百分数数值之差；1.341表示1.341个百分点",
+      "display_decimals": 2
+    },
+    "ratio": {
+      "label": "倍/无量纲",
+      "storage": "原始小数比值；K=0.05666显示为5.666%需×100",
+      "display_decimals": 3
+    },
+    "lot": {
+      "label": "手",
+      "storage": "数量；连续容量可含小数，实际下单另行取整",
+      "display_decimals": 3
+    },
+    "weighted_lot": {
+      "label": "加权手数",
+      "storage": "匹配手数×相对量能的权重和",
+      "display_decimals": 2
+    },
+    "cny": {
+      "label": "元",
+      "storage": "number",
+      "display_decimals": 2
+    },
+    "cny_10k": {
+      "label": "万元",
+      "storage": "元/10000",
+      "display_decimals": 3
+    },
+    "direction": {
+      "label": "方向",
+      "storage": "-1,0,+1；正向组合见group.direction；不是手数",
+      "display_decimals": 0
+    },
+    "flag": {
+      "label": "事件",
+      "storage": "0或1；null不同于0",
+      "display_decimals": 0
+    },
+    "count": {
+      "label": "次",
+      "storage": "非负整数；null不同于0",
+      "display_decimals": 0
+    }
+  },
+  "reason_codes": {
+    "DTE_LT5": "相关年化输入的剩余自然日不足5；T=5有效",
+    "WARMUP": "连续有效历史尚未达到窗口要求",
+    "STD_ZERO": "所需参照标准差为0或低于规定精度阈值",
+    "INPUT_MISSING": "某个必需输入未取得或非有限数",
+    "PRICE_INVALID": "必需价格非正，或理论价非正",
+    "PAIR_MISMATCH": "合约标的、到期关系或配对身份不满足要求",
+    "EXPIRED": "观测超过该具体合约最后有效交易时段；C06增长另设到期日排除",
+    "NO_WEIGHT": "完整窗口内有效权重总和为0",
+    "DENOM_ZERO": "所需分母为0或不满足严格正值要求",
+    "FLAT_PATH": "路径绝对变化和为0，效率无定义",
+    "DATA_ANOMALY": "数量为负、统计口径不一致，或同口径绝对净持仓变化超过成交",
+    "REG_DEGENERATE": "训练解释变量方差接近0，回归不可识别",
+    "WINDOW_GAP": "应有交易观测缺失，或窗口跨越不允许的会话边界",
+    "GAP_SMALL": "初始跳变小于规定阈值，回吐比不稳定",
+    "INCOMPLETE_DAY": "当日分钟观测不完整，无法输出日终确认总数",
+    "OHLC_FLAT": "H=L，CLV无定义",
+    "DEPENDENCY_NULL": "某个上游输出无效；需同时传递根原因",
+    "PARAM_MISSING": "计算所需参数未提供",
+    "PARAM_INVALID": "参数超出允许范围",
+    "BETA_NONPOS": "beta不为正，当前一多一空配对模式不成立",
+    "NOT_CLOSED": "当前观测柱尚未收完",
+    "TIME_MISMATCH": "多腿价格时间戳或交易日不一致",
+    "OHLC_INVALID": "高低价和开收价关系不成立"
+  },
+  "coordinates": {
+    "day": {
+      "type": "integer_category",
+      "coordinate": "trade_day_index",
+      "origin": 0,
+      "source": "真实交易所日历及本地样本交易日",
+      "labels": "实际YYYY-MM-DD",
+      "remove": "周末、节假日、其他真实休市日",
+      "missing": "应有交易日保留index，值为null；不压缩数据缺失",
+      "roll": "任一合约或合约集合identity变化时break_before=true"
+    },
+    "minute": {
+      "type": "integer_category",
+      "coordinate": "trade_minute_index",
+      "origin": 0,
+      "sessions": [
+        {
+          "id": "AM",
+          "first_end": "09:31:00",
+          "last_end": "11:30:00",
+          "count": 120
+        },
+        {
+          "id": "PM",
+          "first_end": "13:01:00",
+          "last_end": "15:00:00",
+          "count": 120
+        }
+      ],
+      "mapping": "x=day_offset*240 + session_offset + minute_offset；session_offset=0或120",
+      "noon": {
+        "left": {
+          "x": 119,
+          "time": "11:30:00"
+        },
+        "right": {
+          "x": 120,
+          "time": "13:01:00"
+        },
+        "seam": 119.5
+      },
+      "labels": "单日HH:mm；多日显示日期分隔及HH:mm",
+      "missing": "按预期交易分钟建网格；缺失仍有index和值null，禁止仅把存在的数据连续编号",
+      "spanning_sessions": "价格与累计中枢可连接午休接缝；滚动输出按重置及预热自然断开"
+    },
+    "chart": {
+      "connectNulls": false,
+      "interpolation": false,
+      "smooth": false,
+      "split_units": true,
+      "split_frequencies": true,
+      "default_series_order": "原始价格分支、年化分支",
+      "color": {
+        "original": "#244D69",
+        "annual": "#B8703D",
+        "third": "#568375"
+      },
+      "tooltip": [
+        "indicator_id",
+        "field",
+        "value",
+        "unit",
+        "timestamp",
+        "trade_day_index或trade_minute_index",
+        "contract_ids",
+        "session_id",
+        "status",
+        "reason_codes"
+      ]
+    }
+  },
+  "operators": {
+    "prior_stats": {
+      "input": "X_t与此前N个连续有效X",
+      "formula": [
+        "hist=X[t-N:t]，右端不含t",
+        "pct=100*(sum(hist<X_t)+.5*sum(hist==X_t))/N",
+        "z=(X_t-mean(hist))/std(hist,ddof=1)"
+      ],
+      "zero": "hist常数时分位仍有效；z=null"
+    },
+    "weighted_change": {
+      "input": "k个变化与相同日期权重；全部有限、w>=0",
+      "formula": "sum(w_i*(X_i-X_(i-1)))/sum(w_i)，i=t-k+1..t",
+      "minimum": "k+1个连续X；k个权重；不忽略w=0时缺失的X",
+      "zero": "sum(w)=0 => null/NO_WEIGHT"
+    },
+    "efficiency": {
+      "formula": "(X_t-X_(t-k))/sum(abs(X_i-X_(i-1)))",
+      "minimum": "k+1个连续X",
+      "zero": "绝对路径为0 => null/FLAT_PATH"
+    },
+    "rvol": {
+      "formula": "V_t/median(V[t-20:t])",
+      "zero": "参照中位数<=0则null；V_t=0且参照>0则有效0"
+    },
+    "regression": {
+      "formula": [
+        "train_y=y[t-M:t]; train_x=x[t-M:t]",
+        "beta=cov(train_x,train_y)/var(train_x)",
+        "alpha=mean(train_y)-beta*mean(train_x)",
+        "train_e=train_y-alpha-beta*train_x",
+        "e_t=y_t-alpha-beta*x_t",
+        "z_e=e_t/std(train_e,ddof=1)"
+      ],
+      "min_prices_for_beta": "M+1个此前价格",
+      "min_prices_for_current_residual": "M+2个连续价格",
+      "beta": "若只缺当前y/x，beta可独立保留；残差须当前y/x齐全"
+    },
+    "confirmation": {
+      "input": "同会话此前N=30个X计算当前Z",
+      "algorithm": [
+        "若当前Z无效：event=null，当前展示count=null，streak=0，valid_run=0，保留当日累计count状态",
+        "若Z有效：valid_run+=1；side=sign(Z) if abs(Z)>=2 else 0",
+        "side为0：streak=0；同非零方向：streak+=1；新非零方向：streak=1",
+        "valid_run<3时event=null，否则event=1 iff streak==3，其他event=0",
+        "event=1时日累计count+=1；event有效时展示当日count",
+        "会话切换重置streak、valid_run；隔夜同时清空日累计count"
+      ],
+      "daily": "240根必要输入完整，且至少一个event可计算时，events=count_at_close；否则INCOMPLETE_DAY或WARMUP/STD_ZERO",
+      "same_day_scaling": "同日T固定且>0时a是b正常数倍，其分钟Z与事件完全相同"
+    },
+    "gate": {
+      "order": "先验证全部依赖，不短路返回0；再判断各门槛",
+      "direction": "满足=>-sign(Z)，否则0",
+      "meaning": "记录候选条件，非收益承诺；回归残差与候选筛选独立"
+    }
+  },
+  "variant_rules": {
+    "direct_price": {
+      "ids": [
+        "A01",
+        "A02",
+        "A03",
+        "A04",
+        "A05",
+        "A08",
+        "A09",
+        "A11"
+      ],
+      "choices": [
+        "b",
+        "a"
+      ],
+      "rule": "a_t逐日用365*b_t/(100*T_t)；随后按各字段f重算；A05权重不随X改变",
+      "units": "b原值/变化为bp；a原值为%，差/变化为pp；分位为%，Z/E/回吐比无量纲"
+    },
+    "calendar_price": {
+      "ids": [
+        "B01",
+        "B02",
+        "B03",
+        "B05",
+        "B07",
+        "B08",
+        "B09"
+      ],
+      "choices": [
+        "cal",
+        "l",
+        "ac"
+      ],
+      "rule": "cal与ac非固定倍数；l与ac在固定DeltaT下是正常数倍；切换必须固定同一合约对历史"
+    },
+    "cross_price": {
+      "ids": [
+        "C01",
+        "C02",
+        "C05",
+        "C08",
+        "C09"
+      ],
+      "choices": [
+        "G",
+        "Ga"
+      ],
+      "rule": "C05先在每腿b或a上各自加权，再相减；其他统计在G/Ga历史上重算"
+    },
+    "regression": {
+      "ids": [
+        "A07",
+        "B08",
+        "C09"
+      ],
+      "default_inputs": {
+        "A07": [
+          "rF",
+          "rS"
+        ],
+        "B08": [
+          "r_near",
+          "r_far"
+        ],
+        "C09": [
+          "r_IF",
+          "r_IC"
+        ]
+      },
+      "optional": {
+        "A07": [
+          "delta_a_IF",
+          "r_HS300"
+        ],
+        "B08": [
+          "delta_ac",
+          "r_far"
+        ],
+        "C09": [
+          "delta_a_IF",
+          "delta_a_IC"
+        ]
+      },
+      "optional_contract": "同样带截距、仅此前M对观测；y用pp时残差直接按pp输出，不能乘10000；x/y单位变化后须显式提供残差epsilon和解释变量var_epsilon，未提供PARAM_MISSING；输出命名新增variant，不覆盖默认残差"
+    },
+    "volatility": {
+      "ids": [
+        "A08",
+        "B07",
+        "C08"
+      ],
+      "optional": [
+        "delta_a",
+        "delta_ac",
+        "delta_Ga"
+      ],
+      "formula": "sqrt(sum(delta_X_i^2))，当前在内规定长度",
+      "unit": "pp，禁止再乘10000",
+      "reset": "分钟会话内，日频固定合约身份；完整全0窗口输出0"
+    },
+    "fair_annual": {
+      "ids": [
+        "A10"
+      ],
+      "formula": "annual_model_gap=365*e/(100*T)",
+      "cost": "每方向成本同步乘365/(100*T)后再扣除",
+      "unit": "pp",
+      "guard": "T>=5"
+    },
+    "quantity_only": {
+      "ids": [
+        "A06",
+        "A12",
+        "B04",
+        "B06",
+        "B10",
+        "C06",
+        "C07",
+        "C10"
+      ],
+      "rule": "V/OI/OHLC/乘数/h不直接换成a。若加入价格状态，单列条件分支；原输出的计算定义不变"
+    },
+    "attribution": {
+      "ids": [
+        "C03"
+      ],
+      "rule": "从Ga还原同日G=100*T*Ga/365后做端点变化；beta加权时须逐腿还原b，单个Ga不足以得到beta≠1的分解"
+    },
+    "index_hedge": {
+      "ids": [
+        "C04"
+      ],
+      "rule": "指数收益beta才用于默认指数敏感度配对。若回归输入换成delta_a，结果另命名定价敏感度；禁止沿用为h_beta。"
+    }
+  },
+  "indicators": [
+    {
+      "id": "A01",
+      "group": "A",
+      "group_name": "期指",
+      "title": "期指基差与年化定价",
+      "purpose": "先度量期货相对对应现货指数的升贴水，再按剩余期限换算。点差反映指数点，对数基差便于收益分解，年化基差反映单位期限的定价。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "points",
+          "unit": "point",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "B",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "b",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "a",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F",
+        "S",
+        "expiry_date"
+      ],
+      "parameters": {
+        "annual_days": 365,
+        "min_annual_dte": 5
+      },
+      "null_rules": [
+        {
+          "reason": "DTE_LT5",
+          "condition": "T < 5 个自然日，仅 a 为空；T=5 有效",
+          "affected_outputs": [
+            "a"
+          ],
+          "scope_description": [
+            "a"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "T＜5自然日仅年化值为空；价格缺失或非正时相应基差为空。",
+      "formula": [
+        "points=F-S",
+        "B=10000*(F/S-1)",
+        "b=10000*ln(F/S)",
+        "a=365*b/(100*T)，数值按百分数存储"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "annual_days",
+          "default": 365,
+          "label": "年化自然日基准",
+          "unit": "calendar_days",
+          "constraint": "本版本固定365"
+        },
+        {
+          "key": "min_annual_dte",
+          "default": 5,
+          "label": "最小年化剩余期限",
+          "unit": "calendar_days",
+          "constraint": "T>=5可用；边界策略须版本化"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X可选点差、比例基差、对数基差b或年化a；历史年化须逐日使用各日T。",
+        "detail": "X可取点差、普通基差、对数基差或年化基差。年化率以百分数展示；其变化以百分点表示。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "T＜5自然日仅年化值为空；价格缺失或非正时相应基差为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "b",
+          "a"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "b",
+                "label": "对数基差",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化 %",
+            "series": [
+              {
+                "field": "a",
+                "label": "年化基差",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A02",
+      "group": "A",
+      "group_name": "期指",
+      "title": "期指历史分位与偏离",
+      "purpose": "将同一合约当前定价与其此前20个交易日比较，区分价格绝对高低与相对历史位置。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "b_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "a_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "b_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "a_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "b_d5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "a_d5",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "b",
+        "a"
+      ],
+      "parameters": {
+        "N": 20,
+        "k": 5,
+        "ddof": 1
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "分位和Z需当日及此前20个完整交易日；五日变化需同合约6个连续交易日",
+          "affected_outputs": [
+            "b_pct",
+            "a_pct",
+            "b_z",
+            "a_z",
+            "b_d5",
+            "a_d5"
+          ],
+          "scope_description": "按输出窗口分别判断",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "参照样本标准差为0，仅Z为空；全相等时半权分位为50%",
+          "affected_outputs": [
+            "b_z",
+            "a_z"
+          ],
+          "scope_description": [
+            "b_z",
+            "a_z"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "年化分支所需任一日T<5",
+          "affected_outputs": [
+            "a_pct",
+            "a_z",
+            "a_d5"
+          ],
+          "scope_description": "a分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "分位需当前值及前20日；Z另需标准差＞0。五日变化需6日；年化窗口中T＜5则为空。",
+      "formula": [
+        "pct(X)=100*(count(X_hist<X_t)+0.5*count(X_hist=X_t))/N",
+        "z(X)=(X_t-mean(X_hist))/std(X_hist,ddof=1)",
+        "d5(X)=X_t-X_(t-5)；hist=t-20..t-1"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "ddof",
+          "default": 1,
+          "label": "样本标准差自由度扣减",
+          "unit": "count",
+          "constraint": "默认1；窗口大于ddof"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b→a时，重建整段年化历史，再算分位、Z和变化；不能仅缩放最终统计量。",
+        "detail": "将X从b改为a时，先按每个历史日自己的T重建a，再重算分位、Z和变化。不能将当前Z乘以年化系数。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "分位需当前值及前20日；Z另需标准差＞0。五日变化需6日；年化窗口中T＜5则为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "b_pct",
+          "a_pct",
+          "b_z",
+          "a_z"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "历史分位 %",
+            "series": [
+              {
+                "field": "b_pct",
+                "label": "基差分位",
+                "display_scale": 1
+              },
+              {
+                "field": "a_pct",
+                "label": "年化分位",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "b_z",
+                "label": "基差 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "a_z",
+                "label": "年化 Z",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A03",
+      "group": "A",
+      "group_name": "期指",
+      "title": "开盘偏离与盘中回吐",
+      "purpose": "以前收为参照，把当日变化拆为首个同步分钟之前的偏离和其后的盘中变化，识别初始偏离是否被回吐。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "gap_b",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "intra_b",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "repair_b",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "gap_a",
+          "unit": "pp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "intra_a",
+          "unit": "pp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "repair_a",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_min",
+        "S_min",
+        "previous_daily_close",
+        "T",
+        "T_prev"
+      ],
+      "parameters": {
+        "open_bar": "09:31",
+        "min_gap_bp": 2
+      },
+      "null_rules": [
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "缺同合约前收或09:31同步价",
+          "affected_outputs": [
+            "gap_b",
+            "gap_a",
+            "repair_b",
+            "repair_a"
+          ],
+          "scope_description": "gap与repair；intra仅依赖当日09:31和当前价",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "GAP_SMALL",
+          "condition": "abs(g_b)<2bp；年化abs(g_a)<2*365/(100*T)个百分点",
+          "affected_outputs": [
+            "repair_b",
+            "repair_a"
+          ],
+          "scope_description": "对应repair",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "当前T<5，或需要前收的年化字段T_prev<5",
+          "affected_outputs": [
+            "gap_a",
+            "intra_a",
+            "repair_a"
+          ],
+          "scope_description": "a分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "回吐比须有同合约前收与09时31分价，且初始差绝对值≥2bp；年化门槛同步换算。",
+      "formula": [
+        "g_X=X_09:31-X_prev",
+        "d_X(tau)=X_tau-X_09:31",
+        "repair_X(tau)=-d_X(tau)/g_X；09:31及前收使用同一具体合约"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "open_bar",
+          "default": "09:31",
+          "label": "open_bar",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "min_gap_bp",
+          "default": 2,
+          "label": "初始跳变绝对值下限",
+          "unit": "bp",
+          "constraint": ">=0；年化门槛=该值*365/(100*T)"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b或a；用同一具体合约前收与09:31值。R>1表示当日变化已超过初始跳变。",
+        "detail": "X可取b或a；若仅研究价格回吐，可将前收与当日统一按当日T重标，并单独说明该口径。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "回吐比须有同合约前收与09时31分价，且初始差绝对值≥2bp；年化门槛同步换算。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "gap_b",
+          "intra_b",
+          "repair_b",
+          "repair_a"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "gap_b",
+                "label": "前收至09:31",
+                "display_scale": 1
+              },
+              {
+                "field": "intra_b",
+                "label": "09:31至当前",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "倍",
+            "series": [
+              {
+                "field": "repair_b",
+                "label": "基差回吐比",
+                "display_scale": 1
+              },
+              {
+                "field": "repair_a",
+                "label": "年化回吐比",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A04",
+      "group": "A",
+      "group_name": "期指",
+      "title": "成交加权定价中枢",
+      "purpose": "用分钟成交量对同刻基差加权，衡量收盘相对主要成交时段的偏离。年化版本保留同一组分钟权重。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "center_b",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "D_b",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "center_a",
+          "unit": "pct",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "D_a",
+          "unit": "pp",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_min",
+        "S_min",
+        "V_F_min",
+        "T"
+      ],
+      "parameters": {
+        "weight": "V_F_min",
+        "accumulation": "trading_day"
+      },
+      "null_rules": [
+        {
+          "reason": "NO_WEIGHT",
+          "condition": "从开盘至当前的有效成交权重和为0",
+          "affected_outputs": [
+            "center_b",
+            "D_b",
+            "center_a",
+            "D_a"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "WINDOW_GAP",
+          "condition": "日内累计区间缺必要同步分钟，缺失补齐前不输出",
+          "affected_outputs": [
+            "center_b",
+            "D_b",
+            "center_a",
+            "D_a"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "当前T<5",
+          "affected_outputs": [
+            "center_a",
+            "D_a"
+          ],
+          "scope_description": "a分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "累计成交权重和须＞0；区间缺必要分钟时为空。T＜5仅年化分支为空。",
+      "formula": [
+        "center_X(tau)=sum(V_F_j*X_j)/sum(V_F_j), j=开盘..tau",
+        "D_X(tau)=X_tau-center_X(tau)；午休不重置累计中枢"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "weight",
+          "default": "V_F_min",
+          "label": "weight",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "accumulation",
+          "default": "trading_day",
+          "label": "accumulation",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b或a；权重仍为期货分钟成交量。更换X后同步重算中枢与偏离。",
+        "detail": "X可取b、a或模型偏离。日内T固定时，b改a只缩放中枢和偏离；CLV、RVOL与OI条件仍保留原定义。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "累计成交权重和须＞0；区间缺必要分钟时为空。T＜5仅年化分支为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "b",
+          "center_b",
+          "D_a"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "b",
+                "label": "分钟基差",
+                "display_scale": 1
+              },
+              {
+                "field": "center_b",
+                "label": "累计量加权中枢",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "D_a",
+                "label": "年化偏离",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A05",
+      "group": "A",
+      "group_name": "期指",
+      "title": "增仓与量仓加权推进",
+      "purpose": "分别按正净增仓和放量增仓强度，对最近五日的基差变化加权，观察新增参与较明显时定价的移动方向。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "P",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C1",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Pa",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Wa",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "b",
+        "a",
+        "V",
+        "OI"
+      ],
+      "parameters": {
+        "k": 5,
+        "N_rvol": 20,
+        "rvol_cap": 3
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "需6个价格及OI点；量仓权重还需25个连续成交日点",
+          "affected_outputs": [
+            "P",
+            "Pa",
+            "C1",
+            "Wa"
+          ],
+          "scope_description": "对应分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "NO_WEIGHT",
+          "condition": "五日正权重和为0",
+          "affected_outputs": [
+            "P",
+            "Pa",
+            "C1",
+            "Wa"
+          ],
+          "scope_description": "对应分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "OI_prev<=0或RVOL历史成交中位数<=0",
+          "affected_outputs": [
+            "C1",
+            "Wa"
+          ],
+          "scope_description": "C1与Wa",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "六个年化价格点任一T<5",
+          "affected_outputs": [
+            "Pa",
+            "Wa"
+          ],
+          "scope_description": [
+            "Pa",
+            "Wa"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "五日权重和为0则为空；量仓版本还需20日量能参照和正的前日OI。",
+      "formula": [
+        "w_OI=max(OI_i-OI_(i-1),0)",
+        "RVOL_i=V_i/median(V_(i-20)..V_(i-1))",
+        "w_VOI=min(RVOL_i,3)*max((OI_i-OI_(i-1))/OI_(i-1),0)",
+        "P_X=sum(w_i*delta(X_i))/sum(w_i)，i=t-4..t；P/Pa用w_OI，C1/Wa用w_VOI"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "N_rvol",
+          "default": 20,
+          "label": "RVOL历史成交中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        },
+        {
+          "key": "rvol_cap",
+          "default": 3,
+          "label": "推进权重中RVOL上限",
+          "unit": "ratio",
+          "constraint": "正数；不截尾筛选使用的RVOL"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b→a；ΔX和输出单位相应变化。权重可选正增仓量或截尾RVOL×正增仓率。",
+        "detail": "X可取b或a；只替换价格序列时保持权重不变。若同时改权重，需分别观察各自贡献。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "五日权重和为0则为空；量仓版本还需20日量能参照和正的前日OI。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "P",
+          "C1",
+          "Pa",
+          "Wa"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "P",
+                "label": "增仓加权",
+                "display_scale": 1
+              },
+              {
+                "field": "C1",
+                "label": "量仓加权",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "Pa",
+                "label": "年化增仓加权",
+                "display_scale": 1
+              },
+              {
+                "field": "Wa",
+                "label": "年化量仓加权",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A06",
+      "group": "A",
+      "group_name": "期指",
+      "title": "成交换手与净持仓变化",
+      "purpose": "将交易活跃程度与未平仓存量变化分开，避免把大量成交直接解释成持仓扩张。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "Q",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "K",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "V",
+        "OI",
+        "OI_prev"
+      ],
+      "parameters": {},
+      "null_rules": [
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "OI_prev<=0时Q为空；V=0时K为空",
+          "affected_outputs": [
+            "Q",
+            "K"
+          ],
+          "scope_description": "Q或K分别判断",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DATA_ANOMALY",
+          "condition": "abs(OI-OI_prev)>V且统计口径相同；K与依赖K的筛选为空",
+          "affected_outputs": [
+            "K"
+          ],
+          "scope_description": [
+            "K"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "前日OI≤0不输出Q；成交量为0不输出K。净持仓变化异常时K为空。",
+      "formula": [
+        "Q=V_t/OI_(t-1)",
+        "K=(OI_t-OI_(t-1))/V_t；K存0.0567，显示5.67%"
+      ],
+      "parameter_definitions": [],
+      "x_adjustment": {
+        "summary": "数量输入V、OI保持原义；b或a可作为组合筛选条件，不能替代成交或持仓。",
+        "detail": "X是V和OI向量。可改为同频区间成交及首尾持仓，或对Q、K取历史分位；年化基差只能作为并列条件。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "前日OI≤0不输出Q；成交量为0不输出K。净持仓变化异常时K为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "Q",
+          "K"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "倍",
+            "series": [
+              {
+                "field": "Q",
+                "label": "成交量 / 前日持仓",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "净变化比例",
+            "series": [
+              {
+                "field": "K",
+                "label": "净持仓变化 / 成交量",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A07",
+      "group": "A",
+      "group_name": "期指",
+      "title": "期现分钟收益残差",
+      "purpose": "用此前30个同步分钟收益估计期货与现货联动，衡量当前一分钟超出该关系的变化。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "A_minbeta",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "A_resid",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "A_resid_z",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_min",
+        "S_min"
+      ],
+      "parameters": {
+        "M": 30,
+        "intercept": true,
+        "var_epsilon": 1e-20,
+        "residual_epsilon": 1e-12,
+        "reset": "session_or_gap"
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "当前残差需30个此前收益及当前收益，即32根连续价格；09:31起最早10:02",
+          "affected_outputs": [
+            "A_minbeta",
+            "A_resid",
+            "A_resid_z"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "REG_DEGENERATE",
+          "condition": "训练x方差<=1e-20；beta和残差为空",
+          "affected_outputs": [
+            "A_minbeta",
+            "A_resid",
+            "A_resid_z"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "训练残差样本标准差<=1e-12，仅残差Z为空",
+          "affected_outputs": [
+            "A_resid_z"
+          ],
+          "scope_description": [
+            "A_resid_z"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "需32根连续分钟价格；午休后重新积累。x方差近零不回归，残差方差近零不输出Z。",
+      "formula": [
+        "y=ln(F_j/F_(j-1)), x=ln(S_j/S_(j-1))",
+        "alpha,beta=OLS(y~1+x)，训练只取当前前30个收益",
+        "epsilon_t=y_t-alpha-beta*x_t",
+        "A_resid=10000*epsilon_t；A_resid_z=epsilon_t/std(训练残差,ddof=1)"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "M",
+          "default": 30,
+          "label": "此前收益回归窗口",
+          "unit": "observations",
+          "constraint": "整数>=3；A07/B08分钟，C04日"
+        },
+        {
+          "key": "intercept",
+          "default": true,
+          "label": "intercept",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "var_epsilon",
+          "default": 1e-20,
+          "label": "小数收益解释变量最小方差",
+          "unit": "decimal_return_squared",
+          "constraint": "依单位设定；更换y/x必须检查尺度"
+        },
+        {
+          "key": "residual_epsilon",
+          "default": 1e-12,
+          "label": "小数收益残差最小标准差",
+          "unit": "decimal_return",
+          "constraint": "只使Z为空；不清空已可计算残差"
+        },
+        {
+          "key": "reset",
+          "default": "session_or_gap",
+          "label": "reset",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "默认y=rF、x=rS；也可研究Δb或Δa作为y，但需重新定义解释项、单位和阈值。",
+        "detail": "默认y为期货收益、x为指数收益；可改y为Δb或Δa，但须重新回归，且β不再是收益对冲比例。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "需32根连续分钟价格；午休后重新积累。x方差近零不回归，残差方差近零不输出Z。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "A_resid",
+          "A_resid_z"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "A_resid",
+                "label": "当前分钟收益残差",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "A_resid_z",
+                "label": "当前残差 Z",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A08",
+      "group": "A",
+      "group_name": "期指",
+      "title": "路径效率与短窗波动",
+      "purpose": "路径效率区分单向推进和反复震荡；短窗实现波动度量同一时期的价格变化量级。",
+      "frequency": "mixed",
+      "fields": [
+        {
+          "key": "b_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "a_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "A_rv30",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "b",
+        "a",
+        "F_min"
+      ],
+      "parameters": {
+        "k": 5,
+        "M_rv": 30
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "E需6个日价格；RV30需31根连续分钟价格",
+          "affected_outputs": [
+            "b_E",
+            "a_E",
+            "A_rv30"
+          ],
+          "scope_description": "按字段",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "FLAT_PATH",
+          "condition": "五日绝对变化和=0，仅E为空",
+          "affected_outputs": [
+            "b_E",
+            "a_E"
+          ],
+          "scope_description": [
+            "b_E",
+            "a_E"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "效率窗口任一年化输入T<5",
+          "affected_outputs": [
+            "a_E"
+          ],
+          "scope_description": [
+            "a_E"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "效率需6个日值且路径长度＞0；分钟波动需31根连续价格，完全不波动时输出0。",
+      "formula": [
+        "E_k(X)=(X_t-X_(t-k))/sum(abs(delta X_i)),i=t-k+1..t",
+        "RV30=10000*sqrt(sum(r_F_i^2))；当前在内30个会话内收益；不再年化"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "M_rv",
+          "default": 30,
+          "label": "当前在内风险窗口",
+          "unit": "returns",
+          "constraint": "整数>=1；实际频率由输出字段指定"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "路径X=b或a；风险可选期货收益或ΔX，后者度量基差风险，须另标单位。",
+        "detail": "E可作用于b、a和模型偏离。若测量Δa平方和，结果是年化百分点变化量级，不能称为期货收益波动。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "效率需6个日值且路径长度＞0；分钟波动需31根连续价格，完全不波动时输出0。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1m"
+        ],
+        "fields": [
+          "b_E",
+          "a_E",
+          "A_rv30"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "路径效率",
+            "series": [
+              {
+                "field": "b_E",
+                "label": "基差路径",
+                "display_scale": 1
+              },
+              {
+                "field": "a_E",
+                "label": "年化路径",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "A_rv30",
+                "label": "当前30分钟期货波动",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A09",
+      "group": "A",
+      "group_name": "期指",
+      "title": "连续偏离确认",
+      "purpose": "当同方向偏离连续超过门槛时确认一次，用持续性过滤孤立的报价扰动。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "event_b",
+          "unit": "flag",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "event_a",
+          "unit": "flag",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "count_b",
+          "unit": "count",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "count_a",
+          "unit": "count",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "events_b",
+          "unit": "count",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "events_a",
+          "unit": "count",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "b_min",
+        "a_min"
+      ],
+      "parameters": {
+        "N": 30,
+        "z_threshold": 2,
+        "L": 3,
+        "reset": "session_or_gap"
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "需30个此前X加当前X计算Z，再至少3个连续可计算Z；最早第33根即10:03",
+          "affected_outputs": [
+            "event_b",
+            "event_a",
+            "count_b",
+            "count_a",
+            "events_b",
+            "events_a"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "参照方差为0，当前event为空且连续状态重置",
+          "affected_outputs": [
+            "event_b",
+            "event_a",
+            "count_b",
+            "count_a",
+            "events_b",
+            "events_a"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INCOMPLETE_DAY",
+          "condition": "日终events仅完整240根且至少有一段有效确认窗口时输出",
+          "affected_outputs": [
+            "events_b",
+            "events_a"
+          ],
+          "scope_description": "events_b与events_a",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "当前T<5",
+          "affected_outputs": [
+            "event_a",
+            "count_a",
+            "events_a"
+          ],
+          "scope_description": "a分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "分钟确认最早第33根；无有效参照时为空。有效但未确认返回0，同段持续偏离只确认一次。",
+      "formula": [
+        "z_X使用同会话此前30个X",
+        "side=sign(z) if abs(z)>=2 else 0",
+        "streak在同非零方向持续时+1；退出、变号、无效或会话切换时重置",
+        "event=1 iff streak==3，且最近3个Z均有效；其他有效时点event=0",
+        "count_tau=sum(当日已确认event)；events=count_15:00，须完整交易日；count在当前event不可判定时为null，累计状态不丢失"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 30,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "z_threshold",
+          "default": 2,
+          "label": "持续偏离的绝对Z门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "L",
+          "default": 3,
+          "label": "连续确认长度",
+          "unit": "minute_bars",
+          "constraint": "整数>=1；只在streak恰为L时计1次"
+        },
+        {
+          "key": "reset",
+          "default": "session_or_gap",
+          "label": "reset",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b或a；同一日a是b的正常数倍，分钟分位和Z相同。跨日历史则不一定。",
+        "detail": "X可取b、a或回归残差；改为分位触发时，须明确上尾、下尾门槛。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "分钟确认最早第33根；无有效参照时为空。有效但未确认返回0，同段持续偏离只确认一次。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "z_b",
+          "z_a",
+          "count_b",
+          "count_a"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "z_b",
+                "label": "基差分钟 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "z_a",
+                "label": "年化分钟 Z",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "当日累计次",
+            "series": [
+              {
+                "field": "count_b",
+                "label": "基差确认",
+                "display_scale": 1
+              },
+              {
+                "field": "count_a",
+                "label": "年化确认",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A10",
+      "group": "A",
+      "group_name": "期指",
+      "title": "模型偏离与方向成本空间",
+      "purpose": "在明确融资和股息假设下计算理论价格，保留偏离符号，再按两个交易方向扣除成本。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "fair",
+          "unit": "point",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "fair_dev",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "fair_space",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F",
+        "S",
+        "T",
+        "r",
+        "q",
+        "cost"
+      ],
+      "parameters": {
+        "r": 0.02,
+        "q": 0.03,
+        "cost_bp": 5,
+        "model": "simple_carry_scenario"
+      },
+      "null_rules": [
+        {
+          "reason": "PARAM_MISSING",
+          "condition": "融资、股息或对应方向成本缺失",
+          "affected_outputs": [
+            "fair",
+            "fair_dev",
+            "fair_space"
+          ],
+          "scope_description": "对应输出",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "PRICE_INVALID",
+          "condition": "理论价<=0",
+          "affected_outputs": [
+            "fair",
+            "fair_dev",
+            "fair_space"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "仅选择年化模型偏离时T<5",
+          "affected_outputs": [
+            "annual_model_gap"
+          ],
+          "scope_description": "可选年化分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "缺融资或股息假设不输出模型价；缺成本不输出成本空间。仅年化扩展受T≥5约束。",
+      "formula": [
+        "fair=S*(1+(r-q)*T/365)",
+        "e=10000*(F-fair)/S",
+        "space_short_future=e-cost_plus；space_long_future=-e-cost_minus",
+        "示例cost_plus=cost_minus=5，fair_space=abs(e)-5；该值可为负，不截为0",
+        "可选annual_model_gap=365*e/(100*T)，单位pp；成本同尺度转换"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "r",
+          "default": 0.02,
+          "label": "融资年利率",
+          "unit": "decimal_rate",
+          "constraint": "固定情景；缺失不可默认0"
+        },
+        {
+          "key": "q",
+          "default": 0.03,
+          "label": "预期股息年率",
+          "unit": "decimal_rate",
+          "constraint": "情景值0.03=3%；缺失不可默认0"
+        },
+        {
+          "key": "cost_bp",
+          "default": 5,
+          "label": "方向成本情景",
+          "unit": "bp",
+          "constraint": ">=0；正负方向可分别传入"
+        },
+        {
+          "key": "model",
+          "default": "simple_carry_scenario",
+          "label": "model",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X可用模型偏离e或其年化值；成本须同步转为同单位。正负方向分别计算空间。",
+        "detail": "可将X改为年化模型偏离，但成本带也须同尺度转换；模型可改为离散分红或连续复利。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "缺融资或股息假设不输出模型价；缺成本不输出成本空间。仅年化扩展受T≥5约束。",
+      "plot": {
+        "panel_frequencies": [
+          "1d"
+        ],
+        "fields": [
+          "fair_dev",
+          "fair_space"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "fair_dev",
+                "label": "情景模型偏离",
+                "display_scale": 1
+              },
+              {
+                "field": "fair_space",
+                "label": "扣5bp后绝对空间",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A11",
+      "group": "A",
+      "group_name": "期指",
+      "title": "放量低净增仓的偏离筛选",
+      "purpose": "联合价格偏离、成交活跃、净持仓变化、路径和波动条件，筛选具有修复研究特征的观察日。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "C2",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "candidate_a",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "z_b",
+        "z_a",
+        "RVOL",
+        "K",
+        "E_b",
+        "E_a",
+        "stress"
+      ],
+      "parameters": {
+        "N": 20,
+        "k": 5,
+        "abs_z_min": 2,
+        "rvol_min": 1.5,
+        "abs_k_max": 0.05,
+        "abs_e_max": 0.5,
+        "stress_max": 2
+      },
+      "null_rules": [
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "任一实际依赖的输入为空，不短路为0",
+          "affected_outputs": [
+            "C2",
+            "candidate_a"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "年化Z或年化路径窗口含T<5",
+          "affected_outputs": [
+            "candidate_a"
+          ],
+          "scope_description": [
+            "candidate_a"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "任一依赖为空时筛选也为空；全部有效但条件不满足才输出0，触发方向为±1。",
+      "formula": [
+        "candidate_X=-sign(z_X) if abs(z_X)>=2 and RVOL>=1.5 and abs(K)<=.05 and abs(E_X)<=.5 and stress<=2 else 0",
+        "先检查依赖是否全部有效，再判条件；b与a分别判定有效性"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "abs_z_min",
+          "default": 2,
+          "label": "绝对Z最低门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "rvol_min",
+          "default": 1.5,
+          "label": "相对成交量最低门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "abs_k_max",
+          "default": 0.05,
+          "label": "净仓占成交绝对比例上限",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "abs_e_max",
+          "default": 0.5,
+          "label": "路径效率绝对值上限",
+          "unit": "ratio",
+          "constraint": "[0,1]，含等号"
+        },
+        {
+          "key": "stress_max",
+          "default": 2,
+          "label": "真实波幅压力上限",
+          "unit": "ratio",
+          "constraint": ">0，含等号"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=b→a时同时替换Z和路径效率；量仓、压力条件保留，输出方向为−sign(Z)。",
+        "detail": "X由b改a时同时重算Z和E；RVOL、K及单腿价格压力保留原定义，不能全部替换成年化值。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "任一依赖为空时筛选也为空；全部有效但条件不满足才输出0，触发方向为±1。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "b_z",
+          "a_z",
+          "C2",
+          "candidate_a"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "b_z",
+                "label": "基差 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "a_z",
+                "label": "年化 Z",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "候选方向",
+            "series": [
+              {
+                "field": "C2",
+                "label": "基差条件",
+                "display_scale": 1
+              },
+              {
+                "field": "candidate_a",
+                "label": "年化条件",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "A12",
+      "group": "A",
+      "group_name": "期指",
+      "title": "期指名义敞口与执行尺度",
+      "purpose": "把指数点位换算成每手名义金额，为比较估值偏离、持仓规模和报价成本提供统一金额尺度。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "nominal",
+          "unit": "cny_10k",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "basis_cash",
+          "unit": "cny",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F",
+        "S",
+        "multiplier"
+      ],
+      "parameters": {
+        "IF_multiplier": 300
+      },
+      "null_rules": [
+        {
+          "reason": "PARAM_MISSING",
+          "condition": "合约乘数缺失或<=0",
+          "affected_outputs": [
+            "nominal",
+            "basis_cash"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "S缺失仅影响basis_cash",
+          "affected_outputs": [
+            "basis_cash"
+          ],
+          "scope_description": [
+            "basis_cash"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "缺乘数不输出金额；缺现货价格只影响点差金额。原始金额不受T＜5的年化限制。",
+      "formula": [
+        "nominal=F*multiplier/10000",
+        "basis_cash=(F-S)*multiplier；仅价格对应金额，不是已实现收益"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "IF_multiplier",
+          "default": 300,
+          "label": "IF_multiplier",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "金额由价格与乘数计算；如从a还原，先b=100Ta/365，再F=S·exp(b/10000)。",
+        "detail": "年化基差可用于估值比较，执行规模仍用实际价格、乘数和报价。ETF替代现货时另计跟踪及折溢价。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "缺乘数不输出金额；缺现货价格只影响点差金额。原始金额不受T＜5的年化限制。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "nominal",
+          "volume"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "万元 / 手",
+            "series": [
+              {
+                "field": "nominal",
+                "label": "按收盘价计算的期货名义金额",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "万手",
+            "series": [
+              {
+                "field": "volume",
+                "label": "全天成交量",
+                "display_scale": 0.0001
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B01",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期价差与年化期限结构",
+      "purpose": "同一指数的近远月共享现货基准，以近减远统一方向，区分标准化点差与按到期日间隔年化的对数价差。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "cal_points",
+          "unit": "point",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "cal",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "l",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "ac",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_n",
+        "F_f",
+        "S",
+        "expiry_n",
+        "expiry_f"
+      ],
+      "parameters": {
+        "annual_days": 365
+      },
+      "null_rules": [
+        {
+          "reason": "PAIR_MISMATCH",
+          "condition": "不同标的或相同合约或DeltaT<=0",
+          "affected_outputs": [
+            "cal_points",
+            "cal",
+            "l",
+            "ac"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "缺S仅c为空；点差、l和ac不依赖S",
+          "affected_outputs": [
+            "cal"
+          ],
+          "scope_description": [
+            "cal"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "必须同指数且近到期早于远到期；ΔT≤0为空。跨期年化按固定到期日差，不套用单腿T＜5规则。",
+      "formula": [
+        "cal_points=F_n-F_f",
+        "cal=10000*(F_n-F_f)/S",
+        "l=10000*ln(F_n/F_f)",
+        "ac=365*l/(100*DeltaT)；DeltaT=expiry_f-expiry_n，按自然日，固定合约对内不变"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "annual_days",
+          "default": 365,
+          "label": "年化自然日基准",
+          "unit": "calendar_days",
+          "constraint": "本版本固定365"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X可选标准化价差c、对数价差ℓ、年化跨期a_nf；固定对中ℓ与a_nf为正比例。",
+        "detail": "X可取点差、标准化价差c、对数价差ℓ或年化跨期a。若采用远比近的持有率，符号应反转。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "必须同指数且近到期早于远到期；ΔT≤0为空。跨期年化按固定到期日差，不套用单腿T＜5规则。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "cal",
+          "l",
+          "ac"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "cal",
+                "label": "近减远标准化价差",
+                "display_scale": 1
+              },
+              {
+                "field": "l",
+                "label": "近远对数价差",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化 %",
+            "series": [
+              {
+                "field": "ac",
+                "label": "同方向年化跨期",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B02",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期历史位置与年化比较",
+      "purpose": "同一合约对内部建立历史参照，避免换月跳变进入价差统计。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "cal_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "ac_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "cal_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "ac_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "cal_d5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "ac_d5",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "cal",
+        "ac"
+      ],
+      "parameters": {
+        "N": 20,
+        "k": 5,
+        "ddof": 1
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "分位Z需同一合约对21个连续日值；变化需6个",
+          "affected_outputs": [
+            "cal_pct",
+            "ac_pct",
+            "cal_z",
+            "ac_z",
+            "cal_d5",
+            "ac_d5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "参照标准差=0仅Z为空",
+          "affected_outputs": [
+            "cal_z",
+            "ac_z"
+          ],
+          "scope_description": [
+            "cal_z",
+            "ac_z"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "按B01对应输入有效性逐日判断",
+          "affected_outputs": [
+            "cal_pct",
+            "ac_pct",
+            "cal_z",
+            "ac_z",
+            "cal_d5",
+            "ac_d5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "分位需固定合约对21个日值，不能拼接换月历史；标准差为0仅Z为空。",
+      "formula": [
+        "pct,z,d5按A02算子，X改为cal或ac",
+        "X=l与ac在固定DeltaT下成正比例，分位和Z一致"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "ddof",
+          "default": 1,
+          "label": "样本标准差自由度扣减",
+          "unit": "count",
+          "constraint": "默认1；窗口大于ddof"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "c→a_nf后重新计算；ℓ→a_nf时固定ΔT，分位和Z不变，变化值按比例缩放。",
+        "detail": "c改成年化需重算；固定ΔT下，ℓ改成年化只是固定正倍数，分位和Z不变。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "分位需固定合约对21个日值，不能拼接换月历史；标准差为0仅Z为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "cal_pct",
+          "ac_pct",
+          "cal_z",
+          "ac_z"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "历史分位 %",
+            "series": [
+              {
+                "field": "cal_pct",
+                "label": "标准化价差分位",
+                "display_scale": 1
+              },
+              {
+                "field": "ac_pct",
+                "label": "年化跨期分位",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "cal_z",
+                "label": "标准化价差 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "ac_z",
+                "label": "年化跨期 Z",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B03",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期成交中枢与尾端偏离",
+      "purpose": "对同步近远月价差按双腿成交较薄的一侧加权，观察收盘相对日内活跃交易区间的位置。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "center_c",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "D_c",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "center_ac",
+          "unit": "pct",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "D_ac",
+          "unit": "pp",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_n_min",
+        "F_f_min",
+        "S_min",
+        "V_n_min",
+        "V_f_min",
+        "DeltaT"
+      ],
+      "parameters": {
+        "weight": "min(V_n,V_f)",
+        "accumulation": "trading_day"
+      },
+      "null_rules": [
+        {
+          "reason": "NO_WEIGHT",
+          "condition": "双腿分钟最小成交量的累计和=0",
+          "affected_outputs": [
+            "center_c",
+            "D_c",
+            "center_ac",
+            "D_ac"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "WINDOW_GAP",
+          "condition": "日内累计区间缺必要同步观测",
+          "affected_outputs": [
+            "center_c",
+            "D_c",
+            "center_ac",
+            "D_ac"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "PAIR_MISMATCH",
+          "condition": "DeltaT<=0或标的不一致",
+          "affected_outputs": [
+            "center_c",
+            "D_c",
+            "center_ac",
+            "D_ac"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "双腿同步且累计最小成交量权重和＞0；缺分钟不跳过、不前填。",
+      "formula": [
+        "w_j=min(V_n_j,V_f_j)",
+        "center_X=sum(w_j*X_j)/sum(w_j)，开盘至当前",
+        "D_X=X_current-center_X；X=c或ac；午休累计不重置"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "weight",
+          "default": "min(V_n,V_f)",
+          "label": "weight",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "accumulation",
+          "default": "trading_day",
+          "label": "accumulation",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=c或a_nf；权重取同分钟两腿成交量的较小值，保留原数量单位。",
+        "detail": "X可取c、ℓ或年化跨期。ℓ换年化只缩放中枢偏离；c换年化则须按分钟完整重算。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "双腿同步且累计最小成交量权重和＞0；缺分钟不跳过、不前填。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "c",
+          "center_c",
+          "D_ac"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "c",
+                "label": "分钟价差",
+                "display_scale": 1
+              },
+              {
+                "field": "center_c",
+                "label": "双腿量加权中枢",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "D_ac",
+                "label": "年化偏离",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B04",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "持仓迁移形态与成交重心",
+      "purpose": "将近月减仓与远月增仓的可匹配部分，与两腿总持仓变化和成交份额同时观察。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "M",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "R",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "N",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "share_diff",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "V_n",
+        "V_f",
+        "OI_n",
+        "OI_f",
+        "OI_n_prev",
+        "OI_f_prev"
+      ],
+      "parameters": {},
+      "null_rules": [
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "缺任一必要当前或前日OI",
+          "affected_outputs": [
+            "M",
+            "R",
+            "N",
+            "share_diff"
+          ],
+          "scope_description": "对应输出",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "前日两腿总OI<=0，R/N/份额差为空；当日总成交=0，份额差为空",
+          "affected_outputs": [
+            "M",
+            "R",
+            "N",
+            "share_diff"
+          ],
+          "scope_description": "按输出",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "匹配量为0可正常输出；总OI或总成交分母为0时，仅相应比率为空。",
+      "formula": [
+        "dn=OI_n-OI_n_prev；df=OI_f-OI_f_prev",
+        "M=min(max(-dn,0),max(df,0))",
+        "R=100*M/(OI_n_prev+OI_f_prev)",
+        "N=100*(dn+df)/(OI_n_prev+OI_f_prev)",
+        "share_diff=100*(V_f/(V_n+V_f)-OI_f_prev/(OI_n_prev+OI_f_prev))"
+      ],
+      "parameter_definitions": [],
+      "x_adjustment": {
+        "summary": "本项X为数量与份额；价格b或a_nf仅适合作为并列解释条件，不替换数量。",
+        "detail": "X为V、OI向量；可改为远减近增或固定多月份集合。年化跨期只作为并列价格条件。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "匹配量为0可正常输出；总OI或总成交分母为0时，仅相应比率为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "R",
+          "N",
+          "share_diff"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "持仓占比 %",
+            "series": [
+              {
+                "field": "R",
+                "label": "近减远增匹配比例",
+                "display_scale": 1
+              },
+              {
+                "field": "N",
+                "label": "两腿合计持仓净增率",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "百分点",
+            "series": [
+              {
+                "field": "share_diff",
+                "label": "远月成交份额减前日持仓份额",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B05",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "移仓量能加权的价差推进",
+      "purpose": "用可匹配迁移量与相对成交量作为权重，观察迁移形态较明显时价差的移动方向。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "C3",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "P_ac",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C3_weight5",
+          "unit": "weighted_lot",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "cal",
+        "ac",
+        "M",
+        "V_n",
+        "V_f"
+      ],
+      "parameters": {
+        "k": 5,
+        "N_rvol": 20,
+        "rvol_cap": 3
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "需6个价差点和25个两腿合计成交点",
+          "affected_outputs": [
+            "C3",
+            "P_ac",
+            "C3_weight5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "NO_WEIGHT",
+          "condition": "五日迁移权重和=0，推进值为空；权重和本身可为0",
+          "affected_outputs": [
+            "C3",
+            "P_ac"
+          ],
+          "scope_description": [
+            "C3",
+            "P_ac"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "此前20日两腿合计成交中位数<=0",
+          "affected_outputs": [
+            "C3",
+            "P_ac",
+            "C3_weight5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "五日没有正迁移权重时推进为空；仅一天有权重仍可算，但必须同时看权重规模。",
+      "formula": [
+        "RVOL_pair=(V_n+V_f)/median(此前20日V_n+V_f)",
+        "w_i=M_i*min(RVOL_pair_i,3)",
+        "advance_X=sum(w_i*delta X_i)/sum(w_i)，i=t-4..t，X=c/ac"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "N_rvol",
+          "default": 20,
+          "label": "RVOL历史成交中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        },
+        {
+          "key": "rvol_cap",
+          "default": 3,
+          "label": "推进权重中RVOL上限",
+          "unit": "ratio",
+          "constraint": "正数；不截尾筛选使用的RVOL"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=c或a_nf；权重=M×截尾后的双腿合计RVOL。换X时保留权重并重算ΔX。",
+        "detail": "X可改为ℓ或年化跨期；固定ΔT下这两种结果等比例。若改迁移方向，应同时重定义权重与价格解释。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "五日没有正迁移权重时推进为空；仅一天有权重仍可算，但必须同时看权重规模。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "C3",
+          "P_ac"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "C3",
+                "label": "移仓量能加权价差变化",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "P_ac",
+                "label": "移仓量能加权年化变化",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B06",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期相对成交与收盘位置",
+      "purpose": "分别比较两腿相对自身常态的成交活跃度，以及收盘在各自日内高低区间的位置。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "B_rvol_diff",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "B_clv",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "V_n",
+        "V_f",
+        "OHLC_n",
+        "OHLC_f"
+      ],
+      "parameters": {
+        "N_rvol": 20
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "任一腿RVOL不足21个成交日点",
+          "affected_outputs": [
+            "B_rvol_diff"
+          ],
+          "scope_description": [
+            "B_rvol_diff"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "任一RVOL<=0或其参照中位数<=0，活跃度对数差为空",
+          "affected_outputs": [
+            "B_rvol_diff"
+          ],
+          "scope_description": [
+            "B_rvol_diff"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "OHLC_FLAT",
+          "condition": "任一H=L，CLV差为空",
+          "affected_outputs": [
+            "B_clv"
+          ],
+          "scope_description": [
+            "B_clv"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "相对量能比须两腿RVOL＞0；H=L时对应CLV及位置差为空。",
+      "formula": [
+        "B_rvol_diff=ln(RVOL_n/RVOL_f)",
+        "CLV=(2*C-H-L)/(H-L)",
+        "B_clv=(CLV_n-CLV_f)/2"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N_rvol",
+          "default": 20,
+          "label": "RVOL历史成交中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "量能输入仍为RVOL；CLV必须来自同一序列OHLC，只有close的a_nf不能替代。",
+        "detail": "可用成交额取代成交量，但当前和历史必须同口径。年化跨期可以作为筛选条件，不能替代单腿OHLC。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "相对量能比须两腿RVOL＞0；H=L时对应CLV及位置差为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "B_rvol_diff",
+          "B_clv"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "对数比",
+            "series": [
+              {
+                "field": "B_rvol_diff",
+                "label": "近月相对远月成交活跃度",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "位置差",
+            "series": [
+              {
+                "field": "B_clv",
+                "label": "近减远收盘位置差",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B07",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期路径效率与组合波动",
+      "purpose": "将价差路径的方向性和同步双腿收益差的波动分开，避免用单腿波动差替代组合风险。",
+      "frequency": "mixed",
+      "fields": [
+        {
+          "key": "cal_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "ac_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "B_rv30",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "B_c_rv30",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "cal",
+        "ac",
+        "F_n_min",
+        "F_f_min"
+      ],
+      "parameters": {
+        "k": 5,
+        "M_rv": 30
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "效率需6个日值；分钟波动需31根同步价格",
+          "affected_outputs": [
+            "cal_E",
+            "ac_E",
+            "B_rv30",
+            "B_c_rv30"
+          ],
+          "scope_description": "按字段",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "FLAT_PATH",
+          "condition": "日频路径长度=0仅E为空",
+          "affected_outputs": [
+            "cal_E",
+            "ac_E"
+          ],
+          "scope_description": [
+            "cal_E",
+            "ac_E"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "WINDOW_GAP",
+          "condition": "分钟窗口跨会话或缺同步分钟",
+          "affected_outputs": [
+            "B_rv30",
+            "B_c_rv30"
+          ],
+          "scope_description": "分钟波动",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "效率为日频，波动为分钟频，分图显示；零路径效率为空，完整零波动返回0。",
+      "formula": [
+        "E_X按A08，X=c/ac",
+        "B_rv30=10000*sqrt(sum((r_n-r_f)^2))，同会话当前在内30收益",
+        "B_c_rv30=sqrt(sum((delta c_min)^2))，同会话30变化"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "M_rv",
+          "default": 30,
+          "label": "当前在内风险窗口",
+          "unit": "returns",
+          "constraint": "整数>=1；实际频率由输出字段指定"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "路径X=c或a_nf；分钟风险默认r_n−r_f，也可改为Δc或Δa_nf并另标单位。",
+        "detail": "路径X可取c、ℓ或年化跨期；实际手数风险应按两腿金额变化重算，收益权重不等于手数比例。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "效率为日频，波动为分钟频，分图显示；零路径效率为空，完整零波动返回0。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1m"
+        ],
+        "fields": [
+          "cal_E",
+          "ac_E",
+          "B_rv30"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "路径效率",
+            "series": [
+              {
+                "field": "cal_E",
+                "label": "标准化价差",
+                "display_scale": 1
+              },
+              {
+                "field": "ac_E",
+                "label": "年化跨期",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "B_rv30",
+                "label": "当前30分钟双腿收益差波动",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B08",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期回归残差与持续确认",
+      "purpose": "将近月当前收益与其对远月的历史分钟联动比较，并结合价差持续偏离观察。",
+      "frequency": "1m",
+      "fields": [
+        {
+          "key": "B_minbeta",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "B_resid",
+          "unit": "bp",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "B_resid_z",
+          "unit": "ratio",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "event_c",
+          "unit": "flag",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "event_ac",
+          "unit": "flag",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "count_c",
+          "unit": "count",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "count_ac",
+          "unit": "count",
+          "frequency": "1m",
+          "nullable": true
+        },
+        {
+          "key": "events_c",
+          "unit": "count",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "events_ac",
+          "unit": "count",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_n_min",
+        "F_f_min",
+        "c_min",
+        "ac_min"
+      ],
+      "parameters": {
+        "M": 30,
+        "N_z": 30,
+        "L": 3,
+        "threshold": 2
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "当前残差需32根价格；持续确认需33根价格",
+          "affected_outputs": [
+            "B_minbeta",
+            "B_resid",
+            "B_resid_z",
+            "event_c",
+            "event_ac",
+            "count_c",
+            "count_ac",
+            "events_c",
+            "events_ac"
+          ],
+          "scope_description": "两分支分别判断",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "REG_DEGENERATE",
+          "condition": "回归x方差<=1e-20",
+          "affected_outputs": [
+            "B_minbeta",
+            "B_resid",
+            "B_resid_z"
+          ],
+          "scope_description": "beta与残差",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "残差标准差<=1e-12或价差参照标准差=0",
+          "affected_outputs": [
+            "B_minbeta",
+            "B_resid",
+            "B_resid_z",
+            "event_c",
+            "event_ac",
+            "count_c",
+            "count_ac",
+            "events_c",
+            "events_ac"
+          ],
+          "scope_description": "对应Z及确认",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INCOMPLETE_DAY",
+          "condition": "日终events需完整240根及至少一个有效确认窗口",
+          "affected_outputs": [
+            "events_c",
+            "events_ac"
+          ],
+          "scope_description": "日终计数",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "回归与确认分别预热32根、33根；午休重新预热，日累计确认数保留。",
+      "formula": [
+        "回归同A07，y=r_n，x=r_f",
+        "持续确认同A09，X=c/ac；不要把单根残差超阈值等同于持续确认"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "M",
+          "default": 30,
+          "label": "此前收益回归窗口",
+          "unit": "observations",
+          "constraint": "整数>=3；A07/B08分钟，C04日"
+        },
+        {
+          "key": "N_z",
+          "default": 30,
+          "label": "Z参照分钟数",
+          "unit": "minute_bars",
+          "constraint": "整数>=2"
+        },
+        {
+          "key": "L",
+          "default": 3,
+          "label": "连续确认长度",
+          "unit": "minute_bars",
+          "constraint": "整数>=1；只在streak恰为L时计1次"
+        },
+        {
+          "key": "threshold",
+          "default": 2,
+          "label": "持续偏离的绝对Z门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "回归默认y=r_n、x=r_f；确认的X=c或a_nf。残差超阈值不等同持续确认。",
+        "detail": "可改用Δℓ或年化跨期变化作为被解释变量；须重新估计系数，不再按收益β解释。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "回归与确认分别预热32根、33根；午休重新预热，日累计确认数保留。",
+      "plot": {
+        "panel_frequencies": [
+          "1m",
+          "1m"
+        ],
+        "fields": [
+          "B_resid_z",
+          "count_c",
+          "count_ac"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "B_resid_z",
+                "label": "近月对远月残差 Z",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "当日累计次",
+            "series": [
+              {
+                "field": "count_c",
+                "label": "价差确认",
+                "display_scale": 1
+              },
+              {
+                "field": "count_ac",
+                "label": "年化确认",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B09",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期修复条件筛选",
+      "purpose": "在价差历史偏离较大时，同时约束双腿成交、净持仓变化、路径与压力。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "candidate_cal",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "candidate_ac",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "z_c",
+        "z_ac",
+        "E_c",
+        "E_ac",
+        "RVOL_n",
+        "RVOL_f",
+        "K_n",
+        "K_f",
+        "stress_n",
+        "stress_f"
+      ],
+      "parameters": {
+        "N": 20,
+        "k": 5,
+        "abs_z_min": 2,
+        "rvol_min": 1.5,
+        "abs_k_max": 0.05,
+        "abs_e_max": 0.5,
+        "stress_max": 2
+      },
+      "null_rules": [
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "价差分支或任一腿RVOL/K/stress为空；有效性须逐个检查",
+          "affected_outputs": [
+            "candidate_cal",
+            "candidate_ac"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "两腿量仓或压力任一为空则筛选为空；完整输入未触发才为0。",
+      "formula": [
+        "candidate_X=-sign(z_X) if abs(z_X)>=2 and min(RVOL_n,RVOL_f)>=1.5 and max(abs(K_n),abs(K_f))<=.05 and abs(E_X)<=.5 and max(stress_n,stress_f)<=2 else 0",
+        "仅在全部依赖有效后判条件，X=c/ac"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "abs_z_min",
+          "default": 2,
+          "label": "绝对Z最低门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "rvol_min",
+          "default": 1.5,
+          "label": "相对成交量最低门槛",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "abs_k_max",
+          "default": 0.05,
+          "label": "净仓占成交绝对比例上限",
+          "unit": "ratio",
+          "constraint": ">=0，含等号"
+        },
+        {
+          "key": "abs_e_max",
+          "default": 0.5,
+          "label": "路径效率绝对值上限",
+          "unit": "ratio",
+          "constraint": "[0,1]，含等号"
+        },
+        {
+          "key": "stress_max",
+          "default": 2,
+          "label": "真实波幅压力上限",
+          "unit": "ratio",
+          "constraint": ">0，含等号"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=c或a_nf，同时替换Z与路径；两腿RVOL、K和压力逐腿检查。",
+        "detail": "c改成年化跨期时同时重算Z与E；两腿RVOL、K和压力继续使用各自行情及数量。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "两腿量仓或压力任一为空则筛选为空；完整输入未触发才为0。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "cal_z",
+          "ac_z",
+          "candidate_cal",
+          "candidate_ac"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "cal_z",
+                "label": "标准化价差 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "ac_z",
+                "label": "年化跨期 Z",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "候选方向",
+            "series": [
+              {
+                "field": "candidate_cal",
+                "label": "标准化条件",
+                "display_scale": 1
+              },
+              {
+                "field": "candidate_ac",
+                "label": "年化条件",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "B10",
+      "group": "B",
+      "group_name": "跨期",
+      "title": "跨期规模与执行约束",
+      "purpose": "按固定近远手数比例，把成交参与和持仓占比约束统一换算到近月手数。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "B_volume_cap",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "B_cap",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "V_n",
+        "V_f",
+        "OI_n",
+        "OI_f",
+        "h"
+      ],
+      "parameters": {
+        "p": 0.01,
+        "q": 0.001,
+        "h": 1
+      },
+      "null_rules": [
+        {
+          "reason": "PARAM_INVALID",
+          "condition": "h<=0，p或q不在[0,1]",
+          "affected_outputs": [
+            "B_volume_cap",
+            "B_cap"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "缺任一腿数量；不能用min跳过缺失",
+          "affected_outputs": [
+            "B_volume_cap",
+            "B_cap"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "任一数量缺失不求容量；h必须＞0。数量为0可输出容量0，连续容量与整数容量分开。",
+      "formula": [
+        "volume_cap=min(p*V_n,p*V_f/h)",
+        "cap=min(p*V_n,p*V_f/h,q*OI_n,q*OI_f/h)",
+        "默认h=1；整数上限floor(cap)，另查两腿取整约束"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "p",
+          "default": 0.01,
+          "label": "当日成交参与情景比例",
+          "unit": "ratio",
+          "constraint": "0<=p<=1"
+        },
+        {
+          "key": "q",
+          "default": 0.001,
+          "label": "持仓占用情景比例；A10中q另指股息率",
+          "unit": "ratio",
+          "constraint": "0<=q<=1；A10见该指标定义"
+        },
+        {
+          "key": "h",
+          "default": 1,
+          "label": "第二腿手数/第一腿手数",
+          "unit": "ratio",
+          "constraint": "必须>0；容量按该h统一转换"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "数量V、OI和手数比h为容量输入；a_nf可用于选择机会，不能代替容量。",
+        "detail": "年化价差用于估值筛选，执行仍用Bid、Ask、乘数和手数。改等名义配对会改变h及约束。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "任一数量缺失不求容量；h必须＞0。数量为0可输出容量0，连续容量与整数容量分开。",
+      "plot": {
+        "panel_frequencies": [
+          "1d"
+        ],
+        "fields": [
+          "B_volume_cap",
+          "B_cap"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "近月手",
+            "series": [
+              {
+                "field": "B_volume_cap",
+                "label": "成交量约束",
+                "display_scale": 1
+              },
+              {
+                "field": "B_cap",
+                "label": "成交与持仓双约束",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C01",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数基差差与年化差",
+      "purpose": "分别计算两条期货相对自身现货指数的基差，再做同到期日比较，排除指数点位尺度的直接干扰。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "G",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Ga",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_IF",
+        "S_HS300",
+        "F_IC",
+        "S_ZZ500",
+        "expiry_IF",
+        "expiry_IC"
+      ],
+      "parameters": {
+        "same_expiry": true,
+        "min_annual_dte": 5
+      },
+      "null_rules": [
+        {
+          "reason": "PAIR_MISMATCH",
+          "condition": "默认只比较同到期日；期限不一致为空",
+          "affected_outputs": [
+            "G",
+            "Ga"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "任一腿T<5仅Ga为空",
+          "affected_outputs": [
+            "Ga"
+          ],
+          "scope_description": [
+            "Ga"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "默认同到期日；任一腿T＜5时年化差为空，原基差差仍按价格有效性判断。",
+      "formula": [
+        "G=b_IF-b_IC",
+        "Ga=a_IF-a_IC=365*G/(100*T)，仅同T时可用右侧简式"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "same_expiry",
+          "default": true,
+          "label": "same_expiry",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "min_annual_dte",
+          "default": 5,
+          "label": "最小年化剩余期限",
+          "unit": "calendar_days",
+          "constraint": "T>=5可用；边界策略须版本化"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=G或G_a；默认同到期日。IF与IC的价格点位不同，不能直接相减作相对基差。",
+        "detail": "X可取G、年化差或固定β加权基差差。跨指数原始close相减不作为默认估值尺度。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "默认同到期日；任一腿T＜5时年化差为空，原基差差仍按价格有效性判断。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "G",
+          "Ga"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "G",
+                "label": "IF减IC基差差",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "Ga",
+                "label": "IF减IC年化基差差",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C02",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数历史位置",
+      "purpose": "将同一合约对的基差差与年化差各自建立历史参照，识别相对定价在近期分布中的位置。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "G_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Ga_pct",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "G_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Ga_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "G_d5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Ga_d5",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "G",
+        "Ga"
+      ],
+      "parameters": {
+        "N": 20,
+        "k": 5
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "同一合约对需21日历史位置或6日变化",
+          "affected_outputs": [
+            "G_pct",
+            "Ga_pct",
+            "G_z",
+            "Ga_z",
+            "G_d5",
+            "Ga_d5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "参照标准差为0仅Z为空",
+          "affected_outputs": [
+            "G_z",
+            "Ga_z"
+          ],
+          "scope_description": [
+            "G_z",
+            "Ga_z"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "所需年化窗口任一腿T<5",
+          "affected_outputs": [
+            "Ga_pct",
+            "Ga_z",
+            "Ga_d5"
+          ],
+          "scope_description": "Ga分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "固定合约对21个日值才有分位；Z需非零标准差，年化分支另查T。",
+      "formula": [
+        "pct,z,d5按A02，X=G/Ga；禁止对连续主力拼接后直接滚动"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X=G→G_a须按每日T重建两腿年化再相减；历史位置可能改变。",
+        "detail": "G改年化差时须按历史各日T重算；若使用β版本，明确固定β或逐日可知β。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "固定合约对21个日值才有分位；Z需非零标准差，年化分支另查T。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "G_pct",
+          "Ga_pct",
+          "G_z",
+          "Ga_z"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "历史分位 %",
+            "series": [
+              {
+                "field": "G_pct",
+                "label": "基差差分位",
+                "display_scale": 1
+              },
+              {
+                "field": "Ga_pct",
+                "label": "年化差分位",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "G_z",
+                "label": "基差差 Z",
+                "display_scale": 1
+              },
+              {
+                "field": "Ga_z",
+                "label": "年化差 Z",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C03",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "相对收益的指数与基差归因",
+      "purpose": "将两条期货的对数收益差拆为对应指数收益差和基差差变化，识别相对变化由哪一部分主导。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "fret5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "sret5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "G_d5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "weighted_futures5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "weighted_spot5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "weighted_basis5",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_IF",
+        "F_IC",
+        "S_HS300",
+        "S_ZZ500",
+        "beta"
+      ],
+      "parameters": {
+        "k": 5,
+        "beta_default": 1,
+        "beta_diagnostic": "analysis_date_fixed"
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "需同合约对6个连续日价格",
+          "affected_outputs": [
+            "fret5",
+            "sret5",
+            "G_d5",
+            "weighted_futures5",
+            "weighted_spot5",
+            "weighted_basis5"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "beta缺失仅beta归因为空",
+          "affected_outputs": [
+            "weighted_futures5",
+            "weighted_spot5",
+            "weighted_basis5"
+          ],
+          "scope_description": "weighted分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "只有从Ga还原G时才查所需年化端点；直接b归因不受此门槛",
+          "affected_outputs": [
+            "optional_Ga_attribution"
+          ],
+          "scope_description": "可选Ga输入",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "需同合约对6日价格；β缺失只影响β加权归因。不能以年化差变化直接充当收益贡献。",
+      "formula": [
+        "return_diff_beta=10000*(ln(F_IF_t/F_IF_(t-5))-beta*ln(F_IC_t/F_IC_(t-5)))",
+        "spot_part_beta=10000*(ln(S_IF_t/S_IF_(t-5))-beta*ln(S_IC_t/S_IC_(t-5)))",
+        "basis_part_beta=delta5(b_IF)-beta*delta5(b_IC)",
+        "三项满足return_diff=spot_part+basis_part；整个归因区间固定同一个beta；当日beta回看是诊断"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "beta_default",
+          "default": 1,
+          "label": "beta_default",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "beta_diagnostic",
+          "default": "analysis_date_fixed",
+          "label": "beta_diagnostic",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "默认β=1；也可固定β加权归因。输入G_a须先逐端点还原G，不能直接用ΔG_a当收益。",
+        "detail": "若展示年化差，必须先还原各日G再做归因；不能用年化差变化直接替代持有期基差贡献。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "需同合约对6日价格；β缺失只影响β加权归因。不能以年化差变化直接充当收益贡献。",
+      "plot": {
+        "panel_frequencies": [
+          "1d"
+        ],
+        "fields": [
+          "fret5",
+          "sret5",
+          "G_d5"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "五日 bp",
+            "series": [
+              {
+                "field": "fret5",
+                "label": "期货收益差",
+                "display_scale": 1
+              },
+              {
+                "field": "sret5",
+                "label": "指数收益差",
+                "display_scale": 1
+              },
+              {
+                "field": "G_d5",
+                "label": "基差差变化",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C04",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "收益回归与手数匹配",
+      "purpose": "先估计指数之间的共同波动权重，再用两腿价格和合约乘数把收益权重换成手数比例。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "index_beta",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "index_r2",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "h_equal",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "h_beta",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "integer_residual",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "S_HS300",
+        "S_ZZ500",
+        "F_IF",
+        "F_IC",
+        "m_IF",
+        "m_IC"
+      ],
+      "parameters": {
+        "M": 60,
+        "intercept": true,
+        "m_IF": 300,
+        "m_IC": 200,
+        "integer_IF": 2,
+        "integer_IC": 1
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "beta需要此前60个收益，即此前61个指数收盘价",
+          "affected_outputs": [
+            "index_beta",
+            "index_r2",
+            "h_beta",
+            "integer_residual"
+          ],
+          "scope_description": "回归分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "REG_DEGENERATE",
+          "condition": "x训练方差<=1e-20，beta为空；y方差为0时R2为空",
+          "affected_outputs": [
+            "index_beta",
+            "index_r2",
+            "h_beta",
+            "integer_residual"
+          ],
+          "scope_description": "回归分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "BETA_NONPOS",
+          "condition": "beta<=0时不产生一多一空beta手数；beta估计本身保留",
+          "affected_outputs": [
+            "h_beta",
+            "integer_residual"
+          ],
+          "scope_description": [
+            "h_beta",
+            "integer_residual"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "PARAM_MISSING",
+          "condition": "缺有效乘数或当前价格",
+          "affected_outputs": [
+            "h_equal",
+            "h_beta",
+            "integer_residual"
+          ],
+          "scope_description": "手数分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "β需此前60收益；β≤0不输出一多一空手数。等名义手数可独立输出。",
+      "formula": [
+        "beta=Cov(r_IC_index,r_IF_index)/Var(r_IC_index)，此前60收益，带截距",
+        "R2=Cov^2/(Var(x)*Var(y))",
+        "h_equal=F_IF*300/(F_IC*200)",
+        "h_beta=beta*h_equal",
+        "integer_residual=beta-n_IC*F_IC*200/(n_IF*F_IF*300)"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "M",
+          "default": 60,
+          "label": "此前收益回归窗口",
+          "unit": "daily_returns",
+          "constraint": "整数>=3；A07/B08分钟，C04日"
+        },
+        {
+          "key": "intercept",
+          "default": true,
+          "label": "intercept",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "m_IF",
+          "default": 300,
+          "label": "m_IF",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "m_IC",
+          "default": 200,
+          "label": "m_IC",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "integer_IF",
+          "default": 2,
+          "label": "integer_IF",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        },
+        {
+          "key": "integer_IC",
+          "default": 1,
+          "label": "integer_IC",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "回归输入为两指数收益；Δa回归得到的是年化定价敏感度，不能沿用为指数对冲β。",
+        "detail": "可用期货收益回归替代指数收益回归；若改为Δ年化基差回归，其系数不能自动代入收益对冲手数公式。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "β需此前60收益；β≤0不输出一多一空手数。等名义手数可独立输出。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "index_beta",
+          "index_r2",
+          "h_equal",
+          "h_beta"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "系数",
+            "series": [
+              {
+                "field": "index_beta",
+                "label": "指数收益 β",
+                "display_scale": 1
+              },
+              {
+                "field": "index_r2",
+                "label": "样本解释度 R²",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "IC手 / IF手",
+            "series": [
+              {
+                "field": "h_equal",
+                "label": "等名义",
+                "display_scale": 1
+              },
+              {
+                "field": "h_beta",
+                "label": "β匹配",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C05",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数量仓定价推进差",
+      "purpose": "先对每条期货独立计算量仓加权基差变化，再比较两者的推进方向与幅度。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "C1",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "IC_C1",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C4",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_Wu",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_Wv",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_Wa",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "b_IF",
+        "b_IC",
+        "a_IF",
+        "a_IC",
+        "V_IF",
+        "V_IC",
+        "OI_IF",
+        "OI_IC"
+      ],
+      "parameters": {
+        "k": 5,
+        "N_rvol": 20,
+        "rvol_cap": 3
+      },
+      "null_rules": [
+        {
+          "reason": "NO_WEIGHT",
+          "condition": "任一腿五日权重和为0，其推进及两腿差为空",
+          "affected_outputs": [
+            "C1",
+            "IC_C1",
+            "C4",
+            "C_Wu",
+            "C_Wv",
+            "C_Wa"
+          ],
+          "scope_description": "按分支；另一腿可保留",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "逐腿沿用A05量仓推进规则",
+          "affected_outputs": [
+            "C1",
+            "IC_C1",
+            "C4",
+            "C_Wu",
+            "C_Wv",
+            "C_Wa"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "所需年化窗口任一T<5",
+          "affected_outputs": [
+            "C_Wu",
+            "C_Wv",
+            "C_Wa"
+          ],
+          "scope_description": "年化分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "逐腿检查权重；一腿缺失时两腿差为空，另一腿推进仍可保留。",
+      "formula": [
+        "逐腿计算A05的w_VOI推进",
+        "C4=P_b_IF-P_b_IC",
+        "C_Wa=P_a_IF-P_a_IC；两腿权重不同，不能直接对G套共同权重代替"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "N_rvol",
+          "default": 20,
+          "label": "RVOL历史成交中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        },
+        {
+          "key": "rvol_cap",
+          "default": 3,
+          "label": "推进权重中RVOL上限",
+          "unit": "ratio",
+          "constraint": "正数；不截尾筛选使用的RVOL"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X由各腿b改为a；逐腿权重不同，先分别算，再相减，不能直接共同加权G。",
+        "detail": "X可改为各自年化基差或模型偏离。两腿权重不同，其推进差一般不等于对G使用共同权重的推进。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "逐腿检查权重；一腿缺失时两腿差为空，另一腿推进仍可保留。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "C1",
+          "IC_C1",
+          "C_Wu",
+          "C_Wv"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "bp",
+            "series": [
+              {
+                "field": "C1",
+                "label": "IF量仓推进",
+                "display_scale": 1
+              },
+              {
+                "field": "IC_C1",
+                "label": "IC量仓推进",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "年化百分点",
+            "series": [
+              {
+                "field": "C_Wu",
+                "label": "IF年化推进",
+                "display_scale": 1
+              },
+              {
+                "field": "C_Wv",
+                "label": "IC年化推进",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C06",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "持仓扩张与相对成交活跃",
+      "purpose": "用同一组月份的持仓合计比较跨指数参与扩张，再观察同月期货的相对成交活跃度。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "IF_totalOI",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "IC_totalOI",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "IF_totalgrowth",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "IC_totalgrowth",
+          "unit": "pct",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "oi_growth_diff",
+          "unit": "pp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "rvol_diff",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "OI_by_contract",
+        "V_IF_far",
+        "V_IC_same_month",
+        "contract_calendar"
+      ],
+      "parameters": {
+        "k": 5,
+        "N_rvol": 20,
+        "set": "same_current_listed_months_on_both_endpoints"
+      },
+      "null_rules": [
+        {
+          "reason": "WINDOW_GAP",
+          "condition": "当日挂牌集合在t-5有任一合约尚未挂牌或缺值，增长为空",
+          "affected_outputs": [
+            "IF_totalgrowth",
+            "IC_totalgrowth",
+            "oi_growth_diff"
+          ],
+          "scope_description": "growth分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "起止合计OI任一<=0，增长为空；RVOL比任一<=0，对数比为空",
+          "affected_outputs": [
+            "IF_totalOI",
+            "IC_totalOI",
+            "IF_totalgrowth",
+            "IC_totalgrowth",
+            "oi_growth_diff",
+            "rvol_diff"
+          ],
+          "scope_description": "分别判断",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "EXPIRED",
+          "condition": "集合任一合约到期日当日及以后不输出增长",
+          "affected_outputs": [
+            "IF_totalgrowth",
+            "IC_totalgrowth",
+            "oi_growth_diff"
+          ],
+          "scope_description": "growth分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "增长两端必须同一合约集合；新合约无起点、到期归零或总OI非正时为空。",
+      "formula": [
+        "S_t=当日同组挂牌月份；两端固定S_t",
+        "O_p,t=sum_m_in_S_t(OI_p,m,t)，任一合约缺失不跳过求和",
+        "growth_p=100*ln(O_p,t/O_p,t-5)",
+        "oi_growth_diff=growth_IF-growth_IC",
+        "rvol_diff=ln(RVOL_IF_far/RVOL_IC_same_month)；此量能不取全月合计"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "N_rvol",
+          "default": 20,
+          "label": "RVOL历史成交中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        },
+        {
+          "key": "set",
+          "default": "same_current_listed_months_on_both_endpoints",
+          "label": "set",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "持仓集合两端保持一致；量能差用当日所选IF与同月IC的RVOL。价格年化作为并列条件。",
+        "detail": "可改固定到期区间，但两端须用同一具体合约集合。年化基差是价格条件，不能替代OI或成交量。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "增长两端必须同一合约集合；新合约无起点、到期归零或总OI非正时为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "IF_totalgrowth",
+          "IC_totalgrowth",
+          "rvol_diff"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "五日对数增长 %",
+            "series": [
+              {
+                "field": "IF_totalgrowth",
+                "label": "IF持仓增长",
+                "display_scale": 1
+              },
+              {
+                "field": "IC_totalgrowth",
+                "label": "IC持仓增长",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "对数比",
+            "series": [
+              {
+                "field": "rvol_diff",
+                "label": "IF相对IC成交活跃度",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C07",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数收盘位置与压力",
+      "purpose": "将相对收盘形态和绝对波动压力同时保留，避免相对差接近零时遗漏共同冲击。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "clv_diff",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "stress",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "IC_stress",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "OHLC_IF",
+        "OHLC_IC",
+        "previous_close"
+      ],
+      "parameters": {
+        "N_stress": 20
+      },
+      "null_rules": [
+        {
+          "reason": "OHLC_FLAT",
+          "condition": "任一H=L仅CLV差为空",
+          "affected_outputs": [
+            "clv_diff"
+          ],
+          "scope_description": [
+            "clv_diff"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "WARMUP",
+          "condition": "压力需当前及前20个TRbp；首个TRbp还需前收",
+          "affected_outputs": [
+            "stress",
+            "IC_stress"
+          ],
+          "scope_description": "stress分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DENOM_ZERO",
+          "condition": "前收<=0或历史TRbp中位数<=0",
+          "affected_outputs": [
+            "stress",
+            "IC_stress"
+          ],
+          "scope_description": "stress分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "H=L不输出CLV差；压力需20个历史真实波幅及正的历史中位数。",
+      "formula": [
+        "clv_diff=(CLV_IF-CLV_IC)/2",
+        "TR=max(H-L,abs(H-C_prev),abs(L-C_prev))",
+        "TRbp=10000*TR/C_prev",
+        "stress=TRbp/median(此前20日TRbp)，逐腿计算"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "N_stress",
+          "default": 20,
+          "label": "TRbp历史中位数窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1；排除当前"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "X为OHLC与前收；若改为基差OHLC，必须从同步分钟真实构造高低点。",
+        "detail": "可比较期货减各自现货的CLV差。若改为年化基差位置，必须用同步年化序列重建OHLC。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "H=L不输出CLV差；压力需20个历史真实波幅及正的历史中位数。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "clv_diff",
+          "stress",
+          "IC_stress"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "位置差",
+            "series": [
+              {
+                "field": "clv_diff",
+                "label": "IF减IC收盘位置差",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "压力倍数",
+            "series": [
+              {
+                "field": "stress",
+                "label": "IF真实波幅压力",
+                "display_scale": 1
+              },
+              {
+                "field": "IC_stress",
+                "label": "IC真实波幅压力",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C08",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数路径与收益风险",
+      "purpose": "基差差的路径效率回答相对定价是否单向推进；两条期货收益差波动则包含指数风险。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "G_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "Ga_E",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_vol20",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_Gvol20",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "G",
+        "Ga",
+        "F_IF",
+        "F_IC"
+      ],
+      "parameters": {
+        "k": 5,
+        "M_rv": 20,
+        "return_weight": 1
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "E需6日；20日实现波动需21日价格",
+          "affected_outputs": [
+            "G_E",
+            "Ga_E",
+            "C_vol20",
+            "C_Gvol20"
+          ],
+          "scope_description": "分字段",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "FLAT_PATH",
+          "condition": "五日路径长度为0仅E为空",
+          "affected_outputs": [
+            "G_E",
+            "Ga_E"
+          ],
+          "scope_description": [
+            "G_E",
+            "Ga_E"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DTE_LT5",
+          "condition": "年化路径窗口任一腿T<5",
+          "affected_outputs": [
+            "Ga_E"
+          ],
+          "scope_description": [
+            "Ga_E"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "路径需6日，波动需21日价格；完整零波动为0，零路径效率为空。",
+      "formula": [
+        "E按A08，X=G/Ga",
+        "C_vol20=10000*sqrt(sum((r_IF-r_IC)^2))，当前在内20日",
+        "C_Gvol20=sqrt(sum((delta G)^2))，当前在内20日；波动不再年化"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "M_rv",
+          "default": 20,
+          "label": "当前在内风险窗口",
+          "unit": "returns",
+          "constraint": "整数>=1；实际频率由输出字段指定"
+        },
+        {
+          "key": "return_weight",
+          "default": 1,
+          "label": "return_weight",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "路径X=G或G_a；风险可选期货收益差或ΔG。ΔG_a风险单位为百分点，另标。",
+        "detail": "路径X可取G、年化差或β加权基差差；收益风险需保留完整两腿收益，不能用年化变量替换。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "路径需6日，波动需21日价格；完整零波动为0，零路径效率为空。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "G_E",
+          "Ga_E",
+          "C_vol20",
+          "C_Gvol20"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "路径效率",
+            "series": [
+              {
+                "field": "G_E",
+                "label": "基差差路径",
+                "display_scale": 1
+              },
+              {
+                "field": "Ga_E",
+                "label": "年化差路径",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "20日 bp",
+            "series": [
+              {
+                "field": "C_vol20",
+                "label": "期货收益差波动",
+                "display_scale": 1
+              },
+              {
+                "field": "C_Gvol20",
+                "label": "基差差变化波动",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C09",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数残差与偏离筛选",
+      "purpose": "分别观察当日期货收益超出历史联动的部分，以及价格偏离与量仓条件是否同时满足。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "C_regbeta",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_resid",
+          "unit": "bp",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C_resid_z",
+          "unit": "ratio",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "candidate_G",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "candidate_Ga",
+          "unit": "direction",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "F_IF",
+        "F_IC",
+        "G",
+        "Ga",
+        "RVOL_IF",
+        "RVOL_IC",
+        "K_IF",
+        "K_IC",
+        "stress_IF",
+        "stress_IC"
+      ],
+      "parameters": {
+        "M_reg": 60,
+        "N": 20,
+        "k": 5,
+        "thresholds": "same_as_B09"
+      },
+      "null_rules": [
+        {
+          "reason": "WARMUP",
+          "condition": "当前残差需60个此前收益及当前收益，即62日连续价格",
+          "affected_outputs": [
+            "C_regbeta",
+            "C_resid",
+            "C_resid_z"
+          ],
+          "scope_description": "回归分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "REG_DEGENERATE",
+          "condition": "训练x方差<=1e-20",
+          "affected_outputs": [
+            "C_regbeta",
+            "C_resid",
+            "C_resid_z"
+          ],
+          "scope_description": "回归分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "STD_ZERO",
+          "condition": "训练残差标准差<=1e-12",
+          "affected_outputs": [
+            "C_resid_z"
+          ],
+          "scope_description": [
+            "C_resid_z"
+          ],
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "DEPENDENCY_NULL",
+          "condition": "筛选逐腿沿用B09，年化分支再查T",
+          "affected_outputs": [
+            "candidate_G",
+            "candidate_Ga"
+          ],
+          "scope_description": "筛选分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "残差需62日价格；回归与筛选分开判空，不因一项缺失清空另一项。",
+      "formula": [
+        "回归按A07，y=r_IF、x=r_IC，频率1d，M=60",
+        "筛选按B09，价格X=G/Ga，腿为IF/IC；回归残差不参与该筛选"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "M_reg",
+          "default": 60,
+          "label": "此前日收益回归窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=3"
+        },
+        {
+          "key": "N",
+          "default": 20,
+          "label": "参照样本数",
+          "unit": "observations",
+          "constraint": "正整数；分位允许1，Z至少2"
+        },
+        {
+          "key": "k",
+          "default": 5,
+          "label": "变化/路径/加权窗口",
+          "unit": "trading_days",
+          "constraint": "整数>=1"
+        },
+        {
+          "key": "thresholds",
+          "default": "same_as_B09",
+          "label": "thresholds",
+          "unit": "see_description",
+          "constraint": "按指标定义"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "回归默认y=r_IF、x=r_IC；筛选X=G或G_a。回归残差不参与当前候选条件。",
+        "detail": "价格X可取G或年化差，须同时重算Z和E；回归仍以两腿收益为输入。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "残差需62日价格；回归与筛选分开判空，不因一项缺失清空另一项。",
+      "plot": {
+        "panel_frequencies": [
+          "1d",
+          "1d"
+        ],
+        "fields": [
+          "C_resid_z",
+          "candidate_G",
+          "candidate_Ga"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "标准差倍数",
+            "series": [
+              {
+                "field": "C_resid_z",
+                "label": "当日期货收益回归残差 Z",
+                "display_scale": 1
+              }
+            ]
+          },
+          {
+            "unit": "候选方向",
+            "series": [
+              {
+                "field": "candidate_G",
+                "label": "基差差条件",
+                "display_scale": 1
+              },
+              {
+                "field": "candidate_Ga",
+                "label": "年化差条件",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C10",
+      "group": "C",
+      "group_name": "跨指数期货",
+      "title": "跨指数双腿容量",
+      "purpose": "按选定的IC与IF手数比例，同时施加成交参与和持仓占比约束，识别限制较强的一条腿。",
+      "frequency": "1d",
+      "fields": [
+        {
+          "key": "capV_A",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "capOI_A",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C6",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        },
+        {
+          "key": "C6_B",
+          "unit": "lot",
+          "frequency": "1d",
+          "nullable": true
+        }
+      ],
+      "inputs": [
+        "V_IF",
+        "V_IC",
+        "OI_IF",
+        "OI_IC",
+        "h_beta"
+      ],
+      "parameters": {
+        "p": 0.01,
+        "q": 0.001,
+        "h": "index_beta matched"
+      },
+      "null_rules": [
+        {
+          "reason": "BETA_NONPOS",
+          "condition": "默认beta配对的beta<=0或h<=0",
+          "affected_outputs": [
+            "capV_A",
+            "capOI_A",
+            "C6",
+            "C6_B"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "INPUT_MISSING",
+          "condition": "任一腿V/OI或h缺失，不跳过缺失求min",
+          "affected_outputs": [
+            "capV_A",
+            "capOI_A",
+            "C6",
+            "C6_B"
+          ],
+          "scope_description": "按分支",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        },
+        {
+          "reason": "PARAM_INVALID",
+          "condition": "p或q不在[0,1]",
+          "affected_outputs": [
+            "capV_A",
+            "capOI_A",
+            "C6",
+            "C6_B"
+          ],
+          "scope_description": "all",
+          "evaluation": "逐字段按其实际依赖判断；scope_description中的条件分支优先，不能整卡清空"
+        }
+      ],
+      "human_boundary": "β配对须h＞0；任一依赖缺失则相应容量为空，数量为0可正常输出0。",
+      "formula": [
+        "capV_A=min(p*V_IF,p*V_IC/h)",
+        "capOI_A=min(q*OI_IF,q*OI_IC/h)",
+        "C6=min(capV_A,capOI_A)",
+        "C6_B=h*C6；连续手数，整数化后需重新验证"
+      ],
+      "parameter_definitions": [
+        {
+          "key": "p",
+          "default": 0.01,
+          "label": "当日成交参与情景比例",
+          "unit": "ratio",
+          "constraint": "0<=p<=1"
+        },
+        {
+          "key": "q",
+          "default": 0.001,
+          "label": "持仓占用情景比例；A10中q另指股息率",
+          "unit": "ratio",
+          "constraint": "0<=q<=1；A10见该指标定义"
+        },
+        {
+          "key": "h",
+          "default": "index_beta matched",
+          "label": "第二腿手数/第一腿手数",
+          "unit": "ratio",
+          "constraint": "必须>0；容量按该h统一转换"
+        }
+      ],
+      "x_adjustment": {
+        "summary": "数量V、OI和有效h构成容量；G或G_a只进入机会判断，不替代数量。",
+        "detail": "h可改等名义或其他明确的收益权重；可将全天成交改为已发生区间成交或真实报价深度。年化差不替代容量输入。",
+        "recompute": "价格输入改变后，重建完整历史X，随后重算所有依赖输出；保留独立量仓定义"
+      },
+      "boundary_summary": "β配对须h＞0；任一依赖缺失则相应容量为空，数量为0可正常输出0。",
+      "plot": {
+        "panel_frequencies": [
+          "1d"
+        ],
+        "fields": [
+          "capV_A",
+          "capOI_A",
+          "C6"
+        ],
+        "x_type": "integer_category",
+        "connect_nulls": false,
+        "panels": [
+          {
+            "unit": "IF手",
+            "series": [
+              {
+                "field": "capV_A",
+                "label": "成交量约束",
+                "display_scale": 1
+              },
+              {
+                "field": "capOI_A",
+                "label": "持仓量约束",
+                "display_scale": 1
+              },
+              {
+                "field": "C6",
+                "label": "双重约束",
+                "display_scale": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "construction": {
+    "order": [
+      "原始合约/交易日历校验",
+      "固定合约逐日/逐分钟b与a",
+      "固定同指数合约对c、ℓ与ac",
+      "同到期跨指数G与Ga",
+      "各自历史统计与量仓算子",
+      "回归/条件/容量分支",
+      "按展示选样身份取值",
+      "坐标与逐字段有效性序列化"
+    ],
+    "selection": {
+      "far": "剩余>=60自然日且到期最早的IF",
+      "near": "剩余>=7自然日且位于远月之前的最近IF",
+      "cross": "与远月IF同到期的IC",
+      "not_eligibility": "选样条件不是公式有效性条件；公式T>=5单独执行"
+    }
+  }
+}
