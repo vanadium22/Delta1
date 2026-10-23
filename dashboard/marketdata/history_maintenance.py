@@ -72,13 +72,14 @@ def latest_rows(rows):
     return result
 
 
-def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, checkpoint=lambda cache:None):
+def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, checkpoint=lambda cache:None, total_progress=lambda n:None):
     coverage={};updated={};groups={}
     for key,snapshot in snapshots.items():
         for part in snapshot['parts']:
             if part['frequency'] not in ('1d','1m'):continue
             group=(key,part['instrument_id'],part['frequency'],part['trade_date'])
             groups.setdefault(group,[]).append(part)
+    total_progress(len(groups))
     for i,((key,symbol,freq,day),parts) in enumerate(groups.items()):
         if stop():raise Stopped()
         store=stores[key]
@@ -95,6 +96,7 @@ def scan(stores, snapshots, cache, stop=lambda:False, progress=lambda n:None, ch
         if i%100==0:
             progress(i)
             checkpoint({**cache,**updated})
+    progress(len(groups))
     return coverage,updated
 
 
@@ -223,16 +225,21 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
     state=read_json(root/'status.json');state.update(network_policy='existing_route_only_no_vpn_change',roots=roots)
     def status(name, **values):
         state.update(state=name,message=MESSAGES[name],updated_at=now_iso(),**values)
+        from dashboard.history_status import progress_text
+        state['progress_message']=progress_text(state)
         _atomic_bytes(root/'status.json',_json_bytes(state))
     with _writer_lock(root):
-        if stopped():status('paused',next_retry=None);return state
+        if stopped():status('paused',next_retry=None,scan_complete=False,pending_symbol_days=None,missing_bars=None);return state
         actual_today=str(pd.Timestamp.now(tz='Asia/Shanghai').date()) if today is None else str(today)
         if not force and state.get('next_retry') and state['next_retry']>time.time() and state.get('today')==actual_today:return state
         if not force and state.get('state')=='waiting_credentials':return state
         client=None;pending={};evidence=[];job_state=read_json(root/'jobs.json');cache=read_json(root/'coverage_cache.json')
         quality=read_json(root/'quality_notes.json',{'schema':'history_source_notes_v1','entries':[]});new_notes=[]
         state['source_discrepancies']=len(quality['entries'])
-        status('scanning',today=actual_today,next_retry=None,error_type=None,queries=0,inserted=0,scan_groups=0)
+        status('scanning',today=actual_today,next_retry=None,error_type=None,queries=0,inserted=0,
+               scan_id=uuid.uuid4().hex,scan_started_at=now_iso(),scan_complete=False,
+               scan_groups=0,scan_total=None,pending_symbol_days=None,missing_bars=None,
+               pending_scan_id=None,pending_target=None,current_job=None,target=None,start=None,versions={})
         try:
             stores={};kind_keys={}
             for path in roots:
@@ -263,14 +270,17 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                 status('waiting_reference',target=end,start=start,next_retry=time.time()+300);return state
             status('scanning',target=end,start=start)
             coverage,cache=scan(stores,snapshots,cache,stopped,lambda n:status('scanning',scan_groups=n),
-                lambda data:_atomic_bytes(root/'coverage_cache.json',_json_bytes(data)))
+                lambda data:_atomic_bytes(root/'coverage_cache.json',_json_bytes(data)),
+                total_progress=lambda n:status('scanning',scan_total=n))
             _atomic_bytes(root/'coverage_cache.json',_json_bytes(cache))
             jobs,summary=plan(coverage,metadata,days,start,end)
             def save_pending():
                 enriched=[{**j,**job_state.get(job_key(j),{})} for j in jobs]
-                _atomic_bytes(root/'pending.json',_json_bytes(dict(start=start,target=end,jobs=enriched,coverage=summary)))
+                versions={k:s['version'] for k,s in snapshots.items()}
+                _atomic_bytes(root/'pending.json',_json_bytes(dict(start=start,target=end,jobs=enriched,coverage=summary,
+                              scan_id=state['scan_id'],versions=versions,generated_at=now_iso())))
                 state.update(pending_symbol_days=len(jobs),missing_bars=sum(j['missing'] for j in jobs),start=start,target=end,
-                    versions={k:s['version'] for k,s in snapshots.items()})
+                    versions=versions,scan_complete=True,pending_scan_id=state['scan_id'],pending_target=end)
             save_pending()
             if not jobs:
                 status('complete',failures=0,last_complete_at=now_iso(),next_retry=time.time()+1800);return state

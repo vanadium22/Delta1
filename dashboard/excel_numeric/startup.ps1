@@ -1,4 +1,13 @@
 ﻿# Startup UI only. Background actions use the numeric Python; DDB login is optional.
+function Format-HistoryProgress($State) {
+    if($State.progress_message){return [string]$State.message+"`r`n"+[string]$State.progress_message}
+    $target=if($State.target){[string]$State.target}else{'待确定'}
+    $ready=$State.scan_complete -eq $true -and $State.scan_id -and $State.pending_scan_id -eq $State.scan_id -and $State.pending_target -eq $State.target -and $null -ne $State.pending_symbol_days -and $null -ne $State.missing_bars
+    if($ready){$detail='剩余 '+$State.pending_symbol_days+' 项，'+$State.missing_bars+' 条'}
+    else{$detail='缺口待核验 · 已扫描 '+[string]$State.scan_groups;if($null -ne $State.scan_total){$detail+=' / '+[string]$State.scan_total};$detail+=' 组'}
+    return [string]$State.message+"`r`n目标 "+$target+' · '+$detail
+}
+
 function Resolve-NumericPython([string]$Interpreter) {
     $command=Get-Command -Name $Interpreter -CommandType Application -ErrorAction Stop | Select-Object -First 1
     return $command.Source
@@ -61,7 +70,7 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
             try {
                 $s=Get-Content -LiteralPath $HistoryStatus -Raw -Encoding UTF8 | ConvertFrom-Json
                 if([DateTimeOffset]::Parse($s.updated_at).LocalDateTime -ge $started) {
-                    $label.Text=[string]$s.message+"`r`n剩余 "+$s.pending_symbol_days+' 项 · 本轮发布 '+$s.inserted+' 条'
+                    $label.Text=Format-HistoryProgress $s
                 }
             } catch {}
         }
@@ -82,6 +91,10 @@ function Invoke-NumericJob([string]$Interpreter, [string]$Action, [string]$Confi
                 if($process.ExitCode -eq 0 -or $result.state -eq 'failed') {
                     $result | Add-Member -NotePropertyName exit_code -NotePropertyValue $process.ExitCode -Force
                     $result | Add-Member -NotePropertyName requested_python -NotePropertyValue $Interpreter -Force
+                    if($Action -eq 'probe') {
+                        $result | Add-Member -NotePropertyName diagnostic_file -NotePropertyValue $report -Force
+                        if(-not $result.ok -and -not $result.offline){$result.message=[string]$result.message+"`r`n诊断JSON："+$report}
+                    }
                     if($runtime) { $result | Add-Member -NotePropertyName runtime -NotePropertyValue $runtime -Force }
                     if($result.state -eq 'failed') {
                         $result | Add-Member -NotePropertyName ok -NotePropertyValue $false -Force

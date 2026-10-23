@@ -247,6 +247,8 @@ def main(argv=None):
         else:
             result = history(local_root, args.report, args.stop_file, vpn_mode=args.vpn_mode)
         result['runtime'] = runtime
+        if args.action=='probe' and args.report:
+            result['diagnostic_file']=str(args.report)
         if args.report:
             stage = 'report'
             save_snapshot(result, args.report)
