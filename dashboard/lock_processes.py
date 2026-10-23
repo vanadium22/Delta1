@@ -106,27 +106,40 @@ def process_summary(pids=()):
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $selectedPids=@(SELECTED_PIDS)
-$items=@(Get-CimInstance Win32_Process | Where-Object {
+$all=@(Get-CimInstance Win32_Process)
+$items=@($all | Where-Object {
     $_.Name -match '^(pythonw?|EXCEL)\.exe$' -or $_.ProcessId -in $selectedPids
 } | ForEach-Object {
     $taskModule=$null
     if ($_.CommandLine -match '(?i)(?:^|\s)"?-m"?\s+"?(dashboard\.[A-Za-z0-9_.]+)"?(?:\s|$)') {
         $taskModule=$Matches[1]
     }
+    $feedPath=$null;$stopFile=$null
+    if ($taskModule -eq 'dashboard.numeric_excel') {
+        if ($_.CommandLine -match '(?i)(?:^|\s)"?--feed"?\s+(?:"([^"]+)"|(\S+))') {
+            $feedPath=if($Matches[1]){$Matches[1]}else{$Matches[2]}
+        }
+        if ($_.CommandLine -match '(?i)(?:^|\s)"?--stop-file"?\s+(?:"([^"]+)"|(\S+))') {
+            $stopFile=if($Matches[1]){$Matches[1]}else{$Matches[2]}
+        }
+        if ($feedPath -and ($feedPath.Contains('://') -or -not [IO.Path]::IsPathRooted($feedPath))) {$feedPath=$null}
+        if ($stopFile -and ($stopFile.Contains('://') -or -not [IO.Path]::IsPathRooted($stopFile))) {$stopFile=$null}
+    }
     [pscustomobject]@{
         pid=[int]$_.ProcessId;parent_pid=[int]$_.ParentProcessId;name=$_.Name
         executable=$_.ExecutablePath;module=$taskModule
+        feed_path=$feedPath;stop_file=$stopFile
         started_filetime=if ($_.CreationDate) {$_.CreationDate.ToFileTimeUtc()} else {$null}
         started_at=if ($_.CreationDate) {$_.CreationDate.ToUniversalTime().ToString('o')} else {$null}
     }
 })
-ConvertTo-Json -InputObject $items -Depth 4 -Compress
+[pscustomobject]@{items=$items;active_pids=@($all | ForEach-Object {[int]$_.ProcessId})} | ConvertTo-Json -Depth 4 -Compress
 '''.replace('SELECTED_PIDS',selected)
     try:
         child=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
             capture_output=True,timeout=12,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         if child.returncode:return dict(state='unavailable',exit_code=child.returncode)
-        return dict(state='ok',items=json.loads(child.stdout.decode('utf-8-sig')))
+        return dict(state='ok',**json.loads(child.stdout.decode('utf-8-sig')))
     except Exception as exc:return dict(state='unavailable',error=error_detail(exc,'process_query'))
 
 

@@ -1,5 +1,9 @@
 # 数字 Excel：公司统一分支交接
 
+2026-10-23 已确认公司锁冲突原因：旧数字Excel对应的启动器与Excel都已退出、心跳停在两天前，但后台仍采集并持锁。新增原启动器进程句柄与创建时间监视，以及独立的本轮停止文件监视，先停止采集再由主服务清理退出；不根据心跳停止活跃窗口。新增numeric_recovery，默认只读，--stop-orphans仅对完整核验的孤立运行写stop标记并等待自行退出，不终止进程、不删锁、不动数据/配置/VPN。公司收尾加有限连接验证命令见 [CONNECTION_DIAGNOSIS.md](CONNECTION_DIAGNOSIS.md)。两版本地App同步共用采集/诊断后台与说明；旧本机Excel仅补生命周期，不覆盖其原展示/配置逻辑。证据在 `.deps/orphan_service/`。
+
+本轮84项相关用例、旧Excel另11项及两版App离屏说明通过。原保护清单44个文件中43个字节一致；旧工作区研究界面偏好在本轮并行运行期间变化，保留当前值，没有回退或提交该偏好，运行会话锁也未恢复或删除。原行情/分红路径与数据配置不覆盖，真实公司收尾与新实例网络完整性仍待现场回传。
+
 2026-10-23 公司报告跟进：10:17报告确认历史任务09:20成功发布到10月22日（40次查询、补入4,820条），连接验证止于 `msvcrt.locking`、尚未HTTP；不能把开发机超时归因公司VPN。用户回传的Python/Excel列表未识别模块，原因之一是原手动正则未兼容启动器给全部参数加引号。新增可选 `connection_check --lock-owners`，通过Windows自带Restart Manager只查询锁文件使用进程、CIM输出安全摘要，识别带引号模块；不隐含联网，不控制进程或删除锁，不触碰业务配置。文件使用者并非字节锁的直接持有者证明，PID需联合创建时间判断。说明与公司回传命令见 [CONNECTION_DIAGNOSIS.md](CONNECTION_DIAGNOSIS.md)。诊断后台同步旧App目录；前端、数据和配置不发布。本机隔离验证证据在 `.deps/lock_diagnostics/`。
 
 2026-10-23：修复历史扫描沿用旧缺口数量，以及连接验证只显示异常类型的问题。状态新增scan_id/scan_complete，扫描开始清空当前数量；pending绑定扫描编号/目标/版本，扫描未完成或停止时三端显示待核验。`probe_realtime` 记录时段、参考读取、网络锁、客户端、HTTP及清理阶段，安全保留errno/winerror/文件路径/调用位置；HTTP捕获的传输异常保留类型和错误码，丢弃原异常文本/头/正文。Excel本轮JSON和两版App独立runtime报告同步显示。新增 `python -m dashboard.connection_check --all-profiles --connect --output ...`，只读配置、有限验证、DNS/TCP/所选路由，无窗口/采集/VPN操作；网络诊断同样遵守互斥及时段。公司PermissionError尚待该机报告，开发机结果不得归因公司。说明见 [CONNECTION_DIAGNOSIS.md](CONNECTION_DIAGNOSIS.md)，本机证据 `.deps/startup_diagnostics/`。App前端修改仅旧目录；旧App原有凭据函数保留，未执行迁移或修改配置。

@@ -1,6 +1,39 @@
 # 历史扫描与公司实时连接诊断
 
-2026-10-23：Excel 与两版本地 App 共用新的扫描结果和验证诊断。公司10:17报告已定位到 `network_session/writer.lock` 的字节锁申请，HTTP尚未发出；仍需该机查询文件使用进程以确认持有者。开发机的网络结果不能作为公司原因的证据。
+2026-10-23：公司已确认占锁的是脱离原窗口运行的数字Excel后台：启动器和原Excel均不存在、心跳停在两天前，但后台仍在采集。新的验证被它的互斥锁拦截；这不能解释为行情接口拒绝访问。Excel与两版本地App共用安全诊断说明，数据和配置保留。
+
+## 已确认的原因与安全恢复
+
+旧数据服务只读取本次运行目录的停止文件。启动器意外退出时，清理代码可能没有执行，停止文件也没有生成，后台于是继续重算和采集。公司现场的旧窗口心跳停在10月21日13:41，但对应后台10月23日10:40仍在计算，源时已到10:39:43，且独占网络锁。源时说明近期存在行情数据更新，不保证全部20个代码或当前链路仍完整、新鲜；新实例需在收尾后验证。
+
+新版启动器把自己的PID和精确创建时间交给本次数据服务。服务持有原进程的查询/等待句柄，观察真实进程退出，避免PID复用误判；不使用心跳超时判断存活，不会因为Excel编辑、计算慢或短时无响应就停止。启动器退出或本轮停止文件出现后，独立监视线程先通知采集停止，数据计算在可取消边界退出，采集完成清理后释放互斥锁。Windows依据见 [进程等待接口](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject) 和 [进程创建时间](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes)。不调用进程终止接口，不管理其他Excel窗口。无启动器参数的独立命令行保持原有显式停止方式。
+
+`git pull` 不会重启正在运行的旧Python。新增 `python -m dashboard.numeric_recovery --output ...` 默认只检查原运行记录；显式加 `--stop-orphans` 才请求符合条件的旧任务自行退出。必须同时满足：运行号及目录合法、当前入口为数字Excel、进程实际feed/stop路径与该运行记录一致、原启动器PID及Excel PID均不存在、带时区心跳已过期至少120秒。写停止标记前重新查询并核对进程创建时间；任何必要信息缺失、查询权限失败、路径不符或原窗口仍存在均不处理。PID被其他进程复用导致存在时也保守保留。
+
+只新建本轮目录的 `stop`，不改原run.json、feed、工作簿、行情库和配置，不删除writer.lock，不强杀任何进程、不弹窗、不切VPN。总计等待已请求任务自行退出最多30秒；没有观察到退出时返回非0，保留报告并停止后续命令。无有效运行记录的老任务不凭PID猜测收尾。报告的 `ok=true` 仅表示恢复步骤完成，不代表连接验证成功；仍可能有正常采集器持有网络锁。
+
+公司在原仓库根目录整块执行；先保留已手工连接的实时行情VPN，不使用任何自动VPN参数：
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $env:GIT_TERMINAL_PROMPT = '0'; $env:GCM_INTERACTIVE = 'Never'
+    if ((git branch --show-current) -ne 'codex/company-apps') { throw '当前不是公司统一分支，请回传输出' }
+    git pull --ff-only origin codex/company-apps
+    if ($LASTEXITCODE -ne 0) { throw '更新失败，停止' }
+    $py = 'D:\conda\envs\swhy_delta1\python.exe'
+    $stamp = Get-Date -Format yyyyMMdd_HHmmss_fff
+    $recovery = Join-Path $PWD ("dashboard\runtime\company_recovery_$stamp.json")
+    & $py -B -X utf8 -m dashboard.numeric_recovery --stop-orphans --output $recovery
+    if ($LASTEXITCODE -ne 0) { Write-Output $recovery; throw '收尾未完成，请回传该报告；不要强杀进程' }
+    $connection = Join-Path $PWD ("dashboard\runtime\company_connection_$stamp.json")
+    & $py -B -X utf8 -m dashboard.connection_check --all-profiles --connect --lock-owners --output $connection
+    if ($LASTEXITCODE -ne 0) { Write-Output $connection; throw '诊断未完成，请回传输出和已有报告' }
+    Get-Item -LiteralPath $recovery,$connection | Select-Object FullName,Length
+}
+```
+
+把两个报告回传；如果新验证仍被正常采集器占锁，按其中的使用进程与原始行情时点判断，不停止正在使用的窗口。原Excel文件继续保留为已保存快照；重新启动原入口才能加载本次生命周期修复，程序不会自动打开产品。
 
 ## 已收到的公司证据与下一步
 
@@ -20,7 +53,7 @@ $report = Join-Path $PWD ('dashboard\runtime\company_lock_' + (Get-Date -Format 
 $report
 ```
 
-`--lock-owners` 不隐含 `--connect`。它通过Windows自带的 [Restart Manager资源查询接口](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/nf-restartmanager-rmgetlist) 取得各锁文件的使用进程PID与创建时间，再用本机CIM补充Python/Excel及相关PID的程序路径、父PID、创建时间、看板模块名。模块识别兼容带引号的参数；完整命令行、其他参数、进程窗口标题和文档名不进入报告。查询只建立并结束自己的系统查询会话，不调用关闭/重启应用接口，不结束业务进程、不删锁文件、不弹窗或申请提权。
+`--lock-owners` 不隐含 `--connect`。它通过Windows自带的 [Restart Manager资源查询接口](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/nf-restartmanager-rmgetlist) 取得各锁文件的使用进程PID与创建时间，再用本机CIM补充Python/Excel及相关PID的程序路径、父PID、创建时间、看板模块名。模块识别兼容带引号的参数；只额外保留数字Excel的feed/stop路径及全机PID存在性列表用于安全核对，完整命令行、其他参数、进程窗口标题和文档名不进入报告。查询只建立并结束自己的系统查询会话，不调用关闭/重启应用接口，不结束业务进程、不删锁文件、不弹窗或申请提权。
 
 报告每份配置的 `network_lock.file_users_query` 与顶层 `processes` 可对应PID和 `started_filetime`；同时核对创建时间，避免PID被复用。`file_users` 是文件使用者候选，不直接证明谁持有哪一段字节锁；多个使用者、空结果、访问拒绝或进程已退出时，需结合本轮锁访问结果继续判断。`state=unavailable` 与 `missing` 不解释为“锁已释放”；API错误、CIM失败与超时分别保留，查询失败不会自动停止任务或尝试管理员权限。
 
@@ -69,6 +102,8 @@ $report
 Excel 启动验证的JSON仍在本轮 `runtime/numeric_live` 目录，错误提示显示该报告位置。两版 App 的共用向导将每次验证写入本地 `runtime/connection_checks/connection-*.json`，错误提示可直接看到阶段、错误码、相关路径和报告位置。诊断保存失败单独报告，不覆盖原始连接失败原因。
 
 ## 验证范围
+
+本次生命周期与恢复新增11项及既有73项相关回归通过，共84项；覆盖原进程句柄退出、PID身份不符、计算中自行停止、停止标记响应、真实网络锁释放、窗口存在时不处理、路径/心跳/元数据不足不处理，以及旧文件字节保持。旧Excel单独11项也通过；两工作区实际PowerShell参数/创建时间、恢复默认只读CLI、两版App离屏错误说明通过。恢复测试只请求本次创建的合成子进程自行退出，没有停止用户进程或在公司实盘执行恢复。
 
 文件使用进程诊断新增9项用例与原17项连接诊断回归通过，共26项：真实Windows字节锁、查询后锁仍有效、释放后使用者消失、不同路径结果隔离、带引号模块、中文/空格/特殊字符路径、权限失败、列表变化和超时均已检查。两工作区的原配置无联网CLI链通过，44个原配置/参考/索引文件未变。所有原生查询仅作用于自己的查询会话，不结束用户进程；本机运行结果不代替公司的进程和网络证据。
 

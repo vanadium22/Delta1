@@ -48,7 +48,7 @@ def failure_message(detail):
     for key,label in (('errno','系统错误码'),('winerror','Windows错误码')):
         if detail.get(key) is not None:message+=' · '+label+' '+str(detail[key])
     if stage=='network_lock':
-        message+='；网络锁未取得，尚未请求行情。可能是其他历史/实时任务占用或锁文件访问被拒绝，请按阶段与错误码核对。'
+        message+='；网络锁未取得，尚未请求行情。可能是其他历史/实时任务占用或锁文件访问被拒绝，请按阶段与错误码核对。原窗口关闭后也可能有旧后台留存，先核对对应任务，不删除锁文件。'
     elif stage=='http_request':
         message+='；已进入接口请求，请核对VPN资源、路由或安全软件。'
     path=detail.get('path') or detail.get('filename2') or detail.get('filename')

@@ -15,9 +15,11 @@ if (Test-Path -LiteralPath $Output) { throw '输出文件已存在，请另选�
 $producer = $null; $excel = $null; $book = $null; $owned = $false
 $runId = Split-Path $runRoot -Leaf
 $runFile = Join-Path $runRoot 'run.json'
+$launcherStartFileTime = [Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc()
 $run = [ordered]@{ run_id=$runId; launcher_pid=$PID; started_at=[DateTimeOffset]::Now.ToString('o');
     output=$Output; requested_python=$Python; read_only_cache=[bool]$ReadOnlyCache; state='starting';
     heartbeat_at=$null; last_write_at=$null; last_save_at=$null; error=$null; writes=0; saves=0 }
+$run['launcher_started_filetime'] = $launcherStartFileTime
 function SaveRun {
     $run.heartbeat_at = [DateTimeOffset]::Now.ToString('o')
     $tmp = $runFile + '.tmp'
@@ -81,6 +83,7 @@ try {
     if (-not $FeedFile) {
         $FeedFile = Join-Path $runRoot 'workbook.json'
         $arguments = @('-B','-X','utf8','-m','dashboard.numeric_excel','--feed',$FeedFile,'--stop-file',$stopFile)
+        $arguments += @('--launcher-pid',[string]$PID,'--launcher-start-filetime',[string]$launcherStartFileTime)
         $arguments += @('--selection-file',$selectionFile)
         if ($LocalRoot) { $arguments += @('--local-root',[IO.Path]::GetFullPath($LocalRoot)) }
         if ($Snapshot) { $arguments += @('--snapshot',[IO.Path]::GetFullPath($Snapshot)); $Once = $true }
@@ -311,7 +314,7 @@ try {
 } finally {
     [IO.File]::WriteAllText($stopFile,'stop')
     if ($producer -and -not $producer.HasExited) {
-        if (-not $producer.WaitForExit(25000)) { Stop-Process -Id $producer.Id }
+        if (-not $producer.WaitForExit(25000)) { Write-Warning ('本次后台仍在完成收尾，保留进程自行退出。运行目录：'+$runRoot) }
     }
     if ($book) {
         try {

@@ -97,11 +97,12 @@ class LockProcessTests(unittest.TestCase):
         # Run the exact production PowerShell formatter with fixture objects;
         # this avoids needing permission to query real company processes.
         fixtures=[
-            ('python.exe','python.exe "-B" "-m" "dashboard.numeric_excel" "--token" "SECRET"','dashboard.numeric_excel'),
+            ('python.exe','python.exe "-B" "-m" "dashboard.numeric_excel" "--feed" "C:\\space path\\workbook.json" "--stop-file" "C:\\space path\\stop" "--token" "SECRET"','dashboard.numeric_excel'),
             ('python.exe','python.exe -m dashboard.marketdata.history_maintenance --password SECRET','dashboard.marketdata.history_maintenance'),
             ('pythonw.exe','"D:\\Python Path\\pythonw.exe" -m "dashboard.current" SECRET','dashboard.current'),
             ('python.exe','python.exe private.py SECRET',None),
             ('EXCEL.EXE','EXCEL.EXE "private_SECRET.xlsx"',None),
+            ('python.exe','python.exe -m dashboard.numeric_excel --feed "https://SECRET" --stop-file relative_SECRET','dashboard.numeric_excel'),
         ]
         captured=[]
         def run_fixture(command,**kwargs):
@@ -117,6 +118,9 @@ class LockProcessTests(unittest.TestCase):
         with patch.object(locks.subprocess,'run',side_effect=run_fixture):result=locks.process_summary([1])
         self.assertEqual(result['state'],'ok',result)
         self.assertEqual([row['module'] for row in result['items']],[f[2] for f in fixtures])
+        self.assertEqual(result['items'][0]['feed_path'],'C:\\space path\\workbook.json')
+        self.assertEqual(result['items'][0]['stop_file'],'C:\\space path\\stop')
+        self.assertEqual(result['active_pids'],[1,2,3,4,5,6])
         self.assertNotIn('SECRET',json.dumps(result));self.assertNotIn(b'SECRET',b''.join(captured))
         self.assertTrue(all('CommandLine' not in row for row in result['items']))
 

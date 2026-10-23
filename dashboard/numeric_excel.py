@@ -53,6 +53,7 @@ def workbook_payload(payload):
         ['行情接入','北京时间交易日09:29（含）至15:01（不含）；之外只读取本地数据。午间保留带时点的缓存。'],
         ['缓存规则','优先当前有效同步行情；否则比较最新历史收盘与保存观测，展示较新可用值。缓存不保证是最终收盘价。'],
         ['指标规则','实时可算项随行情变化；日线/分钟/OI项仅随对应有效数据更新；缺失留空，合法0保留。'],
+        ['后台生命周期','关闭本次启动器后，本次后台会停止采集并退出；正在运行的旧版本需单独收尾。'],
         ['分红规则','固定分红情景用于历史重算，不是真实逐日分红；缺失合约继承关系见逐行说明。'],
         ['单位','数字看板年化、分位列为Excel百分比；研究指标数值按相邻单位原值（%表示百分点）。'],
         ['历史版本',json.dumps(payload['snapshots'][0].get('versions',{}),ensure_ascii=False)],
@@ -90,8 +91,19 @@ def main(argv=None):
     parser.add_argument('--interval',type=float,default=3)
     parser.add_argument('--iterations',type=int,default=0)
     parser.add_argument('--selection-file',type=Path,help='本次Excel关注组合选择；独立于数据/VPN设置')
+    parser.add_argument('--launcher-pid',type=int,help='Owned launcher process; exit when its original handle signals')
+    parser.add_argument('--launcher-start-filetime',type=int,help='Exact Windows creation time to reject PID reuse')
     args=parser.parse_args(argv)
     if args.interval<1:parser.error('interval must be >= 1')
+    if args.launcher_start_filetime is not None and args.launcher_pid is None:parser.error('launcher creation time requires PID')
+    from dashboard.process_lifetime import LauncherLifetime
+    with LauncherLifetime(args.launcher_pid,args.launcher_start_filetime,stop_file=args.stop_file) as lifetime:
+        return run_service(args,parser,lifetime)
+
+
+def run_service(args,parser,lifetime):
+    if lifetime.stopped.is_set():
+        print('启动器已退出或身份已改变，不启动本次数据服务',flush=True);return
     from dashboard.native.model import NativeModel
     from dashboard.native.collection import CollectionJob
     from dashboard.session_clock import session_policy
@@ -102,9 +114,10 @@ def main(argv=None):
     from dashboard.numeric_evidence import cache_scope, annotate
     service_started=time.monotonic()
     status_path=args.feed.with_suffix('.status.json')
-    def status(message, *, ready=False, log=True):
+    def status(message, *, ready=False, log=True, **extra):
         value=dict(message=message,ready=ready,elapsed_seconds=round(time.monotonic()-service_started,1),
                    updated_at=pd.Timestamp.now(tz='UTC').isoformat())
+        value.update(extra)
         save_snapshot(value,status_path)
         if log:print(f"[{value['elapsed_seconds']:.1f}s] {message}",flush=True)
     status('检查数字专用配置和历史索引')
@@ -113,13 +126,16 @@ def main(argv=None):
     runtime=dict(python=sys.executable,producer_pid=os.getpid(),config_path=str(model.path),
                  realtime_root=model.config.get('realtime_root'),history_roots=model.config.get('history_roots'),
                  cache_scope=model.numeric_cache_scope,collect_requested=args.collect)
+    runtime.update(launcher_pid=lifetime.pid,launcher_started_filetime=lifetime.started_filetime)
     if not args.snapshot:
         issues=problems(model.config)
         if issues:
             model.close()
             parser.error('；'.join(issues)+' 请运行 python -m dashboard.numeric_config，参见 dashboard/COMPANY_SETUP.md。')
-    collection=CollectionJob(model.local_root)
+    collection=CollectionJob(model.local_root,lifetime_stop=lifetime.stopped)
+    lifetime.attach(collection.stop)
     next_attempt=0;iteration=0;previous_feed=None;probe_note='等待连接验证'
+    stopped=lambda:bool(lifetime.stopped.is_set() or (args.stop_file and args.stop_file.exists()))
     try:
         cached=False
         if not args.snapshot and not args.iterations:
@@ -151,18 +167,18 @@ def main(argv=None):
                 partial.update(ready=False,mode=f'首次计算中 · 已完成 {slot+1}/4 档，其余待计算',
                                generated_at=pd.Timestamp.now(tz='UTC').isoformat(),runtime=runtime)
                 save_snapshot(partial,args.feed)
-        stopped=lambda:bool(args.stop_file and args.stop_file.exists())
-        while not args.stop_file or not args.stop_file.exists():
+        while not stopped():
             started=time.monotonic()
             if args.collect and not args.snapshot and session_policy()['allowed'] and not collection.running() and started>=next_attempt:
                 next_attempt=started+60
                 result=probe_realtime(model.config)
                 probe_note=result.get('message','验证未完成；只读缓存，稍后重试')
-                if result['ok']:
+                if result['ok'] and not stopped():
                     indices={v[0] for v in UNDERLYINGS.values()}
                     collection.start(model.config['realtime_root'],list(indices),indices,model.config.get('reference_file'),auto_roll=True)
             if not session_policy()['allowed']:collection.stop()
             payload=json.loads(args.snapshot.read_text(encoding='utf8')) if args.snapshot else capture(model,progress=progress,stopped=stopped)
+            if stopped():break
             payload['cache_scope']=model.numeric_cache_scope
             feed=workbook_payload(payload)
             if not args.snapshot:
@@ -175,9 +191,10 @@ def main(argv=None):
                 workspace=evaluate(model,selected)
                 add_research_view(feed,workspace)
                 payload['research']=workspace
-                if isinstance(selected,dict) and selected.get('request_id')!=getattr(model,'saved_workspace_request',None):
+                if not stopped() and isinstance(selected,dict) and selected.get('request_id')!=getattr(model,'saved_workspace_request',None):
                     save_preferences(model.local_root,workspace['selection'])
                     model.saved_workspace_request=selected.get('request_id')
+            if stopped():break
             feed['ready']=True
             feed['collector']=collection.state()['status']
             gate=session_policy()
@@ -198,14 +215,21 @@ def main(argv=None):
             if args.snapshot or args.iterations and iteration>=args.iterations:break
             deadline=started+args.interval
             while time.monotonic()<deadline:
-                if args.stop_file and args.stop_file.exists():break
+                if stopped():break
                 time.sleep(min(.2,max(0,deadline-time.monotonic())))
     except InterruptedError:
-        if not args.stop_file or not args.stop_file.exists():raise
+        if not stopped():raise
     finally:
         collection.stop()
-        if collection.worker:collection.worker.join(timeout=20)
+        if collection.worker:
+            collection.worker.join(timeout=20)
+            if collection.worker.is_alive():
+                status('等待本次采集写入完成，保留后台自行收尾')
+                collection.worker.join()
         model.close()
+        if lifetime.stopped.is_set():
+            note='收到停止请求，本次数据服务和采集已停止' if lifetime.reason=='stop_requested' else '启动器已退出或监视失败，本次数据服务和采集已停止'
+            status(note,stop_reason=lifetime.reason,owner_error=lifetime.error)
 
 
 if __name__=='__main__':main()

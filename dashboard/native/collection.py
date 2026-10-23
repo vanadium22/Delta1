@@ -73,12 +73,19 @@ class RollingResolver:
 
 
 class CollectionJob:
-    def __init__(self,local_root):
+    def __init__(self,local_root,*,lifetime_stop=None):
         self.local_root=Path(local_root)
+        self.lifetime_stop=lifetime_stop
         self.worker=None
         self.stop_event=threading.Event()
         self.status={"status":"idle","rows":0,"polls":0,"error":None}
         self.lock=threading.Lock()
+
+    def _policy(self):
+        from dashboard.session_clock import session_policy
+        if self.lifetime_stop is not None and self.lifetime_stop.is_set():
+            return dict(allowed=False,reason='启动器已退出，停止本次采集')
+        return session_policy()
 
     def state(self):
         with self.lock: return dict(self.status)
@@ -88,7 +95,7 @@ class CollectionJob:
 
     def start(self,root,symbols,index_ids,reference_file=None,once=False,client_factory=MarketDataClient,auto_roll=False):
         from dashboard.session_clock import session_policy, SessionStop
-        policy = session_policy()
+        policy = self._policy()
         if not policy['allowed']:
             self.status.update(status='offline', error=None, note=policy['reason'])
             return
@@ -114,16 +121,20 @@ class CollectionJob:
             client=None
             lease=None;leased=False
             try:
+                if not self._policy()['allowed']:
+                    self.status.update(status='stopped');return
                 import json
                 from dashboard.session_guard import network_lease
                 path=self.local_root/'native.json'
                 lease=network_lease(json.loads(path.read_text(encoding='utf8')) if path.exists() else {})
                 lease.__enter__()
                 leased=True
+                if not self._policy()['allowed']:
+                    self.status.update(status='stopped');return
                 client=client_factory(connect_timeout=5,read_timeout=10)
                 raw_fetch=client.fetch
                 def guarded_fetch(symbols):
-                    if not session_policy()['allowed']:
+                    if not self._policy()['allowed']:
                         self.stop_event.set()
                         return dict(status='session_closed', received_at=datetime.now(timezone.utc).isoformat(), elapsed_seconds=0)
                     return raw_fetch(symbols)
@@ -141,7 +152,7 @@ class CollectionJob:
                             self.status['reference']=getattr(resolver,'status',{})
                     store.batch=batch
                     collect(client,store,[symbols_file],interval=2,max_polls=1 if once else 0,
-                            stop=SessionStop(self.stop_event, session_policy),resolver=resolver)
+                            stop=SessionStop(self.stop_event, self._policy),resolver=resolver)
                 with self.lock: self.status["status"]="stopped" if not self.status.get("error") else "failed"
             except Exception as exc:
                 with self.lock: self.status.update(status="failed",error=str(exc))
