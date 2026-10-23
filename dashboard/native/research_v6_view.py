@@ -79,7 +79,7 @@ class ResearchV6Page(QWidget):
         self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1);self.jobs=[]
         root=QVBoxLayout(self);root.setContentsMargins(18,16,18,12);root.setSpacing(12)
         self.title=QLabel({'A':'A 期指 · 12 项','B':'B 跨期 · 10 项','C':'C 跨指数期货 · 10 项'}[group]);self.title.setStyleSheet('font-size:24px;font-weight:700');root.addWidget(self.title)
-        controls=QGridLayout();controls.setHorizontalSpacing(12)
+        controls=self.controls=QGridLayout();controls.setHorizontalSpacing(12)
         self.indicator=QComboBox();self.variant=QComboBox();self.source=QComboBox();self.identity=QComboBox();self.day=QComboBox()
         self.source.addItem('现有数据服务 · 已发布历史','published');self.source.addItem('研究回放 · 第六版真实归档','replay')
         if not service.config.get('history_roots'):self.source.setCurrentIndex(1)
@@ -197,7 +197,11 @@ def add_pages(window,tabs):
     service=window.indicator_v6_service=Service(window.model.config,lambda:window.model.config)
     window.research_pages={}
     for group,title in [('A','A 期指'),('B','B 跨期'),('C','C 跨指数期货')]:
-        page=ResearchV6Page(group,service);window.research_pages[group]=page;tabs.addTab(page,title)
+        if getattr(window,'presentation_mode',False) and not getattr(window,'frozen_payload',None):
+            from .research_overview_view import PresentationResearchPage
+            page=PresentationResearchPage(group,service)
+        else:page=ResearchV6Page(group,service)
+        window.research_pages[group]=page;tabs.addTab(page,title)
         def save(group=group,page=page):
             if window.state is not None and page.result:window.state.setdefault('research_v6',{})[group]=page.result
         page.changed.connect(save)

@@ -1,5 +1,5 @@
 {
-  "release": "2026-10-23-visible-app-launch",
+  "release": "2026-10-23-multi-contract-presentation",
   "branch": "codex/company-apps",
   "base_commit": "c07eec9c795c7eb506c0e5176487ecba5b54a62b",
   "status": "local_verified_company_test_pending",
@@ -11,15 +11,18 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "22ffd5c",
-    "scope": "Hide console without hiding the Qt main window; preserve logs and exit codes",
+    "base_commit": "cd68363",
+    "scope": "All listed contract comparison and simplified presentation controls",
     "files": [
       "COMPANY_SYNC.md",
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/start_app.ps1",
-      "tests/test_app_launcher.py"
+      "dashboard/APP_INDICATORS_V6.md",
+      "dashboard/indicator_v6/service.py",
+      "dashboard/native/research_v6_view.py",
+      "dashboard/native/research_overview_view.py",
+      "dashboard/native/editions_current.py"
     ]
   },
   "files": [

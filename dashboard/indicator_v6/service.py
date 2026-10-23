@@ -134,6 +134,27 @@ class Service:
     def identities(r,group):return [r.get('far')] if group=='A' else [r.get('near'),r.get('far')] if group=='B' else [r.get('far'),r.get('cross')]
     def query(self,code,x=None,mode='replay',identity=None,day=None):
         with self.lock:return self._query(code,x,mode,identity,day)
+    def universe(self,code,x=None,mode='published',product=None,preferred=None):
+        """One frozen observation date, every listed identity, one calculation path."""
+        with self.lock:
+            s=self.source(mode);group=code[0]
+            if not s.raw:raise ValueError('多合约比较需要具体合约原始历史，当前来源只有归档结果')
+            specs=field_specs(code,x or variants(code)[0])
+            day='2026-10-09' if mode=='replay' and any(f['frequency']=='1m' for f in specs) else s.days[-1]
+            roots=('IF','IH','IC','IM')
+            listed=sorted((sym for sym,m in s.contracts.items() if sym[:2] in roots and m['listing']<=day<=m['expiry']),key=lambda sym:(roots.index(sym[:2]),s.contracts[sym]['expiry'],sym))
+            if group=='A':identities=[[s] for s in listed if not product or s.startswith(product)]
+            elif group=='B':identities=[[a,b] for a in listed for b in listed if a[:2]==b[:2] and s.contracts[a]['expiry']<s.contracts[b]['expiry'] and (not product or a.startswith(product))]
+            else:identities=[[a,b] for a in listed for b in listed if a.startswith('IF') and b.startswith('IC') and s.contracts[a]['expiry']==s.contracts[b]['expiry']]
+            rows=[];chosen=None
+            for ids in identities:
+                result=self._query(code,x,mode,ids,day)
+                points={f['key']:result['series'][f['key']][-1] if result['series'][f['key']] else None for f in result['fields']}
+                rows.append(dict(identity=ids,status=result['status'],points=points,observed_at=result['observed_at']))
+                if chosen is None or ids==preferred:chosen=result
+            if chosen is None:raise ValueError('当前观测日没有所选品种的合法挂牌合约组合')
+            return dict(day=day,rows=rows,detail=chosen,fields=chosen['fields'],source=s.source,product=product,
+                        rule='同到期 IF / IC 组合' if group=='C' else '同品种全部近远月组合' if group=='B' else '当前挂牌合约',version=s.version)
     def _query(self,code,x,mode,identity,day):
         if code not in CARDS:raise ValueError('指标不存在')
         x=x or variants(code)[0]
@@ -149,7 +170,8 @@ class Service:
         day=day or ('2026-10-09' if mode=='replay' and is_minute else s.days[-1] if s.days else None)
         params=card['parameters'];key=json.dumps([s.version,mode,code,x,identity,day,[f['frequency'] for f in specs],params],sort_keys=True,ensure_ascii=False)
         if key in self.result_cache:return deepcopy(self.result_cache[key])
-        selected=[r for r in s.selections if r['trading_date']<=day]
+        first_day=max((s.contracts.get(sym,{}).get('listing',s.days[0]) for sym in identity),default=s.days[0]) if identity else s.days[0]
+        selected=([dict(trading_date=d) for d in s.days if first_day<=d<=day] if identity else [r for r in s.selections if r['trading_date']<=day])
         if not selected:raise ValueError('该来源没有指定日期的合法合约观测')
         latest=selected[-1];series={f['key']:[] for f in specs};group=code[0];last_ids=None;index={d:i for i,d in enumerate(s.days)}
         for j,selection in enumerate(selected):

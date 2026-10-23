@@ -53,6 +53,7 @@ def freeze_window(state):
 class PresentationWindow(QMainWindow):
     loaded=Signal(object)
     frozen_payload=None
+    presentation_mode=True
 
     def __init__(self,model):
         super().__init__();self.model=model;self.state=None;self.demo=False;self.busy=False;self.closing=False;self.pending=False;self.generation=0
