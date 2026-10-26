@@ -50,7 +50,7 @@ class AppLauncherTests(unittest.TestCase):
         result,run,report=self.launch(dashboard,'--local-root',value)
         self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
         finished=json.loads((root/'completed.json').read_text())
-        self.assertEqual(finished['argv'],['--edition','presentation','--local-root',value])
+        self.assertEqual(finished['argv'],['--edition','presentation','--theme','public','--local-root',value])
         self.assertTrue(finished['fault_handler'])
         self.assertEqual(report['phase'],'app_exited');self.assertEqual(report['exit_code'],0)
         self.assertIn('benign preflight warning',(run/'preflight.stderr.log').read_text())
@@ -63,11 +63,21 @@ class AppLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode,7);self.assertFalse((root/'started').exists())
         self.assertEqual(report['phase'],'preflight_failed');self.assertEqual(report['exit_code'],7)
 
+    def test_explicit_local_root_is_also_used_by_preflight(self):
+        root,dashboard=self.fixture()
+        (dashboard/'app_check.py').write_text('import json,sys\nfrom pathlib import Path\n'
+            'Path("preflight-argv.json").write_text(json.dumps(sys.argv[1:]))\n',encoding='utf8')
+        local=str(root/'actual profile')
+        result,run,report=self.launch(dashboard,'--theme','public','--local-root',local)
+        self.assertEqual(result.returncode,0)
+        arguments=json.loads((root/'preflight-argv.json').read_text())
+        self.assertEqual(arguments[arguments.index('--local-root')+1],local)
+
     def test_real_child_failure_is_logged_and_not_restarted(self):
         root,dashboard=self.fixture(app_code=23)
         result,run,report=self.launch(dashboard)
         self.assertEqual(result.returncode,23);self.assertTrue((root/'completed.json').is_file())
-        self.assertEqual(json.loads((root/'completed.json').read_text())['argv'],['--edition','presentation'])
+        self.assertEqual(json.loads((root/'completed.json').read_text())['argv'],['--edition','presentation','--theme','public'])
         self.assertEqual(report['phase'],'app_exited');self.assertEqual(report['exit_code'],23)
 
     def test_console_hidden_without_hiding_first_gui_window(self):

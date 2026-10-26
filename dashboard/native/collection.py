@@ -107,8 +107,12 @@ class CollectionJob:
         if not symbols or len(symbols)>100:
             raise ValueError("订阅需要 1–100 个代码")
         if auto_roll:
-            symbols=[f'{p}0{i}.CFE' for p in ('IF','IH','IC','IM') for i in range(4)]+sorted(index_ids)
-            resolver=RollingResolver(index_ids,reference_file,self.local_root/'contract_reference')
+            from .overview_instruments import quote_registry
+            extra_ids=set(quote_registry(config or {}))
+            symbols=[f'{p}0{i}.CFE' for p in ('IF','IH','IC','IM') for i in range(4)]+sorted(set(index_ids)|extra_ids)
+            if len(symbols)>100:
+                raise ValueError('概览订阅超过100个代码，请缩减自选ETF/IOPV')
+            resolver=RollingResolver(set(index_ids)|extra_ids,reference_file,self.local_root/'contract_reference')
         else:
             resolver=ScopedResolver(index_ids,reference_file)
             _,errors=resolver.resolve_many(symbols)

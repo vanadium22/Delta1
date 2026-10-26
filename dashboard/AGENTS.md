@@ -1,5 +1,7 @@
 # 公司展示版与本机两版 App
 
+2026-10-26 用户已明确授权优化蓝白展示版的指数/ETF/股指期货三类概览，最新报价与昨日参照优先，32项第六版指标公式保留。该授权覆盖下文第一阶段等待概览/美术优化的旧限制。用户随后确认已手动连接当前开发电脑实时VPN并授权有限只读行情测试；只在该明确范围内执行，隔离保存，结论不代替公司电脑实测。仍不自动操作实时VPN、不擅自真实DDB补库、不扩大下载、不打开可见测试窗口。新交接见 APP_MARKET_OVERVIEW.md。
+
 遵循根目录 AGENTS.md：所有发布统一 `codex/company-apps`。2026-10-23 用户明确授权公司展示版；本文件覆盖此前“仅数字 Excel、App local-only/do-not-stage”限制。公司只提供展示版入口及所需 Qt/共享后台；本机展示版、开发版同步必要修复。按 APP_RELEASE.json 明确白名单提交，不整体覆盖旧工作区或混入券源、日报、指数策略桌面等其他工作。
 
 Excel 冻结功能维护，源码、模板、产物、数据和设置保留，不自动打开或结束 Excel。共享 history_status/session_guard/connection_diagnostics/connection_check/lock_processes/process_lifetime/numeric_recovery 安全能力保留。

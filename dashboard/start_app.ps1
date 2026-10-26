@@ -1,7 +1,6 @@
 param([ValidateSet('presentation','development')][string]$Edition='presentation',
       [Parameter(ValueFromRemainingArguments=$true)][string[]]$AppArguments)
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'app_python.ps1')
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
 $runtime=Join-Path $PSScriptRoot ('runtime/app_startup/run-'+$PID)
@@ -49,15 +48,23 @@ function Save-LaunchState {
     $launchState | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'launcher.json') -Encoding utf8
 }
 try {
+    . (Join-Path $PSScriptRoot 'app_python.ps1')
     $interpreter=Get-AppPython $repository
     $launchState.python=$interpreter;Save-LaunchState
-    $preflightCode=Invoke-AppProcess $interpreter @('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.app_check','--output',(Join-Path $runtime 'preflight.json')) 'preflight'
+    $preflightArguments=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.app_check','--output',(Join-Path $runtime 'preflight.json'))
+    for ($i=0; $i -lt $AppArguments.Count; $i++) {
+        if ($AppArguments[$i] -eq '--local-root' -and $i+1 -lt $AppArguments.Count) {
+            $preflightArguments+=@('--local-root',$AppArguments[$i+1]);break
+        }
+    }
+    $preflightCode=Invoke-AppProcess $interpreter $preflightArguments 'preflight'
     if ($preflightCode -ne 0) {
         $launchState.phase='preflight_failed';$launchState.exit_code=$preflightCode;Save-LaunchState
         exit $preflightCode
     }
     $launchState.phase='app_running';Save-LaunchState
     $appParameters=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.native.editions_current','--edition',$Edition)
+    if ($Edition -eq 'presentation' -and $AppArguments -notcontains '--theme') { $appParameters+=@('--theme','public') }
     if ($null -ne $AppArguments) { $appParameters+=$AppArguments }
     $appCode=Invoke-AppProcess $interpreter $appParameters ('app-'+$PID)
     $launchState.phase='app_exited';$launchState.exit_code=$appCode;Save-LaunchState

@@ -108,7 +108,8 @@ class RefreshQueueTests(unittest.TestCase):
                     nonlocal active,maximum
                     active+=1;maximum=max(active,maximum);calls.append(len(calls)+1)
                     time.sleep(.07);active-=1;return {'number':calls[-1]}
-                with patch('dashboard.native.research_pages_view.capture',side_effect=capture):
+                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                with patch(target,side_effect=capture):
                     w=self.window(cls);w.render=lambda s:rendered.append(s['number'])
                     for _ in range(30):w.refresh();pump(.004)
                     pump(.2)
@@ -122,7 +123,8 @@ class RefreshQueueTests(unittest.TestCase):
                 delivered=[];calls=[]
                 def capture(*a,**kw):
                     number=len(calls);calls.append(number);time.sleep(.06);return number
-                with patch('dashboard.native.research_pages_view.capture',side_effect=capture):
+                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                with patch(target,side_effect=capture):
                     w=self.window(cls);w.render=delivered.append
                     w.refresh();pump(.01)
                     for _ in range(12):w.selection_changed()
@@ -133,7 +135,8 @@ class RefreshQueueTests(unittest.TestCase):
     def test_failure_clears_busy_and_latest_retry_runs(self):
         for cls in (PresentationWindow,DeveloperWindow):
             with self.subTest(edition=cls.__name__):
-                with patch('dashboard.native.research_pages_view.capture',side_effect=[ValueError('synthetic'),{}]):
+                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                with patch(target,side_effect=[ValueError('synthetic'),{}]):
                     w=self.window(cls);rendered=[];w.render=rendered.append
                     pump(.05);self.assertFalse(w.busy)
                     w.refresh();pump(.1);self.assertTrue(rendered);self.assertFalse(w.busy)

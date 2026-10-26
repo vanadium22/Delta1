@@ -23,7 +23,22 @@ def read_realtime_observations(root, *, dataset_id, instruments,
     """
     if not isinstance(dataset_id, str) or not dataset_id:
         raise ValueError("必须指定该实时库唯一的 dataset_id")
-    validate_instruments(instruments)
+    # The historical bar contract remains index/futures only. ETF observations
+    # have a separate explicit registry and never enter a historical bar store.
+    import re
+    if not isinstance(instruments, dict) or not instruments:
+        raise ValueError('观测标的注册表不能为空')
+    historical = {}
+    for symbol, info in instruments.items():
+        kind = info.get('asset_type') if isinstance(info, dict) else None
+        if kind in {'cn_etf', 'cn_etf_reference'}:
+            pattern = r'[0-9]{6}\.(?:SH|SZ)' if kind == 'cn_etf' else r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}'
+            if info.get('market_region') != 'CN' or not isinstance(symbol,str) or not re.fullmatch(pattern, symbol):
+                raise ValueError('ETF/IOPV观测需要明确的国内标的注册')
+        else:
+            historical[symbol] = info
+    if historical:
+        validate_instruments(historical)
     if not isinstance(after_sequence, int) or after_sequence < 0 or not isinstance(limit, int) or not 1 <= limit <= 1_000_000:
         raise ValueError("cursor / limit 无效")
     reader = RealtimeReader(root)

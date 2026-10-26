@@ -1,0 +1,50 @@
+param([string]$LocalRoot,[switch]$NoPause)
+$ErrorActionPreference='Stop'
+$repository=Split-Path $PSScriptRoot -Parent
+Set-Location -LiteralPath $repository
+$runtime=Join-Path $PSScriptRoot ('runtime/app_startup/diagnosis-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss')+'-'+$PID)
+New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+$report=@{schema='presentation-startup-diagnosis-v1';at=[DateTimeOffset]::Now.ToString('o');
+    repository=$repository;network_requested=$false;vpn_changed=$false;app_started=$false;files=@{};
+    branch=$null;commit=$null;python=$null;latest_launch=$null;preflight_exit_code=$null}
+try {
+    $report.script_host=@{wscript_exists=(Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32/wscript.exe'));policies=@{}}
+    foreach ($key in @('HKCU:/Software/Microsoft/Windows Script Host/Settings','HKLM:/Software/Microsoft/Windows Script Host/Settings')) {
+        $policy=Get-ItemProperty -LiteralPath $key -Name Enabled -ErrorAction SilentlyContinue
+        if ($policy) { $report.script_host.policies[$key]=$policy.Enabled }
+    }
+    foreach ($name in @('start_presentation.vbs','start_app.ps1','app_python.ps1','app_check.py','native/editions_current.py','native/market_overview.py')) {
+        $path=Join-Path $PSScriptRoot $name
+        $report.files[$name]=@{exists=(Test-Path -LiteralPath $path -PathType Leaf)}
+    }
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $report.branch=(& git branch --show-current 2>$null | Out-String).Trim()
+        $report.commit=(& git rev-parse HEAD 2>$null | Out-String).Trim()
+    }
+    $launch=Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'runtime/app_startup') -Filter launcher.json -Recurse -File |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($launch) {
+        $value=Get-Content -LiteralPath $launch.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $report.latest_launch=@{report=$launch.FullName;phase=$value.phase;python=$value.python;
+            exit_code=$value.exit_code;updated_at=$value.updated_at;error_type=$value.error_type;error_id=$value.error_id}
+    }
+    . (Join-Path $PSScriptRoot 'app_python.ps1')
+    $report.python=Get-AppPython $repository
+    $checkArguments=@('-B','-s','-X','utf8','-m','dashboard.app_check','--output',(Join-Path $runtime 'preflight.json'))
+    if ($LocalRoot) { $checkArguments+=@('--local-root',$LocalRoot) }
+    & $report.python @checkArguments 1> (Join-Path $runtime 'preflight.log') 2> (Join-Path $runtime 'preflight.stderr.log')
+    $report.preflight_exit_code=$LASTEXITCODE
+} catch {
+    $report.error_type=$_.Exception.GetType().FullName
+    $report.error_id=$_.FullyQualifiedErrorId
+}
+$output=Join-Path $runtime 'diagnosis.json'
+$report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $output -Encoding utf8
+Write-Host 'Delta1 offline startup diagnosis (no VPN / HTTP / App launch)'
+Write-Host ('Branch: '+$report.branch+'    Commit: '+$report.commit)
+Write-Host ('Python: '+$report.python)
+if ($report.latest_launch) { Write-Host ('Last launch: '+$report.latest_launch.phase+'    Exit: '+$report.latest_launch.exit_code) }
+Write-Host ('Dependency check exit: '+$report.preflight_exit_code)
+Write-Host ('Report: '+$output)
+Write-Host ('Dependency details: '+(Join-Path $runtime 'preflight.json'))
+if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime,timezone
 from pathlib import Path
 import tempfile
 import time
@@ -26,6 +27,35 @@ class FakeClient:
 
 
 class AppCollectionTests(unittest.TestCase):
+    def test_rolling_collector_subscribes_etfs_and_preserves_partial_market_data(self):
+        from dashboard.marketdata.adapters import read_realtime_observations
+        from dashboard.native.overview_instruments import quote_registry
+        from dashboard.native.collection import RollingResolver
+        with tempfile.TemporaryDirectory() as t:
+            local=Path(t);reference=local/'reference.json'
+            contracts=[dict(instrument_id=f'{r}{m}.CFE',listing_date='2026-01-01',expiry_date=e,
+                            known_at='2026-01-01T00:00:00Z')
+                       for r in ('IF','IH','IC','IM')
+                       for m,e in (('2611','2026-11-20'),('2612','2026-12-18'),('2703','2027-03-19'),('2706','2027-06-18'))]
+            reference.write_text(json.dumps(dict(schema_version='cn_index_reference_v1',contracts=contracts,aliases=[])))
+            config=dict(history_roots=[str(local/'history')]);client=FakeClient()
+            resolver=RollingResolver({'000300.SH'}|set(quote_registry({})),reference,local/'reference-cache',
+                now=lambda:datetime(2026,10,26,2,tzinfo=timezone.utc),
+                synchronizer=lambda *a,**k:dict(reference_file=str(reference),active_contracts=[r['instrument_id'] for r in contracts]))
+            def bounded(*args,**kwargs):
+                kwargs.update(interval=.01,max_polls=1);return real_collect(*args,**kwargs)
+            with patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='fixture')),\
+                 patch('dashboard.native.collection.RollingResolver',return_value=resolver) as resolver_factory,\
+                 patch('dashboard.native.collection.collect',side_effect=bounded):
+                job=CollectionJob(local);job.start(local/'quotes', ['000300.SH'],{'000300.SH'},
+                    auto_roll=True,config=config,client_factory=lambda **kw:client)
+                job.worker.join(8)
+            self.assertFalse(job.running());self.assertEqual(job.state()['polls'],1)
+            self.assertTrue(set(quote_registry({})).issubset(resolver_factory.call_args.args[0]))
+            rows,_=read_realtime_observations(local/'quotes',dataset_id='fixture',instruments=quote_registry({}))
+            self.assertEqual(set(rows.instrument_id),set(quote_registry({})))
+            self.assertTrue(client.closed)
+
     def test_slow_request_reconnect_commits_versions_and_reports_each_stage(self):
         with tempfile.TemporaryDirectory() as t:
             local=Path(t);config=dict(history_roots=[str(local/'history')]);client=FakeClient()

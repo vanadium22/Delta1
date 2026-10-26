@@ -8,6 +8,8 @@ import os
 if '--theme' in sys.argv:
     index=sys.argv.index('--theme')
     if index+1<len(sys.argv):os.environ['DELTA1_THEME']=sys.argv[index+1]
+elif '--edition' not in sys.argv or sys.argv[sys.argv.index('--edition')+1:sys.argv.index('--edition')+2]!=['development']:
+    os.environ.setdefault('DELTA1_THEME','public')
 
 from .bootstrap import configure_qt
 configure_qt()
@@ -40,6 +42,8 @@ def export_window(window,payload):
 
 def freeze_window(state):
     payload=freeze_state(state)
+    if state.get('market_overview'):
+        payload['snapshots'][0]['market_overview']=state['market_overview']
     if state.get('research_v6'):
         payload['research_v6']=state['research_v6']
     if state.get('research_pages'):
@@ -57,20 +61,25 @@ class PresentationWindow(QMainWindow):
 
     def __init__(self,model):
         super().__init__();self.model=model;self.state=None;self.demo=False;self.busy=False;self.closing=False;self.pending=False;self.generation=0
+        self.market_mode=not self.frozen_payload or bool(self.frozen_payload['snapshots'][0].get('market_overview'))
         self.collection=CollectionJob(model.local_root);self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
-        self.resize(1580,980);self.setMinimumSize(1100,760)
+        self.resize(1580,980);self.setMinimumSize(860,620)
         from .card_style import CARD_STYLE
         self.setStyleSheet(CARD_STYLE)
         widget=QWidget();self.setCentralWidget(widget);layout=QVBoxLayout(widget);layout.setContentsMargins(24,18,24,18)
-        row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  行情与研究');title.setStyleSheet('font-size:26px;font-weight:700');row.addWidget(title);row.addStretch()
+        row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  市场看板');title.setStyleSheet('font-size:24px;font-weight:700');row.addWidget(title);row.addStretch()
         self.network=QLabel('离线 · 已发布历史');row.addWidget(self.network)
-        for text,fn in [('验证并开始实时',lambda:self.start_collection(False)),('停止采集',lambda:self.pipeline.readonly()),('导出数字快照',self.export)]:
+        for text,fn in [('连接实时',lambda:self.start_collection(False)),('暂停采集',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
-            if self.frozen_payload and text!='导出数字快照':b.hide()
+            if self.frozen_payload and text!='导出快照':b.hide()
         layout.addLayout(row)
         self.notice=QLabel('');self.notice.setWordWrap(True);layout.addWidget(self.notice)
         self.pages=QTabWidget();layout.addWidget(self.pages,1)
-        self.quotes=QuotePanel();self.pages.addTab(self.quotes,'概览')
+        if self.market_mode:
+            from .market_overview_view import MarketOverviewPanel
+            self.quotes=MarketOverviewPanel()
+        else:self.quotes=QuotePanel()
+        self.pages.addTab(self.quotes,'市场概览')
         from .research_pages_view import add_research_pages
         add_research_pages(self,self.pages,self.selection_changed)
         if self.frozen_payload:
@@ -84,11 +93,12 @@ class PresentationWindow(QMainWindow):
                                page.left,page.right,page.date,page.participation,page.apply,page.expand,page.representatives,page.directory,page.search):
                     widget.setEnabled(False)
         self.pages.currentChanged.connect(self.selection_changed)
-        self.quotes.distribution.setCurrentIndex(1)
-        if self.frozen_payload:self.quotes.distribution.setEnabled(False)
+        if not self.market_mode:
+            self.quotes.distribution.setCurrentIndex(1)
+            if self.frozen_payload:self.quotes.distribution.setEnabled(False)
         self.window_numbers={}
         self.indicator_numbers={}
-        for root,card in self.quotes.cards.items():
+        for root,card in (self.quotes.cards.items() if not self.market_mode else []):
             card.chart.hide();card.footer.hide()
             for b in card.findChildren(QPushButton):b.hide()
             details=QLabel();details.setStyleSheet('font-size:14px;');details.setWordWrap(True)
@@ -96,7 +106,7 @@ class PresentationWindow(QMainWindow):
             indicators=QLabel();indicators.setStyleSheet(f'font-size:13px;color:{MUTED};');indicators.setWordWrap(True)
             card.layout.addWidget(indicators);self.indicator_numbers[root]=indicators
         # Only current four-product cards; raw quote/debug tables are not exposed.
-        if hasattr(self.quotes,'tabs'):self.quotes.tabs.setTabVisible(1,False)
+        if not self.market_mode and hasattr(self.quotes,'tabs'):self.quotes.tabs.setTabVisible(1,False)
         self.status=QLabel();self.status.setWordWrap(True);layout.addWidget(self.status)
         self.quotes.changed.connect(self.selection_changed)
         self.timer=QTimer(self);self.timer.setInterval(3000);self.timer.timeout.connect(self.refresh)
@@ -107,15 +117,14 @@ class PresentationWindow(QMainWindow):
         if self.closing:return
         if self.busy:self.pending=True;return
         if self.frozen_payload:
-            states=self.frozen_payload['snapshots'];slot=self.quotes.month.currentData()
-            state=next((s for s in states if s['selection']['overview_slot']==slot),states[0])
+            states=self.frozen_payload['snapshots']
+            slot=self.quotes.month.currentData() if not self.market_mode else None
+            state=states[0] if self.market_mode else next((s for s in states if s['selection']['overview_slot']==slot),states[0])
             self.render(state);return
         self.busy=True
-        request=dict(cards=True,category='basis',price_input='annual',distribution_input=self.quotes.distribution.currentData() or 'annual',
-                     overview_slot=self.quotes.month.currentData() if self.quotes.month.currentData() is not None else 0,save=False)
-        from .research_pages_view import capture,active_selection
-        selection=active_selection(self);generation=self.generation
-        self.task=Task(lambda:capture(self.model,request,selection,display=True))
+        from .market_overview import capture
+        generation=self.generation
+        self.task=Task(lambda:capture(self.model))
         self.task.signals.completed.connect(lambda state:self.completed(state,generation))
         self.task.signals.failed.connect(self.failed);self.pool.start(self.task)
 
@@ -172,10 +181,11 @@ class PresentationWindow(QMainWindow):
         research_v6=self.pages.currentWidget() in self.research_pages.values() and getattr(self.model,'indicator_v6_active',False)
         self.notice.setText('保存行情冻结回放 · 非当前实时' if self.frozen_payload else
             '第六版研究 · 未调整基差与相对定价；各输出保留真实观测时间与数据来源' if research_v6 else
-            '原行情概览 · 固定分红情景 · 缺失分红按已披露前一合约继承 · 陈旧行情保留日期，不能视为实时')
+            '最新行情 / 昨日参照 · 灰色状态为缓存或待接入，真实源时见卡片')
+        self.notice.setVisible(bool(self.frozen_payload or research_v6))
         s=self.collection.state()
         self.network.setText('冻结快照' if self.frozen_payload else ('持续采集 · 时效见卡片' if self.collection.running() else '只读缓存 / 未采集'))
-        self.status.setText(('页面刷新 ' if research_v6 else '观察时点 ')+stamp(state['as_of'])+' · 指标真实观测时间、频率和单位见各输出')
+        self.status.setText('页面刷新 '+stamp(state['as_of'])+' · 行情源时间见卡片')
         from dashboard.refresh_evidence import applied
         applied(self,state)
         self.loaded.emit(state)
