@@ -1,4 +1,4 @@
-param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect)
+param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
@@ -34,6 +34,17 @@ try {
     if ($LocalRoot) { $checkArguments+=@('--local-root',$LocalRoot) }
     & $report.python @checkArguments 1> (Join-Path $runtime 'preflight.log') 2> (Join-Path $runtime 'preflight.stderr.log')
     $report.preflight_exit_code=$LASTEXITCODE
+    if ($Overview) {
+        $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $overviewRoot=$LocalRoot
+        if (-not $overviewRoot -and $profile.profile) { $overviewRoot=Split-Path $profile.profile -Parent }
+        if ($overviewRoot) {
+            $overviewArguments=@('-B','-s','-X','utf8','-m','dashboard.overview_check','--local-root',$overviewRoot,'--output',(Join-Path $runtime 'overview.json'))
+            & $report.python @overviewArguments 1> (Join-Path $runtime 'overview.log') 2> (Join-Path $runtime 'overview.stderr.log')
+            $report.overview_exit_code=$LASTEXITCODE
+            $report.overview_report=Join-Path $runtime 'overview.json'
+        }
+    }
     if ($Routes -or $Connect) {
         $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         $connectionArguments=@('-B','-s','-X','utf8','-m','dashboard.connection_check','--lock-owners','--output',(Join-Path $runtime 'connection.json'))
@@ -60,4 +71,5 @@ Write-Host ('Dependency check exit: '+$report.preflight_exit_code)
 Write-Host ('Report: '+$output)
 Write-Host ('Dependency details: '+(Join-Path $runtime 'preflight.json'))
 if ($report.connection_report) { Write-Host ('Connection / route details: '+$report.connection_report) }
+if ($report.overview_report) { Write-Host ('Overview details: '+$report.overview_report) }
 if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }

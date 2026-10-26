@@ -28,6 +28,8 @@ class DataPipeline(QObject):
         self.next_retry=0;self.history_retry=0;self.history_not_before=0;self.quick_due=0;self.last_day=None
         self.run_id=uuid.uuid4().hex;self.samples=deque(maxlen=900);self.applied={}
         self.realtime_dialog=None;self.prompted_key=None;self.awaiting_realtime=False
+        from .overview_reference_job import ReferenceJob
+        self.overview_reference=ReferenceJob(self.model.local_root) if getattr(window,'market_mode',False) else None
         self.report_path=Path(__file__).resolve().parents[1]/'runtime/app_sessions'/self.run_id/'status.json'
         self.timer=QTimer(self);self.timer.setInterval(1000);self.timer.timeout.connect(self.tick);self.timer.start()
         if auto_inspect:QTimer.singleShot(0,self.inspect)
@@ -177,6 +179,10 @@ class DataPipeline(QObject):
 
     def tick(self):
         code=self.history.tick()
+        if self.overview_reference is not None:
+            self.overview_reference.tick(self.model.config,enabled=self.enabled and not self.closing and
+                self.action is None and self.history.process is None and self.task is None and
+                self.phase in ('collecting','market_closed','waiting_network','waiting_lock','history_wait'))
         if self.realtime_dialog is not None:
             from dashboard.session_clock import realtime_prompt_policy
             if not realtime_prompt_policy()['allowed']:
@@ -283,10 +289,12 @@ class DataPipeline(QObject):
     def stop(self):
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.closing=True;self.enabled=False;self.history.stop();self.collection.stop();self.write_report()
+        if self.overview_reference is not None:self.overview_reference.stop()
 
     def drained(self):
         self.history.tick()
-        return self.history.process is None and self.task is None and not self.collection.running()
+        return self.history.process is None and self.task is None and not self.collection.running() and not (
+            self.overview_reference is not None and self.overview_reference.running())
 
 
 class PipelinePage(QWidget):

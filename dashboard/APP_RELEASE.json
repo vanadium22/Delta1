@@ -1,7 +1,7 @@
 {
-  "release": "2026-10-26-existing-app-tcp-route-diagnostics",
+  "release": "2026-10-26-index-etf-overview",
   "branch": "codex/company-apps",
-  "base_commit": "c07eec9c795c7eb506c0e5176487ecba5b54a62b",
+  "base_commit": "6445de8852579e9c85b4e976f9d28f08e07b4dec",
   "status": "local_verified_company_test_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
@@ -11,17 +11,33 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "86f5ca9e4df5f21200032609948b7311500aad5a",
-    "scope": "Follow company lock report and inspect existing verified App TCP connections when DNS cache is empty; no new network requests",
+    "base_commit": "6445de8852579e9c85b4e976f9d28f08e07b4dec",
+    "scope": "Implement approved index and ETF overview appearance; weekly size ranking references and minute constituent snapshots; explicit missing data; read-only company evidence",
     "files": [
+      "AGENTS.md",
       "COMPANY_SYNC.md",
-      "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/APP_VALIDATION.md",
-      "dashboard/CONNECTION_DIAGNOSIS.md",
+      "dashboard/AGENTS.md",
       "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
-      "dashboard/connection_check.py",
-      "tests/test_connection_diagnostics.py"
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/diagnose_presentation.ps1",
+      "dashboard/overview_check.py",
+      "dashboard/marketdata/overview_reference.py",
+      "dashboard/marketdata/overview_contributions.py",
+      "dashboard/marketdata/overview_wind.py",
+      "dashboard/native/collection.py",
+      "dashboard/native/data_pipeline.py",
+      "dashboard/native/equity_collection.py",
+      "dashboard/native/market_overview.py",
+      "dashboard/native/market_overview_view.py",
+      "dashboard/native/overview_instruments.py",
+      "dashboard/native/overview_details.py",
+      "dashboard/native/overview_pages.py",
+      "dashboard/native/overview_reference_job.py",
+      "tests/test_market_overview_ui.py",
+      "tests/test_overview_details.py"
     ]
   },
   "files": [
@@ -180,7 +196,16 @@
     "dashboard/session_guard.py",
     "tests/test_app_instance.py",
     "tests/test_connection_diagnostics.py",
-    "tests/test_lock_processes.py"
+    "tests/test_lock_processes.py",
+    "dashboard/overview_check.py",
+    "dashboard/marketdata/overview_reference.py",
+    "dashboard/marketdata/overview_contributions.py",
+    "dashboard/marketdata/overview_wind.py",
+    "dashboard/native/equity_collection.py",
+    "dashboard/native/overview_details.py",
+    "dashboard/native/overview_pages.py",
+    "dashboard/native/overview_reference_job.py",
+    "tests/test_overview_details.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -199,5 +224,13 @@
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "22 diagnostic regressions passed including empty/denied DNS caches and existing App socket scope; prior 121 runtime cases recorded; company restart/handover/ETF verification pending"
+  "current_validation": "129 unique regressions covered; 126/128 in sandbox plus 2 native lock cases passed with normal Windows access; final 57 targeted cases passed; hidden PowerShell Overview evidence exit 0; company data acceptance pending",
+  "overview_reference_policy": "Wind reference data only, weekly; verify schema, full universe and CNY units; no VPN control or Wind realtime; preserve prior snapshots and archive",
+  "overview_data_pending": [
+    "company Wind connection/schema/asset units",
+    "verified previous-session weights; cross-day corporate-action-aware rolling is not implemented",
+    "industry reference and full constituent source coverage",
+    "explicit IOPV source mapping",
+    "daily fund shares/NAV/PCF and verified turnover amount"
+  ]
 }

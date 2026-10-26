@@ -15,7 +15,7 @@ SECURITY = re.compile(r'[0-9]{6}\.(?:SH|SZ)')
 REFERENCE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}')
 
 
-def etfs(config):
+def etfs(config, reference=None, today=None):
     result = {s: dict(symbol=s, name=n, root=r, underlying=UNDERLYINGS[r][0], iopv_id=None)
               for s, n, r in DEFAULT_ETFS}
     for row in config.get('overview_etfs', ()):
@@ -24,6 +24,15 @@ def etfs(config):
         s, r = row['symbol'], row['root']
         result[s] = dict(symbol=s, name=str(row.get('name') or s), root=r,
                          underlying=UNDERLYINGS[r][0], iopv_id=None)
+    if reference:
+        from dashboard.marketdata.overview_reference import ranking
+        from datetime import datetime
+        for root in UNDERLYINGS:
+            ranked, _ = ranking(reference, root, today=today or datetime.now().date().isoformat())
+            if ranked:
+                result = {s:r for s,r in result.items() if r['root'] != root}
+                for item in ranked:
+                    result[item['symbol']] = dict(item, root=root, underlying=UNDERLYINGS[root][0], iopv_id=None)
     for mapping in (config.get('research_etf_iopv_mapping') or {}).values():
         if not isinstance(mapping, dict):
             continue
@@ -37,9 +46,10 @@ def etfs(config):
     return list(result.values())
 
 
-def quote_registry(config):
-    registry = {s: dict(asset_type='cn_etf', market_region='CN') for s in (r['symbol'] for r in etfs(config))}
-    for row in etfs(config):
+def quote_registry(config, reference=None, today=None):
+    selected = etfs(config, reference, today)
+    registry = {s: dict(asset_type='cn_etf', market_region='CN') for s in (r['symbol'] for r in selected)}
+    for row in selected:
         if row.get('iopv_id'):
             registry[row['iopv_id']] = dict(asset_type='cn_etf_reference', market_region='CN')
     return registry

@@ -17,6 +17,8 @@ from dashboard.native.editions_current import PresentationWindow, freeze_window
 from dashboard.native.market_overview import quote_card, futures_values
 from dashboard.native.overview_instruments import etfs
 from dashboard.native.instruments import UNDERLYINGS
+from dashboard.marketdata.overview_contributions import contributions
+from dashboard.marketdata.overview_reference import ROOTS
 from tests.test_market_overview import NOW, observation
 
 
@@ -77,11 +79,15 @@ class OverviewUiTests(unittest.TestCase):
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
                 for row in page.visible_rows:
                     c=page.cards[row['symbol']]
-                    self.assertIs(c.parent(),page.body)
+                    self.assertTrue(page.body.isAncestorOf(c))
                     self.assertFalse(c.isWindow())
-                    self.assertLessEqual(c.x()+c.width(),page.body.width())
-                    widgets=[c.heading,c.identity,c.price,c.market,c.secondary,c.clock,c.plot,c.detail_button]
-                    rects=[x.geometry() if x.parent() is c else None for x in widgets]
+                    position=c.mapTo(page.body,c.rect().topLeft())
+                    self.assertLessEqual(position.x()+c.width(),page.body.width())
+                    if kind=='futures':
+                        widgets=[c.heading,c.identity,c.price,c.market,c.secondary,c.clock,c.plot,c.detail_button]
+                    elif kind=='indices':widgets=[c.heading,c.price,c.clock]
+                    else:widgets=[c.heading,c.price,c.iopv,c.scale,c.activity,c.clock]
+                    rects=[x.geometry() if x.parent() is c and x.isVisible() else None for x in widgets]
                     for a,b in zip(rects,rects[1:]):
                         if a is not None and b is not None:self.assertLess(a.bottom(),b.top())
                 page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum());pump()
@@ -102,6 +108,48 @@ class OverviewUiTests(unittest.TestCase):
         w=self.window(payload)
         self.assertEqual(w.quotes.state['market_overview']['indices'][0]['source_at'],NOW.isoformat())
         self.assertFalse(w.timer.isActive())
+
+    def test_index_click_and_industry_selection_keep_member_identity(self):
+        from PySide6.QtTest import QTest
+        from tests.test_overview_details import reference,equity_snapshot
+        payload=state();details={}
+        for i,(root,symbol) in enumerate(ROOTS.items()):
+            group=reference()['indices']['IF'];group['index_id']=symbol
+            snapshot=equity_snapshot();snapshot['quotes'][symbol]=snapshot['quotes']['000300.SH']
+            for r in group['rows']:r['name']=root+' '+r['name']
+            details[root]=contributions(group,snapshot,dict(symbol=symbol),NOW,'2026-10-23','v1')
+        payload['market_overview']['index_details']=details
+        w=self.window(freeze_window(payload));page=w.quotes.views['indices']
+        QTest.mouseClick(page.cards['000016.SH'],Qt.MouseButton.LeftButton);pump()
+        self.assertEqual(page.selected_root,'IH');self.assertIn('上证50',page.heading.text())
+        page.industries.cellClicked.emit(1,0);pump()
+        self.assertEqual(page.selected_industry['IH'],'银行')
+        self.assertIn('IH',page.stocks.item(0,0).text())
+        self.assertIn('银行',page.stock_panel.title.text())
+        page.weights.clicked.emit('煤炭');pump()
+        self.assertIn('煤炭',page.stock_panel.title.text())
+        self.assertEqual(page.stocks.item(0,3).text(),'+0.00')
+
+    def test_etf_three_cards_change_together_and_missing_data_clears_previous_values(self):
+        payload=state();groups={}
+        for root in ROOTS:
+            base=next(r for r in payload['market_overview']['etfs'] if r['root']==root)
+            groups[root]=dict(ranking=dict(as_of='2026-10-23',source='fixture'),flow={},rows=[dict(base,
+                symbol=f'{510300+list(ROOTS).index(root)*10+i:06}.SH',name=root+'测试ETF'+str(i),
+                rank=i+1,aum_cny=(3-i)*1e8,aum_share_pct=(3-i)*10,aum_date='2026-10-23',
+                iopv=4,premium_bp=0,premium_source_at=NOW.isoformat()) for i in range(3)])
+        payload['market_overview']['etf_groups']=groups
+        w=self.window(freeze_window(payload));w.quotes.tabs.setCurrentIndex(1);pump();page=w.quotes.views['etfs']
+        for root in ROOTS:
+            page.products[root].click();pump()
+            self.assertEqual(len(page.visible_rows),3)
+            self.assertTrue(all(root in c.heading.text() for c in page.fund_cards))
+            self.assertTrue(all('+0.0 bp' in c.premium.text() for c in page.fund_cards))
+            self.assertEqual(page.fund_cards[0].badge.text(),'规模 #1')
+        page.render(payload['market_overview']['etfs'],{},{});pump()
+        self.assertTrue(all(c.badge.text()=='待排名' for c in page.fund_cards))
+        self.assertTrue(all(c.premium.text()=='折溢价 —' for c in page.fund_cards))
+        self.assertTrue(page.empty_plot.isVisible());self.assertFalse(page.plot.isVisible())
 
 
 if __name__=='__main__':unittest.main()

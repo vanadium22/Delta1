@@ -1,3 +1,13 @@
+## 2026-10-26 指数与ETF草图实施
+
+用户已批准按三页草图中的指数/ETF前端实现，ETF规模前三每周复核，行业每分钟汇总，先完成外观与可取得数据。基线重新核验为6445de8，统一codex/company-apps，桌面仍是公司工作区start_presentation.vbs/public及原localsetting。旧工作区及4个未跟踪提示词保留。
+
+新增原生overview_pages两页，指数四大卡→内部强弱/贡献→行业权重→指数内股票；ETF四指数→三张规模卡→已披露申赎/清单→IOPV配对轨迹。沿用期指及32项公式。新低频参考快照验证完整同日ETF规模全集及单位，真实资料缺失时不以原代表冒充规模前三。分钟成分采集采用独立HTTP会话和观测库，主采集仍2秒，正常退出等待全部排空。页面计算不发网络请求，分钟源时不随重绘推进。
+
+Wind仅低频，每周隐藏任务一次，schema/字段/资产净值单位未核验不发布对应数据，保留旧快照和archive。两次获准本机只读元数据连接均OperationalError，未取得参考资料；没有新增真实行情、DDB或VPN测试。IOPV仍待明确字段/映射，申赎份额/净值及当日PCF待日频来源，成交量不冒作成交额。当前贡献严格要求准确昨日权重，跨日滚动/公司行动核验尚未实现；旧权重只显示结构与涨跌，缺数显式标注。详见APP_MARKET_OVERVIEW.md。
+
+公司执行git pull --ff-only重开原入口后，运行diagnose_presentation.cmd -Overview回传overview.json和diagnosis.json。新程序只读缓存、排名、权重/覆盖、原始响应中的ETF字段名与两次源时，不发HTTP/Wind或改VPN，不替代长时间现场验收。本地回归及最终发布清单见APP_VALIDATION.md、APP_RELEASE.json和COMPANY_SYNC.md。
+
 ## 2026-10-26 13:07公司报告跟进
 
 用户回传connection.json确认：锁文件可打开写访问但锁定字节读访问errno13，唯一登记使用者为旧展示版；同时存在7个09:51–09:56启动的展示版进程，早于10:40的637ef6c ETF版与11:34的86f5ca9接管版。不能把源码更新当成这些旧进程已升级；报告未包含公司HEAD或接管状态，须通过原VBS重开验证新版接管及ETF恢复。原报告、完整PID/路径仅留本机，不提交诊断JSON。

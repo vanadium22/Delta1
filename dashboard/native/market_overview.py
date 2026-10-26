@@ -162,6 +162,8 @@ class MarketOverviewEngine:
         model = self.model; trace = begin(model)
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
         day = str(now.tz_convert('Asia/Shanghai').date())
+        from .overview_details import load_reference, enrich
+        reference_data = load_reference(model, now)
         errors = []
         try:
             previous = previous_session(day)
@@ -187,8 +189,9 @@ class MarketOverviewEngine:
             instruments[s] = dict(asset_type='cn_index_future', market_region='CN')
         for s, _, _ in UNDERLYINGS.values():
             instruments[s] = dict(asset_type='cn_index', market_region='CN')
-        instruments.update(quote_registry(model.config))
+        instruments.update(quote_registry(model.config, reference_data['data'], day))
         live = model._live(instruments, now)
+        model._overview_latest = live
         versions = {k:v['version'] for k,v in frozen.items()}
         key = (tuple(versions.items()), reference.version, previous, tuple(model.config.get('history_roots', ())),repo is not None)
         if key != self.daily_key:
@@ -206,14 +209,16 @@ class MarketOverviewEngine:
         indices = [quote_card(s, name, root, live, self.daily, now, previous)
                    for root, (s, name, _) in UNDERLYINGS.items()]
         funds = []
-        for info in etfs(model.config):
+        for info in etfs(model.config, reference_data['data'], day):
             row = quote_card(info['symbol'], info['name'], info['root'], live, self.daily, now, previous)
             row.update(underlying=info['underlying'], iopv=None, premium_bp=None, iopv_source_at=None,
-                       premium_reason='尚未提供IOPV的明确代码映射和同步观测')
+                       iopv_id=info.get('iopv_id'), premium_reason='现有源尚无可核验IOPV字段或明确映射')
             if info.get('iopv_id'):
                 a, b = live.get(row['symbol']), live.get(info['iopv_id'])
                 ok, reason = aligned_quotes([a, b], now)
                 row['premium_reason'] = reason
+                if b and quote_quality(b, now)['usable'] and session_policy(now.to_pydatetime())['allowed']:
+                    row.update(iopv=b['close'], iopv_source_at=b['source_event_time'])
                 if ok and session_policy(now.to_pydatetime())['allowed'] and positive(b.get('close')):
                     row.update(iopv=b['close'], premium_bp=10000*(a['close']/b['close']-1),
                                iopv_source_at=b['source_event_time'], premium_reason='ETF与IOPV源时及接收时差均不超过3秒')
@@ -235,6 +240,7 @@ class MarketOverviewEngine:
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
                                           previous_session=previous, errors=errors, source_date_basis='接收日推定'),
                      research_pages=None)
+        enrich(model, state['market_overview'], reference_data, now)
         return calculated(model, state, trace)
 
 

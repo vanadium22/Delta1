@@ -183,8 +183,10 @@ class MarketOverviewPanel(QWidget):
         super().__init__(); self.state = None
         layout = QVBoxLayout(self); layout.setContentsMargins(12,8,12,8); layout.setSpacing(6)
         self.tabs = QTabWidget(); self.views = {}
+        from .overview_pages import IndexOverviewPage, EtfOverviewPage
         for key,title in [('indices','指数'),('etfs','ETF'),('futures','股指期货')]:
-            page = CardPage(key); self.views[key] = page; self.tabs.addTab(page,title)
+            page = IndexOverviewPage() if key == 'indices' else EtfOverviewPage() if key == 'etfs' else CardPage(key)
+            self.views[key] = page; self.tabs.addTab(page,title)
         layout.addWidget(self.tabs,1)
         self.note = label(14,MUTED); self.note.setText('正在读取最新行情和昨日参照…'); layout.addWidget(self.note)
 
@@ -193,6 +195,8 @@ class MarketOverviewPanel(QWidget):
         if not data:
             self.note.setText('等待本轮最新行情；旧研究型启动缓存不混入新概览'); return
         self.state = state
-        for key,page in self.views.items():page.render(data[key])
+        self.views['indices'].render(data['indices'], data.get('index_details'), data.get('reference'))
+        self.views['etfs'].render(data['etfs'], data.get('etf_groups'), data.get('reference'))
+        self.views['futures'].render(data['futures'])
         self.note.setText('昨日参照 '+str(data.get('previous_session') or '待核验')+'　· 源日期按接收日推定'+
                           ('　· '+'；'.join(data['errors']) if data.get('errors') else ''))

@@ -119,11 +119,13 @@ class CollectionJob:
             if errors:
                 raise ValueError("；".join(f"{s}: {error}" for s,error in errors.items()))
         symbols_file=self.local_root/"native_collection_symbols.json"
+        self._overview_symbols=None
         write_json(symbols_file,symbols)
         self.stop_event.clear()
         self.status={"status":"starting","rows":0,"polls":0,"error":None}
         def work():
             client=None
+            equities=None
             lease=None;leased=False
             try:
                 if not self._policy()['allowed']:
@@ -138,6 +140,12 @@ class CollectionJob:
                 if not self._policy()['allowed']:
                     self.status.update(status='stopped');return
                 client=client_factory(connect_timeout=5,read_timeout=10)
+                if auto_roll and not once:
+                    from .equity_collection import EquitySampler
+                    equities=EquitySampler(self.local_root,config or {},
+                        lambda:self._policy() if not self.stop_event.is_set() else dict(allowed=False),client_factory)
+                    self.equities=equities
+                    equities.start()
                 raw_fetch=client.fetch
                 def guarded_fetch(symbols):
                     if not self._policy()['allowed']:
@@ -146,6 +154,18 @@ class CollectionJob:
                     started=time.perf_counter()
                     self.status.update(stage='request',request_started_at=datetime.now(timezone.utc).isoformat())
                     result=raw_fetch(symbols)
+                    if auto_roll:
+                        # A completed weekly review changes ETF subscriptions on
+                        # the next collector cycle without restarting the App.
+                        from dashboard.marketdata.overview_reference import load
+                        from .overview_instruments import quote_registry
+                        current=load(config or {},self.local_root)
+                        extra=set(quote_registry(config or {},current['data']))
+                        desired=[f'{p}0{i}.CFE' for p in ('IF','IH','IC','IM') for i in range(4)]+sorted(set(index_ids)|extra)
+                        if len(desired)<=100 and desired!=getattr(self,'_overview_symbols',None):
+                            resolver.index_ids=set(index_ids)|extra
+                            write_json(symbols_file,desired)
+                            self._overview_symbols=desired
                     self.status.update(request_seconds=time.perf_counter()-started,received_at=result.get('received_at'))
                     return result
                 client.fetch=guarded_fetch
@@ -178,6 +198,9 @@ class CollectionJob:
                     diagnostics=error_detail(exc,self.status.get('stage','collection')))
             finally:
                 try:
+                    if equities is not None:
+                        equities.stop()
+                        while equities.running():equities.worker.join(.1)
                     if client is not None: client.close()
                 finally:
                     if leased: lease.__exit__(None,None,None)
