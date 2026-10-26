@@ -109,33 +109,69 @@ def network_checks():
     return result
 
 
-def cached_route_checks():
-    """Inspect OS DNS cache and selected routes only; no DNS/TCP/HTTP request."""
+def cached_route_checks(app_pids=()):
+    """Inspect cached DNS / existing App sockets and routes; never make a request."""
     if os.name!='nt':return dict(state='unavailable',reason='not_windows',network_requested=False)
     from index_strategy.instant_dld.client import DEFAULT_URL
-    host=urlsplit(DEFAULT_URL).hostname
+    endpoint=urlsplit(DEFAULT_URL);host=endpoint.hostname
+    pids=sorted({pid for pid in app_pids if type(pid) is int and pid>0})
     # Hostname is a fixed application constant, supplied as data, not shell code.
     script=r'''
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
-$hostName=[Console]::In.ReadLine()
-$cache=@(Get-DnsClientCache | Where-Object {$_.Entry -eq $hostName -and $_.Data -match '^[0-9a-fA-F:.]+$'} | Select-Object -ExpandProperty Data -Unique)
+$request=[Console]::In.ReadToEnd() | ConvertFrom-Json
+$hostName=$request.hostname
+$ownerPids=@($request.app_pids | ForEach-Object {[int]$_})
+$port=[int]$request.port
+$checks=@{}
+$cache=@()
+try {
+    $cache=@(Get-DnsClientCache | Where-Object {$_.Entry -eq $hostName -and $_.Data -match '^[0-9a-fA-F:.]+$'} | Select-Object -ExpandProperty Data -Unique)
+    $checks.dns_cache='ok'
+} catch {$checks.dns_cache=$_.Exception.GetType().Name}
+$connections=@()
+if ($ownerPids.Count -gt 0) {
+    try {
+        $connections=@(Get-NetTCPConnection -OwningProcess $ownerPids -RemotePort $port -State Established |
+            Where-Object {$_.OwningProcess -in $ownerPids -and $_.RemotePort -eq $port -and $_.RemoteAddress -match '^[0-9a-fA-F:.]+$'} |
+            Select-Object OwningProcess,LocalAddress,RemoteAddress,RemotePort,State)
+        $checks.existing_app_connections='ok'
+    } catch {$checks.existing_app_connections=$_.Exception.GetType().Name}
+} else {$checks.existing_app_connections='no_verified_app_lock_user'}
+$addresses=@(@($cache)+@($connections | Select-Object -ExpandProperty RemoteAddress) | Select-Object -Unique)
 $routes=@()
-foreach ($address in $cache) {
-    try {$routes+=@(Find-NetRoute -RemoteIPAddress $address | Select-Object IPAddress,DestinationPrefix,NextHop,InterfaceAlias,RouteMetric)} catch {}
+foreach ($address in $addresses) {
+    try {
+        $evidence=if ($address -in @($connections.RemoteAddress)) {'established_app_tcp'} else {'cached_dns'}
+        $routes+=@(Find-NetRoute -RemoteIPAddress $address | Select-Object IPAddress,DestinationPrefix,NextHop,InterfaceAlias,RouteMetric,
+            @{Name='RemoteAddress';Expression={$address}},@{Name='Evidence';Expression={$evidence}})
+    } catch {$checks.route_lookup=$_.Exception.GetType().Name}
 }
-$adapters=@(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status)
-[pscustomobject]@{cached_addresses=$cache;routes=$routes;adapters=$adapters;network_requested=$false;vpn_changed=$false} | ConvertTo-Json -Depth 6 -Compress
+$adapters=@()
+try {$adapters=@(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status)} catch {$checks.adapters=$_.Exception.GetType().Name}
+[pscustomobject]@{cached_addresses=$cache;existing_app_connections=$connections;routes=$routes;adapters=$adapters;checks=$checks;network_requested=$false;vpn_changed=$false} | ConvertTo-Json -Depth 6 -Compress
 '''
     try:
         child=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
-            input=host+'\n',text=True,encoding='utf8',capture_output=True,timeout=12,
+            input=json.dumps(dict(hostname=host,port=endpoint.port or 443,app_pids=pids)),text=True,encoding='utf8',capture_output=True,timeout=12,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         if child.returncode:return dict(state='unavailable',exit_code=child.returncode,network_requested=False)
         value=json.loads(child.stdout.lstrip('\ufeff'));value['state']='ok' if value.get('routes') else 'cache_or_route_unavailable'
-        value['interpretation']='仅说明当前已缓存目标IP所选网卡/网关；无法据此确认公司网关内部是否使用VPN'
+        value['interpretation']='路由来自DNS缓存目标IP或已核验看板锁使用者在行情端口的现有TCP连接；不发新请求，无法据此确认公司网关内部是否使用VPN'
         return value
     except Exception as exc:return dict(state='unavailable',network_requested=False,error=error_detail(exc,'route'))
+
+
+def verified_app_lock_pids(users, processes):
+    from dashboard.app_instance import APP_MODULES
+    if processes.get('state')!='ok':return []
+    identities={u['pid']:u.get('started_filetime') for row in users if row.get('state')=='ok' for u in row.get('file_users',[])}
+    result=[]
+    for process in processes.get('items',[]):
+        pid=process.get('pid');started=process.get('started_filetime');expected=identities.get(pid)
+        if process.get('module') in APP_MODULES and type(started) is int and type(expected) is int and abs(started-expected)<=10000:
+            result.append(pid)
+    return sorted(set(result))
 
 
 def collect(local_roots, *, connect=False, lock_owners=False, routes=False):
@@ -144,8 +180,7 @@ def collect(local_roots, *, connect=False, lock_owners=False, routes=False):
                 pid=os.getpid(),profiles=[],continuous_collection_started=False,vpn_changed=False)
     from dashboard.session_clock import session_policy
     gate=session_policy();result['session']=gate
-    configs=[]
-    if routes:result['cached_route_inspection']=cached_route_checks()
+    configs=[];route_pids=[]
     for root in local_roots:
         profile,config=local_checks(root)
         if config is not None:configs.append(config)
@@ -162,6 +197,8 @@ def collect(local_roots, *, connect=False, lock_owners=False, routes=False):
             lock=profile.get('network_lock')
             if lock is not None:lock['file_users_query']=by_path.get(os.path.normcase(str(Path(lock['path']).resolve())))
         result['processes']=process_summary([user['pid'] for item in users for user in item.get('file_users',[])])
+        route_pids=verified_app_lock_pids(users,result['processes'])
+    if routes:result['cached_route_inspection']=cached_route_checks(route_pids)
     denied=any(p.get('probe',{}).get('error',{}).get('stage')=='network_lock' for p in result['profiles'])
     if not connect:result['network']={'skipped':'connect_not_requested'}
     elif not session_policy()['allowed']:result['network']={'skipped':'outside_session'}
@@ -187,7 +224,7 @@ def main(argv=None):
     parser.add_argument('--all-profiles',action='store_true',help='Read existing Excel and App configs without creating either')
     parser.add_argument('--connect',action='store_true',help='One bounded quote check per existing profile and DNS/TCP checks during session')
     parser.add_argument('--lock-owners',action='store_true',help='Query lock-file users and safe process metadata; does not imply --connect')
-    parser.add_argument('--routes',action='store_true',help='Inspect OS DNS cache and routes only; no network request or VPN change')
+    parser.add_argument('--routes',action='store_true',help='Inspect DNS cache, existing verified App connections and routes; no network request or VPN change')
     parser.add_argument('--output',type=Path)
     args=parser.parse_args(argv)
     module=Path(__file__).resolve().parent

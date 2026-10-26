@@ -93,6 +93,63 @@ class ConnectionDiagnosticTests(unittest.TestCase):
         self.assertIn('Get-DnsClientCache',run.call_args.args[0][-1]);self.assertNotIn('Resolve-DnsName',run.call_args.args[0][-1])
         self.assertEqual(report['network']['skipped'],'connect_not_requested')
 
+    def test_existing_socket_pids_require_verified_app_and_creation_identity(self):
+        from dashboard.connection_check import verified_app_lock_pids
+        users=[dict(state='ok',file_users=[dict(pid=101,started_filetime=100000),dict(pid=102,started_filetime=100000),dict(pid=103,started_filetime=100000)])]
+        processes=dict(state='ok',items=[
+            dict(pid=101,module='dashboard.native.editions_current',started_filetime=100001),
+            dict(pid=102,module='dashboard.numeric_excel',started_filetime=100000),
+            dict(pid=103,module='dashboard.current',started_filetime=200001),
+            dict(pid=104,module='dashboard.current',started_filetime=100000)])
+        self.assertEqual(verified_app_lock_pids(users,processes),[101])
+        self.assertEqual(verified_app_lock_pids(users,dict(state='unavailable')),[])
+
+    def test_route_diagnosis_uses_only_verified_app_lock_users(self):
+        from dashboard.connection_check import collect
+        profile=dict(network_lock=dict(path=str(self.root/'writer.lock')))
+        users=[dict(path=str(self.root/'writer.lock'),state='ok',file_users=[dict(pid=101,started_filetime=100000)])]
+        processes=dict(state='ok',items=[dict(pid=101,module='dashboard.native.editions_current',started_filetime=100001),
+                                       dict(pid=999,module='dashboard.native.editions_current',started_filetime=100000)])
+        with patch('dashboard.connection_check.local_checks',return_value=(profile,{})),\
+             patch('dashboard.lock_processes.file_users',return_value=users),\
+             patch('dashboard.lock_processes.process_summary',return_value=processes),\
+             patch('dashboard.connection_check.cached_route_checks',return_value=dict(network_requested=False)) as routes,\
+             patch('socket.getaddrinfo',side_effect=AssertionError('No DNS')):
+            report=collect([self.root],lock_owners=True,routes=True)
+        routes.assert_called_once_with([101]);self.assertEqual(report['network']['skipped'],'connect_not_requested')
+
+    @unittest.skipUnless(os.name=='nt','Actual PowerShell formatter with local fixtures')
+    def test_empty_or_denied_dns_cache_falls_back_to_existing_app_socket(self):
+        from dashboard.connection_check import cached_route_checks
+        original=subprocess.run
+        for denied in (False,True):
+            fixture=r'''
+function Get-DnsClientCache { DNS_FIXTURE }
+function Get-NetTCPConnection {
+    [CmdletBinding()] param([int[]]$OwningProcess,[int]$RemotePort,[string]$State)
+    @([pscustomobject]@{OwningProcess=101;RemoteAddress='192.0.2.1';LocalAddress='192.0.2.2';RemotePort=11443;State='Established'},
+      [pscustomobject]@{OwningProcess=999;RemoteAddress='203.0.113.1';LocalAddress='192.0.2.2';RemotePort=11443;State='Established'},
+      [pscustomobject]@{OwningProcess=101;RemoteAddress='203.0.113.2';LocalAddress='192.0.2.2';RemotePort=443;State='Established'})
+}
+function Find-NetRoute {
+    param([string]$RemoteIPAddress)
+    [pscustomobject]@{IPAddress='192.0.2.2';DestinationPrefix='0.0.0.0/0';NextHop='192.0.2.254';InterfaceAlias='Ethernet';RouteMetric=10}
+}
+function Get-NetAdapter { [pscustomobject]@{Name='Ethernet';InterfaceDescription='fixture';Status='Up';Password='SECRET'} }
+'''.replace('DNS_FIXTURE',"throw 'fixture cache denied'" if denied else 'return @()')
+            def run_fixture(command,**kwargs):return original(command[:-1]+[fixture+command[-1]],**kwargs)
+            with self.subTest(denied=denied),patch('dashboard.connection_check.subprocess.run',side_effect=run_fixture),\
+                 patch('socket.getaddrinfo',side_effect=AssertionError('No DNS request')),\
+                 patch('socket.create_connection',side_effect=AssertionError('No TCP request')):
+                result=cached_route_checks([101])
+            self.assertEqual(result['state'],'ok',result)
+            self.assertEqual(result['cached_addresses'],[])
+            self.assertEqual(len(result['existing_app_connections']),1)
+            self.assertEqual(result['existing_app_connections'][0]['OwningProcess'],101)
+            self.assertEqual(result['routes'][0]['Evidence'],'established_app_tcp')
+            self.assertEqual(result['routes'][0]['InterfaceAlias'],'Ethernet')
+            self.assertFalse(result['network_requested']);self.assertNotIn('SECRET',json.dumps(result))
+
     def test_socket_permission_error_is_not_mislabelled_as_lock(self):
         error=PermissionError(errno.EACCES,'SECRET');error.winerror=10013
         self.client.fetch.side_effect=error
