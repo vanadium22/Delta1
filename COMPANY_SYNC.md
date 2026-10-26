@@ -1,3 +1,9 @@
+## 2026-10-26 概览实时/收盘数据与WindPy补齐
+
+基线本地/远端0906c16，仍codex/company-apps。按公司最新overview (1).json及用户Wind终端/WindPy答复，低频资料改用原WindPy环境；主界面提供DDB一键补齐，增加隔离的ETF/成分收盘缓存、收盘后当天更新、盘前盘后有限HTTP快照，以及有完整价格依据时的估算权重滚动。期指同日收盘基差/分位和可靠昨日持仓可显示；不改第六版32项与实时30秒/3秒，不自动操作实时VPN或因HTTP重试切DDB。原数据/配置/Excel/未完成工作保留。
+
+本地隔离回归、离屏原生界面、正式入口和隐藏诊断完成，Wind/HTTP/DDB/VPN真实接口本轮未测。公司仍一次git pull --ff-only、重开原dashboard/start_presentation.vbs，点击DDB一键补齐；WindPy不在App解释器时只指定已可用的Wind Python。回传同次diagnose_presentation.cmd -Overview的overview.json和diagnosis.json；ETF规模全集字段/日期、行业覆盖及实际连续更新待现场。IOPV、净申赎与PCF仍缺可核验源，不以其他字段替代。完整操作及文件清单见dashboard/APP_COMPANY_TEST.md、APP_RELEASE.json。
+
 ## 2026-10-26 期指预览对齐与公司overview诊断修正
 
 基线fe63840，统一codex/company-apps。用户回传公司overview.json并指出期指仍是旧页。本次补齐第三张蓝白草图的四品种/四到期卡、真实剩余日的年化曲线、定价变化及成交分布；基差/年化/分位沿用第六版，近次月点差复用B01，缺数据留空。修正缺规模资料误报未来日期，丰富只读诊断的实际配置/库路径、历史后台状态、低频调度/尝试及依赖存在性，不读取凭据内容或主动连接接口。

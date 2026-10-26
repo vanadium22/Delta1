@@ -25,7 +25,7 @@ class ReferenceJob:
         return dict(self.scheduling,worker_running=self.running(),
                     worker_exit_code=self.process.poll() if self.process is not None else None)
 
-    def tick(self, config, *, enabled, now=None, blocked_reason=None):
+    def tick(self, config, *, enabled, now=None, blocked_reason=None, force=False):
         now = now or datetime.now(ZoneInfo('Asia/Shanghai'))
         def record(status,reason):
             self.scheduling=dict(status=status,reason=reason,checked_at=now.isoformat())
@@ -43,11 +43,12 @@ class ReferenceJob:
             record('up_to_date','本周资料已核验')
             return
         week = '-'.join(map(str, now.isocalendar()[:2]))
-        profile=hashlib.sha256(json.dumps({k:config.get(k) for k in
-            ('overview_wind_config','overview_wind_aum_field','overview_wind_aum_multiplier')},sort_keys=True).encode()).hexdigest()
+        profile=hashlib.sha256(json.dumps(['wind-terminal-v2',{k:config.get(k) for k in
+            ('overview_reference_backend','overview_wind_python','overview_wind_config','overview_wind_aum_field',
+             'overview_wind_aum_multiplier','overview_wind_etf_sector','overview_wind_tracking_field')}],sort_keys=True).encode()).hexdigest()
         try:
             attempt = json.loads((self.directory/'attempt.json').read_text(encoding='utf8'))
-            if attempt.get('week') == week and attempt.get('profile') == profile:
+            if not force and attempt.get('week') == week and attempt.get('profile') == profile:
                 record('attempted_this_week','本周已尝试；结果以Wind任务状态文件为准')
                 return
         except (OSError, ValueError):
@@ -75,7 +76,6 @@ class ReferenceJob:
 
 def main(argv=None):
     import argparse
-    from dashboard.marketdata.overview_wind import refresh
     parser = argparse.ArgumentParser(); parser.add_argument('--local-root', required=True, type=Path)
     args = parser.parse_args(argv); directory = args.local_root/'overview_reference'
     status = dict(started_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),diagnostics={})
@@ -83,14 +83,23 @@ def main(argv=None):
         config = json.loads((args.local_root/'native.json').read_text(encoding='utf8'))
         now = datetime.now(ZoneInfo('Asia/Shanghai'))
         prior = load(config, args.local_root, now=now)
-        value = refresh(config, args.local_root, prior['data'], now=now, stop=lambda: (directory/'stop.request').exists(),diagnostics=status['diagnostics'])
+        backend=config.get('overview_reference_backend') or 'windpy'
+        status['provider']=backend
+        if backend=='windpy':
+            from dashboard.marketdata.overview_windpy import refresh
+            result=refresh(config,args.local_root,prior['data'],now=now,stop_file=directory/'stop.request')
+            value=result['data'];status['diagnostics']=result['diagnostics']
+        elif backend=='oracle':
+            from dashboard.marketdata.overview_wind import refresh
+            value=refresh(config,args.local_root,prior['data'],now=now,stop=lambda:(directory/'stop.request').exists(),diagnostics=status['diagnostics'])
+        else:raise ValueError('未识别低频资料接口')
         if (directory/'stop.request').exists():
             raise InterruptedError()
         publish(path_for(config, args.local_root), value)
         status.update(status='published', warnings=value.get('errors', []), fetched_at=value['fetched_at'])
     except Exception as exc:
         status.update(status='cancelled' if isinstance(exc, InterruptedError) else 'unavailable',
-                      error_type=type(exc).__name__, reason='Wind低频资料未完成，保留已有资料；不切换VPN')
+                      error_type=getattr(exc,'error_type',None) or type(exc).__name__, reason='Wind终端低频资料未完成，保留已有资料；核对Wind登录与所选Python，不切换VPN')
     status['finished_at'] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()
     _atomic_bytes(directory/'status.json', _json_bytes(status))
     return 0

@@ -51,6 +51,8 @@ def details(rows, indices, live, observations, now):
                    five_minute_reason='需要五分钟前同一合约及现货的同步观测')
         if contracts:
             near=contracts[0]
+            group['basis_kind']=near.get('basis_kind')
+            if near.get('basis_kind')=='completed_daily':group['previous_reason']='已完成收盘 '+str(near.get('pricing_day'))+' 相对其准确上一交易日；非当前盘中变化'
             group['basis_change_previous']=previous_basis_change(near,spot)
             group['basis_change_5m']=five_minute_basis_change(near,spot_id,observations,now)
         if len(contracts)>=2:
@@ -58,15 +60,17 @@ def details(rows, indices, live, observations, now):
             try:gap=(pd.Timestamp(far['expiry'])-pd.Timestamp(near['expiry'])).days
             except (TypeError,ValueError,KeyError):gap=None
             ok,_=aligned_quotes([live.get(near['symbol']),live.get(far['symbol']),live.get(spot_id)],now)
-            if ok and gap is not None and near.get('basis_points') is not None and far.get('basis_points') is not None:
+            closed=near.get('basis_kind')==far.get('basis_kind')=='completed_daily' and near.get('source_at')==far.get('source_at')==spot.get('source_at') and spot.get('display_kind')=='completed_daily'
+            if (ok or closed) and gap is not None and near.get('basis_points') is not None and far.get('basis_points') is not None:
                 value=calendar(raw(near['price'],'price'),raw(far['price'],'price'),raw(spot.get('price'),'price'),gap)
                 group['calendar_points']=value['cal_points'].value
-        if len(contracts)==4 and all(r.get('quality',{}).get('usable') and finite(r.get('volume')) and r['volume']>=0 for r in contracts):
+        closed=len(contracts)==4 and all(r.get('display_kind')=='completed_daily' for r in contracts) and len({r.get('source_at') for r in contracts})==1
+        if len(contracts)==4 and all((r.get('quality',{}).get('usable') or closed) and finite(r.get('volume')) and r['volume']>=0 for r in contracts):
             ok,reason=aligned_quotes([live.get(r['symbol']) for r in contracts],now)
             total=sum(r['volume'] for r in contracts)
-            if ok and total>0:
+            if (ok or closed) and total>0:
                 group['distribution']=[dict(symbol=r['symbol'],slot=r['slot'],volume=r['volume'],share_pct=100*r['volume']/total) for r in contracts]
-                group['distribution_reason']='同一品种四个到期合约累计成交占比'
+                group['distribution_reason']=('已完成同日收盘 · ' if closed else '')+'同一品种四个到期合约累计成交占比'
             elif ok and total==0:
                 group['distribution_reason']='本时点四个合约累计成交合计为0'
             elif not ok:

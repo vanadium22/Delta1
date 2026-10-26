@@ -199,5 +199,6 @@ class MarketOverviewPanel(QWidget):
         self.views['indices'].render(data['indices'], data.get('index_details'), data.get('reference'))
         self.views['etfs'].render(data['etfs'], data.get('etf_groups'), data.get('reference'))
         self.views['futures'].render(data['futures'],data['indices'],data.get('futures_details'))
-        self.note.setText('昨日参照 '+str(data.get('previous_session') or '待核验')+'　· 源日期按接收日推定'+
+        self.note.setText('昨日参照 '+str(data.get('previous_session') or '待核验')+
+                          ('　· 最近完成日 '+data['completed_session'] if data.get('completed_session') else '')+'　· 源时与日期依据见卡片'+
                           ('　· '+'；'.join(data['errors']) if data.get('errors') else ''))

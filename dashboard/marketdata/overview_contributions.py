@@ -31,7 +31,9 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
                   snapshot_at=snapshot.get('finished_at'), coverage_pct=None, covered=0,
                   expected=len(rows), up=None, down=None, flat=None, up_pct=None,
                   actual_points=None, contribution_points=None, residual_points=None,
-                  weight_date=group.get('as_of'), industry_standard=group.get('industry_standard'),
+                  weight_date=group.get('as_of'),official_weight_date=group.get('official_as_of',group.get('as_of')),
+                  weight_method=group.get('weight_method','official_previous_close'),weight_reason=group.get('weight_reason'),
+                  industry_standard=group.get('industry_standard'),mode=snapshot.get('mode','minute'),
                   reason='待成分权重与行情', estimate=True)
     if not rows:
         return result
@@ -48,18 +50,24 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     valid_cutoff = cutoff is not None and same_generation
     quotes = snapshot.get('quotes', {}) if valid_cutoff else {}
     previous_weights = group.get('as_of') == previous and group.get('effective_date', group.get('as_of')) <= str(now.date())
-    same_day = cutoff is not None and cutoff.tz_convert('Asia/Shanghai').date() == now.tz_convert('Asia/Shanghai').date()
+    closed=snapshot.get('mode')=='completed_daily'
+    same_day = (snapshot.get('pricing_day')<=str(now.tz_convert('Asia/Shanghai').date()) if closed and snapshot.get('pricing_day') else
+                cutoff is not None and cutoff.tz_convert('Asia/Shanghai').date() == now.tz_convert('Asia/Shanghai').date())
     valid_cutoff = valid_cutoff and same_day
     quotes = snapshot.get('quotes', {}) if valid_cutoff else {}
     base = quotes.get(index_row['symbol'], {}).get('prev_close')
     base_valid = finite(base) and base > 0
     industries = defaultdict(list)
     times = []
+    def usable(q):
+        if closed:
+            return (q.get('source_kind')=='completed_daily' and q.get('trade_date')==snapshot.get('pricing_day') and
+                q.get('source_event_time')==snapshot.get('pricing_at') and finite(q.get('close')) and q['close']>0)
+        return bool(q) and quote_quality(q,cutoff)['usable']
     for member in rows:
         q = quotes.get(member['symbol'], {})
-        quality = quote_quality(q, cutoff) if q else {'usable': False}
         prior = q.get('prev_close')
-        valid = quality['usable'] and finite(prior) and prior > 0
+        valid = usable(q) and finite(prior) and prior > 0
         ret = 100*(q['close']/prior-1) if valid else None
         point = base*member['weight_pct']/100*ret/100 if valid and previous_weights and base_valid else None
         item = dict(symbol=member['symbol'], name=member.get('name') or member['symbol'],
@@ -93,7 +101,7 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     result['contribution_points'] = sum(points) if points else None
     # Match the actual index change to the same cycle, never to a later headline.
     index_quote = quotes.get(index_row['symbol'], {})
-    if valid_cutoff and quote_quality(index_quote, cutoff)['usable'] and finite(index_quote.get('prev_close')) and index_quote['prev_close'] > 0:
+    if valid_cutoff and usable(index_quote) and finite(index_quote.get('prev_close')) and index_quote['prev_close'] > 0:
         result['actual_points'] = index_quote['close']-index_quote['prev_close']
     if result['actual_points'] is not None and result['contribution_points'] is not None:
         result['residual_points'] = result['actual_points']-result['contribution_points']
@@ -103,8 +111,8 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         result['reason'] = '权重日期不是准确上一交易日；展示权重与涨跌，贡献待滚动核验'
     elif not covered:
         result['reason'] = '本分钟无有效成分报价；未将缺失视为零'
-    elif (now-cutoff).total_seconds() > 90:
+    elif not closed and (now-cutoff).total_seconds() > 90:
         result['reason'] = '分钟快照已停更，保留原始截止时间'
     else:
-        result['reason'] = '上一交易日权重估算；仅完整行业参与贡献排名'
+        result['reason'] = ('收盘参考 '+snapshot['pricing_day']+' · ' if closed else '')+('全成分收盘价滚动权重估算；非官方昨日权重' if group.get('weight_method')=='fixed_quantity_estimate' else '上一交易日权重估算')+'；仅完整行业参与贡献排名'
     return result

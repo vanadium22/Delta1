@@ -50,26 +50,32 @@ def quote_card(symbol, name, root, live, daily, now, previous):
     h = history.get(last_day, {})
     # A valid saved observation can still be stale. Display it with its own date;
     # do not let a later bad clock suppress a real completed historical close.
-    use_quote = positive(q.get('close')) and valid_clock and (not h or source >= pd.Timestamp(h['event_time']))
+    use_quote = positive(q.get('close')) and valid_clock and (not h or source > pd.Timestamp(h['event_time']) or
+        source==pd.Timestamp(h['event_time']) and session_policy(now.to_pydatetime())['allowed'])
+    if use_quote and h and not session_policy(now.to_pydatetime())['allowed'] and last_day>=str(source.tz_convert('Asia/Shanghai').date()):
+        use_quote=False
     quality = quote_quality(q, now) if valid_clock else dict(usable=False, status='源时间缺失或倒置')
     if quality.get('usable') and not session_policy(now.to_pydatetime())['allowed']:
         quality = dict(quality, usable=False, status='休市 / 缓存行情')
     price = q['close'] if use_quote else h.get('close')
     if use_quote:
         at = source.isoformat()
-        kind = quality['status'] if quality['usable'] else '缓存行情 · ' + source.tz_convert('Asia/Shanghai').strftime('%m-%d')
+        kind = quality['status'] if quality['usable'] else ('盘前盘后快照 · ' if q.get('observation_mode')=='off_session_snapshot' else '缓存行情 · ') + source.tz_convert('Asia/Shanghai').strftime('%m-%d')
         base = q.get('prev_close') if positive(q.get('prev_close')) else None
         base_day = None
-        base_reason = '源端昨收 yesterdayClosePrice；源交易日期按接收日推定'
+        base_reason = '源端昨收 yesterdayClosePrice；'+q.get('source_date_basis','源交易日期按接收日推定')
         quote_day = str(source.tz_convert('Asia/Shanghai').date())
         if base is None and quote_day == str(now.tz_convert('Asia/Shanghai').date()) and positive(prior.get('close')):
             base, base_day, base_reason = prior['close'], previous, '上一交易日已完成历史收盘'
         volume = q.get('volume_total')
     elif h:
-        at = str(h['event_time'])
+        at = pd.Timestamp(h['event_time']).tz_convert('Asia/Shanghai').isoformat()
         kind = '昨日收盘' if last_day == previous else '历史收盘 · ' + last_day
-        # Do not relabel a multi-day history gap as yesterday's reference.
-        base, base_day, base_reason = None, None, '仅有历史收盘，缺同日源端昨收'
+        before = previous_session(last_day)
+        base = history.get(before,{}).get('close')
+        base = base if positive(base) else None
+        base_day = before if base is not None else None
+        base_reason = '收盘日的准确上一交易日历史收盘' if base is not None else '历史收盘缺准确前一交易日，不跳过缺口'
         volume = h.get('volume')
         quality = dict(usable=False, status=kind)
     else:
@@ -77,18 +83,24 @@ def quote_card(symbol, name, root, live, daily, now, previous):
         base_reason = '尚未收到有效报价和源端昨收'
         quality = dict(usable=False, status=kind)
     delta = float(price - base) if positive(price) and positive(base) else None
+    historical_receipt=timestamp(h.get('fetched_at')) or timestamp(h.get('recorded_at'))
+    amount=q.get('amount_cny') if use_quote else h.get('turnover') if finite(h.get('turnover')) else h.get('amount')
     return dict(symbol=symbol, name=name, root=root, price=price if positive(price) else None,
                 change=delta, change_pct=100*delta/base if delta is not None else None,
                 prev_close=base, prev_date=base_day, prev_reason=base_reason,
                 yesterday_close=prior.get('close') if positive(prior.get('close')) else None,
                 yesterday_date=previous if positive(prior.get('close')) else None,
-                source_at=at, received_at=receipt.isoformat() if use_quote else None,
-                source_date_basis='接收日推定，非交易所认证日期' if use_quote else '历史交易日',
+                yesterday_open_interest=prior.get('open_interest') if finite(prior.get('open_interest')) and prior['open_interest']>=0 else None,
+                yesterday_oi_date=previous if finite(prior.get('open_interest')) and prior['open_interest']>=0 else None,
+                source_at=at, received_at=receipt.isoformat() if use_quote else historical_receipt.isoformat() if historical_receipt is not None else None,
+                source_date_basis=q.get('source_date_basis','接收日推定，非交易所认证日期') if use_quote else '已完成日线交易日',
+                display_kind='http_snapshot' if use_quote and q.get('observation_mode')=='off_session_snapshot' else 'observation' if use_quote else 'completed_daily' if h else 'missing',
                 quality=quality, status=kind, volume=volume if finite(volume) else None,
-                volume_unit='源单位' if not symbol.endswith('.CFE') else '手',
+                volume_unit='手' if symbol.endswith('.CFE') else '源单位' if use_quote else '手' if symbol in {v[0] for v in UNDERLYINGS.values()} else '份',
                 open=q.get('open') if use_quote else h.get('open'),
                 high=q.get('high') if use_quote else h.get('high'),
                 low=q.get('low') if use_quote else h.get('low'),
+                amount_cny=amount if finite(amount) and amount>=0 else None,
                 series=[], reason=quality.get('reason', kind))
 
 
@@ -115,7 +127,7 @@ def observed_series(row, observations, now):
     return list({p['source_at']:p for p in sorted(result, key=lambda p:p['source_at'])}.values())
 
 
-def futures_values(row, live, daily, metadata, now):
+def futures_values(row, live, daily, metadata, now,spot_row=None):
     symbol = row['symbol']; spot = UNDERLYINGS[row['root']][0]
     q, s = live.get(symbol), live.get(spot)
     ok, reason = aligned_quotes([q, s], now)
@@ -124,16 +136,26 @@ def futures_values(row, live, daily, metadata, now):
     expiry = metadata.get(symbol, {}).get('expiry_date')
     row.update(expiry=expiry, basis_points=None, log_basis_bp=None, annual_pct=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
-               percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None)
-    if not ok:
-        return
+               percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None,
+               basis_kind=None,pricing_day=None,days=None,percentile_start=None,percentile_end=None)
     day = str(now.tz_convert('Asia/Shanghai').date())
+    mode='realtime'
+    if not ok:
+        # Close references use their own pricing day. Never relax realtime age
+        # or replace receipt timestamps to make historical prices pass it.
+        if session_policy(now.to_pydatetime())['allowed'] or row.get('display_kind')!='completed_daily' or not spot_row or spot_row.get('display_kind')!='completed_daily':return
+        if row.get('source_at')!=spot_row.get('source_at') or not positive(row.get('price')) or not positive(spot_row.get('price')):return
+        day=str(pd.Timestamp(row['source_at']).tz_convert('Asia/Shanghai').date())
+        q=dict(close=row['price'],source_event_time=row['source_at'])
+        s=dict(close=spot_row['price'],source_event_time=spot_row['source_at'])
+        mode='completed_daily'
     t = (date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
     current = basis(raw(q.get('close'), 'price'), raw(s.get('close'), 'price'), t)
     row.update(basis_points=current['points'].value, log_basis_bp=current['b'].value,
                annual_pct=current['a'].value, days=t,
-               basis_source_at=max(pd.Timestamp(q['source_event_time']), pd.Timestamp(s['source_event_time'])).isoformat())
-    row['basis_reason'] = '第六版A01：未调整对数基差；年化T<5留空' if t is not None else '到期日缺失，年化留空'
+               basis_source_at=max(pd.Timestamp(q['source_event_time']), pd.Timestamp(s['source_event_time'])).isoformat(),
+               basis_kind=mode,pricing_day=day)
+    row['basis_reason'] = ('收盘参考 '+day+' · ' if mode=='completed_daily' else '')+('第六版A01：未调整对数基差；年化T<5留空' if t is not None else '到期日缺失，年化留空')
     frows, srows = daily_rows(daily.get(symbol)), daily_rows(daily.get(spot))
     days = dates_between(str(date.fromisoformat(day)-timedelta(days=60)), day)
     days = [d for d in days if d < day][-20:]
@@ -162,6 +184,10 @@ class MarketOverviewEngine:
         model = self.model; trace = begin(model)
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
         day = str(now.tz_convert('Asia/Shanghai').date())
+        from dashboard.marketdata.overview_sessions import latest_completed_session
+        from dashboard.marketdata.overview_daily import read_day
+        try:completed=latest_completed_session(now.to_pydatetime())
+        except ValueError:completed=None
         from .overview_details import load_reference, enrich
         reference_data = load_reference(model, now)
         errors = []
@@ -191,20 +217,36 @@ class MarketOverviewEngine:
             instruments[s] = dict(asset_type='cn_index', market_region='CN')
         instruments.update(quote_registry(model.config, reference_data['data'], day))
         live = model._live(instruments, now)
+        if not session_policy(now.to_pydatetime())['allowed'] and hasattr(model,'local_root'):
+            from .latest_snapshot import load as load_snapshot
+            for symbol,q in load_snapshot(model.local_root).get('quotes',{}).items():
+                old=timestamp(live.get(symbol,{}).get('source_event_time'));source=timestamp(q.get('source_event_time'))
+                if symbol in instruments and source is not None and (old is None or source>=old):live[symbol]=q
         model._overview_latest = live
         versions = {k:v['version'] for k,v in frozen.items()}
-        key = (tuple(versions.items()), reference.version, previous, tuple(model.config.get('history_roots', ())),repo is not None)
+        side={}
+        if completed and hasattr(model,'local_root'):
+            for d in (completed,previous_session(completed)):
+                side[d]=read_day(model.config,model.local_root,d)
+        key = (tuple(versions.items()), reference.version, completed,tuple((d,v.get('fetched_at')) for d,v in side.items()),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None)
         if key != self.daily_key:
             self.daily = {}
-            cutoff = (pd.Timestamp(previous, tz='Asia/Shanghai') + pd.Timedelta(hours=23, minutes=59, seconds=59)) if previous else now.normalize()-pd.Timedelta(seconds=1)
-            for s in [*[v[0] for v in UNDERLYINGS.values()], *contracts]:
+            cutoff = (pd.Timestamp(completed, tz='Asia/Shanghai') + pd.Timedelta(hours=23, minutes=59, seconds=59)) if completed else now.normalize()-pd.Timedelta(seconds=1)
+            for s in [*[v[0] for v in UNDERLYINGS.values()], *contracts,*quote_registry(model.config, reference_data['data'], day)]:
                 if repo is None:
-                    self.daily[s] = pd.DataFrame();continue
-                try:
-                    self.daily[s] = repo.read_window(s, '1d', count=25, as_of=cutoff,
-                        fields=('open','high','low','close','volume'), frozen=frozen)
-                except ValueError:
                     self.daily[s] = pd.DataFrame()
+                else:
+                    try:
+                        self.daily[s] = repo.read_window(s, '1d', count=25, as_of=cutoff,
+                            fields=('open','high','low','close','volume','turnover','open_interest'), frozen=frozen)
+                    except ValueError:
+                        self.daily[s] = pd.DataFrame()
+                additions=[dict(r,event_time=pd.Timestamp(r['source_at']),is_final=True,fetched_at=v.get('fetched_at'),
+                                open_interest=r.get('oi'),turnover=r.get('amount')) for d,v in side.items() if (r:=v.get('rows',{}).get(s))]
+                if additions:
+                    frame=pd.concat([self.daily[s],pd.DataFrame(additions)],ignore_index=True)
+                    frame['trade_date']=frame.trade_date.astype(str).str[:10]
+                    self.daily[s]=frame.drop_duplicates('trade_date',keep='first').sort_values('trade_date')
             self.daily_key = key
         indices = [quote_card(s, name, root, live, self.daily, now, previous)
                    for root, (s, name, _) in UNDERLYINGS.items()]
@@ -229,7 +271,7 @@ class MarketOverviewEngine:
                 row = quote_card(s, name, root, live, self.daily, now, previous)
                 row['slot'] = slot
                 try:
-                    futures_values(row, live, self.daily, metadata, now)
+                    futures_values(row, live, self.daily, metadata, now,next(r for r in indices if r['root']==root))
                 except ValueError:
                     row.update(percentile=None, percentile_reason='交易日历缺失')
                 futures.append(row)
@@ -238,7 +280,7 @@ class MarketOverviewEngine:
             row['series'] = observed_series(row, observations, now)
         state = dict(as_of=now.isoformat(), versions=versions, selection=dict(overview_slot=0), overview=[], entities=[],
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
-                                          previous_session=previous, errors=errors, source_date_basis='接收日推定'),
+                                          previous_session=previous,completed_session=completed, errors=errors, source_date_basis='每值保留日期依据'),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)
         from .futures_overview import details

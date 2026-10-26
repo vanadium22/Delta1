@@ -69,8 +69,9 @@ class PresentationWindow(QMainWindow):
         widget=QWidget();self.setCentralWidget(widget);layout=QVBoxLayout(widget);layout.setContentsMargins(24,18,24,18)
         row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  市场看板');title.setStyleSheet('font-size:24px;font-weight:700');row.addWidget(title);row.addStretch()
         self.network=QLabel('离线 · 已发布历史');self.network.setWordWrap(True);self.network.setMaximumWidth(240)
+        self.network.setMinimumWidth(102)
         self.network.setStyleSheet('font-size:14px');row.addWidget(self.network)
-        for text,fn in [('连接实时',lambda:self.start_collection(False)),('暂停采集',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
+        for text,fn in [('更新报价',lambda:self.start_collection(False)),('DDB一键补齐',lambda:self.pipeline.one_click()),('暂停',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
             if self.frozen_payload and text!='导出快照':b.hide()
         layout.addLayout(row)
@@ -186,7 +187,11 @@ class PresentationWindow(QMainWindow):
         self.notice.setVisible(bool(self.frozen_payload or research_v6))
         s=self.collection.state()
         live_read=any(r.get('quality',{}).get('usable') for rows in (state.get('market_overview') or {}).values() if isinstance(rows,list) for r in rows if isinstance(r,dict))
-        self.network.setText('冻结快照' if self.frozen_payload else ('本窗口持续采集' if self.collection.running() else '读取已有行情 · 本窗口未采集' if live_read else '只读缓存 / 未采集'))
+        market_rows=[r for values in (state.get('market_overview') or {}).values() if isinstance(values,list) for r in values if isinstance(r,dict)]
+        closed_read=any(r.get('display_kind')=='completed_daily' for r in market_rows)
+        snapshot_read=any(r.get('display_kind')=='http_snapshot' for r in market_rows)
+        self.network.setText('冻结快照' if self.frozen_payload else '本窗口持续采集' if self.collection.running() else
+            '读取已有行情' if live_read else '收盘参考' if closed_read else '盘前盘后快照' if snapshot_read else '只读缓存')
         self.status.setText('页面刷新 '+stamp(state['as_of'])+' · 行情源时间见卡片')
         from dashboard.refresh_evidence import applied
         applied(self,state)

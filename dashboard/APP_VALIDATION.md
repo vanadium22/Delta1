@@ -1,3 +1,16 @@
+## 2026-10-26 WindPy与概览数据链路补齐
+
+基线本地与远端重新核对0906c1619be9b9a14981065e9bd127a452c0a2ee。公司新overview (1).json及“Wind终端/WindPy已登录”答复用于定位：旧低频任务默认Oracle且缺模块，15:59新窗口处于market_closed；不将13:46结束采集归因VPN。本轮将低频资料改到原WindPy环境、接入DDB一键补齐和独立收盘缓存、盘前盘后有限快照、完整价格下的权重估算及期指收盘参考，不改第六版核心与实时30秒/3秒。
+
+- 153项组合回归通过，53.458秒，包含新增Wind/HTTP/DDB传输桩、原始缓存/日线单位、同日/前日与15:10边界、原采集/历史/安全退出/启动/锁/VPN及第六版核心。初轮并行渲染曾使原“固定四次请求”计时断言受机器负载影响；改为验证最多一个活动计算、请求停止后最多一个待办及最后结果实际显示，没有放宽行情时效或同步规则。
+- 进一步补充Wind完整指数样本数核对、错误日期拒绝、取消后持有原Wind进程直到排空、空快照不推进缓存及紧凑状态标签后，45项定向回归通过7.756秒。之后修正相同收盘在UTC/+08表示下的比较，最终57项定向回归通过7.848秒；共覆盖155个独立用例。真实隐藏Wind标准库worker使用隔离Fake WindPy模块完成stdin/JSON/父子解释器链路，证明不带-s并保留用户site；没有导入真实Wind SDK或登录终端。
+- DDB股票/ETF日线定义来自另一旧项目2026-10-09已审计目录，仅提取两类schema（源文件SHA记录在overview_sources.json），不整体复制旧工作区。运行时仍用原Client.bind核对实际schema。批次使用绑定变量，验证代码/日期/唯一性/OHLC，保留原始Parquet与SHA，股票/ETF量乘100、金额统一为元；缺日不跳过，旧缓存修订归档。补齐测试全用桩会话，无DDB接口/VPN实测。
+- 蓝白原生三页在860/1100/1440/1920宽度离屏缩放、滚动、切换及缺值清空；断言窗口实际宽度等于请求值而非被最小布局撑大。构造输入仅用于截图/测试，不进入产品或行情库。正式current入口也用app_python选择的swhy_delta1解释器及原localsetting以capture方式退出0，隐藏/离屏，不接管实际使用窗口；新DDB按钮可见。视觉产物只在本机可写visualizations目录。
+- 真实隐藏PowerShell诊断：diagnose_presentation.ps1 -Overview -NoPause退出0，preflight=0；Wind仅find_spec检查、没有导入/初始化SDK。network_requested=false、wind_requested=false、vpn_changed=false、configuration_unchanged=true。本机所选App解释器无WindPy，不将它宣称为公司Wind失败或实测通过。原native.json SHA256前后均3013df7b4be13293c01a0a67b38fc24eb4b7959d7098fcf723e818f06ec4c205。
+- 桌面快捷方式复验仍为wscript→公司工作区dashboard/start_presentation.vbs --theme public --local-root原localsetting。没有改入口、原行情/分红/凭据/个人设置、Excel或另外四个未跟踪提示词；无真实HTTP、Wind、DDB、VPN测试或可见测试窗口。
+
+现场待验：公司WindPy解释器及字段/板块权限、完整规模日期与Top3、完整指数/行业映射、DDB当天实际发布和续补结果、主行情与分钟成分10–15分钟连续推进。IOPV/净申赎/PCF无可靠输入继续缺项；不能以本地构造、刚获取的HTTP响应或进程退出代替数据完整/公司验收。公司更新、原VBS、一键补齐与只读回传步骤见APP_COMPANY_TEST.md。
+
 ## 2026-10-26 公司报告反馈及期指预览对齐验证
 
 基线fe63840。读取用户提供的公司overview.json，保留原文件、不提交报告。确认采样盘后但缓存停留在更早盘中；规模/成分资料缺失、Wind仅无结果记录、IOPV无明确字段及独立映射，未将其解释为公司接口/VPN测试失败。

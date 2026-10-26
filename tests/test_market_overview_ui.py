@@ -74,6 +74,7 @@ class OverviewUiTests(unittest.TestCase):
         w=self.window()
         for width,height in ((860,620),(1100,760),(1440,900),(1920,1080)):
             w.resize(width,height);pump()
+            self.assertEqual(w.width(),width)
             for index,kind in enumerate(('indices','etfs','futures')):
                 w.quotes.tabs.setCurrentIndex(index);pump()
                 page=w.quotes.views[kind]

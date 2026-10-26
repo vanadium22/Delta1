@@ -26,6 +26,10 @@ class DataPipeline(QObject):
         self.task=None;self.phase='cache';self.message='读取已有数据';self.quick={};self.credentials={};self.probe={}
         self.enabled=enabled;self.closing=False;self.action=None;self.deep=False;self.once=False;self.force=False;self.pending_reference=None;self.force_reference=False
         self.next_retry=0;self.history_retry=0;self.history_not_before=0;self.quick_due=0;self.last_day=None
+        self.latest_snapshot={};self.reference_started=False;self.completed_target=None
+        from dashboard.marketdata.overview_sessions import latest_completed_session
+        try:self.completed_target=latest_completed_session()
+        except ValueError:pass
         self.run_id=uuid.uuid4().hex;self.samples=deque(maxlen=900);self.applied={}
         self.realtime_dialog=None;self.prompted_key=None;self.awaiting_realtime=False
         from .overview_reference_job import ReferenceJob
@@ -70,7 +74,8 @@ class DataPipeline(QObject):
             self.quick_due=time.monotonic()+30
             if not self.instance_ready():return
             if self.enabled and not self.action:
-                if self.model.config.get('history_maintenance_enabled',True):self.request_history(force=bool(self.credentials.get('available')))
+                if self.model.config.get('history_maintenance_enabled',True):
+                    self.one_click(force_reference=False,force_history=bool(self.credentials.get('available')))
                 else:self.request_realtime()
             elif not self.enabled:self.set_state('cache','只读缓存；自动更新已关闭')
         self.submit(work,done)
@@ -82,10 +87,25 @@ class DataPipeline(QObject):
         self.collection.stop();self.model.realtime_verified=False
         self.set_state('draining_realtime','等待本轮实时请求与落库安全结束，再开始'+('后台深核' if deep else '日期增量维护'))
 
+    def one_click(self,*,force_reference=True,force_history=True):
+        """Reference first, then one owned DDB cycle; never entered by HTTP retry."""
+        if self.closing or not self.instance_ready():return
+        if self.history.process is not None:
+            self.set_state('history','DDB补齐正在运行；不重复启动，请等待或在数据更新页取消');return
+        self.enabled=True;self.dismiss_realtime_prompt();self.awaiting_realtime=False
+        if self.overview_reference is None or self.model.config.get('overview_wind_enabled',True) is False:
+            self.request_history(force=force_history);return
+        self.action='reference_before_history';self.force=force_history;self.reference_started=False
+        self.force_reference=force_reference
+        self.set_state('reference_before_history','先复核Wind低频成分/权重及ETF规模，再用DDB补齐最近收盘；现有数据保持可读')
+
     def request_realtime(self,once=False,*,force_reference=False):
         if self.closing or not self.instance_ready():return
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=True;self.action='realtime';self.once=once;self.next_retry=0
+        if self.overview_reference is not None and self.overview_reference.closed and not self.overview_reference.running():
+            from .overview_reference_job import ReferenceJob
+            self.overview_reference=ReferenceJob(self.model.local_root)
         self.force_reference=force_reference
         self.history.pause()
         self.collection.stop();self.model.realtime_verified=False
@@ -94,6 +114,7 @@ class DataPipeline(QObject):
     def readonly(self):
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=False;self.action=None;self.history.pause();self.collection.stop()
+        if self.overview_reference is not None:self.overview_reference.stop()
         self.set_state('draining','正在安全停止本轮后台；保留已发布数据')
 
     def start_probe(self):
@@ -102,7 +123,7 @@ class DataPipeline(QObject):
         from dashboard.session_clock import session_policy
         policy=session_policy()
         if not policy['allowed']:
-            self.set_state('market_closed',policy['reason']+'；只读缓存');return
+            self.start_snapshot();return
         self.set_state('probing','正在有限验证实时接口；尚未证明持续采集或新行情到达')
         config=deepcopy(self.model.config)
         force_reference=self.force_reference;self.force_reference=False
@@ -135,6 +156,18 @@ class DataPipeline(QObject):
                 result=probe_realtime(config)
             return result
         self.submit(work,done)
+
+    def start_snapshot(self):
+        from .latest_snapshot import collect
+        config=deepcopy(self.model.config);self.next_retry=time.monotonic()+60
+        self.set_state('market_snapshot','盘前盘后：有限获取最新快照；不视为实时，不自动操作实时VPN')
+        def done(result):
+            self.latest_snapshot=result;self.next_retry=time.monotonic()+60
+            if not self.enabled or self.action is not None:return
+            self.set_state('market_closed','盘前盘后快照已获取；源时间及日期依据见卡片' if result.get('status')=='snapshot_received' else
+                           '盘前盘后快照未取得；保留已有源时间，60秒后重试，不自动切回DDB')
+            if hasattr(self.window,'refresh'):self.window.refresh()
+        self.submit(lambda:collect(config,self.model.local_root,stop=lambda:self.closing or not self.enabled),done)
 
     def dismiss_realtime_prompt(self):
         dialog=self.realtime_dialog;self.realtime_dialog=None
@@ -186,7 +219,11 @@ class DataPipeline(QObject):
             reason=('看板正在关闭' if self.closing else '当前为只读或已暂停后台' if not self.enabled else
                     '等待历史任务安全结束' if self.history.process is not None or self.action=='history' else
                     '等待当前验证任务完成' if self.task is not None else '等待数据流程就绪：'+self.phase)
-            self.overview_reference.tick(self.model.config,enabled=eligible,blocked_reason=reason)
+            if eligible and self.overview_reference.closed and not self.overview_reference.running():
+                from .overview_reference_job import ReferenceJob
+                self.overview_reference=ReferenceJob(self.model.local_root)
+            if self.action!='reference_before_history':
+                self.overview_reference.tick(self.model.config,enabled=eligible,blocked_reason=reason)
         if self.realtime_dialog is not None:
             from dashboard.session_clock import realtime_prompt_policy
             if not realtime_prompt_policy()['allowed']:
@@ -198,6 +235,20 @@ class DataPipeline(QObject):
         if self.closing:
             self.set_state('closing','正在等待本轮请求、计算和历史写入安全结束；不会强制结束进程')
         elif not self.instance_ready():pass
+        elif self.action=='reference_before_history':
+            if not self.task and self.history.process is None:
+                job=self.overview_reference
+                if not self.reference_started:
+                    if job.closed:
+                        if job.running():
+                            self.set_state('reference_before_history','等待先前Wind只读查询安全结束，再开始本轮补齐')
+                            self.write_report();return
+                        from .overview_reference_job import ReferenceJob
+                        job=self.overview_reference=ReferenceJob(self.model.local_root)
+                    job.tick(self.model.config,enabled=True,force=self.force_reference)
+                    self.reference_started=True
+                if not job.running():self.request_history(force=self.force)
+                else:self.set_state('reference_before_history','Wind低频资料复核中；完成后自动开始DDB补齐，不重复下载或切换实时VPN')
         elif self.action=='history':
             if not self.collection.running() and not self.task and self.history.process is None and time.monotonic()>=self.history_not_before:
                 self.history.authorized=True
@@ -210,7 +261,9 @@ class DataPipeline(QObject):
             if self.history.process is None and not self.task and not self.collection.running():
                 self.action=None;self.start_probe()
         elif self.history.process is not None:
-            s=self.history.state();self.set_state('history',s.get('message','历史任务运行中')+'；旧结果继续可读')
+            s=self.history.state();side=s.get('overview_daily') or {}
+            note=('；概览收盘 '+str(side.get('target'))+'，剩余 '+str(side.get('pending_rows',0))+' 条') if side else ''
+            self.set_state('history',s.get('message','历史任务运行中')+note+'；旧结果继续可读')
         elif code is not None:
             self.history.authorized=False
             self.history_retry=time.monotonic()+300
@@ -220,7 +273,8 @@ class DataPipeline(QObject):
             self.submit(lambda:quick_check(deepcopy(self.model.config)),lambda value:setattr(self,'quick',value))
             self.next_retry=time.monotonic()+1
             state=self.history.state()
-            if self.enabled and state.get('state')=='partial' and state.get('inserted',0)>0 and (state.get('next_retry') or 0)<=time.time()+30:
+            progress=state.get('inserted',0)+state.get('overview_daily',{}).get('inserted',0)
+            if self.enabled and state.get('state')=='partial' and progress>0 and (state.get('next_retry') or 0)<=time.time()+30:
                 self.request_history(force=False)
                 self.history_not_before=time.monotonic()+max(1,(state.get('next_retry') or time.time())-time.time())
         elif self.collection.running():
@@ -239,15 +293,24 @@ class DataPipeline(QObject):
             self.set_state('cache','只读缓存；未把计算时间当作行情时间')
         elif not self.task and time.monotonic()>=self.next_retry:
             self.next_retry=time.monotonic()+30;self.start_probe()
-        if not self.closing and self.enabled and not self.awaiting_realtime and not self.task and not self.collection.running() and self.history.process is None and not self.action:
+        if not self.closing and self.enabled and not self.awaiting_realtime and not self.task and self.history.process is None and not self.action:
             from dashboard.session_clock import session_policy
             from zoneinfo import ZoneInfo
             day=datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
             if self.last_day is None:self.last_day=day
             elif self.last_day!=day:
-                self.last_day=day;self.request_history(force=False)
+                self.last_day=day
+                if self.model.config.get('history_maintenance_enabled',True):self.request_history(force=False)
+            from dashboard.marketdata.overview_sessions import latest_completed_session
+            try:target=latest_completed_session()
+            except ValueError:target=None
+            if self.completed_target is None:self.completed_target=target
+            elif target and self.completed_target!=target:
+                self.completed_target=target
+                if self.model.config.get('history_maintenance_enabled',True):self.request_history(force=False)
             # Realtime retries must never reconnect the DDB VPN behind the user.
-            # Further history work starts only for a new day or an explicit retry.
+            # Further history work starts only for a calendar boundary (including
+            # a newly completed close) or an explicit request, never an HTTP retry.
         self.write_report();self.changed.emit()
 
     def record_applied(self,value):
@@ -261,7 +324,7 @@ class DataPipeline(QObject):
             'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
-            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn')}
+            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
@@ -279,6 +342,7 @@ class DataPipeline(QObject):
             realtime_vpn_automatic=False,awaiting_realtime_vpn=self.awaiting_realtime,
             instance_handover=instance.summary() if instance is not None else None,overview_coverage=coverage,
             overview_runtime=dict(schema='overview-runtime-v2',pipeline_enabled=self.enabled,
+                latest_snapshot=self.latest_snapshot,
                 reference_scheduler=self.overview_reference.state() if self.overview_reference is not None else None))
 
     def write_report(self):
@@ -306,7 +370,7 @@ class DataPipeline(QObject):
 class PipelinePage(QWidget):
     def __init__(self,pipeline):
         super().__init__();self.pipeline=pipeline;layout=QVBoxLayout(self);row=QHBoxLayout()
-        for title,fn in [('增量更新 / 重试',pipeline.request_history),('完整深核（后台）',lambda:pipeline.request_history(True)),
+        for title,fn in [('DDB一键补齐',pipeline.one_click),('完整深核（后台）',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
             button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());row.addWidget(button)
         layout.addLayout(row)

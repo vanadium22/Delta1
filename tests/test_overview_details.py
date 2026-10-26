@@ -302,7 +302,7 @@ class CompanyEvidenceTests(unittest.TestCase):
             self.assertEqual(result['diagnostic_profile']['local_root'],str(profile.resolve()))
             self.assertEqual(result['quote_cache_summary']['latest_received_at'],NOW.isoformat())
             self.assertEqual(result['reference_attempt']['status'],'not_recorded')
-            self.assertTrue(result['wind_setup']['settings_file_exists'])
+            self.assertEqual(result['wind_setup']['provider'],'WindPy')
             self.assertFalse(result['wind_setup']['credentials_read']);self.assertFalse(result['wind_setup']['connection_attempted'])
             self.assertNotIn('CANARY_WIND',raw)
 

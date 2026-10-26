@@ -256,7 +256,7 @@ def run_cycle(local_root, **kwargs):
         return _run_cycle(local_root, **kwargs)
 
 
-def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual'):
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
     if reference_file:config['reference_file']=str(reference_file)
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
@@ -271,7 +271,13 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
     with _writer_lock(root):
         if stopped():status('paused',next_retry=None,scan_complete=False,pending_symbol_days=None,missing_bars=None);return state
         actual_today=str(pd.Timestamp.now(tz='Asia/Shanghai').date()) if today is None else str(today)
-        if not force and state.get('next_retry') and state['next_retry']>time.time() and state.get('today')==actual_today:return state
+        clock=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai')).tz_convert('Asia/Shanghai')
+        target_changed=False
+        if include_completed_today and str(clock.date())==actual_today:
+            from .overview_sessions import latest_completed_session
+            try:target_changed=state.get('target')!=latest_completed_session(clock.to_pydatetime())
+            except ValueError:pass
+        if not force and not target_changed and state.get('next_retry') and state['next_retry']>time.time() and state.get('today')==actual_today:return state
         if not force and state.get('state')=='waiting_credentials':return state
         client=None;pending={};evidence=[];job_state=read_json(root/'jobs.json');cache={} if incremental else read_json(root/'coverage_cache.json')
         quality=read_json(root/'quality_notes.json',{'schema':'history_source_notes_v1','entries':[]});new_notes=[]
@@ -307,7 +313,8 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             initial_versions={k:s['version'] for k,s in snapshots.items()}
             available=[p['trade_date'] for s in snapshots.values() for p in s['parts'] if p['frequency']=='1d']
             start=config.get('history_start') or min(available,default=actual_today)
-            days,end=trading_days(start,actual_today,root/'calendar')
+            include_today=bool(include_completed_today and str(clock.date())==actual_today and (clock.hour,clock.minute)>=(15,10))
+            days,end=trading_days(start,actual_today,root/'calendar',include_today=include_today)
             metadata=latest_contracts(read_json(config.get('reference_file','')))
             if any(sum(r['listing_date']<=end<=r['expiry_date'] for s,r in metadata.items() if s.startswith(p))!=4 for p in UNDERLYINGS):
                 status('waiting_reference',target=end,start=start,next_retry=time.time()+300);return state
@@ -338,13 +345,19 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                     versions=versions,scan_complete=True,pending_scan_id=state['scan_id'],pending_target=end)
                 save_summary(root,snapshots,summary,jobs,coverage,end)
             save_pending()
-            if not jobs:
+            side_jobs=[]
+            if overview_daily:
+                from .overview_daily import requests as overview_requests
+                side_jobs=overview_requests(config,local_root,end,metadata)
+                state['overview_daily']=dict(status='pending' if side_jobs else 'complete',target=end,
+                    pending_rows=sum(len(j['symbols']) for j in side_jobs),pending_batches=len(side_jobs),inserted=0)
+            if not jobs and not side_jobs:
                 name='date_checked' if state['unknown_groups'] else 'complete'
                 status(name,failures=0,next_retry=time.time()+1800,**({'last_complete_at':now_iso()} if name=='complete' else {}));return state
             if stopped():raise Stopped()
             from dashboard.app_config import connection_path
             selected=[j for j in jobs if force or job_state.get(job_key(j),{}).get('retry_at',0)<=time.time()]
-            if not selected:
+            if not selected and not side_jobs:
                 status('partial',next_retry=min(job_state[job_key(j)].get('retry_at',time.time()+300) for j in jobs));return state
             connection_file=connection_path(config)
             if vpn_mode=='auto':
@@ -374,7 +387,12 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             if stopped():raise Stopped()
             status('authenticating')
             client=direct_factory(connection_file)
-            deadline=time.monotonic()+budget;query_failed=False
+            deadline=time.monotonic()+budget
+            if side_jobs:
+                from .overview_daily import fill
+                status('downloading',message='正在补齐概览最近收盘、ETF与成分股日线；原数据继续可读')
+                state['overview_daily']=fill(client,config,local_root,end,metadata,stop=stopped,budget=min(45,budget))
+            query_failed=False
             for job in selected[:limit]:
                 if stopped():raise Stopped()
                 if time.monotonic()>=deadline:break
@@ -433,11 +451,13 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             jobs,summary=plan(coverage,metadata,days,start,end);save_pending()
             save_ledger(root,stores,snapshots,coverage)
             state['failures']=state.get('failures',0)+1 if query_failed else 0
+            side_pending=state.get('overview_daily',{}).get('pending_rows',0) if overview_daily else 0
             due=min((job_state.get(job_key(j),{}).get('retry_at',time.time()+5) for j in jobs),default=time.time()+1800)
+            if side_pending:due=min(due,time.time()+(5 if state['overview_daily'].get('inserted') else 300))
             if query_failed:due=max(due,time.time()+RETRY[min(state['failures']-1,2)])
-            name='partial' if jobs else 'date_checked' if state['unknown_groups'] else 'complete'
+            name='partial' if jobs or side_pending else 'date_checked' if state['unknown_groups'] else 'complete'
             if jobs and all(job_state.get(job_key(j),{}).get('reason') in ('conflict_requires_review','validation_failed') for j in jobs):name='review'
-            if not jobs and not state['unknown_groups']:state['last_complete_at']=now_iso()
+            if not jobs and not side_pending and not state['unknown_groups']:state['last_complete_at']=now_iso()
             status(name,next_retry=max(time.time()+5,due),current_job=None)
         except Stopped:status('paused' if read_json(controls).get('paused') else 'stopped',next_retry=None)
         except Exception as exc:
@@ -461,6 +481,8 @@ def main():
     parser.add_argument('--preserve-existing',action='store_true',help='Explicitly retain differing existing values, fill missing keys only, and record source discrepancies')
     parser.add_argument('--stop-file',type=Path)
     parser.add_argument('--incremental',action='store_true')
+    parser.add_argument('--include-completed-today',action='store_true',help='App may include today only after 15:10, never an unfinished session')
+    parser.add_argument('--overview-daily',action='store_true',help='Fill separate ETF/constituent completed-close cache')
     parser.add_argument('--owner-pid',type=int)
     parser.add_argument('--reference-file',type=Path)
     parser.add_argument('--vpn-mode',choices=('auto','manual'),default='manual')
@@ -469,7 +491,8 @@ def main():
         from dashboard.process_lifetime import LauncherLifetime
         with LauncherLifetime(args.owner_pid,stop_file=args.stop_file) as lifetime:
             result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing,
-                             incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file,vpn_mode=args.vpn_mode)
+                             incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file,vpn_mode=args.vpn_mode,
+                             include_completed_today=args.include_completed_today,overview_daily=args.overview_daily)
         print(json.dumps({k:result.get(k) for k in ('state','target','pending_symbol_days','inserted')},ensure_ascii=False))
         return 0 if result.get('state') in ('complete','date_checked') else 2
     except OSError:

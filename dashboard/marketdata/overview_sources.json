@@ -1,0 +1,300 @@
+{
+  "inspected_on": "2026-10-09",
+  "provenance": "Existing audited DolphinDB catalog (2026-10-09); selected stock/ETF daily schemas only",
+  "source_sha256": "5cdc0a319bba875e3cd3b6fa8da73f8f17c878d7931b0672fab153e54053fb5c",
+  "sources": [
+    {
+      "db": "dfs://ods_tsdb_m_wind",
+      "table": "ashareeodprices",
+      "kind": "stock",
+      "market": "all",
+      "frequency": "1d",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "typeString": "STRING",
+          "typeInt": 18
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "TRADE_DT",
+          "typeString": "DATE",
+          "typeInt": 6
+        },
+        {
+          "name": "CRNCY_CODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_LOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJPRECLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJOPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJHIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJLOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJCLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJFACTOR",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_AVGPRICE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_TRADESTATUS",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "S_DQ_TRADESTATUSCODE",
+          "typeString": "INT",
+          "typeInt": 4
+        },
+        {
+          "name": "S_DQ_LIMIT",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_STOPPING",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJCLOSE_BACKWARD",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "OPDATE",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12
+        },
+        {
+          "name": "OPMODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        }
+      ]
+    },
+    {
+      "db": "dfs://ods_tsdb_y_wind",
+      "table": "chinaclosedfundeodprice",
+      "kind": "etf",
+      "market": "all",
+      "frequency": "1d",
+      "columns": [
+        {
+          "name": "OBJECT_ID",
+          "typeString": "STRING",
+          "typeInt": 18
+        },
+        {
+          "name": "S_INFO_WINDCODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "TRADE_DT",
+          "typeString": "DATE",
+          "typeInt": 6
+        },
+        {
+          "name": "CRNCY_CODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "S_DQ_PRECLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_OPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_HIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_LOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_CLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_CHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_PCTCHANGE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_VOLUME",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_AMOUNT",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJPRECLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJOPEN",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJHIGH",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJLOW",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJCLOSE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_ADJFACTOR",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "TRADES_COUNT",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "DISCOUNT_RATE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_AVGPRICE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "S_DQ_TRADESTATUS",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "S_DQ_TRADESTATUSCODE",
+          "typeString": "INT",
+          "typeInt": 4
+        },
+        {
+          "name": "SEC_ID",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        },
+        {
+          "name": "DISCOUNT_PREMIUM_RATE",
+          "typeString": "DOUBLE",
+          "typeInt": 16
+        },
+        {
+          "name": "OPDATE",
+          "typeString": "TIMESTAMP",
+          "typeInt": 12
+        },
+        {
+          "name": "OPMODE",
+          "typeString": "SYMBOL",
+          "typeInt": 17
+        }
+      ]
+    }
+  ]
+}

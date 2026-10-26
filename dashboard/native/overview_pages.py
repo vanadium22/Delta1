@@ -42,6 +42,13 @@ def clock(value):
         return '—'
 
 
+def source_label(row):
+    if row.get('quality',{}).get('usable'):return '源 '+clock(row.get('source_at'))
+    if not row.get('source_at'):return '等待行情'
+    title={'completed_daily':'收盘 ','http_snapshot':'快照 '}.get(row.get('display_kind'),'缓存 ')
+    return title+stamp(row['source_at'],True)
+
+
 def lab(value='', size=17, color=TEXT, bold=False):
     w = QLabel(value); w.setWordWrap(True); w.setMinimumWidth(0)
     w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -135,9 +142,8 @@ class IndexCard(Panel):
         self.row = row; self.price.setText(numeric(row.get('price')))
         put(self.change, numeric(row.get('change_pct'), signed=True, suffix='%'), color=ink(row.get('change_pct')), size=25, bold=True)
         self.short.setText('5分钟 '+numeric(row.get('change_5m_pct'), signed=True, suffix='%'))
-        self.clock.setText(('源 '+clock(row.get('source_at'))) if row.get('quality',{}).get('usable') else
-                           '缓存 '+stamp(row.get('source_at'),True) if row.get('source_at') else '等待行情')
-        self.setToolTip(row.get('status', '')+'\n源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at')))
+        self.clock.setText(source_label(row))
+        self.setToolTip(row.get('status', '')+'\n源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+'\n'+row.get('source_date_basis',''))
 
 
 def table(headers, height):
@@ -246,12 +252,12 @@ class IndexOverviewPage(ScrollPage):
         for card in self.cards.values():
             card.selected(card.root == root)
         self.heading.setText(name+' · 谁在推动，谁在拖累')
-        self.snapshot.setText((('停更快照 '+stamp(detail.get('source_at'),True) if detail.get('stale') else '快照 '+clock(detail.get('source_at')))+
+        self.snapshot.setText((('收盘 '+stamp(detail.get('source_at'),True) if detail.get('mode')=='completed_daily' else '停更快照 '+stamp(detail.get('source_at'),True) if detail.get('stale') else '快照 '+clock(detail.get('source_at')))+
             ' · 权重覆盖 '+numeric(detail.get('coverage_pct'), 1, suffix='%')) if detail.get('source_at') else '分钟快照待接入 · 60秒汇总')
-        self.snapshot.setToolTip('快照完成 '+stamp(detail.get('snapshot_at'))+'\n权重基准 '+str(detail.get('weight_date') or '待核验')+f"\n有效 {detail.get('covered',0)}/{detail.get('expected',0)}只")
+        self.snapshot.setToolTip('实际取得 '+stamp(detail.get('snapshot_at'))+'\n权重基准 '+str(detail.get('weight_date') or '待核验')+'\n官方权重日 '+str(detail.get('official_weight_date') or '待核验')+'\n'+str(detail.get('weight_reason') or detail.get('reason',''))+f"\n有效 {detail.get('covered',0)}/{detail.get('expected',0)}只")
         for widget, key, suffix in zip(self.metrics, ('up_pct', 'actual_points', 'contribution_points', 'residual_points'), ('%', '点', '点', '点')):
             value = detail.get(key); put(widget, numeric(value, 1 if key == 'up_pct' else 2, key != 'up_pct', suffix), color=ink(value), size=28, bold=True)
-        self.weight_panel.note.setText((detail.get('industry_standard') or '行业分类待核验')+' · 权重 '+str(detail.get('weight_date') or '待核验'))
+        self.weight_panel.note.setText((detail.get('industry_standard') or '行业分类待核验')+(' · 估算权重 ' if detail.get('weight_method')=='fixed_quantity_estimate' else ' · 权重 ')+str(detail.get('weight_date') or '待核验'))
         groups = detail.get('industries', []); self.weights.render(groups)
         ranked = detail.get('leaders', [])+detail.get('laggards', [])
         displayed = ranked if ranked else groups[:6]
@@ -335,11 +341,11 @@ class EtfCard(Panel):
         self.premium.setToolTip(row.get('premium_reason') or '不使用昨日净值替代IOPV')
         self.scale.setText('基金规模 '+money(row.get('aum_cny'))+' · 同指数占比 '+numeric(row.get('aum_share_pct'), 1, suffix='%'))
         self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；占比的分母为同指数全部普通ETF')
-        self.activity.setText('成交额待来源 · 买卖价差 '+numeric(row.get('spread_bp'), 1, suffix=' bp'))
+        self.activity.setText(('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')+' · 买卖价差 '+numeric(row.get('spread_bp'), 1, suffix=' bp'))
         self.activity.setToolTip('现有tradedQuantities为源单位成交量，不能冒充人民币成交额。\n累计成交量 '+numeric(row.get('volume'), 0))
-        quote_time = clock(row.get('source_at')) if row.get('quality',{}).get('usable') else '缓存 '+stamp(row.get('source_at'),True) if row.get('source_at') else '待接入'
+        quote_time = source_label(row)
         self.clock.setText('报价 '+quote_time+' · 配对 '+clock(row.get('premium_source_at')))
-        self.clock.setToolTip(row.get('status') or '待规模名单与报价')
+        self.clock.setToolTip((row.get('status') or '待规模名单与报价')+'\n源 '+stamp(row.get('source_at'))+'\n取得 '+stamp(row.get('received_at'))+'\n'+row.get('source_date_basis',''))
 
 
 class MinuteAxis(pg.AxisItem):

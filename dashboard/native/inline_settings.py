@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QWidget,QVBoxLayout,QFormLayout,QLineEdit,QPlainTe
 class InlineSettings(QWidget):
     def __init__(self,pipeline):
         super().__init__();self.pipeline=pipeline;self.fields={}
-        layout=QVBoxLayout(self);toggle=QPushButton('展开 / 收起本机数据与 DDB 设置');layout.addWidget(toggle)
+        layout=QVBoxLayout(self);toggle=QPushButton('展开 / 收起本机数据、Wind 与 DDB 设置');layout.addWidget(toggle)
         self.body=QWidget();layout.addWidget(self.body);form=QFormLayout(self.body);self.body.hide()
         toggle.clicked.connect(lambda:self.body.setVisible(not self.body.isVisible()))
         config=pipeline.model.config
@@ -19,6 +19,7 @@ class InlineSettings(QWidget):
         vpn=vpn_profile(config,pipeline.model.local_root)
         for key,title in [('reference_file','合约参考文件'),('realtime_root','已有实时目录'),('dividend_root','分红目录'),
                           ('history_python','历史 Python（空白自动选择）'),('history_connection_file','DDB 配置引用'),
+                          ('overview_wind_python','WindPy Python（空白复用已有终端环境）'),
                           ('history_vpn_config','已有 DDB VPN 配置'),('history_vpn_trust','已有 VPN 证书信任文件'),
                           ('history_vpn_powershell','VPN PowerShell 7（空白自动选择）')]:
             value=str(connection_path(config)) if key=='history_connection_file' else str(config.get(key) or '')
@@ -44,7 +45,7 @@ class InlineSettings(QWidget):
         if not self.idle():return
         p=self.pipeline;candidate=deepcopy(p.model.config)
         candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','history_python','history_connection_file',
-                         'history_vpn_config','history_vpn_trust','history_vpn_powershell')})
+                         'history_vpn_config','history_vpn_trust','history_vpn_powershell','overview_wind_python')})
         candidate['history_roots']=[s.strip() for s in self.paths.toPlainText().splitlines() if s.strip()]
         p.window.busy=True
         def work():p.model.save_config(candidate);return {}

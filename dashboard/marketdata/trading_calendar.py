@@ -82,13 +82,13 @@ def load_year(year, cache):
     except Exception:raise CalendarUnavailable('Official calendar unavailable; waiting') from None
 
 
-def trading_days(start, today, cache):
+def trading_days(start, today, cache, *, include_today=False):
     start,today = date.fromisoformat(str(start)),date.fromisoformat(str(today))
     # Include the previous year for a Jan 1 cutoff, but do not query unused years.
     begin = min(start, today-timedelta(days=20))
     closed = {y:load_year(y,cache) for y in range(begin.year,today.year+1)}
     days=[];day=begin
-    while day < today:  # Always excludes today, even after the market close.
+    while day < today or (include_today and day==today):
         if day.weekday()<5 and day.isoformat() not in closed[day.year]:days.append(day.isoformat())
         day+=timedelta(days=1)
     if not days:raise CalendarUnavailable('No verified previous trading day')

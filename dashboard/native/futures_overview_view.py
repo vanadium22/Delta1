@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
 
 from .overview_pages import (ScrollPage, Panel, FlowGrid, Split, lab, put, numeric,
-                             ink, clock, table, cell)
+                             ink, clock, table, cell,source_label)
 from .instruments import UNDERLYINGS
 from .card_views import stamp
 from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
@@ -41,7 +41,7 @@ class FuturesCard(Panel):
         rank=row.get('percentile')
         self.rank_value.setText(numeric(rank,1,suffix='%') if rank is not None else '样本不足' if row.get('basis_points') is not None else '待同步行情')
         self.rank_value.setToolTip(row.get('percentile_reason') or '同一具体合约，此前20交易日，排除当前日')
-        source=('源 '+clock(row.get('source_at'))) if row.get('quality',{}).get('usable') else '缓存 '+stamp(row.get('source_at'),True) if row.get('source_at') else '等待行情'
+        source=source_label(row)
         self.clock.setText(source+f" · 样本 {row.get('percentile_samples',0)}/20")
         self.clock.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
             '\n'+str(row.get('percentile_start') or '—')+' 至 '+str(row.get('percentile_end') or '—'))
@@ -130,6 +130,7 @@ class FuturesOverviewPage(ScrollPage):
             self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
         self.curve.setVisible(bool(self.curve_points));self.empty_curve.setVisible(not self.curve_points)
         group=self.groups.get(root,{})
+        self.changes.title.setText('收盘定价变化' if group.get('basis_kind')=='completed_daily' else '相对昨日的定价变化')
         for widget,key in zip(self.change_values,('basis_change_previous','calendar_points','basis_change_5m')):
             value=group.get(key);put(widget,numeric(value,2,True,'点'),color=ink(value),size=27,bold=True)
         self.change_values[0].setToolTip(group.get('previous_reason') or '待同步当前基差与准确昨日参照')
@@ -138,8 +139,11 @@ class FuturesOverviewPage(ScrollPage):
         distribution=group.get('distribution',[]);reason=group.get('distribution_reason') or '待四个到期合约的完整有效成交数据'
         self.distribution.render(distribution,reason);shares={r['symbol']:r['share_pct'] for r in distribution}
         self.volume_table.setRowCount(len(rows));self.volume_table.clearContents()
+        count=sum(r.get('yesterday_open_interest') is not None for r in rows)
+        self.volumes.note.setText('昨日持仓 '+str(count)+'/'+str(len(rows))+' 合约已核验' if count else '昨日持仓待可靠日频数据')
         for i,row in enumerate(rows):
             cell(self.volume_table,i,0,row['symbol'].replace('.CFE',''))
             cell(self.volume_table,i,1,numeric(row.get('volume'),0))
             cell(self.volume_table,i,2,numeric(shares.get(row['symbol']),1,suffix='%'))
-            cell(self.volume_table,i,3,'—',MUTED);cell(self.volume_table,i,4,'待核验',MUTED)
+            cell(self.volume_table,i,3,numeric(row.get('yesterday_open_interest'),0),TEXT if row.get('yesterday_open_interest') is not None else MUTED)
+            cell(self.volume_table,i,4,row.get('yesterday_oi_date') or '待核验',MUTED)

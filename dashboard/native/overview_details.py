@@ -72,17 +72,37 @@ def enrich(model, data, reference, now):
     today = str(now.tz_convert('Asia/Shanghai').date())
     data['reference'] = dict(due=reference['due'], error=reference['error'], fetched_at=source.get('fetched_at'))
     equity = read_equities(model.config, model.local_root) if hasattr(model, 'local_root') else {}
+    previous=data.get('previous_session')
+    groups=source.get('indices',{})
+    closed=False;tokens=[]
+    if hasattr(model,'local_root'):
+        from dashboard.marketdata.overview_weights import roll,closed_snapshot
+        from dashboard.marketdata.overview_daily import directory
+        from dashboard.session_clock import session_policy
+        from .market_overview import previous_session
+        closed=not session_policy(now.to_pydatetime())['allowed'] and bool(data.get('completed_session'))
+        if closed:
+            previous=previous_session(data['completed_session'])
+        days={previous,data.get('completed_session'),*(g.get('as_of') for g in groups.values())}-{None}
+        for day in sorted(days):
+            path=directory(model.config,model.local_root)/'days'/(day+'.json')
+            try:stat=path.stat();tokens.append((day,stat.st_mtime_ns,stat.st_size))
+            except OSError:tokens.append((day,None,None))
     # All four indices share one immutable minute generation. An ordinary page
     # repaint never advances its source cutoff or recalculates with later legs.
-    key = (reference['version'], equity.get('snapshot_id'), today, data.get('previous_session'))
+    key = (reference['version'], 'close:'+data['completed_session'] if closed else equity.get('snapshot_id'),
+           today,previous,tuple(tokens))
     if getattr(model, '_overview_contribution_key', None) != key:
         model._overview_contribution_key = key
-        model._overview_contributions = {row['root']: contributions(source.get('indices', {}).get(row['root'], {}),
-            equity, row, now, data.get('previous_session'), reference['version']) for row in data['indices']}
+        if hasattr(model,'local_root'):
+            if closed:equity=closed_snapshot(model.config,model.local_root,data['completed_session'],reference['version'])
+            groups={root:roll(g,model.config,model.local_root,previous) for root,g in groups.items()}
+        model._overview_contributions = {row['root']: contributions(groups.get(row['root'], {}),
+            equity, row, now, previous, reference['version']) for row in data['indices']}
     data['index_details'] = deepcopy(model._overview_contributions)
     for detail in data['index_details'].values():
         cutoff = detail.get('snapshot_at')
-        if cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > 90:
+        if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > 90:
             detail['stale'] = True
             detail['reason'] = '分钟快照已停更，保留原始截止时间'
     for row in data['indices']:

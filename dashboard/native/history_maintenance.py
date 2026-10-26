@@ -44,6 +44,7 @@ class HistoryMaintenance:
         if self.model.config.get('reference_file'):cmd+=['--reference-file',self.model.config['reference_file']]
         if os.name=='nt':cmd+=['--owner-pid',str(os.getpid())]
         if not deep:cmd+=['--incremental']
+        cmd+=['--include-completed-today','--overview-daily']
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'BELOW_NORMAL_PRIORITY_CLASS',0)
         try:
             self.process=subprocess.Popen(cmd,cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,

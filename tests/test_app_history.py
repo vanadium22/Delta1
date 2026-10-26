@@ -9,6 +9,15 @@ from dashboard.marketdata.history_quick import quick_check,incremental_scan,save
 
 
 class AppHistoryTests(unittest.TestCase):
+    def test_completed_today_is_opt_in_and_never_downloaded_before_close(self):
+        c=self.fixture()
+        before=c.cycle(include_completed_today=True,now='2026-10-19T15:09:59+08:00')
+        self.assertEqual(before['target'],'2026-10-16')
+        after=hm.run_cycle(c.local,force=False,direct_factory=lambda _:c.client,fetcher=c.full_fetch,
+            today='2026-10-19',include_completed_today=True,now='2026-10-19T15:10:00+08:00')
+        self.assertEqual(after['target'],'2026-10-19')
+        self.assertEqual(after['state'],'complete')
+
     def fixture(self):
         from tests.test_history_maintenance import HistoryMaintenanceTests
         case=HistoryMaintenanceTests();case.setUp();self.addCleanup(case.doCleanups);return case

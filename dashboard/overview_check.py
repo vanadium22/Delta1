@@ -26,8 +26,8 @@ def read_status(path):
         value = json.loads(Path(path).read_text(encoding='utf8'))
         # Only the fields produced by the new reference worker. Never include
         # arbitrary settings, driver exceptions, connection strings or secrets.
-        return {k:value[k] for k in ('status','started_at','finished_at','error_type','reason','warnings','diagnostics') if k in value}
-    except (OSError, ValueError):
+        return {k:value[k] for k in ('status','started_at','finished_at','error_type','reason','warnings','diagnostics','provider') if k in value}
+    except (OSError, ValueError,TypeError,AttributeError):
         return dict(status='not_recorded')
 
 
@@ -76,6 +76,9 @@ def attempt_status(local_root):
 
 def wind_setup(config,local_root):
     """Check file/module presence only; do not read credentials or initialise a client."""
+    if (config.get('overview_reference_backend') or 'windpy')=='windpy':
+        from dashboard.marketdata.overview_windpy import setup
+        return setup(config,local_root)
     from dashboard.marketdata.overview_wind import settings_path
     root=Path(local_root).resolve();settings=settings_path(config,root)
     choices=[root.parent.parent/'index_strategy/data_dld/.deps',Path(__file__).resolve().parent.parent/'index_strategy/data_dld/.deps']
@@ -140,18 +143,37 @@ def sample(config, local_root, *, now=None):
         groups[root]['iopv'] = [dict(etf_id=r['symbol'],iopv_id=r.get('iopv_id'),
             status='待有效同步观测' if r.get('iopv_id') else '待明确IOPV映射或字段') for r in etfs(config,reference['data'],today) if r['root']==root]
     equity = read_equities(config,local_root)
-    detail = {}
+    detail = {};closed_evidence={}
     try:
         previous = previous_session(today)
+        from dashboard.marketdata.overview_weights import roll,closed_snapshot
+        from dashboard.marketdata.overview_sessions import latest_completed_session
+        from dashboard.marketdata.overview_daily import quote_rows,directory
+        from dashboard.native.latest_snapshot import load as load_snapshot
+        completed=latest_completed_session(now.to_pydatetime())
+        completed_quotes=quote_rows(config,local_root,completed)
+        snapshot_quotes=load_snapshot(local_root).get('quotes',{})
+        closed_evidence=dict(expected_completed_session=completed,
+            daily_quotes={s:dict(source_at=q.get('source_event_time'),received_at=q.get('observed_at'),trade_date=q.get('trade_date')) for s,q in completed_quotes.items() if s in registry},
+            http_snapshots={s:dict(source_at=q.get('source_event_time'),received_at=q.get('observed_at'),date_basis=q.get('source_date_basis')) for s,q in snapshot_quotes.items() if s in registry})
+        try:
+            pending=json.loads((directory(config,local_root)/'status.json').read_text(encoding='utf8'))
+            closed_evidence['daily_maintenance']={k:pending.get(k) for k in ('status','target','inserted','pending_rows','pending_batches','error_types','updated_at')}
+        except (OSError,ValueError):pass
+        if not session_policy(now.to_pydatetime())['allowed']:
+            equity=closed_snapshot(config,local_root,completed,reference['version'])
+            previous=previous_session(completed)
         for root,symbol in ROOTS.items():
-            value = contributions(reference['data'].get('indices',{}).get(root,{}),equity,dict(symbol=symbol),now,previous,reference['version'])
-            detail[root] = {k:value.get(k) for k in ('weight_date','source_at','snapshot_at','coverage_pct','covered','expected','reason')}
+            group=roll(reference['data'].get('indices',{}).get(root,{}),config,local_root,previous)
+            value = contributions(group,equity,dict(symbol=symbol),now,previous,reference['version'])
+            detail[root] = {k:value.get(k) for k in ('mode','weight_date','official_weight_date','weight_method','weight_reason','source_at','snapshot_at','coverage_pct','covered','expected','reason')}
             detail[root]['classified'] = sum(bool(r.get('industry')) for r in reference['data'].get('indices',{}).get(root,{}).get('rows',[]))
     except Exception as exc:
         errors.append(dict(stage='contributions',error_type=type(exc).__name__))
     return dict(at=now.isoformat(),observations=observations,etfs=groups,indices=detail,
         reference=dict(fetched_at=reference['data'].get('fetched_at'),due=reference['due'],error=reference['error'],errors=reference['data'].get('errors',[])),
-        wind=read_status(Path(local_root)/'overview_reference/status.json'),iopv_source_fields=discovery,errors=errors)
+        wind=read_status(Path(local_root)/'overview_reference/status.json'),iopv_source_fields=discovery,
+        closed_data=closed_evidence,errors=errors)
 
 
 def collect(local_root, *, samples=2, interval=3, runtime_root=None):
