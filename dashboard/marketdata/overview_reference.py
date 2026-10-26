@@ -101,7 +101,10 @@ def load(config, local_root, *, now=None):
 def ranking(reference, root, *, today):
     group = reference.get('etfs', {}).get(root, {})
     rows = group.get('rows', [])
-    if group.get('as_of', '9999') > today:
+    as_of = group.get('as_of')
+    if not as_of:
+        return [], dict(reason='规模前三待核验；尚无该指数ETF规模资料', as_of=None)
+    if as_of > today:
         return [], dict(reason='规模日期晚于当前日', as_of=None)
     if group.get('complete') is not True or not rows:
         return [], dict(reason='规模前三待核验；需要同指数完整ETF规模资料', as_of=group.get('as_of'))

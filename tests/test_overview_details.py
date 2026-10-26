@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -41,6 +42,23 @@ def equity_snapshot():
 
 
 class ReferenceTests(unittest.TestCase):
+    def test_absent_size_data_is_not_reported_as_a_future_date(self):
+        for value in ({},{'etfs':{'IF':{}}},{'etfs':{'IF':{'as_of':None}}}):
+            ranked,meta=ranking(value,'IF',today='2026-10-26')
+            self.assertEqual(ranked,[]);self.assertIn('尚无',meta['reason']);self.assertNotIn('晚于',meta['reason'])
+        value=reference();value['etfs']['IF']['as_of']='2026-10-27'
+        self.assertIn('晚于',ranking(value,'IF',today='2026-10-26')[1]['reason'])
+
+    def test_reference_scheduler_records_why_no_worker_was_started(self):
+        with tempfile.TemporaryDirectory() as tmp,patch('subprocess.Popen') as spawn:
+            job=ReferenceJob(tmp);job.tick({},enabled=False,blocked_reason='等待历史任务安全结束',now=NOW.to_pydatetime())
+            self.assertEqual(job.state()['status'],'waiting')
+            self.assertIn('历史',job.state()['reason']);self.assertFalse((Path(tmp)/'overview_reference').exists())
+            job.tick({'overview_wind_enabled':False},enabled=True,now=NOW.to_pydatetime())
+            self.assertEqual(job.state()['status'],'disabled');spawn.assert_not_called()
+            publish(Path(tmp)/'overview_reference/latest.json',reference())
+            job.tick({},enabled=True,now=NOW.to_pydatetime());self.assertEqual(job.state()['status'],'up_to_date')
+
     def test_top_three_use_whole_same_benchmark_universe_and_stable_ties(self):
         ranked, meta = ranking(validate(reference()), 'IF', today='2026-10-26')
         self.assertEqual([r['symbol'] for r in ranked],['510301.SH','510302.SH','510303.SH'])
@@ -266,18 +284,44 @@ class CompanyEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);profile=root/'profile';profile.mkdir();quotes=root/'quotes'
             config=dict(realtime_root=str(quotes),password='CANARY_SECRET',history_roots=[])
+            wind_file=profile/'wind_db.json';wind_file.write_text(json.dumps(dict(user='CANARY_WIND_USER',password='CANARY_WIND_SECRET',dsn='CANARY_WIND_DSN')))
+            config['overview_wind_config']=str(wind_file)
             path=profile/'native.json';path.write_text(json.dumps(config))
             with RealtimeStore(quotes) as store:
                 row={**quote(100,4,100005),'securityId':'510300.SH','iopvCandidate':4,'secret':'CANARY_RAW'}
                 store.batch(dict(poll=1,batch=1,batch_count=1,symbols=['510300.SH'],status='success',received_at=NOW.isoformat(),response=dict(data={'510300.SH':row})))
             before=path.read_bytes()
-            with patch('requests.sessions.Session.request',side_effect=AssertionError('No HTTP')):
-                result=collect(profile,samples=1,interval=0)
+            with patch('requests.sessions.Session.request',side_effect=AssertionError('No HTTP')),\
+                 patch('index_strategy.data_dld.wind_connection.credentials',side_effect=AssertionError('No credential reads')):
+                result=collect(profile,samples=1,interval=0,runtime_root=root/'sessions')
             raw=json.dumps(result,ensure_ascii=False)
             self.assertNotIn('CANARY_SECRET',raw);self.assertNotIn('CANARY_RAW',raw)
             self.assertFalse(result['network_requested']);self.assertFalse(result['wind_requested']);self.assertFalse(result['vpn_changed'])
             self.assertEqual(path.read_bytes(),before)
             self.assertEqual(result['samples'][0]['iopv_source_fields']['iopv_candidate_fields']['510300.SH'],['iopvCandidate'])
+            self.assertEqual(result['diagnostic_profile']['local_root'],str(profile.resolve()))
+            self.assertEqual(result['quote_cache_summary']['latest_received_at'],NOW.isoformat())
+            self.assertEqual(result['reference_attempt']['status'],'not_recorded')
+            self.assertTrue(result['wind_setup']['settings_file_exists'])
+            self.assertFalse(result['wind_setup']['credentials_read']);self.assertFalse(result['wind_setup']['connection_attempted'])
+            self.assertNotIn('CANARY_WIND',raw)
+
+    def test_existing_runtime_reports_distinguish_profiles_without_claiming_process_alive(self):
+        from dashboard.overview_check import app_reports
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);profile=root/'selected-profile';other=root/'other-profile';sessions=root/'sessions'
+            for i,target in enumerate((profile,other)):
+                path=sessions/str(i)/'status.json';path.parent.mkdir(parents=True)
+                value=dict(schema='app-update-evidence-v1',local_root=str(target),observed_at=NOW.isoformat(),
+                    phase='cache',closing=True,password='CANARY_RUNTIME',collection=dict(status='stopped',secret='CANARY_COLLECTION'),
+                    overview_runtime=dict(schema='overview-runtime-v2',pipeline_enabled=False,
+                        reference_scheduler=dict(status='waiting',reason='只读后台',password='CANARY_SCHEDULER')))
+                path.write_text(json.dumps(value),encoding='utf8');os.utime(path,(i+1,i+1))
+            result=app_reports(profile,sessions);serialized=json.dumps(result)
+            self.assertEqual(len(result['matching_profile']),1);self.assertEqual(len(result['other_profiles']),1)
+            self.assertTrue(result['matching_profile'][0]['closing'])
+            self.assertEqual(result['matching_profile'][0]['overview_runtime']['reference_scheduler']['status'],'waiting')
+            self.assertNotIn('CANARY',serialized);self.assertNotIn('alive',serialized)
 
 
 if __name__=='__main__':unittest.main()

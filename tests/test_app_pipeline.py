@@ -23,6 +23,16 @@ def pump(seconds):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_overview_runtime_reports_readonly_scheduler_without_starting_wind(self):
+        from dashboard.native.overview_reference_job import ReferenceJob
+        w,p=self.fixture();p.overview_reference=ReferenceJob(w.model.local_root)
+        with patch('subprocess.Popen') as spawn:
+            p.tick();spawn.assert_not_called()
+        state=p.report()['overview_runtime']
+        self.assertEqual(state['schema'],'overview-runtime-v2');self.assertFalse(state['pipeline_enabled'])
+        self.assertEqual(state['reference_scheduler']['status'],'waiting')
+        self.assertIn('只读',state['reference_scheduler']['reason'])
+
     def fixture(self):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         w=QMainWindow();w.model=SimpleNamespace(local_root=Path(tmp.name),config={},refresh_trace={})

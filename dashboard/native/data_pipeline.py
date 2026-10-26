@@ -180,9 +180,13 @@ class DataPipeline(QObject):
     def tick(self):
         code=self.history.tick()
         if self.overview_reference is not None:
-            self.overview_reference.tick(self.model.config,enabled=self.enabled and not self.closing and
+            eligible=(self.enabled and not self.closing and
                 self.action is None and self.history.process is None and self.task is None and
                 self.phase in ('collecting','market_closed','waiting_network','waiting_lock','history_wait'))
+            reason=('看板正在关闭' if self.closing else '当前为只读或已暂停后台' if not self.enabled else
+                    '等待历史任务安全结束' if self.history.process is not None or self.action=='history' else
+                    '等待当前验证任务完成' if self.task is not None else '等待数据流程就绪：'+self.phase)
+            self.overview_reference.tick(self.model.config,enabled=eligible,blocked_reason=reason)
         if self.realtime_dialog is not None:
             from dashboard.session_clock import realtime_prompt_policy
             if not realtime_prompt_policy()['allowed']:
@@ -273,7 +277,9 @@ class DataPipeline(QObject):
             local_root=str(self.model.local_root),network_policy='auto_ddb_manual_realtime',
             vpn_changed=None if vpn.get('state') in ('connecting','failed','cancelled') else vpn.get('mode')=='native_login',
             realtime_vpn_automatic=False,awaiting_realtime_vpn=self.awaiting_realtime,
-            instance_handover=instance.summary() if instance is not None else None,overview_coverage=coverage)
+            instance_handover=instance.summary() if instance is not None else None,overview_coverage=coverage,
+            overview_runtime=dict(schema='overview-runtime-v2',pipeline_enabled=self.enabled,
+                reference_scheduler=self.overview_reference.state() if self.overview_reference is not None else None))
 
     def write_report(self):
         try:

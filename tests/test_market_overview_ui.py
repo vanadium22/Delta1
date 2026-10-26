@@ -45,7 +45,8 @@ def state():
         for slot,month in enumerate(('2611','2612','2703','2706')):
             s=r+month+'.CFE';live[s]=observation()
             row=quote_card(s,n,r,live,{},NOW,'2026-10-23');row['slot']=slot
-            futures_values(row,live,{}, {s:dict(expiry_date='2026-11-20')},NOW)
+            expiries={'2611':'2026-11-20','2612':'2026-12-18','2703':'2027-03-19','2706':'2027-06-18'}
+            futures_values(row,live,{}, {s:dict(expiry_date=expiries[month])},NOW)
             futures.append(row)
     for row in [*indices,*funds,*futures]:
         row['series']=[dict(x=i,value=.1+i*.01,source_at=f'2026-10-26T10:00:0{i}+08:00',session='am') for i in range(3)]
@@ -84,7 +85,7 @@ class OverviewUiTests(unittest.TestCase):
                     position=c.mapTo(page.body,c.rect().topLeft())
                     self.assertLessEqual(position.x()+c.width(),page.body.width())
                     if kind=='futures':
-                        widgets=[c.heading,c.identity,c.price,c.market,c.secondary,c.clock,c.plot,c.detail_button]
+                        widgets=[c.heading,c.price,c.basis_value,c.annual_value,c.rank_value,c.clock]
                     elif kind=='indices':widgets=[c.heading,c.price,c.clock]
                     else:widgets=[c.heading,c.price,c.iopv,c.scale,c.activity,c.clock]
                     rects=[x.geometry() if x.parent() is c and x.isVisible() else None for x in widgets]
@@ -95,13 +96,19 @@ class OverviewUiTests(unittest.TestCase):
     def test_future_filter_keeps_contract_identity_and_valid_zero(self):
         w=self.window();w.quotes.tabs.setCurrentIndex(2);pump()
         page=w.quotes.views['futures'];self.assertEqual(len(page.visible_rows),4)
-        page.product.setCurrentIndex(page.product.findData('IC'))
-        page.slot.setCurrentIndex(page.slot.findData(None));pump()
+        page.products['IC'].click();pump()
         self.assertEqual(len(page.visible_rows),4)
         self.assertTrue(all(r['symbol'].startswith('IC') for r in page.visible_rows))
-        page.slot.setCurrentIndex(page.slot.findData(1));pump()
-        self.assertEqual(page.visible_rows[0]['symbol'],'IC2612.CFE')
-        self.assertIn('+0.0点',page.cards['IC2612.CFE'].secondary.text())
+        self.assertEqual([r['symbol'] for r in page.visible_rows],['IC2611.CFE','IC2612.CFE','IC2703.CFE','IC2706.CFE'])
+        self.assertIn('+0.0点',page.cards['IC2612.CFE'].basis_value.text())
+        self.assertEqual([p['days'] for p in page.curve_points],[25,53,144,235])
+        self.assertTrue(all(p['symbol'].startswith('IC') for p in page.curve_points))
+        self.assertFalse(page.empty_curve.isVisible())
+        page.more.click();pump();self.assertEqual(page.volume_table.item(1,0).text(),'IC2612')
+        page.render([],[],{});pump()
+        self.assertEqual(page.curve_points,[]);self.assertTrue(page.empty_curve.isVisible())
+        self.assertTrue(all(c.price.text()=='—' for c in page.contract_cards))
+        self.assertEqual(page.volume_table.rowCount(),0)
 
     def test_freeze_preserves_new_overview_and_original_source_time(self):
         payload=freeze_window(state());self.assertIn('market_overview',payload['snapshots'][0])

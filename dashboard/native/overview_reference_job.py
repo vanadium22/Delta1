@@ -16,16 +16,31 @@ class ReferenceJob:
         self.local_root = Path(local_root); self.directory = self.local_root/'overview_reference'
         self.process = None; self.closed = False
         self.stop_file = self.directory/'stop.request'
+        self.scheduling = dict(status='not_evaluated', reason='尚未评估低频资料任务')
 
     def running(self):
         return self.process is not None and self.process.poll() is None
 
-    def tick(self, config, *, enabled, now=None):
-        if self.closed or not enabled or self.running() or config.get('overview_wind_enabled', True) is False:
-            return
+    def state(self):
+        return dict(self.scheduling,worker_running=self.running(),
+                    worker_exit_code=self.process.poll() if self.process is not None else None)
+
+    def tick(self, config, *, enabled, now=None, blocked_reason=None):
         now = now or datetime.now(ZoneInfo('Asia/Shanghai'))
+        def record(status,reason):
+            self.scheduling=dict(status=status,reason=reason,checked_at=now.isoformat())
+        if self.closed:
+            record('stopped','正在关闭，保留已有资料');return
+        if not enabled:
+            record('waiting',blocked_reason or '只读或后台流程尚未就绪');return
+        if self.running():
+            record('running','低频资料任务运行中');return
+        if config.get('overview_wind_enabled', True) is False:
+            record('disabled','配置已关闭Wind低频更新')
+            return
         current = load(config, self.local_root, now=now)
         if not current['due'] and not current['data'].get('errors'):
+            record('up_to_date','本周资料已核验')
             return
         week = '-'.join(map(str, now.isocalendar()[:2]))
         profile=hashlib.sha256(json.dumps({k:config.get(k) for k in
@@ -33,6 +48,7 @@ class ReferenceJob:
         try:
             attempt = json.loads((self.directory/'attempt.json').read_text(encoding='utf8'))
             if attempt.get('week') == week and attempt.get('profile') == profile:
+                record('attempted_this_week','本周已尝试；结果以Wind任务状态文件为准')
                 return
         except (OSError, ValueError):
             pass
@@ -46,7 +62,9 @@ class ReferenceJob:
                 '--local-root', str(self.local_root)], cwd=str(Path(__file__).resolve().parents[2]),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            record('worker_started','已启动隐藏低频资料任务，等待结果')
         except OSError as exc:
+            record('failed_to_start','低频任务子进程未能启动')
             _atomic_bytes(self.directory/'status.json', _json_bytes(dict(status='unavailable', error_type=type(exc).__name__)))
 
     def stop(self):

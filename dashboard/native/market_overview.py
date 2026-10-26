@@ -241,6 +241,8 @@ class MarketOverviewEngine:
                                           previous_session=previous, errors=errors, source_date_basis='接收日推定'),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)
+        from .futures_overview import details
+        state['market_overview']['futures_details']=details(futures,indices,live,observations,now)
         return calculated(model, state, trace)
 
 
