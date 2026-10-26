@@ -63,6 +63,7 @@ class ConnectionDiagnosticTests(unittest.TestCase):
         self.assertEqual(result['error']['stage'],'network_lock')
         self.assertEqual(result['error']['path'],str(root/'writer.lock'))
         self.assertFalse(result['diagnostics']['http_attempted'])
+        self.assertEqual(result['error']['lock_operation'],'acquire_byte_lock')
 
     def test_lock_file_denial_keeps_actual_path_and_error_code(self):
         path=self.root/'denied/writer.lock'
@@ -70,6 +71,27 @@ class ConnectionDiagnosticTests(unittest.TestCase):
             result,factory=self.run_probe()
         self.assertEqual(result['error']['errno'],13);self.assertEqual(result['error']['filename'],str(path))
         self.assertIn('尚未请求行情',result['message']);factory.assert_not_called()
+
+    def test_directory_and_open_denial_do_not_claim_an_old_window_owns_lock(self):
+        from dashboard.connection_diagnostics import failure_message
+        for operation in ('create_directory','open_file'):
+            error=PermissionError(13,'SECRET');error.lock_operation=operation
+            detail=error_detail(error,'network_lock')
+            self.assertEqual(detail['lock_operation'],operation)
+            message=failure_message(detail)
+            self.assertIn('不能据此认定旧窗口占锁',message);self.assertNotIn('SECRET',message)
+
+    def test_cached_route_inspection_never_resolves_or_contacts_the_network(self):
+        from dashboard.connection_check import collect
+        local=self.root/'profile';local.mkdir();(local/'native.json').write_text(json.dumps(dict(history_roots=[])))
+        completed=SimpleNamespace(returncode=0,stdout=json.dumps(dict(routes=[dict(InterfaceAlias='Ethernet')],cached_addresses=['192.0.2.1'],network_requested=False,vpn_changed=False)))
+        with patch('dashboard.connection_check.subprocess.run',return_value=completed) as run,\
+             patch('socket.getaddrinfo',side_effect=AssertionError('No DNS request')),\
+             patch('socket.create_connection',side_effect=AssertionError('No TCP request')):
+            report=collect([local],routes=True)
+        route=report['cached_route_inspection'];self.assertEqual(route['state'],'ok');self.assertFalse(route['network_requested'])
+        self.assertIn('Get-DnsClientCache',run.call_args.args[0][-1]);self.assertNotIn('Resolve-DnsName',run.call_args.args[0][-1])
+        self.assertEqual(report['network']['skipped'],'connect_not_requested')
 
     def test_socket_permission_error_is_not_mislabelled_as_lock(self):
         error=PermissionError(errno.EACCES,'SECRET');error.winerror=10013

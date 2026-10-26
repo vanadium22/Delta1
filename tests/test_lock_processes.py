@@ -103,6 +103,8 @@ class LockProcessTests(unittest.TestCase):
             ('python.exe','python.exe private.py SECRET',None),
             ('EXCEL.EXE','EXCEL.EXE "private_SECRET.xlsx"',None),
             ('python.exe','python.exe -m dashboard.numeric_excel --feed "https://SECRET" --stop-file relative_SECRET','dashboard.numeric_excel'),
+            ('python.exe','python.exe "-m" "dashboard.native.editions_current" "--local-root" "C:\\profile space\\app" --token SECRET','dashboard.native.editions_current'),
+            ('python.exe','python.exe -m dashboard.current --local-root https://SECRET','dashboard.current'),
         ]
         captured=[]
         def run_fixture(command,**kwargs):
@@ -118,9 +120,11 @@ class LockProcessTests(unittest.TestCase):
         with patch.object(locks.subprocess,'run',side_effect=run_fixture):result=locks.process_summary([1])
         self.assertEqual(result['state'],'ok',result)
         self.assertEqual([row['module'] for row in result['items']],[f[2] for f in fixtures])
+        self.assertEqual(result['items'][6]['local_root'],'C:\\profile space\\app')
+        self.assertIsNone(result['items'][7]['local_root'])
         self.assertEqual(result['items'][0]['feed_path'],'C:\\space path\\workbook.json')
         self.assertEqual(result['items'][0]['stop_file'],'C:\\space path\\stop')
-        self.assertEqual(result['active_pids'],[1,2,3,4,5,6])
+        self.assertEqual(result['active_pids'],list(range(1,len(fixtures)+1)))
         self.assertNotIn('SECRET',json.dumps(result));self.assertNotIn(b'SECRET',b''.join(captured))
         self.assertTrue(all('CommandLine' not in row for row in result['items']))
 

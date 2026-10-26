@@ -1,4 +1,4 @@
-param([string]$LocalRoot,[switch]$NoPause)
+param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
@@ -34,17 +34,30 @@ try {
     if ($LocalRoot) { $checkArguments+=@('--local-root',$LocalRoot) }
     & $report.python @checkArguments 1> (Join-Path $runtime 'preflight.log') 2> (Join-Path $runtime 'preflight.stderr.log')
     $report.preflight_exit_code=$LASTEXITCODE
+    if ($Routes -or $Connect) {
+        $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $connectionArguments=@('-B','-s','-X','utf8','-m','dashboard.connection_check','--lock-owners','--output',(Join-Path $runtime 'connection.json'))
+        if ($LocalRoot) { $connectionArguments+=@('--local-root',$LocalRoot) }
+        elseif ($profile.profile) { $connectionArguments+=@('--local-root',(Split-Path $profile.profile -Parent)) }
+        else { $connectionArguments+='--all-profiles' }
+        if ($Routes) { $connectionArguments+='--routes' }
+        if ($Connect) { $connectionArguments+='--connect';$report.network_requested=$true }
+        & $report.python @connectionArguments 1> (Join-Path $runtime 'connection.log') 2> (Join-Path $runtime 'connection.stderr.log')
+        $report.connection_exit_code=$LASTEXITCODE
+        $report.connection_report=Join-Path $runtime 'connection.json'
+    }
 } catch {
     $report.error_type=$_.Exception.GetType().FullName
     $report.error_id=$_.FullyQualifiedErrorId
 }
 $output=Join-Path $runtime 'diagnosis.json'
 $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $output -Encoding utf8
-Write-Host 'Delta1 offline startup diagnosis (no VPN / HTTP / App launch)'
+Write-Host 'Delta1 startup / connection diagnosis (no VPN change / App launch)'
 Write-Host ('Branch: '+$report.branch+'    Commit: '+$report.commit)
 Write-Host ('Python: '+$report.python)
 if ($report.latest_launch) { Write-Host ('Last launch: '+$report.latest_launch.phase+'    Exit: '+$report.latest_launch.exit_code) }
 Write-Host ('Dependency check exit: '+$report.preflight_exit_code)
 Write-Host ('Report: '+$output)
 Write-Host ('Dependency details: '+(Join-Path $runtime 'preflight.json'))
+if ($report.connection_report) { Write-Host ('Connection / route details: '+$report.connection_report) }
 if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }

@@ -81,9 +81,10 @@ def probe_realtime(config, client_factory=None, *, report_dir=None):
                               'proxy_error':'代理连接失败；核对当前请求的代理设置',
                               'http_error':'接口返回HTTP错误；请按HTTP状态码核对权限或服务',
                               'business_error':'接口返回业务失败；请按公司行情服务权限核对'}.get(result.get('status'),'接口响应不完整或代码/价格校验未通过')
-                        message='连接验证成功；行情新鲜度仍逐行核验' if ok else '连接验证失败：'+hint+'；阶段：'+evidence['stage']+'；状态：'+str(result.get('status','unknown'))
+                        message='当前网络可访问行情源；无需为验证另连VPN，行情新鲜度仍逐行核验' if ok else '连接验证失败：'+hint+'；阶段：'+evidence['stage']+'；状态：'+str(result.get('status','unknown'))
                         if not ok and evidence.get('http_status') is not None:message+='；HTTP '+str(evidence['http_status'])
                         outcome=dict(ok=ok,message=message)
+                        if ok:evidence['network_access']='current_network_usable'
                 finally:
                     import sys
                     original_error=sys.exc_info()[1]

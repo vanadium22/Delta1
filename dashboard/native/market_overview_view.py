@@ -157,7 +157,9 @@ class CardPage(QWidget):
             leaders = sorted(changes,key=lambda r:r['change_pct'],reverse=True)
             self.summary.setText('四大指数　'+('最强 '+leaders[0]['name']+' '+text(leaders[0]['change_pct'],2,True)+'%　最弱 '+leaders[-1]['name']+' '+text(leaders[-1]['change_pct'],2,True)+'%' if len(leaders)>1 else '等待最新报价')+f'　· 有效观测 {fresh}/{len(self.visible_rows)}')
         elif self.kind == 'etfs':
-            self.summary.setText(f'对应指数代表 ETF　· 有效观测 {fresh}/{len(self.visible_rows)}　· IOPV按同步输入单独判断')
+            observed=sum(r.get('source_at') is not None for r in self.visible_rows)
+            self.summary.setText('ETF尚无报价观测；需启动新版采集订阅，采集/锁状态见窗口顶部' if not observed else
+                                 f'对应指数代表 ETF　· 有效观测 {fresh}/{len(self.visible_rows)}　· IOPV按同步输入单独判断')
         else:
             self.summary.setText(f"{len(self.visible_rows)} 个合约　· 有效观测 {fresh}　· 分位：自身对数基差 / 前20交易日")
         while self.grid.count(): self.grid.takeAt(0)

@@ -27,6 +27,8 @@ def error_detail(exc, stage, *, path=None):
         current = current.__cause__ or current.__context__
     detail['causes'] = [item for _,item in chain]
     detail.update({key:value for key,value in chain[0][1].items() if key != 'type'})
+    operation=getattr(exc,'lock_operation',None)
+    if operation in ('create_directory','open_file','acquire_byte_lock'):detail['lock_operation']=operation
     # Paths are useful only for local file operations. Never serialize a URL
     # from a transport error as a supposed filename.
     for key in ('filename','filename2'):
@@ -48,7 +50,15 @@ def failure_message(detail):
     for key,label in (('errno','系统错误码'),('winerror','Windows错误码')):
         if detail.get(key) is not None:message+=' · '+label+' '+str(detail[key])
     if stage=='network_lock':
-        message+='；网络锁未取得，尚未请求行情。可能是其他历史/实时任务占用或锁文件访问被拒绝，请按阶段与错误码核对。原窗口关闭后也可能有旧后台留存，先核对对应任务，不删除锁文件。'
+        operation=detail.get('lock_operation')
+        message+='；网络锁未取得，尚未请求行情。'
+        if operation in ('create_directory','open_file'):
+            message+='创建目录/打开锁文件被拒绝；请核对目录写权限或安全软件，不能据此认定旧窗口占锁。'
+        elif operation=='acquire_byte_lock':
+            message+='申请互斥字节锁被拒绝，常见于其他历史/实时任务仍在运行；启动已尝试正常关闭同范围旧看板。'
+        else:
+            message+='可能是其他任务占用或文件访问被拒绝，需要核对锁操作阶段与持有者。'
+        message+='不会删除锁文件或强制结束写入进程。'
     elif stage=='http_request':
         message+='；已进入接口请求，请核对VPN资源、路由或安全软件。'
     path=detail.get('path') or detail.get('filename2') or detail.get('filename')

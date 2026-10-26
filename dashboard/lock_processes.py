@@ -114,7 +114,13 @@ $items=@($all | Where-Object {
     if ($_.CommandLine -match '(?i)(?:^|\s)"?-m"?\s+"?(dashboard\.[A-Za-z0-9_.]+)"?(?:\s|$)') {
         $taskModule=$Matches[1]
     }
-    $feedPath=$null;$stopFile=$null
+    $feedPath=$null;$stopFile=$null;$localRoot=$null
+    if ($taskModule -in @('dashboard.current','dashboard.native.editions_current','dashboard.native.app')) {
+        if ($_.CommandLine -match '(?i)(?:^|\s)"?--local-root"?\s+(?:"([^"]+)"|(\S+))') {
+            $localRoot=if($Matches[1]){$Matches[1]}else{$Matches[2]}
+        }
+        if ($localRoot -and ($localRoot.Contains('://') -or -not [IO.Path]::IsPathRooted($localRoot))) {$localRoot=$null}
+    }
     if ($taskModule -eq 'dashboard.numeric_excel') {
         if ($_.CommandLine -match '(?i)(?:^|\s)"?--feed"?\s+(?:"([^"]+)"|(\S+))') {
             $feedPath=if($Matches[1]){$Matches[1]}else{$Matches[2]}
@@ -128,7 +134,7 @@ $items=@($all | Where-Object {
     [pscustomobject]@{
         pid=[int]$_.ProcessId;parent_pid=[int]$_.ParentProcessId;name=$_.Name
         executable=$_.ExecutablePath;module=$taskModule
-        feed_path=$feedPath;stop_file=$stopFile
+        feed_path=$feedPath;stop_file=$stopFile;local_root=$localRoot
         started_filetime=if ($_.CreationDate) {$_.CreationDate.ToFileTimeUtc()} else {$null}
         started_at=if ($_.CreationDate) {$_.CreationDate.ToUniversalTime().ToString('o')} else {$null}
     }

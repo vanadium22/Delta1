@@ -1,5 +1,5 @@
 {
-  "release": "2026-10-26-market-overview",
+  "release": "2026-10-26-safe-app-handover-and-etf-collection",
   "branch": "codex/company-apps",
   "base_commit": "c07eec9c795c7eb506c0e5176487ecba5b54a62b",
   "status": "local_verified_company_test_pending",
@@ -11,36 +11,36 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "c5d4d4b14a7a0f7aa065341cd67e1ad76018bfa5",
-    "scope": "Three latest-market overview pages, ETF subscriptions, startup profile consistency and offline diagnostics",
+    "base_commit": "637ef6ca2a472984a3380a19f6eec282058ec638",
+    "scope": "Cooperative replacement of same-data Apps, legacy WM_CLOSE compatibility, ETF collection ownership, precise network lock and cached route diagnostics",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
       "dashboard/AGENTS.md",
-      "dashboard/APP_COMPANY_TEST.md",
-      "dashboard/APP_INDICATORS_V6.md",
-      "dashboard/APP_MARKET_OVERVIEW.md",
-      "dashboard/APP_RELEASE.json",
-      "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/APP_RELEASE.json",
       "dashboard/README.md",
+      "dashboard/CONNECTION_DIAGNOSIS.md",
       "dashboard/打开方式.md",
-      "dashboard/app_check.py",
-      "dashboard/start_app.ps1",
-      "dashboard/diagnose_presentation.cmd",
+      "dashboard/app_instance.py",
+      "dashboard/current.py",
+      "dashboard/connection_check.py",
+      "dashboard/connection_diagnostics.py",
       "dashboard/diagnose_presentation.ps1",
-      "dashboard/marketdata/adapters.py",
-      "dashboard/native/collection.py",
+      "dashboard/lock_processes.py",
+      "dashboard/marketdata/bars.py",
+      "dashboard/native/data_pipeline.py",
       "dashboard/native/editions_current.py",
-      "dashboard/native/market_overview.py",
       "dashboard/native/market_overview_view.py",
-      "dashboard/native/overview_instruments.py",
-      "tests/test_app_collection.py",
-      "tests/test_app_launcher.py",
+      "dashboard/session_guard.py",
+      "tests/test_app_instance.py",
       "tests/test_app_pipeline.py",
-      "tests/test_app_preflight.py",
-      "tests/test_market_overview.py",
-      "tests/test_market_overview_ui.py"
+      "tests/test_app_collection.py",
+      "tests/test_connection_diagnostics.py",
+      "tests/test_lock_processes.py"
     ]
   },
   "files": [
@@ -190,7 +190,16 @@
     "dashboard/native/overview_instruments.py",
     "tests/test_app_preflight.py",
     "tests/test_market_overview.py",
-    "tests/test_market_overview_ui.py"
+    "tests/test_market_overview_ui.py",
+    "dashboard/app_instance.py",
+    "dashboard/connection_check.py",
+    "dashboard/connection_diagnostics.py",
+    "dashboard/lock_processes.py",
+    "dashboard/marketdata/bars.py",
+    "dashboard/session_guard.py",
+    "tests/test_app_instance.py",
+    "tests/test_connection_diagnostics.py",
+    "tests/test_lock_processes.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -207,5 +216,7 @@
     "latest_indicator_document_from_user"
   ],
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
-  "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending"
+  "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
+  "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
+  "current_validation": "121 independent regression cases covered; actual offscreen entry, hidden native windows and safe PowerShell metadata; current company lock owner/routes/ETF recovery pending"
 }

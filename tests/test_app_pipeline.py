@@ -41,6 +41,13 @@ class PipelineTests(unittest.TestCase):
         w.collection.start.assert_called_once()
         self.assertFalse(w.collection.start.call_args.kwargs['once']);self.assertEqual(p.phase,'collecting')
 
+    def test_unfinished_instance_handover_blocks_all_network_actions(self):
+        w,p=self.fixture();w.instance_lease=SimpleNamespace(owned=False,summary=lambda:dict(owned=False))
+        with patch('dashboard.session_guard.probe_realtime') as probe,patch.object(p.history,'start') as history:
+            p.request_realtime();p.request_history();p.start_probe();p.tick()
+            probe.assert_not_called();history.assert_not_called()
+        self.assertEqual(p.phase,'waiting_previous_app');w.collection.start.assert_not_called()
+
     def test_cancel_during_slow_probe_never_starts_collector(self):
         w,p=self.fixture();p.enabled=True
         def slow(_):time.sleep(.06);return dict(ok=True)

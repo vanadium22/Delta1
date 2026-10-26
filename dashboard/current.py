@@ -27,9 +27,21 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     app=QApplication(sys.argv[:1]);configure_style(app);configure_windows_identity('presentation' if public else 'development')
     model=NativeModel(prepare_config(args.local_root));model.config['dashboard_mode']='nonregression'
     model.realtime_verified=False
+    instance=None
+    if not (quiet or args.no_realtime or frozen):
+        from .app_instance import InstanceLease
+        instance=InstanceLease(Path(__file__).parent/'runtime',model.config,model.local_root)
+        instance.acquire()
     window=(window_class or ResearchWindow)(model);window.setWindowTitle(title)
+    window.instance_lease=instance
     if icon:window.setWindowIcon(icon())
-    pipeline=window.pipeline=DataPipeline(window,enabled=not (quiet or args.no_realtime or frozen))
+    pipeline=window.pipeline=DataPipeline(window,enabled=not (quiet or args.no_realtime or frozen) and (instance is None or instance.owned))
+    close_timer=QTimer(window);close_timer.setInterval(200)
+    def check_replacement():
+        if instance is not None and instance.stop_requested():
+            close_timer.stop();window.close()
+    close_timer.timeout.connect(check_replacement)
+    if instance is not None:close_timer.start()
     window.pipeline_page=PipelinePage(pipeline);window.pages.addTab(window.pipeline_page,'数据更新 / 设置 / 诊断')
     window.pipeline_note=QLabel();window.pipeline_note.setWordWrap(True)
     window.centralWidget().layout().insertWidget(1,window.pipeline_note)
@@ -62,7 +74,10 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     window.loaded.connect(loaded)
     window.show()
     if quiet:QTimer.singleShot(180000,window.close)
-    result=app.exec()
+    try:result=app.exec()
+    finally:
+        close_timer.stop()
+        if instance is not None:instance.close()
     return result if ready and (not args.capture or saved) else 1
 
 

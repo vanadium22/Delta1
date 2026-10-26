@@ -4,6 +4,8 @@
 
 # Delta1 多项目开发与公司统一更新
 
+2026-10-26 后续用户明确要求：正常实时入口再次打开前，自动正常关闭同数据范围旧看板并等待其后台排空。允许安全替换活跃旧App，不强杀写入者、不删锁、不关闭Excel或其他项目；身份不明或超时则只读。先解决网络锁和ETF采集，指数/ETF概览后续优化等待用户具体反馈。操作和验证见dashboard/APP_COMPANY_TEST.md、APP_VALIDATION.md。
+
 公司已确认 `D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard` 本身就是 Git 仓库根目录。家里主工作目录为 `P:/project/swhy/Delta1/project`，独立 worktree 位置可能不同；每次先用 `git rev-parse --show-toplevel`、`git worktree list`、`git status --short` 确认实际状态。
 
 **2026-10-19 用户确认的长期约定：所有 App 的开发、更新、提交、推送及公司运行统一使用 `codex/company-apps` 一个分支。** 适用于券源 `securities_lending`、日报 `script_making`、股指基差 `index_futures_basis`、指数策略 `index_strategy`、看板及后续新增模块。不再创建、更新或推送各模块独立开发分支，也不再采用“先推开发分支、再汇总到公司分支”的流程。此要求覆盖各文档和历史交接中的旧分支约定；模块业务口径继续按各自 AGENTS/PROJECT_HANDOFF 执行。可复制命令见 [Git操作指南.md](Git操作指南.md)，发布记录见 [COMPANY_SYNC.md](COMPANY_SYNC.md)。

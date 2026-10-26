@@ -1,4 +1,12 @@
-当前公司日常入口已改为展示版 App。11:07 两份回传报告已经确认指定孤立任务安全退出、活跃窗口保留、有限 HTTP 验证成功；不再把该次 PermissionError 当成未解决的 VPN 授权问题。持续采集当时未启动。新 App 的分阶段证据与有上限的15秒/15分钟观察命令见 [APP_COMPANY_TEST.md](APP_COMPANY_TEST.md)；下面是此前孤立任务恢复证据与命令，不需重复恢复已结束的运行。
+2026-10-26 最新：公司反馈App已打开，指数源时持续更新，但当前窗口验证停在网络锁errno13、ETF四卡无值。已复现旧20代码任务占锁仍更新指数、新窗口无法加入ETF的路径；公司实际持有者待报告确认。用户已授权正常实时入口先正常关闭并接管同范围旧App，等待采集/计算/写入结束，超时只读，不强杀、不删锁、不关闭Excel/其他项目。
+
+公司网络可直接访问行情服务时无需额外连客户端VPN，程序依据当前网络可达性工作。源时推进不等于当前窗口正在采集，也不能证明电脑自动连了VPN。顶部会明确采集归属，锁错误会区分创建目录、打开文件与申请互斥字节锁。文件访问失败不能直接归因旧窗口。
+
+在原公司Git根目录运行 `.\dashboard\diagnose_presentation.cmd -Routes`，查看输出目录connection.json的实际配置、锁使用者和cached_route_inspection。它只查操作系统已有DNS缓存、目标IP所选网卡/网关，不发DNS/TCP/HTTP、不改VPN；读取受限时明确unavailable。物理网卡直出可支持“未走本机VPN网卡”的判断，公司网关内部专线/VPN仍需网管信息。单独请求行情须先暂停本轮采集且无历史任务，再显式加-Connect；默认不联网。
+
+诊断默认优先localsetting/app，其次numeric_excel和原localsetting；--all-profiles检查全部现有配置，--local-root可指定数字Excel原配置。下面11:07/孤立Excel恢复内容为历史，不重复恢复已结束任务，仍保留活跃Excel。
+
+历史说明：11:07两份报告确认指定孤立任务退出、活跃窗口保留、有限HTTP成功，当时持续采集未启动。新App现场操作见 [APP_COMPANY_TEST.md](APP_COMPANY_TEST.md)。
 
 # 历史扫描与公司实时连接诊断
 

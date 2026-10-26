@@ -141,20 +141,30 @@ def _atomic_bytes(path, data):
 
 @contextmanager
 def _writer_lock(root):
-    root.mkdir(parents=True, exist_ok=True)
-    handle = (root / "writer.lock").open("a+b")
+    operation='create_directory'
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        operation='open_file'
+        handle = (root / "writer.lock").open("a+b")
+    except OSError as exc:
+        exc.lock_operation=operation
+        raise
     locked = False
     try:
-        if os.name == "nt":
-            import msvcrt
-            if handle.tell() == 0:
-                handle.write(b"0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            exc.lock_operation='acquire_byte_lock'
+            raise
         locked = True
         yield
     finally:

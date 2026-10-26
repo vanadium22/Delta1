@@ -68,7 +68,8 @@ class PresentationWindow(QMainWindow):
         self.setStyleSheet(CARD_STYLE)
         widget=QWidget();self.setCentralWidget(widget);layout=QVBoxLayout(widget);layout.setContentsMargins(24,18,24,18)
         row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  市场看板');title.setStyleSheet('font-size:24px;font-weight:700');row.addWidget(title);row.addStretch()
-        self.network=QLabel('离线 · 已发布历史');row.addWidget(self.network)
+        self.network=QLabel('离线 · 已发布历史');self.network.setWordWrap(True);self.network.setMaximumWidth(240)
+        self.network.setStyleSheet('font-size:14px');row.addWidget(self.network)
         for text,fn in [('连接实时',lambda:self.start_collection(False)),('暂停采集',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
             if self.frozen_payload and text!='导出快照':b.hide()
@@ -184,7 +185,8 @@ class PresentationWindow(QMainWindow):
             '最新行情 / 昨日参照 · 灰色状态为缓存或待接入，真实源时见卡片')
         self.notice.setVisible(bool(self.frozen_payload or research_v6))
         s=self.collection.state()
-        self.network.setText('冻结快照' if self.frozen_payload else ('持续采集 · 时效见卡片' if self.collection.running() else '只读缓存 / 未采集'))
+        live_read=any(r.get('quality',{}).get('usable') for rows in (state.get('market_overview') or {}).values() if isinstance(rows,list) for r in rows if isinstance(r,dict))
+        self.network.setText('冻结快照' if self.frozen_payload else ('本窗口持续采集' if self.collection.running() else '读取已有行情 · 本窗口未采集' if live_read else '只读缓存 / 未采集'))
         self.status.setText('页面刷新 '+stamp(state['as_of'])+' · 行情源时间见卡片')
         from dashboard.refresh_evidence import applied
         applied(self,state)

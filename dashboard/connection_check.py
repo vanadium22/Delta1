@@ -109,13 +109,43 @@ def network_checks():
     return result
 
 
-def collect(local_roots, *, connect=False, lock_owners=False):
+def cached_route_checks():
+    """Inspect OS DNS cache and selected routes only; no DNS/TCP/HTTP request."""
+    if os.name!='nt':return dict(state='unavailable',reason='not_windows',network_requested=False)
+    from index_strategy.instant_dld.client import DEFAULT_URL
+    host=urlsplit(DEFAULT_URL).hostname
+    # Hostname is a fixed application constant, supplied as data, not shell code.
+    script=r'''
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$hostName=[Console]::In.ReadLine()
+$cache=@(Get-DnsClientCache | Where-Object {$_.Entry -eq $hostName -and $_.Data -match '^[0-9a-fA-F:.]+$'} | Select-Object -ExpandProperty Data -Unique)
+$routes=@()
+foreach ($address in $cache) {
+    try {$routes+=@(Find-NetRoute -RemoteIPAddress $address | Select-Object IPAddress,DestinationPrefix,NextHop,InterfaceAlias,RouteMetric)} catch {}
+}
+$adapters=@(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status)
+[pscustomobject]@{cached_addresses=$cache;routes=$routes;adapters=$adapters;network_requested=$false;vpn_changed=$false} | ConvertTo-Json -Depth 6 -Compress
+'''
+    try:
+        child=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
+            input=host+'\n',text=True,encoding='utf8',capture_output=True,timeout=12,
+            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if child.returncode:return dict(state='unavailable',exit_code=child.returncode,network_requested=False)
+        value=json.loads(child.stdout.lstrip('\ufeff'));value['state']='ok' if value.get('routes') else 'cache_or_route_unavailable'
+        value['interpretation']='仅说明当前已缓存目标IP所选网卡/网关；无法据此确认公司网关内部是否使用VPN'
+        return value
+    except Exception as exc:return dict(state='unavailable',network_requested=False,error=error_detail(exc,'route'))
+
+
+def collect(local_roots, *, connect=False, lock_owners=False, routes=False):
     result=dict(schema='company-connection-diagnostic-v1',observed_at=datetime.now(timezone.utc).isoformat(),
                 python=sys.executable,python_version=sys.version.split()[0],prefix=sys.prefix,
                 pid=os.getpid(),profiles=[],continuous_collection_started=False,vpn_changed=False)
     from dashboard.session_clock import session_policy
     gate=session_policy();result['session']=gate
     configs=[]
+    if routes:result['cached_route_inspection']=cached_route_checks()
     for root in local_roots:
         profile,config=local_checks(root)
         if config is not None:configs.append(config)
@@ -157,18 +187,19 @@ def main(argv=None):
     parser.add_argument('--all-profiles',action='store_true',help='Read existing Excel and App configs without creating either')
     parser.add_argument('--connect',action='store_true',help='One bounded quote check per existing profile and DNS/TCP checks during session')
     parser.add_argument('--lock-owners',action='store_true',help='Query lock-file users and safe process metadata; does not imply --connect')
+    parser.add_argument('--routes',action='store_true',help='Inspect OS DNS cache and routes only; no network request or VPN change')
     parser.add_argument('--output',type=Path)
     args=parser.parse_args(argv)
     module=Path(__file__).resolve().parent
     if args.local_root and args.all_profiles:parser.error('--local-root and --all-profiles are exclusive')
-    choices=[module/'localsetting/numeric_excel',module/'localsetting']
+    choices=[module/'localsetting/app',module/'localsetting/numeric_excel',module/'localsetting']
     roots=([args.local_root] if args.local_root else [p for p in choices if (p/'native.json').is_file()])
     if not args.all_profiles:roots=roots[:1]
     report=dict(schema='company-connection-diagnostic-v1',python=sys.executable,profiles=[],vpn_changed=False)
     code=0
     try:
         if not roots:raise FileNotFoundError('No existing profile')
-        report=collect(roots,connect=args.connect,lock_owners=args.lock_owners)
+        report=collect(roots,connect=args.connect,lock_owners=args.lock_owners,routes=args.routes)
     except Exception as exc:
         report['error']=error_detail(exc,'imports' if isinstance(exc,ImportError) else 'config_read');code=1
     if args.output:
