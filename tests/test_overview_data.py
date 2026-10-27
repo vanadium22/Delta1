@@ -223,7 +223,7 @@ class DatedDataTests(unittest.TestCase):
                 write_day(tmp,day,{m['symbol']:close_row(m['symbol'],day,100,adjustment_factor=factor) for m in group['rows']})
             self.assertEqual(roll(group,{},tmp,'2026-10-23'),group)
 
-    def test_closed_basis_and_percentile_exclude_pricing_day_and_do_not_change_realtime(self):
+    def test_closed_basis_uses_its_pricing_day_and_does_not_change_realtime(self):
         from dashboard.indicator_v6.sources import dates_between
         days=dates_between('2026-09-01','2026-10-26')[-21:];s='IF2611.CFE'
         data={s:frame(days,lambda _:4000),'000300.SH':frame(days,lambda _:4000)}
@@ -231,8 +231,8 @@ class DatedDataTests(unittest.TestCase):
         row=quote_card(s,'沪深300','IF',{},data,CLOSE,'2026-10-23')
         spot=quote_card('000300.SH','沪深300','IF',{},data,CLOSE,'2026-10-23')
         futures_values(row,{},data,{s:dict(expiry_date='2026-11-20')},CLOSE,spot)
-        self.assertEqual(row['basis_points'],0);self.assertEqual(row['percentile'],50)
-        self.assertEqual(row['days'],25);self.assertEqual(row['percentile_end'],'2026-10-23')
+        self.assertEqual(row['basis_points'],0);self.assertIsNone(row['percentile'])
+        self.assertEqual(row['days'],25)
         self.assertEqual(row['basis_kind'],'completed_daily');self.assertFalse(row['quality']['usable'])
         preopen=pd.Timestamp('2026-10-27T08:00:00+08:00')
         futures_values(row,{},data,{s:dict(expiry_date='2026-11-20')},preopen,spot)

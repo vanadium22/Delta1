@@ -52,15 +52,18 @@ def publish_day(config,local_root,day,rows):
     return value
 
 
-def requests(config,local_root,target,metadata):
+def requests(config,local_root,target,metadata,*,reference_data=None):
     from dashboard.native.market_overview import previous_session
     from dashboard.native.overview_instruments import etfs
-    reference=reference_load(config,local_root)['data']
+    reference=reference_load(config,local_root)['data'] if reference_data is None else reference_data
     current={s for s,r in metadata.items() if s[:2] in ROOTS and r['listing_date']<=target<=r['expiry_date']}
     equities={r['symbol'] for g in reference.get('indices',{}).values() for r in g.get('rows',[])}
     funds={r['symbol'] for r in etfs(config,reference,target)}
     symbols=set(ROOTS.values())|current|equities|funds
     day_symbols={d:set(symbols) for d in (target,previous_session(target)) if d}
+    from .overview_percentiles import requirements
+    for item in requirements(metadata,target)['rows']:
+        day_symbols.setdefault(item['day'],set()).add(item['symbol'])
     for group in reference.get('indices',{}).values():
         anchor=group.get('as_of')
         if anchor and 0<=(date.fromisoformat(target)-date.fromisoformat(anchor)).days<=14:
@@ -81,8 +84,38 @@ def requests(config,local_root,target,metadata):
             codes=groups.get(asset,[])
             result.extend(dict(day=day,asset=asset,symbols=codes[i:i+100]) for i in range(0,len(codes),100))
     # Show latest headline closes first, then the full stock universe and older anchors.
-    result.sort(key=lambda r:(-date.fromisoformat(r['day']).toordinal(),('index','future','etf','stock').index(r['asset'])))
+    result.sort(key=lambda r:(r['asset']=='stock',-date.fromisoformat(r['day']).toordinal(),('index','future','etf','stock').index(r['asset'])))
     return result
+
+
+def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False):
+    """Build missing close cache from usable original bars before any network."""
+    jobs=requests(config,local_root,target,metadata);wanted={}
+    for job in jobs:
+        if job['asset'] in ('index','future'):
+            for symbol in job['symbols']:wanted.setdefault(symbol,set()).add(job['day'])
+    pending={}
+    for symbol,days in sorted(wanted.items()):
+        if stop():break
+        try:frame=repo.read_window(symbol,'1d',count=65,as_of=pd.Timestamp(target+'T23:59:59+08:00'),
+            fields=('open','high','low','close','volume','turnover','open_interest'),frozen=frozen)
+        except ValueError:continue
+        for row in frame.to_dict('records'):
+            day=str(row['trade_date'])[:10]
+            if day not in days or row.get('is_final')!=True or not finite(row.get('close')) or row['close']<=0:continue
+            values={k:float(row[k]) if finite(row.get(k)) else None for k in ('open','high','low','close','volume')}
+            values.update(amount=float(row['turnover']) if finite(row.get('turnover')) else None,
+                oi=float(row['open_interest']) if finite(row.get('open_interest')) else None)
+            pending.setdefault(day,{})[symbol]=dict(symbol=symbol,trade_date=day,source_at=day+'T15:00:00+08:00',
+                is_final=True,source='local published normalized bars',acquisition='local_copy_no_network',
+                original_event_time=str(row.get('event_time')),original_recorded_at=str(row.get('recorded_at')),
+                source_versions={k:v.get('version') for k,v in frozen.items()},
+                units={'volume':'lot','amount':'CNY','oi':'lot'},unit_factors={},**values)
+    count=0
+    for day,rows in pending.items():
+        if stop():break
+        publish_day(config,local_root,day,rows);count+=len(rows)
+    return count
 
 
 def fetch_batch(client,job,raw_root):

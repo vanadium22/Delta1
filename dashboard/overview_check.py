@@ -26,7 +26,8 @@ def read_status(path):
         value = json.loads(Path(path).read_text(encoding='utf8'))
         # Only the fields produced by the new reference worker. Never include
         # arbitrary settings, driver exceptions, connection strings or secrets.
-        return {k:value[k] for k in ('status','started_at','finished_at','error_type','reason','warnings','diagnostics','provider') if k in value}
+        from dashboard.marketdata.overview_reference import worker_status
+        return worker_status(value)
     except (OSError, ValueError,TypeError,AttributeError):
         return dict(status='not_recorded')
 
@@ -122,6 +123,13 @@ def sample(config, local_root, *, now=None):
     registry = {**{s:dict(asset_type='cn_index',market_region='CN') for s in ROOTS.values()},
                 **quote_registry(config,reference['data'],today)}
     quotes = {}; errors = []
+    try:
+        from dashboard.marketdata.repository import ReferenceBook
+        from dashboard.marketdata.contract_reference import latest_contracts
+        metadata=latest_contracts(ReferenceBook(config.get('reference_file')).data)
+        registry.update({s:dict(asset_type='cn_index_future',market_region='CN') for s,r in metadata.items() if r['listing_date']<=today<=r['expiry_date']})
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        metadata={};errors.append(dict(stage='contract_reference',error_type=type(exc).__name__))
     discovery = dict(status='no_quote_database')
     try:
         reader = RealtimeReader(config.get('realtime_root') or Path(local_root)/'missing-realtime')
@@ -135,6 +143,14 @@ def sample(config, local_root, *, now=None):
         errors.append(dict(stage='quote_cache',error_type=type(exc).__name__))
     observations = {s:dict(source_at=q.get('source_event_time'), received_at=q.get('received_at'),
                             sequence=int(q.get('sequence') or 0), quality=quote_quality(q,now)) for s,q in quotes.items()}
+    from dashboard.native.continuous import slot_map
+    from dashboard.marketdata.quote_quality import aligned_quotes
+    current_pairs={}
+    for root,spot in ROOTS.items():
+        mapping,mapping_error=slot_map(metadata,root,today)
+        for alias,symbol in mapping.items():
+            ok,reason=aligned_quotes([quotes.get(symbol),quotes.get(spot)],now)
+            current_pairs[alias]=dict(symbol=symbol,spot=spot,usable=ok,reason=reason)
     groups = {}
     for root in ROOTS:
         selected,meta = ranking(reference['data'],root,today=today)
@@ -173,7 +189,7 @@ def sample(config, local_root, *, now=None):
     return dict(at=now.isoformat(),observations=observations,etfs=groups,indices=detail,
         reference=dict(fetched_at=reference['data'].get('fetched_at'),due=reference['due'],error=reference['error'],errors=reference['data'].get('errors',[])),
         wind=read_status(Path(local_root)/'overview_reference/status.json'),iopv_source_fields=discovery,
-        closed_data=closed_evidence,errors=errors)
+        closed_data=closed_evidence,current_futures_pairs=current_pairs,errors=errors)
 
 
 def collect(local_root, *, samples=2, interval=3, runtime_root=None):
@@ -205,7 +221,12 @@ def collect(local_root, *, samples=2, interval=3, runtime_root=None):
         checked_in_continuous_session=bool(result['session']['allowed']),
         fresh_symbols_in_first_sample=[s for s,q in first.items() if q.get('quality',{}).get('usable')],
         note='盘后两样本不推进不能判连接失败；缓存若停在更早盘中时刻，仍需核对对应配置的采集状态')
+    from dashboard.marketdata.overview_audit import collect as collect_gaps
+    try:result['data_gaps']=collect_gaps(config,root,iopv_fields=result['samples'][-1].get('iopv_source_fields'))
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        result['data_gaps']=dict(status='unavailable',error_type=type(exc).__name__,network_requested=False)
     result['continuous_collection_verified'] = False
+    result['configuration_unchanged'] = path.read_bytes() == before
     result['note'] = '两次只读样本不代替公司长时间运行验收；休市时源时不推进属正常。IOPV需明确映射；本程序不猜代码、不连接任何接口。'
     return result
 

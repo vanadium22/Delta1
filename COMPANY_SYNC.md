@@ -1,3 +1,11 @@
+## 2026-10-27 四张实际合约卡、连续年化分位和数据缺口检查
+
+统一codex/company-apps，重新确认本地及远端基线d5b3480（Git直连异常时通过已连接GitHub只读核对分支SHA）。用户明确要求仍显示2703/2706等实际合约，统计用对应00/01/02/03连续档位，20/60日年化分位同时保留。本次仅改市场概览，32项第六版和Excel保持原状。
+
+已补跨月逐日档位映射、历史已到期合约/指数读取、前60交易日收盘补齐与先用本地标准历史再请求DDB。缺映射、缺价、T<5规则排除分别处理，不因当前新上市合约自身历史短而强制缺数。168项相关回归通过57.748秒，蓝白四卡实际代码及四档20/60显示已离屏截图；实际隐藏PowerShell -Overview诊断退出0，不连接接口或VPN，本机配置SHA不变。
+
+公司在原Git根目录git pull --ff-only后运行dashboard/diagnose_presentation.cmd -Overview，回传同次overview.json和diagnosis.json。新增data_gaps按historical/wind/ddb/continuous_annual/constituent_quotes/other_inputs列明缺口与依赖，区分未核验、缺来源、旧扫描与真实缺日，不断言DDB远端无数据。当前只有10月26日旧公司报告，新版真实资料及连续运行仍待用户回传；原数据、凭据、设置、缓存和其他工作保留。
+
 ## 2026-10-26 概览实时/收盘数据与WindPy补齐
 
 基线本地/远端0906c16，仍codex/company-apps。按公司最新overview (1).json及用户Wind终端/WindPy答复，低频资料改用原WindPy环境；主界面提供DDB一键补齐，增加隔离的ETF/成分收盘缓存、收盘后当天更新、盘前盘后有限HTTP快照，以及有完整价格依据时的估算权重滚动。期指同日收盘基差/分位和可靠昨日持仓可显示；不改第六版32项与实时30秒/3秒，不自动操作实时VPN或因HTTP重试切DDB。原数据/配置/Excel/未完成工作保留。

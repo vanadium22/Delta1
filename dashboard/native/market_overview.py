@@ -6,7 +6,7 @@ history, changes a profile, or presents receipt time as the market source clock.
 from datetime import date, timedelta
 import pandas as pd
 
-from dashboard.indicator_v6.core import basis, raw, statistic
+from dashboard.indicator_v6.core import basis, raw
 from dashboard.indicator_v6.sources import dates_between
 from dashboard.marketdata.contract_reference import latest_contracts
 from dashboard.marketdata.quote_quality import aligned_quotes, finite, quote_quality
@@ -156,21 +156,6 @@ def futures_values(row, live, daily, metadata, now,spot_row=None):
                basis_source_at=max(pd.Timestamp(q['source_event_time']), pd.Timestamp(s['source_event_time'])).isoformat(),
                basis_kind=mode,pricing_day=day)
     row['basis_reason'] = ('收盘参考 '+day+' · ' if mode=='completed_daily' else '')+('第六版A01：未调整对数基差；年化T<5留空' if t is not None else '到期日缺失，年化留空')
-    frows, srows = daily_rows(daily.get(symbol)), daily_rows(daily.get(spot))
-    days = dates_between(str(date.fromisoformat(day)-timedelta(days=60)), day)
-    days = [d for d in days if d < day][-20:]
-    history = []
-    for d in days:
-        f, s = frows.get(d, {}), srows.get(d, {})
-        history.append(basis(raw(f.get('close'), 'price'), raw(s.get('close'), 'price'),
-                             (date.fromisoformat(expiry)-date.fromisoformat(d)).days if expiry else None)['b'])
-    row['percentile_samples'] = sum(v.value is not None for v in history)
-    p, _ = statistic([*history, current['b']], len(history))
-    row['percentile'] = p.value
-    row['percentile_reason'] = ('第六版A02：当前未调整对数基差相对自身此前20交易日的半权分位；排除当前日' if p.value is not None else
-                                '此前20个交易日缺少同步期现收盘；不拼连续合约、不跳过缺口')
-    row['percentile_start'] = days[0] if days else None
-    row['percentile_end'] = days[-1] if days else None
 
 
 class MarketOverviewEngine:
@@ -178,6 +163,8 @@ class MarketOverviewEngine:
         self.model = model
         self.daily_key = None
         self.daily = {}
+        self.percentiles={}
+        self.side_cache={}
 
     def snapshot(self, *, now=None):
         from dashboard.refresh_evidence import begin, calculated
@@ -185,7 +172,7 @@ class MarketOverviewEngine:
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
         day = str(now.tz_convert('Asia/Shanghai').date())
         from dashboard.marketdata.overview_sessions import latest_completed_session
-        from dashboard.marketdata.overview_daily import read_day
+        from dashboard.marketdata.overview_daily import read_day,directory
         try:completed=latest_completed_session(now.to_pydatetime())
         except ValueError:completed=None
         from .overview_details import load_reference, enrich
@@ -208,6 +195,11 @@ class MarketOverviewEngine:
             reference = ReferenceBook()
             errors.append('合约参考不可用（'+type(exc).__name__+'）')
         metadata = latest_contracts(reference.data)
+        from dashboard.marketdata.overview_percentiles import requirements,prepare,apply,SLOTS
+        pricing_day=day if session_policy(now.to_pydatetime())['allowed'] else completed
+        try:required=requirements(metadata,pricing_day) if pricing_day else dict(rows=[])
+        except ValueError:
+            required=dict(rows=[]);errors.append('连续档位前60日交易日历不完整')
         contracts = sorted(s for s, r in metadata.items() if r['listing_date'] <= day <= r['expiry_date'])
         if not contracts:
             errors.append('当前挂牌目录缺失，请在数据更新页核对合约参考')
@@ -224,20 +216,30 @@ class MarketOverviewEngine:
                 if symbol in instruments and source is not None and (old is None or source>=old):live[symbol]=q
         model._overview_latest = live
         versions = {k:v['version'] for k,v in frozen.items()}
+        symbols={*[v[0] for v in UNDERLYINGS.values()],*contracts,*quote_registry(model.config,reference_data['data'],day),*(r['symbol'] for r in required['rows'])}
         side={}
         if completed and hasattr(model,'local_root'):
-            for d in (completed,previous_session(completed)):
-                side[d]=read_day(model.config,model.local_root,d)
-        key = (tuple(versions.items()), reference.version, completed,tuple((d,v.get('fetched_at')) for d,v in side.items()),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None)
+            for d in sorted({completed,previous_session(completed),*(r['day'] for r in required['rows'])}-{None}):
+                path=directory(model.config,model.local_root)/'days'/(d+'.json')
+                try:stat=path.stat();token=(str(path),stat.st_mtime_ns,stat.st_size,tuple(sorted(symbols)))
+                except OSError:token=(str(path),None,None,tuple(sorted(symbols)))
+                cached=self.side_cache.get(d,{})
+                if cached.get('token')!=token:
+                    value=read_day(model.config,model.local_root,d)
+                    cached=dict(token=token,value={**value,'rows':{s:r for s,r in value.get('rows',{}).items() if s in symbols}})
+                    self.side_cache[d]=cached
+                side[d]=cached['value']
+        key = (tuple(versions.items()), reference.version, completed,pricing_day,
+            tuple((d,self.side_cache[d]['token']) for d in side),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None)
         if key != self.daily_key:
             self.daily = {}
             cutoff = (pd.Timestamp(completed, tz='Asia/Shanghai') + pd.Timedelta(hours=23, minutes=59, seconds=59)) if completed else now.normalize()-pd.Timedelta(seconds=1)
-            for s in [*[v[0] for v in UNDERLYINGS.values()], *contracts,*quote_registry(model.config, reference_data['data'], day)]:
+            for s in sorted(symbols):
                 if repo is None:
                     self.daily[s] = pd.DataFrame()
                 else:
                     try:
-                        self.daily[s] = repo.read_window(s, '1d', count=25, as_of=cutoff,
+                        self.daily[s] = repo.read_window(s, '1d', count=65, as_of=cutoff,
                             fields=('open','high','low','close','volume','turnover','open_interest'), frozen=frozen)
                     except ValueError:
                         self.daily[s] = pd.DataFrame()
@@ -248,6 +250,12 @@ class MarketOverviewEngine:
                     frame['trade_date']=frame.trade_date.astype(str).str[:10]
                     self.daily[s]=frame.drop_duplicates('trade_date',keep='first').sort_values('trade_date')
             self.daily_key = key
+            self.percentiles={}
+            if pricing_day:
+                for root in UNDERLYINGS:
+                    for slot in SLOTS:
+                        try:self.percentiles[root,slot]=prepare(root,slot,metadata,self.daily,pricing_day)
+                        except ValueError:pass
         indices = [quote_card(s, name, root, live, self.daily, now, previous)
                    for root, (s, name, _) in UNDERLYINGS.items()]
         funds = []
@@ -274,6 +282,7 @@ class MarketOverviewEngine:
                     futures_values(row, live, self.daily, metadata, now,next(r for r in indices if r['root']==root))
                 except ValueError:
                     row.update(percentile=None, percentile_reason='交易日历缺失')
+                apply(row,self.percentiles.get((root,slot)))
                 futures.append(row)
         observations = model.live_rows
         for row in [*indices, *funds, *futures]:

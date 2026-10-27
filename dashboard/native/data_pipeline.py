@@ -324,7 +324,7 @@ class DataPipeline(QObject):
             'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
-            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily')}
+            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}

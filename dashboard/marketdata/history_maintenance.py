@@ -347,12 +347,21 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             save_pending()
             side_jobs=[]
             if overview_daily:
-                from .overview_daily import requests as overview_requests
+                from .overview_daily import requests as overview_requests,seed_local
+                from .repository import MarketDataRepository
+                from .overview_percentiles import requirements
+                local_repo=MarketDataRepository(roots,allow_unverified=config.get('allow_unverified',False))
+                seeded=seed_local(local_repo,snapshots,config,local_root,end,metadata,stop=stopped)
+                distribution=requirements(metadata,end)
+                state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
+                    mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
                 side_jobs=overview_requests(config,local_root,end,metadata)
                 state['overview_daily']=dict(status='pending' if side_jobs else 'complete',target=end,
-                    pending_rows=sum(len(j['symbols']) for j in side_jobs),pending_batches=len(side_jobs),inserted=0)
+                    pending_rows=sum(len(j['symbols']) for j in side_jobs),pending_batches=len(side_jobs),inserted=0,seeded_local=seeded)
             if not jobs and not side_jobs:
-                name='date_checked' if state['unknown_groups'] else 'complete'
+                name='waiting_reference' if overview_daily and state.get('overview_continuous',{}).get('mapping_missing') else 'date_checked' if state['unknown_groups'] else 'complete'
+                if name=='waiting_reference':
+                    status(name,message='连续档位历史挂牌/到期档案覆盖不足；已有行情保留，缺失日期见概览缺口诊断',next_retry=time.time()+300);return state
                 status(name,failures=0,next_retry=time.time()+1800,**({'last_complete_at':now_iso()} if name=='complete' else {}));return state
             if stopped():raise Stopped()
             from dashboard.app_config import connection_path
@@ -391,7 +400,7 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             if side_jobs:
                 from .overview_daily import fill
                 status('downloading',message='正在补齐概览最近收盘、ETF与成分股日线；原数据继续可读')
-                state['overview_daily']=fill(client,config,local_root,end,metadata,stop=stopped,budget=min(45,budget))
+                state['overview_daily']={**fill(client,config,local_root,end,metadata,stop=stopped,budget=min(45,budget)),'seeded_local':seeded}
             query_failed=False
             for job in selected[:limit]:
                 if stopped():raise Stopped()
@@ -456,8 +465,9 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
             if side_pending:due=min(due,time.time()+(5 if state['overview_daily'].get('inserted') else 300))
             if query_failed:due=max(due,time.time()+RETRY[min(state['failures']-1,2)])
             name='partial' if jobs or side_pending else 'date_checked' if state['unknown_groups'] else 'complete'
+            if not jobs and not side_pending and overview_daily and state.get('overview_continuous',{}).get('mapping_missing'):name='waiting_reference'
             if jobs and all(job_state.get(job_key(j),{}).get('reason') in ('conflict_requires_review','validation_failed') for j in jobs):name='review'
-            if not jobs and not side_pending and not state['unknown_groups']:state['last_complete_at']=now_iso()
+            if name=='complete':state['last_complete_at']=now_iso()
             status(name,next_retry=max(time.time()+5,due),current_job=None)
         except Stopped:status('paused' if read_json(controls).get('paused') else 'stopped',next_retry=None)
         except Exception as exc:

@@ -9,6 +9,15 @@ from dashboard.marketdata.history_quick import quick_check,incremental_scan,save
 
 
 class AppHistoryTests(unittest.TestCase):
+    def test_overview_missing_historical_slot_mapping_is_not_reported_as_complete(self):
+        c=self.fixture();c.cycle()
+        with patch('dashboard.marketdata.overview_daily.fill',return_value=dict(status='complete',target='2026-10-16',
+                pending_rows=0,pending_batches=0,inserted=1)):
+            result=c.cycle(overview_daily=True,incremental=True)
+        self.assertEqual(result['state'],'waiting_reference')
+        self.assertGreater(result['overview_continuous']['mapping_missing'],0)
+        self.assertIn('seeded_local',result['overview_daily'])
+
     def test_completed_today_is_opt_in_and_never_downloaded_before_close(self):
         c=self.fixture()
         before=c.cycle(include_completed_today=True,now='2026-10-19T15:09:59+08:00')

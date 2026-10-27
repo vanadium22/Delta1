@@ -1,3 +1,5 @@
+2026-10-27：期指四卡继续显示实际合约，分位改用对应00/01/02/03连续档位的年化基差20/60日分布；第六版研究保留。公司在原Git根目录运行 `./dashboard/diagnose_presentation.cmd -Overview`，回传overview.json与diagnosis.json，即可分别核对历史/Wind/DDB及当前期现输入缺口；程序只读，不连接接口或改VPN。[本轮操作及验收](APP_COMPANY_TEST.md)。
+
 2026-10-26 数据补齐：顶部 **DDB一键补齐** 顺序复核本周WindPy资料并补概览收盘；盘前盘后 **更新报价** 获取独立快照，每值保留源日期。公司已登录Wind终端即可复用原WindPy Python，无Oracle要求；与看板Python不同时在内联设置指定路径。App在15:10后可补已结束的当天，期指收盘基差/分位与行业收盘估算可以查看，缺IOPV/净申赎/PCF继续标缺。[最新现场步骤](APP_COMPANY_TEST.md)。本机隔离验证不等于公司接口验收。
 
 # Delta1 公司展示版

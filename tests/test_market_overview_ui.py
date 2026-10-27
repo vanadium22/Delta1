@@ -32,6 +32,9 @@ def pump(seconds=.05):
 
 
 def state():
+    from tests.test_overview_percentiles import metadata,daily_data
+    from dashboard.marketdata.overview_percentiles import prepare,apply
+    meta=metadata();history=daily_data(meta,day='2026-10-26')
     live={s:observation() for s,_,_ in UNDERLYINGS.values()}
     indices=[quote_card(s,n,r,live,{},NOW,'2026-10-23') for r,(s,n,_) in UNDERLYINGS.items()]
     funds=[]
@@ -47,6 +50,7 @@ def state():
             row=quote_card(s,n,r,live,{},NOW,'2026-10-23');row['slot']=slot
             expiries={'2611':'2026-11-20','2612':'2026-12-18','2703':'2027-03-19','2706':'2027-06-18'}
             futures_values(row,live,{}, {s:dict(expiry_date=expiries[month])},NOW)
+            apply(row,prepare(r,slot,meta,history,'2026-10-26'))
             futures.append(row)
     for row in [*indices,*funds,*futures]:
         row['series']=[dict(x=i,value=.1+i*.01,source_at=f'2026-10-26T10:00:0{i}+08:00',session='am') for i in range(3)]
@@ -86,7 +90,7 @@ class OverviewUiTests(unittest.TestCase):
                     position=c.mapTo(page.body,c.rect().topLeft())
                     self.assertLessEqual(position.x()+c.width(),page.body.width())
                     if kind=='futures':
-                        widgets=[c.heading,c.price,c.basis_value,c.annual_value,c.rank_value,c.clock]
+                        widgets=[c.heading,c.price,c.basis_value,c.annual_value,c.rank_value,c.rank60_value,c.clock]
                     elif kind=='indices':widgets=[c.heading,c.price,c.clock]
                     else:widgets=[c.heading,c.price,c.iopv,c.scale,c.activity,c.clock]
                     rects=[x.geometry() if x.parent() is c and x.isVisible() else None for x in widgets]
@@ -100,6 +104,8 @@ class OverviewUiTests(unittest.TestCase):
         page.products['IC'].click();pump()
         self.assertEqual(len(page.visible_rows),4)
         self.assertTrue(all(r['symbol'].startswith('IC') for r in page.visible_rows))
+        self.assertEqual([r['continuous_percentiles']['alias'] for r in page.visible_rows],['IC00.CFE','IC01.CFE','IC02.CFE','IC03.CFE'])
+        self.assertTrue(all(page.cards[r['symbol']].rank60_value.text()=='50.0%' for r in page.visible_rows))
         self.assertEqual([r['symbol'] for r in page.visible_rows],['IC2611.CFE','IC2612.CFE','IC2703.CFE','IC2706.CFE'])
         self.assertIn('+0.0点',page.cards['IC2612.CFE'].basis_value.text())
         self.assertEqual([p['days'] for p in page.curve_points],[25,53,144,235])
@@ -109,6 +115,7 @@ class OverviewUiTests(unittest.TestCase):
         page.render([],[],{});pump()
         self.assertEqual(page.curve_points,[]);self.assertTrue(page.empty_curve.isVisible())
         self.assertTrue(all(c.price.text()=='—' for c in page.contract_cards))
+        self.assertTrue(all(c.rank60_value.text()!='50.0%' for c in page.contract_cards))
         self.assertEqual(page.volume_table.rowCount(),0)
 
     def test_freeze_preserves_new_overview_and_original_source_time(self):

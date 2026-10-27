@@ -65,18 +65,17 @@ class OverviewTests(unittest.TestCase):
         r=quote_card('000300.SH','沪深300','IF',{'000300.SH':q},{},NOW,'2026-10-23')
         self.assertIsNone(r['price']);self.assertIsNone(r['source_at'])
 
-    def test_same_contract_v6_half_rank_excludes_current_and_keeps_gaps(self):
+    def test_market_basis_does_not_silently_publish_old_fixed_contract_rank(self):
         from dashboard.indicator_v6.sources import dates_between
         days=dates_between('2026-09-01','2026-10-23')[-20:]
         s='IF2611.CFE';live={s:observation(4000,3980),'000300.SH':observation(4000,3980)}
         daily={s:frame(days,lambda _:4000),'000300.SH':frame(days,lambda _:4000)}
         row=dict(symbol=s,root='IF');meta={s:dict(expiry_date='2026-11-20')}
         futures_values(row,live,daily,meta,NOW)
-        self.assertEqual(row['percentile'],50);self.assertEqual(row['basis_points'],0)
-        self.assertEqual(row['percentile_end'],'2026-10-23')
+        self.assertIsNone(row['percentile']);self.assertEqual(row['basis_points'],0)
         daily[s]=daily[s].drop(index=4)
         futures_values(row,live,daily,meta,NOW)
-        self.assertIsNone(row['percentile']);self.assertEqual(row['percentile_samples'],19)
+        self.assertIsNone(row['percentile'])
         self.assertEqual(row['basis_points'],0)
 
     def test_unsynchronized_future_keeps_price_and_suppresses_basis(self):

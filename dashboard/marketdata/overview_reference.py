@@ -17,6 +17,21 @@ SECURITY = re.compile(r'[0-9]{6}\.(?:SH|SZ)')
 SCHEMA = 'overview-reference-v1'
 
 
+def worker_status(value):
+    """Share controlled diagnostics only, never arbitrary status/config keys."""
+    if not isinstance(value,dict):return dict(status='not_recorded')
+    result={k:v for k,v in value.items() if k in ('status','provider','error_type','reason','warnings','started_at','finished_at')}
+    diagnostics=value.get('diagnostics') or {}
+    if isinstance(diagnostics,dict):
+        result['diagnostics']={k:v for k,v in diagnostics.items() if k in ('provider','python','user_site_enabled','requested_day',
+            'operations','groups','etf_sector','tracking_field','aum_field','aum_unit','aum_field_comment')}
+        for name in ('etf_universe_attempts','tracking_attempts'):
+            rows=diagnostics.get(name)
+            if isinstance(rows,list):result['diagnostics'][name]=[{k:v for k,v in row.items() if k in
+                ('sector','candidates','field','matching','unresolved','unresolved_sample','error_type','reason')} for row in rows if isinstance(row,dict)]
+    return result
+
+
 def finite(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 

@@ -23,26 +23,34 @@ class FuturesCard(Panel):
         head=QHBoxLayout();self.heading=lab('',23,ACCENT,True);self.badge=lab('',16,ACCENT)
         self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,1);self.box.addLayout(head)
         self.price=lab('—',36,ACCENT,True);self.box.addWidget(self.price)
-        self.values=[]
-        for title in ('点基差','对数年化','20日基差分位'):
+        self.values=[];self.captions=[]
+        for title in ('点基差','对数年化','20日年化分位','60日年化分位'):
             line=QHBoxLayout();caption=lab(title,16,MUTED);value=lab('—',25,TEXT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
-            self.box.addLayout(line);self.values.append(value)
-        self.basis_value,self.annual_value,self.rank_value=self.values
-        self.clock=lab('',14,MUTED);self.box.addWidget(self.clock);self.setMinimumHeight(260)
+            self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
+        self.basis_value,self.annual_value,self.rank_value,self.rank60_value=self.values
+        self.clock=lab('',14,MUTED);self.box.addWidget(self.clock);self.setMinimumHeight(290)
 
     def render(self,row,position):
-        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(SLOTS[position])
+        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(f'0{position} · '+SLOTS[position])
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
         self.price.setText(numeric(row.get('price')))
         for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2)):
             put(widget,numeric(row.get(key),digits,True,suffix),color=ink(row.get(key)),size=25,bold=True)
             widget.setToolTip(row.get('basis_reason') or '待有效同步期现报价')
-        rank=row.get('percentile')
-        self.rank_value.setText(numeric(rank,1,suffix='%') if rank is not None else '样本不足' if row.get('basis_points') is not None else '待同步行情')
-        self.rank_value.setToolTip(row.get('percentile_reason') or '同一具体合约，此前20交易日，排除当前日')
+        history=row.get('continuous_percentiles') or {}
+        for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),2):
+            widget.show();self.captions[i].show()
+            result=history.get('windows',{}).get(str(length),{});rank=result.get('percentile')
+            missing=result.get('missing',[])
+            label=(numeric(rank,1,suffix='%') if rank is not None else '缺合约档案' if any(r['reason']=='mapping_missing' for r in missing) else
+                '缺'+str(len(missing))+'日' if missing else 'T<5' if row.get('days') is not None and row['days']<5 else '待年化行情')
+            widget.setText(label)
+            widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 年化对数基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
+                f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
+                '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
         source=source_label(row)
-        self.clock.setText(source+f" · 样本 {row.get('percentile_samples',0)}/20")
+        self.clock.setText(source)
         self.clock.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
             '\n'+str(row.get('percentile_start') or '—')+' 至 '+str(row.get('percentile_end') or '—'))
 
@@ -73,7 +81,7 @@ class FuturesOverviewPage(ScrollPage):
             button=QPushButton(root+' · '+name);button.setCheckable(True);button.setMinimumHeight(39)
             button.clicked.connect(lambda _,r=root:self.select(r));self.products[root]=button
         self.box.addWidget(FlowGrid(list(self.products.values()),4,220,self.body))
-        head=QHBoxLayout();self.spot=lab('现货 —',25,ACCENT,True);self.note=lab('未调整口径 · 分位按具体合约独立计算',16,MUTED)
+        head=QHBoxLayout();self.spot=lab('现货 —',25,ACCENT,True);self.note=lab('连续档位 · 年化基差20 / 60日分位',16,MUTED)
         self.note.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.spot,3);head.addWidget(self.note,2);self.box.addLayout(head)
         self.contract_cards=[FuturesCard(self.body) for _ in range(4)]
         self.box.addWidget(FlowGrid(self.contract_cards,4,290,self.body))
@@ -88,7 +96,7 @@ class FuturesOverviewPage(ScrollPage):
         for title in ('当月基差变化','近月 − 次月价差','近5分钟基差变化'):
             line=QHBoxLayout();line.addWidget(lab(title,18,MUTED),1);value=lab('—',27,ACCENT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(value,1);self.changes.box.addLayout(line);self.change_values.append(value)
-        self.changes.box.addWidget(lab('分位：沿用第六版A02前窗规则',17,ACCENT,True))
+        self.changes.box.addWidget(lab('分位：00 / 01 / 02 / 03年化前窗',17,ACCENT,True))
         self.changes.box.addWidget(lab('缺历史只影响分位，最新行情独立显示',16,MUTED))
         self.box.addWidget(Split(self.term,self.changes,(2,1)))
         self.volumes=Panel('成交分布与昨日持仓','昨日持仓待可靠日频数据')
@@ -96,7 +104,7 @@ class FuturesOverviewPage(ScrollPage):
         self.more=QPushButton('量仓明细 ›');self.more.setCheckable(True);self.volumes.box.addWidget(self.more,alignment=Qt.AlignmentFlag.AlignRight)
         self.volume_table=table(['合约','累计成交（手）','成交占比','昨日持仓','持仓日期'],190)
         self.volume_table.hide();self.more.toggled.connect(self.volume_table.setVisible);self.volumes.box.addWidget(self.volume_table)
-        self.box.addWidget(self.volumes);self.footer=lab('分位为自身未调整对数基差相对前20交易日的位置；当前日排除，缺日留空',15,MUTED);self.box.addWidget(self.footer)
+        self.box.addWidget(self.volumes);self.footer=lab('实际合约展示 · 00/01/02/03按历日换月；20/60交易日前窗，当前日排除，已知T<5另列排除',15,MUTED);self.box.addWidget(self.footer)
 
     def select(self,root):
         self.selected_root=root;self.show_group()
