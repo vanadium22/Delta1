@@ -7,6 +7,7 @@ from pathlib import Path
 from . import config as settings
 from .config import atomic_json, load_config, source_directory, timestamp
 from .calculation import decimal_value, size_order, source_coverage
+from .filtering import InventoryFilters, inventory_candidates
 from .inventory import MissingSheetError, normalize_code, parse_workbook
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
@@ -191,11 +192,13 @@ class InventoryService:
                 self.load_today(progress)
             return self.state
 
-    def query(self, text: str, targets=None, input_targets=None, progress=None, *, share_targets=None):
+    def query(self, text: str, targets=None, input_targets=None, progress=None, *, share_targets=None, filters=None):
         with self.lock:
             status = self.status(progress)
             tokens = list(dict.fromkeys(x for x in re.split(r"[\s,，;；、]+", text.strip()) if x))
-            if not tokens:
+            if filters is not None and not isinstance(filters, InventoryFilters):
+                raise ValueError("筛选条件格式无效")
+            if not tokens and filters is None:
                 raise ValueError("请输入至少一个证券代码或名称")
             if len(tokens) > 100 or len(text) > 10000:
                 raise ValueError("每次最多查询 100 个标的")
@@ -206,7 +209,7 @@ class InventoryService:
                 raise ValueError("要求股数应按证券代码提供")
             share_targets = dict(share_targets or {})
             missing_codes, missing_names = set(), set()
-            for token in tokens:
+            for token in tokens if filters is None else []:
                 code = normalize_code(token)
                 if not any(r["code"] == code if code else token.casefold() in r["name"].casefold() for r in self.records):
                     (missing_codes if code else missing_names).add(code or token)
@@ -214,14 +217,21 @@ class InventoryService:
                     missing_codes.add(code)
             if progress and (missing_codes or missing_names):
                 progress("正在识别券单外标的名称与代码…")
-            if self.demo:
+            if filters is not None:
+                identities, identity_notices = {}, []
+            elif self.demo:
                 identities = {"600000.SH": {"name": "浦发银行", "source": "合成演示标的目录"},
                               "601398.SH": {"name": "工商银行", "source": "合成演示标的目录"}}
                 identity_notices = []
             else:
                 identities, identity_notices = self.provider.resolve(missing_codes, missing_names, status["date"], self.active_config())
             groups, codes, quote_codes = [], set(), set()
-            for token in tokens:
+            if filters is not None:
+                grouped = inventory_candidates(self.records, tokens)
+                groups.append(("当日券单筛选", grouped))
+                quote_codes.update(grouped)
+                codes.update(code for code, rows in grouped.items() if any(not row["industry"] for row in rows))
+            for token in tokens if filters is None else []:
                 normalized = normalize_code(token)
                 if normalized:
                     quote_codes.add(normalized)
@@ -279,10 +289,13 @@ class InventoryService:
             else:
                 industries, quotes, notices = self.provider.market(quote_codes, codes, status["date"], self.active_config())
             results, unique = [], {}
+            screening = {"candidates": len(quote_codes), "priced": sum(
+                (price := decimal_value((quotes.get(code) or {}).get("price"))) is not None and price > 0
+                for code in quote_codes), "unpriced": 0, "unknown_industry": 0}
             ready = status["state"] in {"ready", "local", "cached"}
             for token, grouped in groups:
                 matches, securities = [], []
-                if not grouped:
+                if not grouped and filters is None:
                     grouped = {token: []}  # Preserve every unresolved input as a visible result.
                 for code, rows in grouped.items():
                     for row in rows:
@@ -310,6 +323,15 @@ class InventoryService:
                     item["inventory_market_value"] = item["quantity"] * price if item["quantity_complete"] and item["quantity"] is not None and price is not None and price > 0 else None
                     item["calculation"] = size_order(resolved_targets.get(code), (quotes.get(code) or {}).get("price"), item["quantity"], item["quantity_complete"], requested_shares=share_targets.get(code))
                     item["coverage"] = source_coverage(rows, item["calculation"], ready)
+                    if filters is not None:
+                        if filters.industry and not item["industry"]:
+                            screening["unknown_industry"] += 1
+                        if not filters.matches_stock(item):
+                            continue
+                        if filters.has_amount_range and item["inventory_market_value"] is None:
+                            screening["unpriced"] += 1
+                        if not filters.matches_amount(item):
+                            continue
                     securities.append(item)
                     if rows:
                         matches.append(item)
@@ -318,7 +340,7 @@ class InventoryService:
             values = list(unique.values())
             quantities = [v["quantity"] for v in values if v["quantity"] is not None]
             nominals = [v["nominal"] for v in values if v["nominal"] is not None]
-            return {"status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": identity_notices + notices, "targets": resolved_targets, "share_targets": share_targets, "summary": {
+            return {**({"screening": screening} if filters is not None else {}), "status": status, "results": results, "quotes": quotes, "industries": industries, "warnings": identity_notices + notices, "targets": resolved_targets, "share_targets": share_targets, "summary": {
                 "inputs": len(tokens), "matched": len(values), "unmatched": sum(not g["matches"] for g in results),
                 "quantity": sum(quantities) if quantities else None,
                 "quantity_complete": bool(values) and all(v["quantity_complete"] for v in values),

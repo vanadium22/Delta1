@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QIcon,
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QFileDialog, QHBoxLayout,
     QLabel, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget, QLineEdit, QComboBox, QSplitter,
+    QSizePolicy, QVBoxLayout, QWidget, QLineEdit, QComboBox, QSplitter, QCheckBox,
 )
 
 from .calculation import decimal_value
@@ -20,6 +20,7 @@ from .desktop_contacts import ContactsDialog
 from .desktop_theme import STYLE
 from .desktop_widgets import BatchDialog, EmphasisDelegate, ResultTable, TargetEdit
 from .exporting import clipboard_text, quality, rate_text, source_description, source_note, write_export
+from .filtering import InventoryFilters
 from .inventory import normalize_code
 from .service import InventoryService
 from .trader_contacts import contact_description, contact_for, contacts_path, load_contacts
@@ -81,6 +82,7 @@ class Window(QMainWindow):
         self.restore_focus = None
         self.batch_text = ""
         self.restore_code = None
+        self.active_screen = None
         self.current_date = today()
         self.last_status = self.service.state
         self.retry_action = self.refresh
@@ -159,6 +161,11 @@ class Window(QMainWindow):
         layout.addLayout(notices)
 
         search = QHBoxLayout()
+        self.search_mode = QComboBox()
+        self.search_mode.addItem("股票名称 / 代码", "symbols")
+        self.search_mode.addItem("按条件筛选", "filters")
+        self.search_mode.setToolTip("默认逐票查询；按条件筛选可浏览当日券单，组合行业、库存市值和名称/代码关键字。")
+        search.addWidget(self.search_mode)
         self.symbols = QLineEdit()
         self.symbols.setPlaceholderText("输入代码或名称，空格/逗号分隔，例如：600519 300750 平安银行")
         self.symbols.setClearButtonEnabled(True)
@@ -169,6 +176,52 @@ class Window(QMainWindow):
         search.addWidget(self.batch_button)
         search.addWidget(self.query_button)
         layout.addLayout(search)
+
+        self.filter_panel = QWidget()
+        filters_layout = QVBoxLayout(self.filter_panel)
+        filters_layout.setContentsMargins(0, 0, 0, 0)
+        filters_layout.setSpacing(4)
+        filters_row = QHBoxLayout()
+        filters_row.addWidget(label("行业"))
+        self.industry_filter = QComboBox()
+        self.industry_filter.setEditable(True)
+        self.industry_filter.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.industry_filter.addItem("全部行业")
+        self.industry_filter.setMinimumWidth(110)
+        self.industry_filter.setMaximumWidth(180)
+        self.industry_filter.setToolTip("选择当日券单中的行业，也可输入行业关键字；缺失行业沿用本次 Wind 补充。")
+        self.industry_filter.lineEdit().returnPressed.connect(self.query)
+        filters_row.addWidget(self.industry_filter, 1)
+        filters_row.addWidget(label("库存市值 / 万元"))
+        self.minimum_filter, self.maximum_filter = QLineEdit(), QLineEdit()
+        for editor, placeholder in ((self.minimum_filter, "最低 · 不限"), (self.maximum_filter, "最高 · 不限")):
+            editor.setPlaceholderText(placeholder)
+            editor.setMaximumWidth(120)
+            editor.setAlignment(Qt.AlignmentFlag.AlignRight)
+            editor.setClearButtonEnabled(True)
+            editor.setToolTip("单位：万元，包含边界；可只填一端。库存市值 = 完整有效库存 × 本次最新价。")
+            editor.returnPressed.connect(self.query)
+        filters_row.addWidget(self.minimum_filter)
+        filters_row.addWidget(label("至"))
+        filters_row.addWidget(self.maximum_filter)
+        self.available_filter = QCheckBox("仅有库存")
+        self.available_filter.setToolTip("仅保留完整有效库存大于 0 的标的。")
+        filters_row.addWidget(self.available_filter)
+        filters_row.addStretch()
+        self.reset_filters_button = self.button("重置筛选", self.reset_filters)
+        filters_row.addWidget(self.reset_filters_button)
+        filters_layout.addLayout(filters_row)
+        self.filter_hint = label("", "muted")
+        self.filter_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        filters_layout.addWidget(self.filter_hint)
+        self.filter_panel.hide()
+        layout.addWidget(self.filter_panel)
+        self.search_mode.currentIndexChanged.connect(self.search_mode_changed)
+        self.industry_filter.currentTextChanged.connect(self.filters_changed)
+        self.minimum_filter.textChanged.connect(self.filters_changed)
+        self.maximum_filter.textChanged.connect(self.filters_changed)
+        self.available_filter.toggled.connect(self.filters_changed)
+        self.symbols.textChanged.connect(self.filters_changed)
 
         summary = QHBoxLayout()
         self.metrics = []
@@ -294,7 +347,8 @@ class Window(QMainWindow):
         return self.worker is not None
 
     def update_controls(self):
-        for control in (self.refresh_button, self.query_button, self.settings_button, self.contacts_button, self.symbols, self.batch_button, self.retry_button):
+        for control in (self.refresh_button, self.query_button, self.settings_button, self.contacts_button, self.symbols, self.batch_button, self.retry_button,
+                        self.search_mode, self.industry_filter, self.minimum_filter, self.maximum_filter, self.available_filter, self.reset_filters_button):
             control.setEnabled(not self.busy)
         for editor in self.editors.values():
             editor.setEnabled(not self.busy)
@@ -322,6 +376,9 @@ class Window(QMainWindow):
             self.progress.hide()
             if worker.error:
                 self.show_notices([worker.error])
+                if self.active_screen is not None and self.response is None:
+                    self.filter_hint.setText("筛选失败 · 核对提示后点击重试")
+                    self.filter_hint.setToolTip(worker.error)
                 if self.response is None:
                     self.result_label.setText("操作失败 · 核对提示后重试")
                     self.wind_label.setText("行情 · 本次操作未完成")
@@ -467,6 +524,7 @@ class Window(QMainWindow):
         if 0 <= row < len(self.items):
             self.restore_code = self.items[row]["code"]
         self.response = None
+        self.active_screen = None
         self.items, self.editors, self.mode_editors = [], {}, {}
         self.table.setRowCount(0)
         self.detail.clear()
@@ -481,6 +539,8 @@ class Window(QMainWindow):
 
     def refresh_done(self, status):
         self.show_status(status)
+        self.update_industry_options()
+        self.filters_changed()
         message = ("使用当日本地券单，输入标的查询；需要公盘最新版本时按 F5" if status["state"] == "local" else
                    "券单已就绪，输入标的查询" if status["state"] == "ready" else
                    "使用当日缓存 · 本次同步失败，可查看提示后重试" if status["state"] == "cached" else
@@ -490,6 +550,53 @@ class Window(QMainWindow):
         self.result_label.setText(message)
         self.statusBar().showMessage(message)
         self.loaded.emit()
+
+    def update_industry_options(self, response=None):
+        industries = {row["industry"] for row in self.service.records if row.get("industry")}
+        industries.update((response or {}).get("industries", {}).values())
+        for item in self.items:
+            industries.update(row["industry"] for row in item["rows"] if row.get("industry"))
+        current = self.industry_filter.currentText()
+        self.industry_filter.blockSignals(True)
+        self.industry_filter.clear()
+        self.industry_filter.addItems(["全部行业", *sorted(industry for industry in industries if industry)])
+        self.industry_filter.setCurrentText(current)
+        self.industry_filter.blockSignals(False)
+
+    def search_mode_changed(self):
+        screening = self.search_mode.currentData() == "filters"
+        self.filter_panel.setVisible(screening)
+        self.batch_button.setVisible(not screening)
+        self.query_button.setText("筛选券单与最新价" if screening else "查询库存与最新价")
+        self.symbols.setPlaceholderText("可选：股票名称或代码关键字；留空筛选全部当日券单" if screening else
+                                        "输入代码或名称，空格/逗号分隔，例如：600519 300750 平安银行")
+        self.clear_results()
+        self.filters_changed()
+        self.result_label.setText("输入标的或选择筛选条件开始查询")
+        self.statusBar().showMessage("输入标的或选择筛选条件开始查询")
+
+    def filters_changed(self):
+        if self.search_mode.currentData() != "filters":
+            return
+        if self.response is not None:
+            self.clear_results()
+        text = "从当日券单筛选 · 行业可输入关键字 · 金额含边界，留空不限 · 缺少有效价格或完整数量不参与金额筛选"
+        self.filter_hint.setText(text)
+        self.filter_hint.setToolTip(text)
+        self.statusBar().showMessage("筛选条件已更新，点击「筛选券单与最新价」或按 Enter 查询")
+
+    def reset_filters(self):
+        self.industry_filter.setCurrentIndex(0)
+        self.minimum_filter.clear()
+        self.maximum_filter.clear()
+        self.available_filter.setChecked(False)
+        self.symbols.clear()
+        self.filters_changed()
+
+    def selected_filters(self):
+        industry = self.industry_filter.currentText().strip()
+        return InventoryFilters("" if industry == "全部行业" else industry,
+                                self.minimum_filter.text(), self.maximum_filter.text(), self.available_filter.isChecked())
 
     def load_today(self):
         self.load_inventory(self.service.load_today, "正在检查当日本地券单…")
@@ -532,6 +639,14 @@ class Window(QMainWindow):
         if self.busy:
             return
         symbols = self.symbols.text().strip()
+        if self.search_mode.currentData() == "filters":
+            try:
+                filters = self.selected_filters()
+            except ValueError as exc:
+                self.show_notices([str(exc)])
+                return
+            self.perform_query(symbols, {}, filters=filters)
+            return
         if not symbols:
             self.symbols.setFocus()
             self.show_notices(["请先输入证券代码或名称"])
@@ -543,17 +658,26 @@ class Window(QMainWindow):
         if not self.busy and self.items:
             focused = QApplication.focusWidget()
             self.restore_focus = next(((code, editor.cursorPosition()) for code, editor in self.editors.items() if editor is focused), None)
-            self.perform_query(" ".join(item["code"] for item in self.items), {})
+            if self.active_screen is not None:
+                symbols, filters = self.active_screen
+                self.perform_query(symbols, {}, filters=filters)
+            else:
+                self.perform_query(" ".join(item["code"] for item in self.items), {})
 
-    def perform_query(self, symbols, inputs):
+    def perform_query(self, symbols, inputs, *, filters=None):
         targets = self.target_values()
         share_targets = self.share_values()
-        self.retry_action = lambda: self.perform_query(symbols, inputs)
+        self.retry_action = lambda: self.perform_query(symbols, inputs, filters=filters)
         self.clear_results()
+        self.active_screen = (symbols, filters) if filters is not None else None
         self.result_label.setText("正在匹配库存并获取本次价格…")
         self.wind_label.setText("合成价格 · 生成中" if self.service.demo else "Wind · 正在请求最新价")
         self.tone(self.wind_label, "neutral")
-        self.run_task("正在查询…", lambda progress: self.service.query(symbols, targets, inputs, progress, **({"share_targets": share_targets} if share_targets else {})), self.render)
+        options = {"share_targets": share_targets} if share_targets else {}
+        if filters is not None:
+            options["filters"] = filters
+            self.filter_hint.setText("正在筛选当日券单并获取本次最新价…")
+        self.run_task("正在查询…", lambda progress: self.service.query(symbols, targets, inputs, progress, **options), self.render)
 
     def render(self, response):
         from PySide6.QtWidgets import QTableWidgetItem
@@ -636,23 +760,42 @@ class Window(QMainWindow):
             self.editors[item["code"]] = editor
             self.table.setRowHeight(row, 78)
         self.update_contacts()
+        self.update_industry_options(response)
         self.update_metrics()
         wanted = next((i for i, item in enumerate(self.items) if item["code"] == self.restore_code), 0)
         if self.items:
             self.table.selectRow(wanted)
         self.show_detail(auto_expand=True)
-        valid = sum(bool(item["quote"]) for item in self.items)
-        times = [(item["quote"] or {}).get("retrieved_at", "") for item in self.items]
+        screening = response.get("screening")
+        valid = screening["priced"] if screening is not None else sum(bool(item["quote"]) for item in self.items)
+        quote_count = screening["candidates"] if screening is not None else len(self.items)
+        times = [quote.get("retrieved_at", "") for quote in response["quotes"].values()]
         latest = max(times, default="")
+        stock_label = "只候选价格可用" if screening is not None else "只价格可用"
         if self.service.demo:
-            self.wind_label.setText(f"合成价格 · {valid}/{len(self.items)} 只可用")
+            self.wind_label.setText(f"合成价格 · {valid}/{quote_count} {stock_label}")
             self.tone(self.wind_label, "warning")
         else:
-            self.wind_label.setText(f"Wind · 本次 {valid}/{len(self.items)} 只价格可用" + (f" · {latest[11:19]} 获取" if latest else ""))
-            self.tone(self.wind_label, "ok" if valid and valid == len(self.items) else "warning" if valid else "error")
+            self.wind_label.setText(f"Wind · 本次 {valid}/{quote_count} {stock_label}" + (f" · {latest[11:19]} 获取" if latest else ""))
+            self.tone(self.wind_label, "neutral" if not quote_count else "ok" if valid == quote_count else "warning" if valid else "error")
         self.wind_label.setToolTip("仅表示本次请求结果，不代表持续连接。价格获取时间见各行；Wind返回时间见券源明细。")
         self.result_label.setText(f"结果 {len(self.items)} 只 · 需求不自动缩减" if self.items else "无匹配结果 · 请核对代码或名称")
-        expected_prices = sum(bool(normalize_code(item["code"])) for item in self.items)
+        if "screening" in response:
+            screening = response["screening"]
+            text = f"筛选结果 {len(self.items)} / {screening['candidates']} 只 · 金额按本次最新价估值（万元）"
+            if response["status"]["state"] == "unavailable":
+                text = "筛选未完成 · 当日券单不可用，请核对提示后同步重试"
+            elif not self.items:
+                text += " · 无符合条件的标的，可放宽条件"
+            if screening["unpriced"]:
+                text += f" · {screening['unpriced']} 只缺少有效价格或完整数量，未参与金额筛选"
+            if screening["unknown_industry"]:
+                text += f" · {screening['unknown_industry']} 只行业缺失，未参与行业筛选"
+            self.filter_hint.setText(text)
+            self.filter_hint.setToolTip(text)
+            self.result_label.setText(text)
+            self.statusBar().showMessage(text)
+        expected_prices = screening["candidates"] if screening is not None else sum(bool(normalize_code(item["code"])) for item in self.items)
         self.retry_button.setVisible(valid < expected_prices or response["status"]["state"] in {"cached", "unavailable"})
         if response["status"]["state"] in {"cached", "unavailable"}:
             self.retry_action = self.refresh
