@@ -21,14 +21,17 @@ def worker_status(value):
     """Share controlled diagnostics only, never arbitrary status/config keys."""
     if not isinstance(value,dict):return dict(status='not_recorded')
     result={k:v for k,v in value.items() if k in ('status','provider','error_type','started_at','finished_at')}
-    if value.get('reason'):
-        result['reason']='低频任务未完成；安全失败阶段与ErrorCode见diagnostics，具体原因待核验'
     if isinstance(value.get('warnings'),list):
         result['warning_count']=len(value['warnings'])
     diagnostics=value.get('diagnostics') or {}
     if isinstance(diagnostics,dict):
         from .wind_terminal_worker import safe_diagnostics
         result['diagnostics']=safe_diagnostics(diagnostics)
+    steps=result.get('diagnostics',{}).get('steps') or []
+    result['stage_evidence_recorded']=bool(steps)
+    if value.get('reason'):
+        result['reason']=('低频任务未完成；安全失败阶段与ErrorCode见diagnostics，具体原因待核验' if steps else
+            '该历史任务未保留分阶段证据；本次只读诊断未重新查询Wind，需显式Wind阶段测试取得新结果')
     return result
 
 

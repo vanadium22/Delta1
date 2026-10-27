@@ -1,3 +1,38 @@
+# 2026-10-27 overview (3) 回传后的逐步测试
+
+新报告14:18采样，当前16档历史20/60全部完整，独立收盘缓存待补已为0；无需按旧1120清单重新补库。24个行情最新接收停在13:03:33，历史状态于13:03:38记录closing/stopped，没有已记录请求失败；这不证明采样时窗口仍开着。Wind仍是12:53失败的历史记录，没有新阶段证据。只读诊断不会启动采集或重新查询Wind，下面把两种测试分开执行。
+
+1. 如有旧看板，正常关闭并等它退出；保持日常Wind终端已登录。在公司打开PowerShell，复制执行：
+
+```powershell
+Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+git pull --ff-only
+git log -1 --oneline
+$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
+```
+
+2. 每条等结束后再执行下一条。三个命令只读取Wind低频接口，不发布资料，不改配置或VPN；无需为了测试切换网络。
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Connect -NoPause
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Indices -NoPause
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage ETFs -NoPause
+```
+
+Connect检查连接，Indices检查四指数成分/权重/行业与指定已完成日基准收盘，ETFs检查同指数全集及规模。每阶段上限180秒。每次控制台会显示新报告目录；保留其中wind.json和diagnosis.json。若Connect明确报错，可先停止后两项并回传该阶段结果；连接状态null只是没有读得该状态，不能直接判断断开。各阶段published=false为正常，测试本来不发布资料。
+
+3. 双击公司原dashboard/start_presentation.vbs打开看板，点击一次DDB一键补齐并等待结束，让正常流程发布Wind资料并补实际缺口；随后按当前网络验证并开始实时。仅Wind只读测试成功不会直接改变页面。看板仍按既有DDB按缺口自动、实时VPN手动规则运行，不额外切换实时VPN。
+
+4. 交易时段保持看板打开观察10–15分钟，核对主行情源时间推进、行业分钟快照与覆盖、四张实际合约的20/60分位。源时间与页面刷新时间分开；陈旧/缺腿时当前年化和分位继续留空，不改30秒/3秒。连续交易是09:30–11:30、13:00–15:00，盘后只检查参考模式。
+
+5. **保持看板开着**，回到同一个PowerShell执行：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -Overview -NoPause
+```
+
+回传三个Wind阶段各自的wind.json+diagnosis.json，以及最后概览的overview.json+diagnosis.json。共四个新输出目录，保留目录关系打包这8个JSON即可；不要只回传overview。若某阶段失败，保留失败报告即可，不重装环境、重录凭据或删缓存。默认-Overview继续不连接接口、不改VPN。
+
 # 2026-10-27 当前验收与显式Wind分阶段只读入口
 
 本轮已读取11:32–11:33的公司overview (2).json，属于午休；不能因两样本源时不推进判断断网。没有同次diagnosis，无法确认公司HEAD/正在使用窗口版本。WindPy已安装，具体WindError原因须看新阶段/错误码，勿重装环境或改用Oracle。16档20/60连续历史已齐，1120行只是独立缓存待补；unknown_groups=12600仍不是分钟深核完成，allow_unverified保持原值。

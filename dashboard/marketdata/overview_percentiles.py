@@ -102,8 +102,10 @@ def apply(row,history):
     row.pop('continuous_percentiles',None)
     if history is None:return
     same_day=row.get('pricing_day')==history['pricing_day']
+    unavailable_current=not row.get('pricing_day') and raw(row.get('annual_pct')).value is None
+    reason=(row.get('basis_reason') or '当前年化基差不可用') if same_day or unavailable_current else '当前价格的定价日不匹配目标交易日；保留原源时'
     value=evaluate(history,row.get('annual_pct') if same_day else None,row['symbol'],
-        current_reason=row.get('basis_reason') if same_day else '当前价格的定价日不匹配目标交易日；保留原源时')
+        current_reason=reason)
     row['continuous_percentiles']=value
     for length in WINDOWS:row['percentile_'+str(length)]=value['windows'][str(length)]['percentile']
     short=value['windows']['20']

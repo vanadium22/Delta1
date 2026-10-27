@@ -32,6 +32,19 @@ def profile(root):
 
 
 class OverviewAuditTests(unittest.TestCase):
+    def test_old_wind_record_does_not_claim_unrecorded_stage_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'status.json'
+            save(path,dict(status='unavailable',error_type='WindError',finished_at='2026-10-27T12:53:46+08:00',
+                reason='CANARY_RAW_EXCEPTION',diagnostics={}))
+            result=read_status(path)
+            self.assertFalse(result['stage_evidence_recorded']);self.assertIn('历史任务未保留',result['reason'])
+            self.assertNotIn('CANARY',json.dumps(result))
+            save(path,dict(status='unavailable',error_type='WindError',reason='CANARY_RAW_EXCEPTION',
+                diagnostics=dict(steps=[dict(stage='index_weights',error_code=-40522017)])))
+            result=read_status(path)
+            self.assertTrue(result['stage_evidence_recorded']);self.assertEqual(result['diagnostics']['steps'][0]['error_code'],-40522017)
+
     def test_standard_history_is_classified_as_local_copy_without_downloading_or_writing_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             config,meta=profile(tmp);data=daily_data(meta);earlier=daily_data(meta,day='2026-10-26')

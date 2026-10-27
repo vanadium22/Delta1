@@ -1,3 +1,11 @@
+## 2026-10-27 overview (3)：缓存已齐、旧Wind证据与重测顺序
+
+从最新本地/远端d2c7299继续，四份提示词保留。完整解析overview (3).json，560041字节，SHA256 556d8ce0a04c65c58405339150264ef095ba4f4a10e28450f49c292b1a1588d2，配置摘要与上一份相同。14:18为下午连续交易，24行情停在13:03:33；同配置13:03:38历史记录closing/stopped，无已记录请求失败，计算13:03:32已应用，不能把历史状态当当前存活。缺同次diagnosis仍不能确认公司HEAD/运行窗口。
+
+独立收盘缓存缺口由1120降为0，16档20/60历史完整、真实缺价/映射为空；分钟unknown_groups仍12600、allow_unverified=true。正式引擎预览16张卡当前值都因陈旧不可用；本轮修复其原因从basis_reason传播，不再因pricing_day为空误报定价日不匹配，真实跨定价日仍拒绝。Wind仍12:53旧失败，没有结构化steps；状态增加stage_evidence_recorded，缺失时明确历史记录未保留且只读诊断没有重新查询，不承诺不存在的ErrorCode。
+
+用户表示尚未完成测试并要求写明步骤。APP_COMPANY_TEST首节已给公司完整复制命令：更新及明确app配置→Connect/Indices/ETFs各自只读→打开原VBS、正常一键补齐→连续交易观察10–15分钟→保持窗口打开导出Overview。回传四个新目录指定的8个JSON，默认诊断仍不连接接口。未执行真实Wind/HTTP/DDB/VPN测试，未动数据/配置/Excel或其他工作。
+
 ## 2026-10-27 午休公司报告、安全Wind证据与收盘链路修复
 
 起点本地/远端重新核验为db26835765807bb756279712930de3c332239d30。期间其他工作正常发布券源提交b778c88，已重新核验本地/远端并保留，该提交不是本次看板改动。桌面仍wscript→统一工作区dashboard/start_presentation.vbs，显式public和原localsetting。未修改旧工作区、券源、四份提示词、原数据/配置/凭据/Excel。

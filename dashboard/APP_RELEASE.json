@@ -1,7 +1,7 @@
 {
-  "release": "2026-10-27-wind-evidence-and-overview-data-flow",
+  "release": "2026-10-27-report3-current-reasons-and-company-retest",
   "branch": "codex/company-apps",
-  "base_commit": "b778c88fcad8459282a61733faa0bdd84fe309ab",
+  "base_commit": "d2c72995d26ede48608baa5b4372d6f2e8736927",
   "status": "local_verified_company_test_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
@@ -11,9 +11,8 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "start_commit": "db26835765807bb756279712930de3c332239d30",
-    "base_commit": "b778c88fcad8459282a61733faa0bdd84fe309ab",
-    "scope": "Preserve safe staged Wind evidence, combine complementary ETF tracking mappings, classify local close seeding, repair side-close fallback, and distinguish actual trading phases with a read-only real-page calculation preview",
+    "base_commit": "d2c72995d26ede48608baa5b4372d6f2e8736927",
+    "scope": "Preserve stale/missing-pair reasons instead of invented pricing-date mismatch; identify historical Wind records without stage evidence; document exact company retest",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -23,22 +22,10 @@
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/diagnose_presentation.ps1",
-      "dashboard/marketdata/overview_audit.py",
-      "dashboard/marketdata/overview_daily.py",
+      "dashboard/marketdata/overview_percentiles.py",
       "dashboard/marketdata/overview_reference.py",
-      "dashboard/marketdata/overview_windpy.py",
-      "dashboard/marketdata/wind_terminal_worker.py",
-      "dashboard/native/market_overview.py",
-      "dashboard/native/market_overview_view.py",
-      "dashboard/native/overview_details.py",
-      "dashboard/native/overview_reference_job.py",
-      "dashboard/overview_check.py",
-      "dashboard/overview_wind_check.py",
-      "dashboard/session_clock.py",
-      "tests/test_overview_audit.py",
-      "tests/test_overview_data.py",
-      "tests/test_overview_wind_evidence.py"
+      "tests/test_overview_percentiles.py",
+      "tests/test_overview_audit.py"
     ]
   },
   "files": [
@@ -243,7 +230,7 @@
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "186 related regressions passed (69.471 seconds), no skips; real hidden PowerShell offline Overview exit 0, no interfaces/VPN or config changes; explicit Wind stage tested only with isolated fake SDK; public offscreen layout checked; company Wind/data/UI acceptance pending",
+  "current_validation": "54 related regressions passed in 19.416 seconds, including stale-current reasons, missing legacy Wind evidence, public offscreen UI, and explicit Wind fake-SDK PowerShell transport. No real interface/VPN tests; protected config/shortcut/report/prompts unchanged.",
   "overview_reference_policy": "Wind reference data only, weekly; verify schema, full universe and CNY units; no VPN control or Wind realtime; preserve prior snapshots and archive",
   "overview_data_pending": [
     "company Wind safe stage/ErrorCode and actual field/sector/date coverage",
@@ -251,5 +238,5 @@
     "IOPV mapping and reliable daily shares/NAV/PCF inputs",
     "company running UI application and sustained headline/minute collection"
   ],
-  "company_feedback": "2026-10-27 11:32-11:33 lunch report: WindPy present, WindError cause not retained; all continuous historical windows complete, 1120 missing side-cache rows; closing status is historical and no paired diagnosis.json proves company HEAD/window"
+  "company_feedback": "overview (3), 14:18: continuous histories complete and side-cache gaps zero, quotes stale since 13:03, last matching report is closing/stopped at 13:03:38; Wind 12:53 historical failure lacks staged evidence; paired diagnosis absent"
 }

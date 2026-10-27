@@ -39,6 +39,18 @@ def daily_data(meta=None,annual_by_slot=(0,0,0,0),*,day=DAY):
 
 
 class ContinuousPercentileTests(unittest.TestCase):
+    def test_unavailable_current_preserves_stale_or_pair_reason_without_inventing_date_mismatch(self):
+        meta=metadata();history=prepare('IF',3,meta,daily_data(meta),DAY)
+        for reason in ('陈旧/缓存行情','期现源时间不同步','缺少有效行情'):
+            row=dict(symbol='IF2706.CFE',annual_pct=None,pricing_day=None,basis_reason=reason)
+            apply(row,history)
+            self.assertEqual(row['percentile_reason'],reason)
+            for window in row['continuous_percentiles']['windows'].values():
+                self.assertTrue(window['complete']);self.assertIsNone(window['percentile']);self.assertEqual(window['reason'],reason)
+        row.update(annual_pct=0,pricing_day='2026-10-26')
+        apply(row,history)
+        self.assertIsNone(row['percentile_60']);self.assertIn('定价日不匹配',row['percentile_reason'])
+
     def test_all_four_annual_windows_cross_contract_rolls_and_keep_actual_identity(self):
         meta=metadata();data=daily_data(meta);current=slot_map(meta,'IF',DAY)[0]
         for slot in SLOTS:
