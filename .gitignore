@@ -55,3 +55,6 @@ Thumbs.db
 
 # Preserve an extracted App before its first migration to the company branch.
 /index_futures_basis_zip_backup_*/
+
+# Local verification archives and cleanup inventories are never published.
+/local_artifacts/

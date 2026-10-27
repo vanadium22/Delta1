@@ -1,8 +1,8 @@
 {
-  "release": "2026-10-27-report3-current-reasons-and-company-retest",
+  "release": "2026-10-27-workspace-organization",
   "branch": "codex/company-apps",
-  "base_commit": "d2c72995d26ede48608baa5b4372d6f2e8736927",
-  "status": "local_verified_company_test_pending",
+  "base_commit": "638ee82bc45fcbac5d908f82ec0a80769ca21484",
+  "status": "local_cleanup_verified",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,24 +11,31 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "d2c72995d26ede48608baa5b4372d6f2e8736927",
-    "scope": "Preserve stale/missing-pair reasons instead of invented pricing-date mismatch; identify historical Wind records without stage evidence; document exact company retest",
+    "base_commit": "638ee82bc45fcbac5d908f82ec0a80769ca21484",
+    "scope": "Organize current documentation and archive verified old local validation artifacts; preserve runtime dependencies, business data, configuration and other work",
     "files": [
+      ".gitignore",
       "AGENTS.md",
       "COMPANY_SYNC.md",
-      "dashboard/AGENTS.md",
-      "dashboard/APP_COMPANY_TEST.md",
-      "dashboard/APP_MARKET_OVERVIEW.md",
-      "dashboard/APP_RELEASE.json",
-      "dashboard/APP_VALIDATION.md",
+      "README.md",
+      "dashboard/README.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/marketdata/overview_percentiles.py",
-      "dashboard/marketdata/overview_reference.py",
-      "tests/test_overview_percentiles.py",
-      "tests/test_overview_audit.py"
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/APP_RELEASE.json",
+      "dashboard/docs/README.md",
+      "docs/PROJECT_STRUCTURE.md",
+      "docs/WORKSPACE_CLEANUP.md",
+      "docs/archive/2026-10-27/ROOT_README.md",
+      "docs/archive/2026-10-27/COMPANY_SYNC_HISTORY.md",
+      "docs/archive/2026-10-27/DASHBOARD_README.md",
+      "tools/__init__.py",
+      "tools/workspace_cleanup.py",
+      "tools/README.md",
+      "tests/test_workspace_cleanup.py"
     ]
   },
   "files": [
+    ".gitignore",
     "AGENTS.md",
     "COMPANY_SYNC.md",
     "README.md",
@@ -54,6 +61,7 @@
     "dashboard/current.py",
     "dashboard/diagnose_presentation.cmd",
     "dashboard/diagnose_presentation.ps1",
+    "dashboard/docs/README.md",
     "dashboard/history_status.py",
     "dashboard/indicator_v6/__init__.py",
     "dashboard/indicator_v6/acceptance_cases.json",
@@ -195,6 +203,11 @@
     "dashboard/start_presentation.cmd",
     "dashboard/start_presentation.vbs",
     "dashboard/打开方式.md",
+    "docs/PROJECT_STRUCTURE.md",
+    "docs/WORKSPACE_CLEANUP.md",
+    "docs/archive/2026-10-27/COMPANY_SYNC_HISTORY.md",
+    "docs/archive/2026-10-27/DASHBOARD_README.md",
+    "docs/archive/2026-10-27/ROOT_README.md",
     "tests/test_app_collection.py",
     "tests/test_app_history.py",
     "tests/test_app_instance.py",
@@ -211,7 +224,11 @@
     "tests/test_overview_data.py",
     "tests/test_overview_details.py",
     "tests/test_overview_percentiles.py",
-    "tests/test_overview_wind_evidence.py"
+    "tests/test_overview_wind_evidence.py",
+    "tests/test_workspace_cleanup.py",
+    "tools/README.md",
+    "tools/__init__.py",
+    "tools/workspace_cleanup.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -220,7 +237,8 @@
     "dashboard/localsetting/**",
     "dashboard/runtime/**",
     ".deps/**",
-    "private_config_credentials_market_data_exports_and_personal_artwork"
+    "private_config_credentials_market_data_exports_and_personal_artwork",
+    "local_artifacts/**"
   ],
   "phase2_requires": [
     "company_main_function_test_feedback",
@@ -230,7 +248,7 @@
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "54 related regressions passed in 19.416 seconds, including stale-current reasons, missing legacy Wind evidence, public offscreen UI, and explicit Wind fake-SDK PowerShell transport. No real interface/VPN tests; protected config/shortcut/report/prompts unchanged.",
+  "current_validation": "11 maintenance regressions and original-profile offline App preflight passed; 10,244 protected file hashes unchanged; no real interface/VPN/UI window test",
   "overview_reference_policy": "Wind reference data only, weekly; verify schema, full universe and CNY units; no VPN control or Wind realtime; preserve prior snapshots and archive",
   "overview_data_pending": [
     "company Wind safe stage/ErrorCode and actual field/sector/date coverage",

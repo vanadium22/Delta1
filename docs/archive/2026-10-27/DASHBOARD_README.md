@@ -1,0 +1,27 @@
+# 历史归档：dashboard/README.md
+
+来自整理前的统一分支 `638ee82`。此处保留历史说明，仅调整相对链接以适配归档位置；当前入口见[dashboard/README.md](../../../dashboard/README.md)。
+
+2026-10-27：期指四卡继续显示实际合约，分位改用对应00/01/02/03连续档位的年化基差20/60日分布；第六版研究保留。公司在原Git根目录运行 `./dashboard/diagnose_presentation.cmd -Overview`，回传overview.json与diagnosis.json，即可分别核对历史/Wind/DDB及当前期现输入缺口；程序只读，不连接接口或改VPN。[本轮操作及验收](../../../dashboard/APP_COMPANY_TEST.md)。
+
+2026-10-26 数据补齐：顶部 **DDB一键补齐** 顺序复核本周WindPy资料并补概览收盘；盘前盘后 **更新报价** 获取独立快照，每值保留源日期。公司已登录Wind终端即可复用原WindPy Python，无Oracle要求；与看板Python不同时在内联设置指定路径。App在15:10后可补已结束的当天，期指收盘基差/分位与行业收盘估算可以查看，缺IOPV/净申赎/PCF继续标缺。[最新现场步骤](../../../dashboard/APP_COMPANY_TEST.md)。本机隔离验证不等于公司接口验收。
+
+# Delta1 公司展示版
+
+2026-10-26 后续运行修复：再次通过正常实时入口打开时，先安全关闭同数据范围旧App，等待原采集/计算/写入退出后接管。明确区分本窗口采集和读取已有行情，锁错误区分文件权限与字节锁申请阶段。ETF无观测提示检查采集归属；当前网络可直连时无需另连VPN。公司网络/锁报告：`diagnose_presentation.cmd -Routes`，只读本机缓存和路由、不联网或改VPN。详情见 [现场测试](../../../dashboard/APP_COMPANY_TEST.md)。
+
+2026-10-26：首屏改为**市场概览 → 指数 / ETF / 股指期货**。价格、涨跌、成交和源时间优先，最新报价不依赖今日日线；四只对应指数代表ETF已加入持续订阅。期指基差/年化/分位沿用第六版核心规则，32项研究保留。IOPV和成分贡献缺真实输入时明确说明。[页面与数据说明](../../../dashboard/APP_MARKET_OVERVIEW.md)。展示启动器默认蓝白public；无窗口时运行 `diagnose_presentation.cmd` 导出离线诊断。
+
+2026-10-23 第六版指标更新：研究入口统一为 **A 期指 12 项 / B 跨期 10 项 / C 跨指数期货 10 项**，接入原数据服务并提供独立原始 / 年化口径、逐输出有效性、交易时间图表和展开公式。[完整映射、资料差异与验收](../../../dashboard/APP_INDICATORS_V6.md)。本次指标授权覆盖下文较早“等待指标优化”的阶段限制；实时网络仍需公司现场实测。
+
+公司日常入口改为 **start_presentation.vbs**（隐藏启动控制台），现有命令/快捷方式可用 start_presentation.cmd。一次 git pull --ff-only 更新，分支 codex/company-apps。依赖准备、运行步骤和五项现场测试见 [公司展示版测试](../../../dashboard/APP_COMPANY_TEST.md)。
+
+主窗口显示现有概览/对应指数、期现/跨期/跨品种指标、参数与输入 X、图像和解释。后台共用日期快检、增量维护、已有 DDB 凭据复用、联合校验发布、有限实时验证与持续采集；等待、重试、取消、设置和诊断内联。有缺口时按需自动连接 DDB 数据 VPN；历史任务退出后，实时接口未连通才在盘中弹窗提醒手动连接实时 VPN，不自动登出 DDB 或操作实时 VPN。不依赖 Excel/COM。
+
+数据、分红、配置、凭据保持原位；已有数字版配置只创建一次 App 副本。首屏可回看同配置的缓存，保留实际源时；完整历史分钟深核为可取消后台任务。发布元数据覆盖不等于分钟完整性。行情、接收、落库、计算、页面应用均有独立证据。
+
+本机展示/开发两版共享引擎与修复，公司只交付展示入口。公/私主题仅改配色，不改变公式或合约集合。Excel 已冻结功能维护，历史文件全部保留。
+
+[部署与现场测试](../../../dashboard/APP_COMPANY_TEST.md) · [交接](../../../dashboard/PROJECT_HANDOFF.md) · [发布清单](../../../dashboard/APP_RELEASE.json) · [验证证据说明](../../../dashboard/APP_VALIDATION.md) · [Git边界](../../../dashboard/GIT_WORKFLOW.md) · [指标口径](../../../dashboard/PAIR_INDICATORS.md)
+
+当前为第一阶段：待公司主要功能实测。没有最新指标 doc 或没有公司反馈/明确继续授权时，不开展最终指标重构；美术细化随后安排。
