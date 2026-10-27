@@ -20,7 +20,7 @@ def fingerprint(path):
     except FileNotFoundError:return None
 
 
-def collect(local_root,stage,*,now=None):
+def collect(local_root,stage,*,now=None,day=None):
     if stage not in ('connect','indices','etfs'):raise ValueError('需明确选择Wind只读测试阶段')
     root=Path(local_root);path=root/'native.json';config=json.loads(path.read_text(encoding='utf-8-sig'))
     from dashboard.marketdata.overview_reference import path_for
@@ -31,7 +31,7 @@ def collect(local_root,stage,*,now=None):
         local_root=str(root.resolve()),configuration_sha256=before[str(path)],network_requested=True,wind_requested=True,
         vpn_changed=False,app_started=False,published=False,credentials_exported=False)
     try:
-        result=refresh(config,root,{},now=stamp,stage=stage)
+        result=refresh(config,root,{},now=stamp,stage=stage,requested_day=day)
         report['diagnostics']=safe_diagnostics(result.get('diagnostics'))
         data=result['data'];day=report['diagnostics'].get('requested_day')
         if stage=='indices':
@@ -59,9 +59,10 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--local-root',type=Path,required=True)
     parser.add_argument('--stage',choices=('connect','indices','etfs'),required=True)
+    parser.add_argument('--day',help='Optional completed trading day, YYYY-MM-DD, for reproducible read-only tests')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args(argv)
-    report=collect(args.local_root,args.stage)
+    report=collect(args.local_root,args.stage,day=args.day)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     with args.output.open('x',encoding='utf8') as out:json.dump(report,out,ensure_ascii=False,allow_nan=False,indent=2)
     print(str(args.output))

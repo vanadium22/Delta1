@@ -1,3 +1,13 @@
+## 2026-10-27 14:46 / 14:55 新报告与Wind返回解析
+
+本轮在已核验远端的整理提交c356b65后单独修Wind。完整读取8份新JSON，合计658,836字节；本机留安全文件哈希/节点清单，不执行报告文本。四份diagnosis均为638ee82，公司配置摘要9f9dd9013964c2d88c9782fd987394ab24ba1112af7911d50ce976e84d2a4219，目录为公司Git根下dashboard/localsetting/app。Connect成功；Indices四次ErrorCode=0，IF/IC/IM为index_weights_invalid、IH为weight_date_mismatch，原报告没保留行统计，不能认定登录/网络或具体空值原因。ETF板块1310，跟踪匹配66、unresolved=0；10月26日netasset_total返回代码/字段/日期通过而daily_shape_mismatch。
+
+Wind官方SDK单日期分支为字段×代码。旧假SDK采用N×1，遗漏了标准1×N；已将fixture改为标准形状，修复前66证券及排名测试复现失败。现在按返回Codes一一映射1×N或明确N×1，仍严核日期/唯一代码/字段/行形状、Fill=Blank，不任意压平、前填或猜单位。该修复也覆盖成分基准收盘。WSET显式date=YYYYMMDD及date/wind_code/sec_name/i_weight字段；每行日期需一致且完整，不以WSET Times代替。ETF全集同样验证行日期。指数现场仍须公司重测，未确认日期格式就是唯一根因。安全诊断增加protocol、请求日期/字段、矩阵形状、行日期、空/非法/负权重数量和有限权重和，不导出原值、异常或凭据。
+
+任务指纹升至wind-terminal-v4-dated-matrices，允许旧失败更新后正常再尝试一次，随后仍每周一次；旧有效快照保留。显式只读阶段增加-WindDay/--day，冻结同一已完成交易日，不改正常App日期或默认-Overview离线规则；非法/未来/休市日/未知日历在进入SDK前拒绝。公司复测两阶段固定2026-10-26，失败也回传，再从正常VBS发布并开窗导出Overview；命令见APP_COMPANY_TEST首节。
+
+14:55两样本24/24新鲜，20个标的源时推进；16个实际合约当前年化及20/60分位齐，历史32窗口完整、独立收盘缓存缺0。最近同配置后台记录running且closing=false，并有计算/页面应用时间；只是当时文件证据，不认证当前进程存活。continuous_collection_verified仍false，分钟unknown_groups=12600，allow_unverified原值保留。行业及ETF规模资料仍未在现场发布；IOPV/净申赎/PCF继续缺可靠输入。默认诊断/真实时效/VPN/32项与A02均未放宽。
+
 ## 2026-10-27 公司统一工作区分类整理
 
 用户明确整理范围为公司统一工作区。根及看板说明已缩为当前入口/文档索引，原三份长文完整归档；正式AGENTS/APP_*/交接与启动器路径保留。本机27,371个旧验证文件压缩并逐文件哈希核验后移除，224个可重建字节码删除；10,244个受保护文件哈希不变。真实数据包、原行情/缓存/设置、运行依赖、四份提示词、旧工作区及其他工作保留。新验证输出用local_artifacts/validation，归档/结果本机忽略；公司git pull不自动清理。11项维护回归、原配置离线预检通过，无真实接口或可见窗口。详见../docs/WORKSPACE_CLEANUP.md。公司新Wind报告的业务修复另批处理。

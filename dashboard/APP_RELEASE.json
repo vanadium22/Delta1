@@ -1,8 +1,8 @@
 {
-  "release": "2026-10-27-workspace-organization",
+  "release": "2026-10-27-wind-single-date-matrices-and-dated-evidence",
   "branch": "codex/company-apps",
-  "base_commit": "638ee82bc45fcbac5d908f82ec0a80769ca21484",
-  "status": "local_cleanup_verified",
+  "base_commit": "c356b65dacac1e6edfd373c217355f9adbd328d3",
+  "status": "local_verified_company_wind_retest_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,27 +11,24 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "638ee82bc45fcbac5d908f82ec0a80769ca21484",
-    "scope": "Organize current documentation and archive verified old local validation artifacts; preserve runtime dependencies, business data, configuration and other work",
+    "base_commit": "c356b65dacac1e6edfd373c217355f9adbd328d3",
+    "scope": "Parse standard single-date multi-code Wind matrices; use explicit dated WSET fields and safe row/weight/shape evidence; freeze explicit read-only test date without changing offline defaults",
     "files": [
-      ".gitignore",
       "AGENTS.md",
       "COMPANY_SYNC.md",
-      "README.md",
-      "dashboard/README.md",
-      "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/APP_VALIDATION.md",
+      "dashboard/AGENTS.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
-      "dashboard/docs/README.md",
-      "docs/PROJECT_STRUCTURE.md",
-      "docs/WORKSPACE_CLEANUP.md",
-      "docs/archive/2026-10-27/ROOT_README.md",
-      "docs/archive/2026-10-27/COMPANY_SYNC_HISTORY.md",
-      "docs/archive/2026-10-27/DASHBOARD_README.md",
-      "tools/__init__.py",
-      "tools/workspace_cleanup.py",
-      "tools/README.md",
-      "tests/test_workspace_cleanup.py"
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/diagnose_presentation.ps1",
+      "dashboard/marketdata/overview_windpy.py",
+      "dashboard/marketdata/wind_terminal_worker.py",
+      "dashboard/native/overview_reference_job.py",
+      "dashboard/overview_wind_check.py",
+      "tests/test_overview_data.py",
+      "tests/test_overview_wind_evidence.py"
     ]
   },
   "files": [
@@ -248,13 +245,13 @@
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "11 maintenance regressions and original-profile offline App preflight passed; 10,244 protected file hashes unchanged; no real interface/VPN/UI window test",
+  "current_validation": "168 related regressions passed in 68.516 seconds, no skips; real hidden fake-SDK IPC and PowerShell fixed-day stages, offline default, public offscreen UI, histories, collection and lifecycle. 10,237 remaining protected files and eight company report hashes unchanged; no real company interface/VPN test.",
   "overview_reference_policy": "Wind reference data only, weekly; verify schema, full universe and CNY units; no VPN control or Wind realtime; preserve prior snapshots and archive",
   "overview_data_pending": [
-    "company Wind safe stage/ErrorCode and actual field/sector/date coverage",
-    "company full constituents/industries, exact-date ETF universe and size ranking",
+    "company same-day Indices/ETFs retest of standard matrix and explicit WSET date/field response",
+    "company full constituents/weights/industries, exact-date complete ETF size ranking and normal worker publication",
     "IOPV mapping and reliable daily shares/NAV/PCF inputs",
-    "company running UI application and sustained headline/minute collection"
+    "company running UI acceptance and sustained headline/minute collection; unknown minute groups remain unverified"
   ],
-  "company_feedback": "overview (3), 14:18: continuous histories complete and side-cache gaps zero, quotes stale since 13:03, last matching report is closing/stopped at 13:03:38; Wind 12:53 historical failure lacks staged evidence; paired diagnosis absent"
+  "company_feedback": "Eight paired reports identify company commit 638ee82. Connect passed; indices rejected invalid weights/row dates with ErrorCode 0; ETF universe 1310, matching 66/unresolved 0, daily size response rejected by matrix check. At 14:55 all 24 quotes fresh, 20 source clocks advanced, all 16 contract annual/20/60 values usable; 10-15 minute collection and real metadata publication still pending."
 }

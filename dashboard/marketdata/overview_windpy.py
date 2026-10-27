@@ -1,5 +1,6 @@
 """Bridge to existing Wind terminal Python. No install or Oracle requirement."""
 import json
+from datetime import date
 from pathlib import Path
 import subprocess
 import sys
@@ -30,10 +31,17 @@ def executable(config,local_root):
     return str(path)
 
 
-def refresh(config,local_root,old,*,now,stop_file=None,stage='all'):
+def refresh(config,local_root,old,*,now,stop_file=None,stage='all',requested_day=None):
     from .overview_reference import validate
     from .overview_sessions import latest_completed_session
     day=latest_completed_session(now)
+    if requested_day is not None:
+        from .trading_calendar import HOLIDAYS,load_year
+        selected=date.fromisoformat(requested_day)
+        if (selected.isoformat()!=requested_day or requested_day>day or selected.year not in HOLIDAYS or
+            selected.weekday()>=5 or requested_day in load_year(selected.year,'.')):
+            raise ValueError('Wind只读测试日期须为已核验的已完成交易日')
+        day=requested_day
     fields={key:config.get('overview_wind_'+key) for key in ('etf_sector','tracking_field','aum_field','industry_field') if config.get('overview_wind_'+key)}
     if stage not in ('all','connect','indices','etfs'):raise ValueError('低频检查阶段无效')
     request=dict(day=day,fetched_at=now.isoformat(),old=old,config=fields,stage=stage,stop_file=str(stop_file) if stop_file else None)

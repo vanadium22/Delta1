@@ -1,5 +1,6 @@
 param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview,
-    [ValidateSet('Connect','Indices','ETFs')][string]$WindStage)
+    [ValidateSet('Connect','Indices','ETFs')][string]$WindStage,
+    [ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$WindDay)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
@@ -9,6 +10,7 @@ $report=@{schema='presentation-startup-diagnosis-v1';at=[DateTimeOffset]::Now.To
     repository=$repository;network_requested=$false;wind_requested=$false;vpn_changed=$false;app_started=$false;files=@{};
     branch=$null;commit=$null;python=$null;latest_launch=$null;preflight_exit_code=$null}
 try {
+    if ($WindDay -and -not $WindStage) { throw 'WindDayRequiresExplicitWindStage' }
     $report.script_host=@{wscript_exists=(Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32/wscript.exe'));policies=@{}}
     foreach ($key in @('HKCU:/Software/Microsoft/Windows Script Host/Settings','HKLM:/Software/Microsoft/Windows Script Host/Settings')) {
         $policy=Get-ItemProperty -LiteralPath $key -Name Enabled -ErrorAction SilentlyContinue
@@ -56,6 +58,7 @@ try {
             $report.wind_stage=$WindStage
             $windArguments=@('-B','-s','-X','utf8','-m','dashboard.overview_wind_check','--local-root',$windRoot,
                 '--stage',$WindStage.ToLowerInvariant(),'--output',(Join-Path $runtime 'wind.json'))
+            if ($WindDay) { $windArguments+=@('--day',$WindDay);$report.wind_day=$WindDay }
             & $report.python @windArguments 1> (Join-Path $runtime 'wind.log') 2> (Join-Path $runtime 'wind.stderr.log')
             $report.wind_exit_code=$LASTEXITCODE
             $report.wind_report=Join-Path $runtime 'wind.json'

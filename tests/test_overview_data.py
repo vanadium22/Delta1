@@ -42,11 +42,13 @@ class FakeWind:
     def stop(self):pass
     def wset(self,kind,options):
         self.calls.append(('WSET',kind,options))
+        day=next(p.split('=',1)[1] for p in options.split(';') if p.startswith('date='))
+        day=datetime.strptime(day,'%Y%m%d') if '-' not in day else datetime.fromisoformat(day)
         if kind=='indexconstituent':
             count=next(n for code,n in {'000300.SH':300,'000016.SH':50,'000905.SH':500,'000852.SH':1000}.items() if code in options)
             return response(['wind_code','sec_name','i_weight','date'],
-                [[f'{600001+i:06}.SH' for i in range(count)],['成分'+str(i) for i in range(count)],[100/count]*count,[datetime(2026,10,23)]*count])
-        return response(['wind_code','sec_name'],[['510301.SH','510302.SH','510303.SH','510304.SH'],['普通ETF'+str(i) for i in range(4)]])
+                [[f'{600001+i:06}.SH' for i in range(count)],['成分'+str(i) for i in range(count)],[100/count]*count,[day]*count])
+        return response(['wind_code','sec_name','date'],[['510301.SH','510302.SH','510303.SH','510304.SH'],['普通ETF'+str(i) for i in range(4)],[day]*4])
     def wss(self,codes,field,options):
         self.calls.append(('WSS',field,options));codes=codes.split(',')
         values={'industry_sw':lambda s:'电子','close':lambda s:100,
@@ -58,7 +60,8 @@ class FakeWind:
     def wsd(self,codes,field,start,end,options):
         values=self.wss(codes,field,options)
         self.calls[-1]=('WSD',field,options)
-        result=response([field.upper()],[[v] for v in values.Data[0]],codes.split(','))
+        # Official SDK WindData.set: a single date is field-major (1 x N).
+        result=response([field.upper()],[list(values.Data[0])],codes.split(','))
         result.Times=[datetime.fromisoformat(start)]
         return result
 

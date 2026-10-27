@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
 from dashboard.marketdata.overview_reference import load, path_for, publish
+from dashboard.marketdata.wind_terminal_worker import PROTOCOL
 
 
 class ReferenceJob:
@@ -43,7 +44,7 @@ class ReferenceJob:
             record('up_to_date','本周资料已核验')
             return
         week = '-'.join(map(str, now.isocalendar()[:2]))
-        profile=hashlib.sha256(json.dumps(['wind-terminal-v3-evidence',{k:config.get(k) for k in
+        profile=hashlib.sha256(json.dumps([PROTOCOL,{k:config.get(k) for k in
             ('overview_reference_backend','overview_wind_python','overview_wind_config','overview_wind_aum_field',
              'overview_wind_aum_multiplier','overview_wind_etf_sector','overview_wind_tracking_field','overview_wind_industry_field')}],sort_keys=True).encode()).hexdigest()
         try:

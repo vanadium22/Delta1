@@ -17,6 +17,7 @@ ROOTS={'IF':'000300.SH','IH':'000016.SH','IC':'000905.SH','IM':'000852.SH'}
 COUNTS={'IF':300,'IH':50,'IC':500,'IM':1000}
 NAMES={'沪深300':'IF','上证50':'IH','中证500':'IC','中证1000':'IM'}
 SECURITY=re.compile(r'[0-9]{6}\.(?:SH|SZ)')
+PROTOCOL='wind-terminal-v4-dated-matrices'
 VALIDATION_CODES={
     'Wind数据集字段不一致':'dataset_fields_mismatch',
     'Wind数据集长度不一致':'dataset_shape_mismatch',
@@ -28,6 +29,9 @@ VALIDATION_CODES={
     'Wind完整指数权重未取得':'index_weights_incomplete',
     'Wind成分数量未匹配指数样本数':'member_count_mismatch',
     'Wind权重日期不匹配':'weight_date_mismatch',
+    'Wind权重日期未完整取得':'weight_date_unverified',
+    'WindETF全集日期不匹配':'universe_date_mismatch',
+    'WindETF全集日期未完整取得':'universe_date_unverified',
 }
 
 
@@ -53,7 +57,7 @@ def safe_diagnostics(value):
     """Typed allowlist for IPC/status/report export; SDK exception text is excluded."""
     if not isinstance(value,dict):return {}
     output={}
-    for key in ('provider','python','requested_day','stage','tracking_field','aum_field','aum_unit','etf_sector'):
+    for key in ('provider','protocol','python','requested_day','stage','tracking_field','aum_field','aum_unit','etf_sector'):
         item=value.get(key)
         if isinstance(item,str) and len(item)<=512 and not any(c in item for c in '\r\n'):output[key]=item
     for key in ('user_site_enabled','connected_before','connected_after'):
@@ -65,18 +69,26 @@ def safe_diagnostics(value):
         for row in rows[:256]:
             if not isinstance(row,dict):continue
             entry={}
-            for key in ('stage','operation','dataset','status','root','index_id','field','sector','day','started_at','finished_at','error_type','reason_code'):
+            for key in ('stage','operation','dataset','status','root','index_id','field','sector','day','date_argument','times_basis','matrix_layout','started_at','finished_at','error_type','reason_code'):
                 item=row.get(key)
                 if isinstance(item,str) and len(item)<=128 and re.fullmatch(r'[\w .:+/\-()\u4e00-\u9fff]+',item):entry[key]=item
-            for key in ('error_code','codes_count','batch','candidates','matching','unresolved','expected','actual'):
+            for key in ('error_code','codes_count','returned_codes_count','batch','candidates','matching','unresolved','expected','actual',
+                        'matrix_rows','row_count','row_date_distinct_count','missing_row_date_count','invalid_row_date_count',
+                        'missing_weight_count','invalid_weight_count','negative_weight_count','invalid_code_count','duplicate_code_count'):
                 item=error_code(row.get(key))
                 if item is not None:entry[key]=item
             for key in ('connected_before','connected_after'):
                 if key in row and (row[key] is None or isinstance(row[key],bool)):entry[key]=row[key]
-            fields=row.get('returned_fields')
-            if isinstance(fields,list):entry['returned_fields']=[s for s in fields[:30] if isinstance(s,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',s)]
-            dates=row.get('returned_dates')
-            if isinstance(dates,list):entry['returned_dates']=[s for s in dates[:5] if isinstance(s,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',s)]
+            for key in ('returned_fields','requested_fields'):
+                fields=row.get(key)
+                if isinstance(fields,list):entry[key]=[s for s in fields[:30] if isinstance(s,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',s)]
+            for key in ('returned_dates','returned_row_dates'):
+                dates=row.get(key)
+                if isinstance(dates,list):entry[key]=[s for s in dates[:5] if isinstance(s,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',s)]
+            lengths=row.get('matrix_row_lengths')
+            if isinstance(lengths,list):entry['matrix_row_lengths']=[s for s in lengths[:20] if isinstance(s,int) and not isinstance(s,bool) and -1<=s<=1000000]
+            total=number(row.get('weight_total'))
+            if total is not None:entry['weight_total']=total
             sample=row.get('unresolved_sample')
             if isinstance(sample,list):entry['unresolved_sample']=[s for s in sample[:10] if isinstance(s,str) and SECURITY.fullmatch(s)]
             safe.append(entry)
@@ -88,7 +100,7 @@ class TrackedWind:
     """Record low-frequency call context before invoking the existing terminal."""
     def __init__(self,w,request):
         self.w=w;self.request=request
-        self.diagnostics=dict(provider='WindPy',python=sys.executable,user_site_enabled=not bool(sys.flags.no_user_site),
+        self.diagnostics=dict(provider='WindPy',protocol=PROTOCOL,python=sys.executable,user_site_enabled=not bool(sys.flags.no_user_site),
             requested_day=request.get('day'),stage=request.get('stage','all'),connected_before=connected(w),steps=[],failures=[])
 
     def checkpoint(self):
@@ -111,6 +123,11 @@ class TrackedWind:
             checked(result,entry['stage'])
             try:entry['returned_fields']=[str(f).lower() for f in getattr(result,'Fields',[])]
             except TypeError:entry['returned_fields']=[]
+            matrix=getattr(result,'Data',None)
+            if isinstance(matrix,(list,tuple)):
+                entry.update(matrix_rows=len(matrix),matrix_row_lengths=[len(r) if isinstance(r,(list,tuple)) else -1 for r in matrix[:20]])
+            codes=getattr(result,'Codes',None)
+            if isinstance(codes,(list,tuple)):entry['returned_codes_count']=len(codes)
             returned_dates=[]
             try:stamps=tuple(getattr(result,'Times',()))[:5]
             except TypeError:stamps=()
@@ -139,7 +156,8 @@ class TrackedWind:
         return result
     def wset(self,kind,options):
         parts=dict(s.split('=',1) for s in options.split(';') if '=' in s)
-        context=dict(stage='index_weights' if kind=='indexconstituent' else 'etf_universe',dataset=kind)
+        context=dict(stage='index_weights' if kind=='indexconstituent' else 'etf_universe',dataset=kind,
+            date_argument=parts.get('date'),requested_fields=parts.get('field','').split(','),times_basis='query_metadata_not_row_dates')
         if kind=='indexconstituent':context.update(index_id=parts.get('windcode'),root=next((r for r,c in ROOTS.items() if c==parts.get('windcode')),None))
         else:context['sector']=parts.get('sector')
         return self.call('wset',(kind,options),**context)
@@ -155,7 +173,7 @@ class TrackedWind:
             self.diagnostics['failures'].append(dict(entry))
         self.checkpoint()
         # These are application labels, not str(exc) or Wind Data/connection text.
-        return label+'：'+('样本数不匹配，' if 'expected' in entry else '')+entry['stage']+'，'+entry.get('reason_code','response_validation')
+        return label+'：'+('样本数不匹配，' if entry.get('expected') is not None and entry.get('expected')!=entry.get('actual') else '')+entry['stage']+'，'+entry.get('reason_code','response_validation')
 
 
 def checked(result,label):
@@ -187,6 +205,24 @@ def dataset(result,label):
     return [dict(zip(fields,values)) for values in zip(*result.Data)]
 
 
+def evidence(w,**values):
+    if isinstance(w,TrackedWind):
+        w.diagnostics['steps'][-1].update(values);w.checkpoint()
+
+
+def dataset_dates(w,rows):
+    """WSET Times is query metadata; verify the date column of every row."""
+    dates=set();missing=invalid=0
+    for row in rows:
+        value=row.get('date')
+        if value is None or str(value).strip()=='':missing+=1;continue
+        try:dates.add(iso(value))
+        except (TypeError,ValueError):invalid+=1
+    evidence(w,row_count=len(rows),returned_row_dates=sorted(dates)[:5],row_date_distinct_count=len(dates),
+        missing_row_date_count=missing,invalid_row_date_count=invalid)
+    return dates,missing,invalid
+
+
 def wss(w,codes,field,options,stop=lambda:False):
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',field):raise ValueError('Wind字段无效')
     result={}
@@ -213,11 +249,21 @@ def daily(w,codes,field,day,options,stop=lambda:False):
         batch=codes[start:start+100]
         value=checked(w.wsd(','.join(batch),field,day,day,options+';Fill=Blank;Days=Trading'),'WSD '+field)
         returned=[str(c).upper() for c in value.Codes]
-        if [iso(t) for t in value.Times]!=[day] or set(returned)!=set(batch) or len(returned)!=len(batch):
+        if [iso(t) for t in value.Times]!=[day] or set(returned)!=set(batch) or len(returned)!=len(batch) or len(set(returned))!=len(returned):
             raise ValueError('Wind日频日期或代码不匹配')
-        if [str(f).lower() for f in value.Fields]!=[field.lower()] or len(value.Data)!=len(returned) or any(len(v)!=1 for v in value.Data):
+        if ([str(f).lower() for f in value.Fields]!=[field.lower()] or
+            not isinstance(value.Data,(list,tuple)) or any(not isinstance(row,(list,tuple)) for row in value.Data)):
             raise ValueError('Wind单日日频矩阵不匹配')
-        result.update((s,v[0]) for s,v in zip(returned,value.Data))
+        # WindQuant/Official WindPy.py: WindData.set's timeL==1 branch is
+        # field-major, even with multiple codes. Retain the unambiguous N x 1
+        # layout too; never flatten an arbitrary matrix or reorder by request.
+        if len(value.Data)==1 and len(value.Data[0])==len(returned):
+            values=value.Data[0];layout='single_field_by_code'
+        elif len(value.Data)==len(returned) and all(len(v)==1 for v in value.Data):
+            values=[v[0] for v in value.Data];layout='code_by_single_date'
+        else:raise ValueError('Wind单日日频矩阵不匹配')
+        evidence(w,matrix_layout=layout)
+        result.update(zip(returned,values))
     return result
 
 
@@ -243,19 +289,25 @@ def _refresh(w,request,stop):
     for root,index in (ROOTS.items() if stage in ('all','indices') else []):
         if stop():raise InterruptedError()
         try:
-            rows=dataset(w.wset('indexconstituent',f'date={day};windcode={index}'),'WSET indexconstituent')
-            members=[];dates=set()
-            for row in rows:
-                code=str(row.get('wind_code','')).upper();weight=number(row.get('i_weight'))
+            rows=dataset(w.wset('indexconstituent',f'date={day.replace("-","")};windcode={index};field=date,wind_code,sec_name,i_weight'),'WSET indexconstituent')
+            dates,missing_dates,invalid_dates=dataset_dates(w,rows)
+            codes=[str(r.get('wind_code','')).upper() for r in rows];weights=[number(r.get('i_weight')) for r in rows]
+            missing_weights=sum(r.get('i_weight') is None or str(r.get('i_weight')).strip().lower() in ('','nan','none','--','null','n/a') for r in rows)
+            evidence(w,expected=COUNTS[root],actual=len(rows),missing_weight_count=missing_weights,
+                invalid_weight_count=sum(v is None for v in weights)-missing_weights,negative_weight_count=sum(v is not None and v<0 for v in weights),
+                invalid_code_count=sum(not SECURITY.fullmatch(c) for c in codes),duplicate_code_count=len(codes)-len(set(codes)),
+                weight_total=sum(v for v in weights if v is not None))
+            members=[]
+            for row,code,weight in zip(rows,codes,weights):
                 if not SECURITY.fullmatch(code) or weight is None or weight<0:raise ValueError('Wind成分权重无效')
-                if row.get('date') is not None:dates.add(iso(row['date']))
                 members.append(dict(symbol=code,name=str(row.get('sec_name') or code),weight_pct=weight,industry=None))
             if not members or len({r['symbol'] for r in members})!=len(members) or not 99<=sum(r['weight_pct'] for r in members)<=101:
                 raise ValueError('Wind完整指数权重未取得')
             if len(members)!=COUNTS[root]:
                 diagnostics['steps'][-1].update(expected=COUNTS[root],actual=len(members))
                 raise ValueError('Wind成分数量未匹配指数样本数')
-            if dates and dates!={day}:raise ValueError('Wind权重日期不匹配')
+            if missing_dates or invalid_dates or not dates:raise ValueError('Wind权重日期未完整取得')
+            if dates!={day}:raise ValueError('Wind权重日期不匹配')
             output.setdefault('indices',{})[root]=dict(index_id=index,as_of=day,effective_date=day,
                 source='WindPy WSET indexconstituent',industry_standard='申万一级',reviewed_at=stamp,rows=members)
             symbols.update(r['symbol'] for r in members);changed+=1
@@ -290,7 +342,10 @@ def _refresh(w,request,stop):
         if stop():raise InterruptedError()
         if any(c in sector for c in ';\r\n'):raise ValueError('ETF板块参数无效')
         try:
-            candidates=dataset(w.wset('sectorconstituent',f'date={day};sector={sector}'),'WSET ETF板块')
+            candidates=dataset(w.wset('sectorconstituent',f'date={day.replace("-","")};sector={sector};field=date,wind_code,sec_name'),'WSET ETF板块')
+            dates,missing_dates,invalid_dates=dataset_dates(w,candidates)
+            if missing_dates or invalid_dates or not dates:raise ValueError('WindETF全集日期未完整取得')
+            if dates!={day}:raise ValueError('WindETF全集日期不匹配')
             universe=[dict(symbol=str(r.get('wind_code','')).upper(),name=str(r.get('sec_name') or '')) for r in candidates]
             universe=[r for r in universe if re.fullmatch(r'(?:5[0-9]{5}\.SH|1[56][0-9]{4}\.SZ)',r['symbol']) and
                       not any(t in r['name'] for t in ('增强','联接','杠杆','反向','FOF'))]

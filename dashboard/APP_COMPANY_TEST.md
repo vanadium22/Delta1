@@ -1,4 +1,33 @@
-# 2026-10-27 overview (3) 回传后的逐步测试
+# 2026-10-27 14:46 / 14:55 新回传后的复测
+
+这8份新文件已完整解析。四份同次diagnosis确认公司源码638ee82。Connect成功；Indices接口均ErrorCode=0但三组权重无效、IH行日期不符；ETF候选1310、跟踪映射匹配66且未解析0，指定10月26日规模返回ErrorCode=0但矩阵校验失败。14:55两个样本24/24报价新鲜、20个标的源时推进，16个实际合约20/60分位可计算；短样本仍不能通过10–15分钟持续运行验收。
+
+本批修复单日多证券标准1×N矩阵被本地误拒绝的问题，同时修正WSET为紧凑日期+明确字段，增加行日期、空/无效/负权重数量、权重和及矩阵形状。指数具体原始行尚未回传，不能断言日期字符串是唯一根因；无效日期、缺权重或缺规模仍不发布。
+
+这次Connect无需重复。保持日常Wind终端登录，正常关闭看板并等退出；在公司PowerShell复制以下命令，每项等结束后再执行下一项：
+
+```powershell
+Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+git pull --ff-only
+git log -1 --oneline
+$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Indices -WindDay 2026-10-26 -NoPause
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage ETFs -WindDay 2026-10-26 -NoPause
+```
+
+固定10月26日便于和本次报告比较，盘后也不会改查27日。`-WindDay`只对显式Wind只读阶段生效，拒绝未完成日、周末/假日和未知日历；不改变正常App取数日期。两次都保留各自新输出目录的wind.json和diagnosis.json。期望Indices完整300/50/500/1000及行业/基准收盘，ETFs四组各有规模前三；`published=false`正常，这两个测试不发布资料、不改配置/VPN、不连接HTTP/DDB。
+
+失败也回传对应文件即可。新诊断的returned_dates来自SDK Times，WSET不能以它代替数据行日期；returned_row_dates、missing_row_date_count、missing_weight_count、invalid_weight_count、negative_weight_count、weight_total和matrix_rows/matrix_row_lengths才用于进一步定位。原始数据、连接异常和凭据不回传。若日期仍不符或权重仍缺，保留空项，不把ErrorCode=0当资料完整。
+
+测试完成后通过原dashboard/start_presentation.vbs打开看板，正常流程会按更新后的任务协议重新尝试一次；可点击DDB一键补齐发布有效Wind资料及补实际缺口。只读测试的固定日期不会用于正常发布。只在原DDB目标确有缺口时连接DDB，实时VPN仍手动。保持看板开着，再运行：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -Overview -NoPause
+```
+
+回传这次overview.json+diagnosis.json，以及上述两次Wind各自一对，共3个新目录、6个JSON。默认-Overview仍不连接接口。10–15分钟主行情/分钟行业采集请在下一次连续交易时段验证；当前盘后只核对收盘参考，不以刷新时间冒充源时。IOPV、净申赎、PCF仍缺可靠输入，未用替代值填充。
+
+# 历史：overview (3) 回传后的逐步测试
 
 新报告14:18采样，当前16档历史20/60全部完整，独立收盘缓存待补已为0；无需按旧1120清单重新补库。24个行情最新接收停在13:03:33，历史状态于13:03:38记录closing/stopped，没有已记录请求失败；这不证明采样时窗口仍开着。Wind仍是12:53失败的历史记录，没有新阶段证据。只读诊断不会启动采集或重新查询Wind，下面把两种测试分开执行。
 
