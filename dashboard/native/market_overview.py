@@ -11,7 +11,7 @@ from dashboard.indicator_v6.sources import dates_between
 from dashboard.marketdata.contract_reference import latest_contracts
 from dashboard.marketdata.quote_quality import aligned_quotes, finite, quote_quality
 from dashboard.marketdata.repository import ReferenceBook
-from dashboard.session_clock import session_policy
+from dashboard.session_clock import market_phase
 from .instruments import UNDERLYINGS
 from .overview_instruments import etfs, quote_registry
 
@@ -40,6 +40,8 @@ def daily_rows(frame):
 
 
 def quote_card(symbol, name, root, live, daily, now, previous):
+    phase=market_phase(now.to_pydatetime())
+    reference_mode=phase['phase'] not in ('morning','lunch','afternoon')
     q = live.get(symbol) or {}
     source = timestamp(q.get('source_event_time'))
     receipt = timestamp(q.get('observed_at', q.get('received_at')))
@@ -51,12 +53,12 @@ def quote_card(symbol, name, root, live, daily, now, previous):
     # A valid saved observation can still be stale. Display it with its own date;
     # do not let a later bad clock suppress a real completed historical close.
     use_quote = positive(q.get('close')) and valid_clock and (not h or source > pd.Timestamp(h['event_time']) or
-        source==pd.Timestamp(h['event_time']) and session_policy(now.to_pydatetime())['allowed'])
-    if use_quote and h and not session_policy(now.to_pydatetime())['allowed'] and last_day>=str(source.tz_convert('Asia/Shanghai').date()):
+        source==pd.Timestamp(h['event_time']) and not reference_mode)
+    if use_quote and h and reference_mode and last_day>=str(source.tz_convert('Asia/Shanghai').date()):
         use_quote=False
     quality = quote_quality(q, now) if valid_clock else dict(usable=False, status='源时间缺失或倒置')
-    if quality.get('usable') and not session_policy(now.to_pydatetime())['allowed']:
-        quality = dict(quality, usable=False, status='休市 / 缓存行情')
+    if quality.get('usable') and not phase['continuous']:
+        quality = dict(quality, usable=False, status='午休 / 缓存行情' if phase['phase']=='lunch' else '盘前盘后 / 缓存行情')
     price = q['close'] if use_quote else h.get('close')
     if use_quote:
         at = source.isoformat()
@@ -131,8 +133,9 @@ def futures_values(row, live, daily, metadata, now,spot_row=None):
     symbol = row['symbol']; spot = UNDERLYINGS[row['root']][0]
     q, s = live.get(symbol), live.get(spot)
     ok, reason = aligned_quotes([q, s], now)
-    if ok and not session_policy(now.to_pydatetime())['allowed']:
-        ok, reason = False, '休市，仅展示保存行情'
+    phase=market_phase(now.to_pydatetime())
+    if ok and not phase['continuous']:
+        ok, reason = False, '午休，仅展示保存行情' if phase['phase']=='lunch' else '盘前盘后，仅展示保存行情或同日收盘参考'
     expiry = metadata.get(symbol, {}).get('expiry_date')
     row.update(expiry=expiry, basis_points=None, log_basis_bp=None, annual_pct=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
@@ -143,7 +146,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None):
     if not ok:
         # Close references use their own pricing day. Never relax realtime age
         # or replace receipt timestamps to make historical prices pass it.
-        if session_policy(now.to_pydatetime())['allowed'] or row.get('display_kind')!='completed_daily' or not spot_row or spot_row.get('display_kind')!='completed_daily':return
+        if phase['phase'] in ('morning','lunch','afternoon') or row.get('display_kind')!='completed_daily' or not spot_row or spot_row.get('display_kind')!='completed_daily':return
         if row.get('source_at')!=spot_row.get('source_at') or not positive(row.get('price')) or not positive(spot_row.get('price')):return
         day=str(pd.Timestamp(row['source_at']).tz_convert('Asia/Shanghai').date())
         q=dict(close=row['price'],source_event_time=row['source_at'])
@@ -170,6 +173,8 @@ class MarketOverviewEngine:
         from dashboard.refresh_evidence import begin, calculated
         model = self.model; trace = begin(model)
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
+        phase=market_phase(now.to_pydatetime())
+        reference_mode=phase['phase'] not in ('morning','lunch','afternoon')
         day = str(now.tz_convert('Asia/Shanghai').date())
         from dashboard.marketdata.overview_sessions import latest_completed_session
         from dashboard.marketdata.overview_daily import read_day,directory
@@ -196,7 +201,7 @@ class MarketOverviewEngine:
             errors.append('合约参考不可用（'+type(exc).__name__+'）')
         metadata = latest_contracts(reference.data)
         from dashboard.marketdata.overview_percentiles import requirements,prepare,apply,SLOTS
-        pricing_day=day if session_policy(now.to_pydatetime())['allowed'] else completed
+        pricing_day=completed if reference_mode else day
         try:required=requirements(metadata,pricing_day) if pricing_day else dict(rows=[])
         except ValueError:
             required=dict(rows=[]);errors.append('连续档位前60日交易日历不完整')
@@ -209,7 +214,7 @@ class MarketOverviewEngine:
             instruments[s] = dict(asset_type='cn_index', market_region='CN')
         instruments.update(quote_registry(model.config, reference_data['data'], day))
         live = model._live(instruments, now)
-        if not session_policy(now.to_pydatetime())['allowed'] and hasattr(model,'local_root'):
+        if reference_mode and hasattr(model,'local_root'):
             from .latest_snapshot import load as load_snapshot
             for symbol,q in load_snapshot(model.local_root).get('quotes',{}).items():
                 old=timestamp(live.get(symbol,{}).get('source_event_time'));source=timestamp(q.get('source_event_time'))
@@ -246,9 +251,8 @@ class MarketOverviewEngine:
                 additions=[dict(r,event_time=pd.Timestamp(r['source_at']),is_final=True,fetched_at=v.get('fetched_at'),
                                 open_interest=r.get('oi'),turnover=r.get('amount')) for d,v in side.items() if (r:=v.get('rows',{}).get(s))]
                 if additions:
-                    frame=pd.concat([self.daily[s],pd.DataFrame(additions)],ignore_index=True)
-                    frame['trade_date']=frame.trade_date.astype(str).str[:10]
-                    self.daily[s]=frame.drop_duplicates('trade_date',keep='first').sort_values('trade_date')
+                    from dashboard.marketdata.overview_daily import merge_daily
+                    self.daily[s]=merge_daily(self.daily[s],additions)
             self.daily_key = key
             self.percentiles={}
             if pricing_day:
@@ -267,9 +271,9 @@ class MarketOverviewEngine:
                 a, b = live.get(row['symbol']), live.get(info['iopv_id'])
                 ok, reason = aligned_quotes([a, b], now)
                 row['premium_reason'] = reason
-                if b and quote_quality(b, now)['usable'] and session_policy(now.to_pydatetime())['allowed']:
+                if b and quote_quality(b, now)['usable'] and phase['continuous']:
                     row.update(iopv=b['close'], iopv_source_at=b['source_event_time'])
-                if ok and session_policy(now.to_pydatetime())['allowed'] and positive(b.get('close')):
+                if ok and phase['continuous'] and positive(b.get('close')):
                     row.update(iopv=b['close'], premium_bp=10000*(a['close']/b['close']-1),
                                iopv_source_at=b['source_event_time'], premium_reason='ETF与IOPV源时及接收时差均不超过3秒')
             funds.append(row)
@@ -289,7 +293,7 @@ class MarketOverviewEngine:
             row['series'] = observed_series(row, observations, now)
         state = dict(as_of=now.isoformat(), versions=versions, selection=dict(overview_slot=0), overview=[], entities=[],
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
-                                          previous_session=previous,completed_session=completed, errors=errors, source_date_basis='每值保留日期依据'),
+                                          previous_session=previous,completed_session=completed,market_session=phase, errors=errors, source_date_basis='每值保留日期依据'),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)
         from .futures_overview import details

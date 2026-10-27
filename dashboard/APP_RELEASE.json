@@ -1,7 +1,7 @@
 {
-  "release": "2026-10-27-continuous-annual-percentiles-and-data-audit",
+  "release": "2026-10-27-wind-evidence-and-overview-data-flow",
   "branch": "codex/company-apps",
-  "base_commit": "d5b348075e890919e88301157efc2c84c6dc00e9",
+  "base_commit": "b778c88fcad8459282a61733faa0bdd84fe309ab",
   "status": "local_verified_company_test_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
@@ -11,34 +11,34 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "d5b348075e890919e88301157efc2c84c6dc00e9",
-    "scope": "Keep actual expiry cards and use their 00/01/02/03 continuous-slot annual log-basis 20/60-day distributions; add exact-profile read-only historical/Wind/DDB gap evidence and local-first reference backfill",
+    "start_commit": "db26835765807bb756279712930de3c332239d30",
+    "base_commit": "b778c88fcad8459282a61733faa0bdd84fe309ab",
+    "scope": "Preserve safe staged Wind evidence, combine complementary ETF tracking mappings, classify local close seeding, repair side-close fallback, and distinguish actual trading phases with a read-only real-page calculation preview",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
       "dashboard/AGENTS.md",
       "dashboard/APP_COMPANY_TEST.md",
-      "dashboard/APP_INDICATORS_V6.md",
       "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/README.md",
-      "dashboard/marketdata/history_maintenance.py",
+      "dashboard/diagnose_presentation.ps1",
       "dashboard/marketdata/overview_audit.py",
       "dashboard/marketdata/overview_daily.py",
-      "dashboard/marketdata/overview_percentiles.py",
       "dashboard/marketdata/overview_reference.py",
-      "dashboard/native/data_pipeline.py",
-      "dashboard/native/futures_overview_view.py",
+      "dashboard/marketdata/overview_windpy.py",
+      "dashboard/marketdata/wind_terminal_worker.py",
       "dashboard/native/market_overview.py",
+      "dashboard/native/market_overview_view.py",
+      "dashboard/native/overview_details.py",
+      "dashboard/native/overview_reference_job.py",
       "dashboard/overview_check.py",
-      "tests/test_app_history.py",
-      "tests/test_market_overview.py",
-      "tests/test_market_overview_ui.py",
+      "dashboard/overview_wind_check.py",
+      "dashboard/session_clock.py",
       "tests/test_overview_audit.py",
       "tests/test_overview_data.py",
-      "tests/test_overview_percentiles.py"
+      "tests/test_overview_wind_evidence.py"
     ]
   },
   "files": [
@@ -197,6 +197,7 @@
     "dashboard/native/trading_axis.py",
     "dashboard/native/widgets.py",
     "dashboard/overview_check.py",
+    "dashboard/overview_wind_check.py",
     "dashboard/prepare_app.ps1",
     "dashboard/refresh_evidence.py",
     "dashboard/requirements-app-ui.txt",
@@ -222,7 +223,8 @@
     "tests/test_overview_audit.py",
     "tests/test_overview_data.py",
     "tests/test_overview_details.py",
-    "tests/test_overview_percentiles.py"
+    "tests/test_overview_percentiles.py",
+    "tests/test_overview_wind_evidence.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -241,15 +243,13 @@
   "phase2_authorization": "2026-10-23 user explicitly requested implementation using latest v6 Word and JSON",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "89 related regressions passed in 38.432 seconds; futures offscreen screenshots and 860/1100/1440/1920 layouts checked; original hidden PowerShell Overview diagnostic exit 0, config unchanged, no HTTP/Wind/VPN or credential reads",
+  "current_validation": "186 related regressions passed (69.471 seconds), no skips; real hidden PowerShell offline Overview exit 0, no interfaces/VPN or config changes; explicit Wind stage tested only with isolated fake SDK; public offscreen layout checked; company Wind/data/UI acceptance pending",
   "overview_reference_policy": "Wind reference data only, weekly; verify schema, full universe and CNY units; no VPN control or Wind realtime; preserve prior snapshots and archive",
   "overview_data_pending": [
-    "company Wind connection/schema/asset units",
-    "verified previous-session weights; cross-day corporate-action-aware rolling is not implemented",
-    "industry reference and full constituent source coverage",
-    "explicit IOPV source mapping",
-    "daily fund shares/NAV/PCF and verified turnover amount",
-    "company running-window/profile and collection state explaining the earlier intraday cache cutoff"
+    "company Wind safe stage/ErrorCode and actual field/sector/date coverage",
+    "company full constituents/industries, exact-date ETF universe and size ranking",
+    "IOPV mapping and reliable daily shares/NAV/PCF inputs",
+    "company running UI application and sustained headline/minute collection"
   ],
-  "company_feedback": "Company report sampled after market close but cache last received much earlier in session; reference data absent and Wind status not recorded; collection/profile/worker cause remains unverified"
+  "company_feedback": "2026-10-27 11:32-11:33 lunch report: WindPy present, WindError cause not retained; all continuous historical windows complete, 1120 missing side-cache rows; closing status is historical and no paired diagnosis.json proves company HEAD/window"
 }

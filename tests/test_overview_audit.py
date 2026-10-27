@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock,patch
 import pandas as pd
 
-from dashboard.marketdata.overview_audit import collect,inspect_history
+from dashboard.marketdata.overview_audit import collect,inspect_history,calculation_preview
 from dashboard.marketdata import overview_daily
 from dashboard.marketdata.overview_reference import publish
 from dashboard.marketdata.history_publication import maintenance_root
@@ -32,6 +32,69 @@ def profile(root):
 
 
 class OverviewAuditTests(unittest.TestCase):
+    def test_standard_history_is_classified_as_local_copy_without_downloading_or_writing_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config,meta=profile(tmp);data=daily_data(meta);earlier=daily_data(meta,day='2026-10-26')
+            for symbol,frame in earlier.items():data[symbol]=pd.concat([frame,data.get(symbol,pd.DataFrame())],ignore_index=True).drop_duplicates('trade_date')
+            repo=Mock();repo.symbols.return_value={};repo.read_window.side_effect=lambda symbol,*a,**kw:data.get(symbol,pd.DataFrame())
+            history=dict(status='frozen_publication_read',inventory=[],pending_current=True,maintenance=dict(unknown_groups=12600,state='date_checked'))
+            with patch('dashboard.marketdata.overview_audit.inspect_history',return_value=(repo,{},history)),\
+                 patch('requests.sessions.Session.request',side_effect=AssertionError('offline')):
+                result=collect(config,tmp,now=NOW)
+            ddb=result['ddb']
+            self.assertGreater(ddb['local_copy_available_rows'],1000)
+            self.assertEqual(ddb['local_copy_available_rows']+ddb['remaining_after_local_copy_rows'],ddb['close_cache_missing_rows'])
+            self.assertTrue(all(j['asset']=='etf' for j in ddb['remaining_after_local_copy_batches']))
+            self.assertFalse((Path(tmp)/'overview_daily').exists());self.assertFalse(ddb['local_copy_performed'])
+            self.assertFalse(result['historical']['minute_deep_verification_complete'])
+            self.assertIsNone(result['summary']['missing_industry_symbols'])
+            self.assertIsNone(result['constituent_quotes']['total_missing_count'])
+            self.assertTrue(all(s['evaluation_scope']=='history_only' for s in result['continuous_annual']['slots'].values()))
+            self.assertTrue(all('本历史审计未计算当前分位' in w['reason'] for s in result['continuous_annual']['slots'].values() for w in s['windows'].values()))
+
+    def test_actual_page_preview_uses_closing_pricing_date_and_both_slot_percentiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config,meta=profile(tmp);data=daily_data(meta,day='2026-10-27');earlier=daily_data(meta,day='2026-10-26')
+            for symbol,frame in earlier.items():data[symbol]=pd.concat([frame,data.get(symbol,pd.DataFrame())],ignore_index=True).drop_duplicates('trade_date')
+            repo=Mock();repo.symbols.return_value={};repo.read_window.side_effect=lambda symbol,*a,**kw:data.get(symbol,pd.DataFrame())
+            with patch('requests.sessions.Session.request',side_effect=AssertionError('offline')):
+                result=calculation_preview(config,tmp,pd.Timestamp('2026-10-27T09:29:59+08:00'),repo,{})
+            self.assertEqual(len(result['futures']),16)
+            for row in result['futures']:
+                self.assertEqual(row['basis_kind'],'completed_daily');self.assertEqual(row['pricing_day'],'2026-10-26')
+                self.assertEqual(row['annual_pct'],0);self.assertEqual(row['percentile_20'],50);self.assertEqual(row['percentile_60'],50)
+                self.assertEqual(row['continuous_percentiles']['alias'],row['symbol'][:2]+f"0{row['slot']}.CFE")
+            self.assertFalse(result['ui_application_verified']);self.assertNotIn('ui_applied_at',result['calculation'])
+
+    def test_local_copy_plan_rejects_a_present_nonfinal_or_invalid_close(self):
+        jobs=[dict(day='2026-10-26',asset='future',symbols=['IF2611.CFE','IF2612.CFE','IF2703.CFE'])]
+        data={s:pd.DataFrame([dict(trade_date='2026-10-26',is_final=final,close=price)]) for s,final,price in
+            [('IF2611.CFE',True,4000),('IF2612.CFE',False,4000),('IF2703.CFE',True,float('nan'))]}
+        plan=overview_daily.local_copy_plan(jobs,data)
+        self.assertEqual(plan['local_copy_rows'],1);self.assertEqual(plan['remaining_rows'],2)
+
+    def test_lunch_is_not_continuous_trading_even_when_access_is_allowed(self):
+        from dashboard.session_clock import market_phase,session_policy
+        from dashboard.overview_check import collect as overview_collect,sample
+        lunch=pd.Timestamp('2026-10-27T11:32:52+08:00')
+        with tempfile.TemporaryDirectory() as tmp:
+            config,_=profile(tmp)
+            payload=sample(config,tmp,now=lunch)
+            with patch('dashboard.overview_check.sample',return_value=payload),\
+                 patch('dashboard.overview_check.session_policy',return_value=session_policy(lunch.to_pydatetime())),\
+                 patch('dashboard.marketdata.overview_audit.collect',return_value={}),\
+                 patch('dashboard.overview_check.wind_setup',return_value={}):
+                result=overview_collect(tmp,samples=2,interval=0)
+        self.assertTrue(result['quote_cache_summary']['checked_in_access_window'])
+        self.assertFalse(result['quote_cache_summary']['checked_in_continuous_session'])
+        self.assertEqual(result['quote_cache_summary']['market_phase'],'lunch')
+        for stamp,phase,continuous in [('2026-10-27T09:29:59+08:00','pre_open',False),('2026-10-27T09:30:00+08:00','morning',True),
+            ('2026-10-27T11:30:00+08:00','lunch',False),('2026-10-27T13:00:00+08:00','afternoon',True),
+            ('2026-10-27T15:00:00+08:00','post_close',False),('2026-10-25T10:00:00+08:00','closed_day',False)]:
+            state=market_phase(pd.Timestamp(stamp).to_pydatetime());self.assertEqual(state['phase'],phase);self.assertEqual(state['continuous'],continuous)
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('unknown calendar must remain offline')):
+            self.assertEqual(market_phase(pd.Timestamp('2028-01-03T10:00:00+08:00').to_pydatetime())['phase'],'calendar_unverified')
+
     def test_absent_wind_universe_is_a_dependency_gap_not_zero_missing_stocks(self):
         with tempfile.TemporaryDirectory() as tmp,patch('requests.sessions.Session.request',side_effect=AssertionError('offline only')):
             config,meta=profile(tmp);before=Path(tmp,'native.json').read_bytes()
@@ -67,8 +130,8 @@ class OverviewAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config,_=profile(tmp);ref=reference();ref['indices']['IF']['rows'][0]['industry']=None
             publish(Path(tmp)/'overview_reference/latest.json',ref)
-            save(Path(tmp)/'overview_reference/status.json',dict(status='unavailable',provider='windpy',password='CANARY_JOB_SECRET',
-                diagnostics=dict(provider='WindPy',password='CANARY_NESTED',tracking_attempts=[dict(field='fund_trackindexcode',unresolved=2,password='CANARY_ATTEMPT')])) )
+            save(Path(tmp)/'overview_reference/status.json',dict(status='unavailable',provider='windpy',password='CANARY_JOB_SECRET',reason='CANARY_RAW_EXCEPTION',warnings=['CANARY_WARNING'],
+                diagnostics=dict(provider='WindPy',password='CANARY_NESTED',tracking_attempts=[dict(field='fund_trackindexcode',unresolved=2,password='CANARY_ATTEMPT',reason='CANARY_REASON')])) )
             save(Path(tmp)/'overview_daily/status.json',dict(status='partial',pending_rows=4,password='CANARY_DDB_STATUS'))
             result=collect(config,tmp,now=NOW)
             self.assertEqual(result['wind']['indices']['IF']['missing_industry'],['600001.SH'])

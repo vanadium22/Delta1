@@ -43,9 +43,9 @@ class ReferenceJob:
             record('up_to_date','本周资料已核验')
             return
         week = '-'.join(map(str, now.isocalendar()[:2]))
-        profile=hashlib.sha256(json.dumps(['wind-terminal-v2',{k:config.get(k) for k in
+        profile=hashlib.sha256(json.dumps(['wind-terminal-v3-evidence',{k:config.get(k) for k in
             ('overview_reference_backend','overview_wind_python','overview_wind_config','overview_wind_aum_field',
-             'overview_wind_aum_multiplier','overview_wind_etf_sector','overview_wind_tracking_field')}],sort_keys=True).encode()).hexdigest()
+             'overview_wind_aum_multiplier','overview_wind_etf_sector','overview_wind_tracking_field','overview_wind_industry_field')}],sort_keys=True).encode()).hexdigest()
         try:
             attempt = json.loads((self.directory/'attempt.json').read_text(encoding='utf8'))
             if not force and attempt.get('week') == week and attempt.get('profile') == profile:
@@ -98,8 +98,10 @@ def main(argv=None):
         publish(path_for(config, args.local_root), value)
         status.update(status='published', warnings=value.get('errors', []), fetched_at=value['fetched_at'])
     except Exception as exc:
+        from dashboard.marketdata.wind_terminal_worker import safe_diagnostics
+        status['diagnostics']=safe_diagnostics(getattr(exc,'diagnostics',status['diagnostics']))
         status.update(status='cancelled' if isinstance(exc, InterruptedError) else 'unavailable',
-                      error_type=getattr(exc,'error_type',None) or type(exc).__name__, reason='Wind终端低频资料未完成，保留已有资料；核对Wind登录与所选Python，不切换VPN')
+                      error_type=getattr(exc,'error_type',None) or type(exc).__name__, reason='Wind终端低频资料未完成，保留已有资料；查看失败阶段与ErrorCode，原因尚待核验，不切换VPN')
     status['finished_at'] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()
     _atomic_bytes(directory/'status.json', _json_bytes(status))
     return 0

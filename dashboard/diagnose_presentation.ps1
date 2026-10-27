@@ -1,11 +1,12 @@
-param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview)
+param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview,
+    [ValidateSet('Connect','Indices','ETFs')][string]$WindStage)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
 $runtime=Join-Path $PSScriptRoot ('runtime/app_startup/diagnosis-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss')+'-'+$PID)
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $report=@{schema='presentation-startup-diagnosis-v1';at=[DateTimeOffset]::Now.ToString('o');
-    repository=$repository;network_requested=$false;vpn_changed=$false;app_started=$false;files=@{};
+    repository=$repository;network_requested=$false;wind_requested=$false;vpn_changed=$false;app_started=$false;files=@{};
     branch=$null;commit=$null;python=$null;latest_launch=$null;preflight_exit_code=$null}
 try {
     $report.script_host=@{wscript_exists=(Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32/wscript.exe'));policies=@{}}
@@ -45,6 +46,21 @@ try {
             $report.overview_report=Join-Path $runtime 'overview.json'
         }
     }
+    if ($WindStage) {
+        $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $windRoot=$LocalRoot
+        if (-not $windRoot -and $profile.profile) { $windRoot=Split-Path $profile.profile -Parent }
+        if ($windRoot) {
+            $report.network_requested=$true
+            $report.wind_requested=$true
+            $report.wind_stage=$WindStage
+            $windArguments=@('-B','-s','-X','utf8','-m','dashboard.overview_wind_check','--local-root',$windRoot,
+                '--stage',$WindStage.ToLowerInvariant(),'--output',(Join-Path $runtime 'wind.json'))
+            & $report.python @windArguments 1> (Join-Path $runtime 'wind.log') 2> (Join-Path $runtime 'wind.stderr.log')
+            $report.wind_exit_code=$LASTEXITCODE
+            $report.wind_report=Join-Path $runtime 'wind.json'
+        }
+    }
     if ($Routes -or $Connect) {
         $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         $connectionArguments=@('-B','-s','-X','utf8','-m','dashboard.connection_check','--lock-owners','--output',(Join-Path $runtime 'connection.json'))
@@ -72,4 +88,5 @@ Write-Host ('Report: '+$output)
 Write-Host ('Dependency details: '+(Join-Path $runtime 'preflight.json'))
 if ($report.connection_report) { Write-Host ('Connection / route details: '+$report.connection_report) }
 if ($report.overview_report) { Write-Host ('Overview details: '+$report.overview_report) }
+if ($report.wind_report) { Write-Host ('Explicit Wind read details: '+$report.wind_report) }
 if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }

@@ -199,6 +199,8 @@ class MarketOverviewPanel(QWidget):
         self.views['indices'].render(data['indices'], data.get('index_details'), data.get('reference'))
         self.views['etfs'].render(data['etfs'], data.get('etf_groups'), data.get('reference'))
         self.views['futures'].render(data['futures'],data['indices'],data.get('futures_details'))
-        self.note.setText('昨日参照 '+str(data.get('previous_session') or '待核验')+
+        phase={'pre_open':'盘前参考','morning':'上午交易','lunch':'午休 · 保留原源时','afternoon':'下午交易',
+            'post_close':'盘后参考','closed_day':'休市参考','calendar_unverified':'日历待核验'}.get(data.get('market_session',{}).get('phase'))
+        self.note.setText((phase+'　· ' if phase else '')+'昨日参照 '+str(data.get('previous_session') or '待核验')+
                           ('　· 最近完成日 '+data['completed_session'] if data.get('completed_session') else '')+'　· 源时与日期依据见卡片'+
                           ('　· '+'；'.join(data['errors']) if data.get('errors') else ''))

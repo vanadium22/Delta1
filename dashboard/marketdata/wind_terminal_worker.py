@@ -4,10 +4,12 @@ Run in the user's existing Wind Python WITHOUT -s: WindPy is often registered
 in the user site. No pandas, Qt, Oracle driver, installs or database credentials.
 """
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import contextlib
 import json
 import math
+import os
+from pathlib import Path
 import re
 import sys
 
@@ -15,10 +17,145 @@ ROOTS={'IF':'000300.SH','IH':'000016.SH','IC':'000905.SH','IM':'000852.SH'}
 COUNTS={'IF':300,'IH':50,'IC':500,'IM':1000}
 NAMES={'沪深300':'IF','上证50':'IH','中证500':'IC','中证1000':'IM'}
 SECURITY=re.compile(r'[0-9]{6}\.(?:SH|SZ)')
+VALIDATION_CODES={
+    'Wind数据集字段不一致':'dataset_fields_mismatch',
+    'Wind数据集长度不一致':'dataset_shape_mismatch',
+    'Wind截面代码或字段不匹配':'cross_section_identity_mismatch',
+    'Wind截面长度不一致':'cross_section_shape_mismatch',
+    'Wind日频日期或代码不匹配':'daily_date_or_codes_mismatch',
+    'Wind单日日频矩阵不匹配':'daily_shape_mismatch',
+    'Wind成分权重无效':'index_weights_invalid',
+    'Wind完整指数权重未取得':'index_weights_incomplete',
+    'Wind成分数量未匹配指数样本数':'member_count_mismatch',
+    'Wind权重日期不匹配':'weight_date_mismatch',
+}
 
 
 class WindError(Exception):
     pass
+
+
+def error_code(value):
+    """Keep the numeric Wind code, never its Data/error-message payload."""
+    try:
+        return int(value) if not isinstance(value,bool) and re.fullmatch(r'-?\d{1,12}',str(value)) else None
+    except (TypeError,ValueError):return None
+
+
+def connected(w):
+    try:
+        value=w.isconnected()
+        return value if isinstance(value,bool) else None
+    except Exception:return None
+
+
+def safe_diagnostics(value):
+    """Typed allowlist for IPC/status/report export; SDK exception text is excluded."""
+    if not isinstance(value,dict):return {}
+    output={}
+    for key in ('provider','python','requested_day','stage','tracking_field','aum_field','aum_unit','etf_sector'):
+        item=value.get(key)
+        if isinstance(item,str) and len(item)<=512 and not any(c in item for c in '\r\n'):output[key]=item
+    for key in ('user_site_enabled','connected_before','connected_after'):
+        if value.get(key) is None or isinstance(value.get(key),bool):output[key]=value.get(key)
+    for name in ('steps','failures','etf_universe_attempts','tracking_attempts'):
+        rows=value.get(name)
+        if not isinstance(rows,list):continue
+        safe=[]
+        for row in rows[:256]:
+            if not isinstance(row,dict):continue
+            entry={}
+            for key in ('stage','operation','dataset','status','root','index_id','field','sector','day','started_at','finished_at','error_type','reason_code'):
+                item=row.get(key)
+                if isinstance(item,str) and len(item)<=128 and re.fullmatch(r'[\w .:+/\-()\u4e00-\u9fff]+',item):entry[key]=item
+            for key in ('error_code','codes_count','batch','candidates','matching','unresolved','expected','actual'):
+                item=error_code(row.get(key))
+                if item is not None:entry[key]=item
+            for key in ('connected_before','connected_after'):
+                if key in row and (row[key] is None or isinstance(row[key],bool)):entry[key]=row[key]
+            fields=row.get('returned_fields')
+            if isinstance(fields,list):entry['returned_fields']=[s for s in fields[:30] if isinstance(s,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',s)]
+            dates=row.get('returned_dates')
+            if isinstance(dates,list):entry['returned_dates']=[s for s in dates[:5] if isinstance(s,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',s)]
+            sample=row.get('unresolved_sample')
+            if isinstance(sample,list):entry['unresolved_sample']=[s for s in sample[:10] if isinstance(s,str) and SECURITY.fullmatch(s)]
+            safe.append(entry)
+        output[name]=safe
+    return output
+
+
+class TrackedWind:
+    """Record low-frequency call context before invoking the existing terminal."""
+    def __init__(self,w,request):
+        self.w=w;self.request=request
+        self.diagnostics=dict(provider='WindPy',python=sys.executable,user_site_enabled=not bool(sys.flags.no_user_site),
+            requested_day=request.get('day'),stage=request.get('stage','all'),connected_before=connected(w),steps=[],failures=[])
+
+    def checkpoint(self):
+        if not self.request.get('progress_file'):return
+        path=Path(self.request['progress_file'])
+        try:
+            temporary=path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(safe_diagnostics(self.diagnostics),ensure_ascii=False),encoding='utf8')
+            os.replace(temporary,path)
+        except OSError:pass  # Scratch evidence must not interrupt a reference read.
+
+    def call(self,operation,args,**context):
+        entry=dict(operation=operation,day=self.request['day'],started_at=datetime.now(timezone.utc).isoformat(),
+                   connected_before=connected(self.w),status='started',**context)
+        self.diagnostics['steps'].append(entry)
+        self.checkpoint()
+        try:
+            result=getattr(self.w,operation)(*args) if operation!='start' else self.w.start(waitTime=10,showmenu=False)
+            entry.update(error_code=error_code(getattr(result,'ErrorCode',None)),status='returned')
+            checked(result,entry['stage'])
+            try:entry['returned_fields']=[str(f).lower() for f in getattr(result,'Fields',[])]
+            except TypeError:entry['returned_fields']=[]
+            returned_dates=[]
+            try:stamps=tuple(getattr(result,'Times',()))[:5]
+            except TypeError:stamps=()
+            for stamp in stamps:
+                try:returned_dates.append(iso(stamp))
+                except (ValueError,TypeError):pass
+            if returned_dates:entry['returned_dates']=returned_dates
+            return result
+        except Exception as exc:
+            entry.update(status='failed',error_type=type(exc).__name__,
+                         reason_code='wind_error_code' if isinstance(exc,WindError) else 'sdk_exception')
+            self.diagnostics['failures'].append(dict(entry))
+            error=WindError('Wind低频调用失败：'+entry['stage']);error.diagnostics=self.diagnostics
+            raise error from None
+        finally:
+            entry.update(finished_at=datetime.now(timezone.utc).isoformat(),connected_after=connected(self.w))
+            if entry.get('status')=='failed':self.diagnostics['failures'][-1]=dict(entry)
+            self.diagnostics['connected_after']=entry['connected_after']
+            self.checkpoint()
+
+    def start(self,**kwargs):
+        result=self.call('start',(),stage='connect')
+        if self.diagnostics.get('connected_after') is False:
+            self.warning(ValueError(),'连接状态未就绪')
+            raise WindError('Wind连接状态未就绪')
+        return result
+    def wset(self,kind,options):
+        parts=dict(s.split('=',1) for s in options.split(';') if '=' in s)
+        context=dict(stage='index_weights' if kind=='indexconstituent' else 'etf_universe',dataset=kind)
+        if kind=='indexconstituent':context.update(index_id=parts.get('windcode'),root=next((r for r,c in ROOTS.items() if c==parts.get('windcode')),None))
+        else:context['sector']=parts.get('sector')
+        return self.call('wset',(kind,options),**context)
+    def wss(self,codes,field,options):
+        return self.call('wss',(codes,field,options),stage='industry' if field==self.request.get('config',{}).get('industry_field','industry_sw') else 'etf_tracking',field=field,codes_count=len(codes.split(',')))
+    def wsd(self,codes,field,start,end,options):
+        return self.call('wsd',(codes,field,start,end,options),stage='anchor_close' if field=='close' else 'etf_scale',field=field,codes_count=len(codes.split(',')))
+
+    def warning(self,exc,label):
+        entry=self.diagnostics['steps'][-1]
+        if entry.get('status')!='failed':
+            entry.update(status='invalid_response',reason_code=VALIDATION_CODES.get(str(exc),'response_validation'),error_type=type(exc).__name__)
+            self.diagnostics['failures'].append(dict(entry))
+        self.checkpoint()
+        # These are application labels, not str(exc) or Wind Data/connection text.
+        return label+'：'+('样本数不匹配，' if 'expected' in entry else '')+entry['stage']+'，'+entry.get('reason_code','response_validation')
 
 
 def checked(result,label):
@@ -85,14 +222,25 @@ def daily(w,codes,field,day,options,stop=lambda:False):
 
 
 def refresh(w,request,stop=lambda:False):
+    tracked=TrackedWind(w,request)
+    try:return _refresh(tracked,request,stop)
+    except Exception as exc:
+        if isinstance(exc,InterruptedError):error=exc
+        else:error=WindError('Wind低频资料未完成；查看安全分阶段诊断')
+        error.diagnostics=safe_diagnostics(tracked.diagnostics)
+        raise error from None
+
+
+def _refresh(w,request,stop):
     checked(w.start(waitTime=10,showmenu=False),'Wind连接')
     old=request.get('old') or {};config=request.get('config') or {}
     day=request['day'];stamp=request['fetched_at'];warnings=[]
     output=deepcopy(old) if old else dict(schema='overview-reference-v1',indices={},etfs={})
     output['fetched_at']=stamp;mapping=deepcopy(old.get('industries',{}));symbols=set();changed=0
-    diagnostics=dict(provider='WindPy',python=sys.executable,user_site_enabled=not bool(sys.flags.no_user_site),
-                     requested_day=day,operations=['WSET','WSS','WSD(single completed day, no fill)'],groups=[])
-    for root,index in ROOTS.items():
+    diagnostics=w.diagnostics;stage=request.get('stage','all')
+    if stage not in ('all','connect','indices','etfs'):raise ValueError('低频检查阶段无效')
+    if stage=='connect':return dict(data=output,diagnostics=safe_diagnostics(diagnostics))
+    for root,index in (ROOTS.items() if stage in ('all','indices') else []):
         if stop():raise InterruptedError()
         try:
             rows=dataset(w.wset('indexconstituent',f'date={day};windcode={index}'),'WSET indexconstituent')
@@ -104,13 +252,15 @@ def refresh(w,request,stop=lambda:False):
                 members.append(dict(symbol=code,name=str(row.get('sec_name') or code),weight_pct=weight,industry=None))
             if not members or len({r['symbol'] for r in members})!=len(members) or not 99<=sum(r['weight_pct'] for r in members)<=101:
                 raise ValueError('Wind完整指数权重未取得')
-            if len(members)!=COUNTS[root]:raise ValueError('Wind成分数量未匹配指数样本数：'+str(len(members))+'/'+str(COUNTS[root]))
+            if len(members)!=COUNTS[root]:
+                diagnostics['steps'][-1].update(expected=COUNTS[root],actual=len(members))
+                raise ValueError('Wind成分数量未匹配指数样本数')
             if dates and dates!={day}:raise ValueError('Wind权重日期不匹配')
             output.setdefault('indices',{})[root]=dict(index_id=index,as_of=day,effective_date=day,
                 source='WindPy WSET indexconstituent',industry_standard='申万一级',reviewed_at=stamp,rows=members)
             symbols.update(r['symbol'] for r in members);changed+=1
         except (WindError,ValueError,KeyError,TypeError) as exc:
-            warnings.append(root+' 权重：'+str(exc))
+            warnings.append(w.warning(exc,root+' 权重'))
     missing=sorted(s for s in symbols if not mapping.get(s,{}).get('industry'))
     if missing:
         try:
@@ -118,7 +268,7 @@ def refresh(w,request,stop=lambda:False):
                 'tradeDate='+day.replace('-','')+';industryType=1',stop)
             mapping.update({s:dict(industry=str(v).strip(),as_of=day,source='WindPy WSS industry_sw')
                 for s,v in industries.items() if isinstance(v,str) and v.strip() and v.strip().lower() not in ('nan','none','--')})
-        except (WindError,ValueError,TypeError) as exc:warnings.append('行业：'+str(exc))
+        except (WindError,ValueError,TypeError) as exc:warnings.append(w.warning(exc,'行业'))
     for group in output.get('indices',{}).values():
         for row in group['rows']:row['industry']=mapping.get(row['symbol'],{}).get('industry')
         if group.get('as_of')!=day:continue
@@ -127,8 +277,12 @@ def refresh(w,request,stop=lambda:False):
             for row in group['rows']:
                 value=number(closes.get(row['symbol']))
                 if value is not None and value>0:row.update(anchor_close=value,anchor_date=day)
-        except (WindError,ValueError,TypeError) as exc:warnings.append('权重基准收盘：'+str(exc))
+        except (WindError,ValueError,TypeError) as exc:warnings.append(w.warning(exc,'权重基准收盘'))
     output['industries']=mapping
+    if stage=='indices':
+        output['errors']=warnings
+        if not changed:raise WindError('Wind未返回可发布参考资料')
+        return dict(data=output,diagnostics=safe_diagnostics(diagnostics))
     universe=[]
     sectors=[config['etf_sector']] if config.get('etf_sector') else ['股票型ETF','股票型ETF基金','全部ETF基金','ETF基金','全部ETF']
     diagnostics['etf_universe_attempts']=[];diagnostics['tracking_attempts']=[]
@@ -144,26 +298,34 @@ def refresh(w,request,stop=lambda:False):
             if universe:
                 diagnostics['etf_sector']=sector;break
         except (WindError,ValueError,TypeError) as exc:
-            diagnostics['etf_universe_attempts'].append(dict(sector=sector,error_type=type(exc).__name__,reason=str(exc)));continue
+            warnings.append(w.warning(exc,'ETF全集'))
+            diagnostics['etf_universe_attempts'].append(dict(sector=sector,error_type=type(exc).__name__,error_code=diagnostics['steps'][-1].get('error_code')));continue
     if universe:
-        codes=sorted({r['symbol'] for r in universe});by_code={r['symbol']:r for r in universe};tracking={}
+        codes=sorted({r['symbol'] for r in universe});by_code={r['symbol']:r for r in universe};tracking={};resolved=set()
         mapping_complete=False
         for field in ([config['tracking_field']] if config.get('tracking_field') else ['fund_trackindexcode','fund_trackindex']):
             try:
-                values=wss(w,codes,field,'tradeDate='+day.replace('-',''),stop)
-                candidate={};unresolved=[]
+                # Fill only still-unresolved mappings. Different Wind fields may
+                # have complementary coverage; neither partial field is a universe.
+                values=wss(w,sorted(set(codes)-resolved),field,'tradeDate='+day.replace('-',''),stop)
                 for code,value in values.items():
-                    if value is None or str(value).strip().lower() in ('','none','nan','--','n/a'):
-                        unresolved.append(code);continue
+                    if not isinstance(value,str) or value.strip().lower() in ('','none','nan','--','n/a','null','0','无','暂无','不适用'):
+                        continue
                     val=str(value).strip().upper();root=next((r for r,i in ROOTS.items() if i==val),None)
                     if root is None:
                         name=str(value).strip();root=NAMES.get(name[:-2] if name.endswith('指数') else name)
-                    if root:candidate[code]=root
-                if candidate and not unresolved:
-                    tracking=candidate;mapping_complete=True;diagnostics['tracking_field']=field;break
-                diagnostics['tracking_attempts'].append(dict(field=field,matching=len(candidate),unresolved=len(unresolved),unresolved_sample=unresolved[:10]))
+                    # A blank/invalid code is unknown, not evidence of an unrelated
+                    # benchmark. A real non-target benchmark still resolves scope.
+                    if root is None and field=='fund_trackindexcode' and not re.fullmatch(r'[0-9A-Z]{6,12}\.[A-Z]{2,6}',val):continue
+                    resolved.add(code)
+                    if root:tracking[code]=root
+                unresolved=sorted(set(codes)-resolved)
+                diagnostics['tracking_attempts'].append(dict(field=field,matching=len(tracking),unresolved=len(unresolved),unresolved_sample=unresolved[:10]))
+                if tracking and not unresolved:
+                    mapping_complete=True;diagnostics['tracking_field']=field;break
             except (WindError,ValueError,TypeError) as exc:
-                diagnostics['tracking_attempts'].append(dict(field=field,error_type=type(exc).__name__,reason=str(exc)));continue
+                warnings.append(w.warning(exc,'ETF标的指数'))
+                diagnostics['tracking_attempts'].append(dict(field=field,error_type=type(exc).__name__,error_code=diagnostics['steps'][-1].get('error_code')));continue
         relevant=sorted(tracking)
         if relevant and mapping_complete:
             try:
@@ -179,12 +341,12 @@ def refresh(w,request,stop=lambda:False):
                             aum_cny=number(assets[s])) for s in selected])
                     changed+=1
                 diagnostics['aum_field']=field;diagnostics['aum_unit']='CNY;unit=1'
-            except (WindError,ValueError,TypeError) as exc:warnings.append('ETF规模：'+str(exc))
-        else:warnings.append('ETF标的指数映射未取得；请核对Wind字段权限')
+            except (WindError,ValueError,TypeError) as exc:warnings.append(w.warning(exc,'ETF规模'))
+        else:warnings.append('ETF标的指数映射未完整取得；具体字段与失败阶段见诊断')
     else:warnings.append('Wind ETF全集未取得；可在设置中指定终端板块参数')
-    output['errors']=warnings;diagnostics['groups']=warnings
+    output['errors']=warnings
     if not changed:raise WindError('Wind未返回可发布参考资料')
-    return dict(data=output,diagnostics=diagnostics)
+    return dict(data=output,diagnostics=safe_diagnostics(diagnostics))
 
 
 def main():
@@ -196,19 +358,22 @@ def main():
         print(json.dumps(dict(provider='WindPy',python=sys.executable,module_available=available,
             user_site_enabled=not bool(sys.flags.no_user_site) and bool(site.ENABLE_USER_SITE),connection_attempted=False)))
         return 0
-    request=json.loads(sys.stdin.read());result={}
+    request=json.loads(sys.stdin.read());result={};w=None
     try:
         with contextlib.redirect_stdout(sys.stderr):
             from WindPy import w
-            try:
-                from pathlib import Path
-                stop=lambda:bool(request.get('stop_file') and Path(request['stop_file']).exists())
-                result=refresh(w,request,stop)
-            finally:
-                w.stop()
+            stop=lambda:bool(request.get('stop_file') and Path(request['stop_file']).exists())
+            result=refresh(w,request,stop)
         result['ok']=True
     except Exception as exc:
-        result=dict(ok=False,error_type=type(exc).__name__,reason=str(exc) if isinstance(exc,(WindError,ValueError)) else 'Wind终端参考查询未完成')
+        result=dict(ok=False,error_type=type(exc).__name__,reason='Wind终端低频查询未完成；查看分阶段错误码，不据此猜测登录、权限或网络原因',
+                    diagnostics=safe_diagnostics(getattr(exc,'diagnostics',dict(provider='WindPy',requested_day=request.get('day'),
+                        steps=[dict(stage='import' if w is None else 'worker',status='failed',error_type=type(exc).__name__)]))))
+    finally:
+        if w is not None:
+            try:
+                with contextlib.redirect_stdout(sys.stderr):w.stop()
+            except Exception:pass  # Cleanup must not erase the original error evidence.
     print(json.dumps(result,ensure_ascii=False,allow_nan=False,default=lambda v:v.isoformat() if hasattr(v,'isoformat') else str(v)))
     return 0
 

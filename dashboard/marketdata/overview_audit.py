@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from .overview_reference import load,ranking,ROOTS,finite,worker_status
-from .overview_daily import read_day,requests,directory
+from .overview_daily import read_day,requests,directory,merge_daily,local_copy_plan
 from .overview_percentiles import requirements,prepare,evaluate,prior_days,SLOTS
 from .overview_sessions import latest_completed_session
 
@@ -75,21 +75,47 @@ def daily_inputs(config,local_root,target,metadata,*,repo=None,frozen=None):
             except (OSError,KeyError) as exc:errors.append(dict(symbol=symbol,error_type=type(exc).__name__))
         additions=[dict(row,event_time=pd.Timestamp(row['source_at']),is_final=True) for d,value in cache.items() if (row:=value.get('rows',{}).get(symbol))]
         if additions:
-            frame=pd.concat([frame,pd.DataFrame(additions)],ignore_index=True)
-            frame['trade_date']=frame.trade_date.astype(str).str[:10]
-            frame=frame.drop_duplicates('trade_date',keep='first')
+            frame=merge_daily(frame,additions)
         daily[symbol]=frame
     return daily,needed,errors
+
+
+def calculation_preview(config,local_root,now,repo,frozen):
+    """Run the real page engine with a read-only model and the frozen publication.
+
+    No NativeModel constructor, ResultStore, App, collector or network client.
+    This is a calculation preview, never evidence that a live UI applied it.
+    """
+    from types import SimpleNamespace
+    from dashboard.native.model import NativeModel
+    from dashboard.native.market_overview import MarketOverviewEngine
+    class FrozenReader:
+        def freeze(self):return frozen
+        def symbols(self,snapshot):return repo.symbols(snapshot)
+        def read_window(self,*args,**kwargs):return repo.read_window(*args,**kwargs)
+    reader=FrozenReader()
+    def configured(_):
+        if repo is None:raise ValueError('无可用冻结历史')
+        return reader
+    model=SimpleNamespace(config=config,local_root=Path(local_root),demo=False,live_cursor=0,live_key=None,
+        live_rows=pd.DataFrame(),configure_repository=configured)
+    model._live=lambda instruments,as_of:NativeModel._live(model,instruments,as_of)
+    state=MarketOverviewEngine(model).snapshot(now=now)
+    fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day',
+        'basis_points','annual_pct','basis_reason','percentile_20','percentile_60','percentile_reason','continuous_percentiles')
+    return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
+        calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],
+        futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']])
 
 
 def collect(config,local_root,*,now=None,iopv_fields=None):
     from .repository import ReferenceBook
     from .contract_reference import latest_contracts
-    from dashboard.session_clock import session_policy
+    from dashboard.session_clock import market_phase
     from dashboard.native.overview_instruments import etfs
     stamp=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai')).tz_convert('Asia/Shanghai')
     day=str(stamp.date());target=latest_completed_session(stamp.to_pydatetime())
-    pricing=day if session_policy(stamp.to_pydatetime())['allowed'] else target
+    pricing=day if market_phase(stamp.to_pydatetime())['phase'] in ('morning','lunch','afternoon') else target
     reference=load(config,local_root,now=stamp.to_pydatetime());data=reference['data']
     result=dict(schema='overview-data-gaps-v1',at=stamp.isoformat(),expected_completed_session=target,
         percentile_pricing_day=pricing,network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
@@ -112,6 +138,9 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         fetched_at=data.get('fetched_at'),due=reference['due'],load_error=reference['error'],warnings=data.get('errors',[]),indices=wind)
     result['wind']['last_job']=worker_status(read_object(Path(local_root)/'overview_reference/status.json'))
     repo,frozen,history=inspect_history(config,target=target);result['historical']=history
+    history['minute_deep_verification_complete']=bool(history.get('pending_current') and
+        history.get('maintenance',{}).get('unknown_groups')==0 and history.get('maintenance',{}).get('state')=='complete')
+    daily={}
     try:
         daily,required,errors=daily_inputs(config,local_root,pricing,metadata,repo=repo,frozen=frozen)
         result['errors'].extend(dict(stage='daily_read',**e) for e in errors)
@@ -120,8 +149,10 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             for slot in SLOTS:
                 prepared=prepare(root,slot,metadata,daily,pricing)
                 checked=evaluate(prepared,None,prepared['current_symbol'])
+                checked.update(evaluation_scope='history_only',current_value_evaluated=False)
                 # This audit certifies history coverage, never an untested live marker.
                 for window in checked['windows'].values():
+                    if window['complete']:window['reason']='历史窗口完整；本历史审计未计算当前分位，需另查页面的实时配对或收盘模式'
                     for row in window['missing']:
                         if row['reason']!='mapping_missing':
                             for symbol in row.get('missing_symbols') or [row.get('symbol') or ROOTS[root]]:missing[symbol].add(row['day'])
@@ -147,6 +178,13 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             equity_universe_known=bool(equity_universe),all_four_equity_universes_known=all(w['weights_available'] for w in wind.values()),
             source_availability='not_tested',note='这是缓存待补清单；已有可用标准历史先本地复制，仍缺才请求DDB；不证明远端源表没有数据',
             last_job=read_object(directory(config,local_root)/'status.json'))
+        plan=local_copy_plan(jobs,daily)
+        result['ddb'].update(local_copy_available_rows=plan['local_copy_rows'],
+            local_copy_available_batches=plan['local_copy_batches'],
+            remaining_after_local_copy_rows=plan['remaining_rows'],
+            remaining_after_local_copy_batches=plan['remaining_batches'],
+            local_copy_performed=False,
+            plan_note='先逐行核验可用标准收盘再分类；本诊断不复制或补库，剩余仍是本地依赖缺口，不证明远端供给')
         result['ddb']['last_job']={k:v for k,v in result['ddb']['last_job'].items() if k in
             ('schema','target','inserted','pending_rows','pending_batches','status','error_types','updated_at')}
     except (OSError,ValueError,TypeError,KeyError) as exc:result['ddb']=dict(status='unavailable',error_type=type(exc).__name__)
@@ -168,15 +206,21 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         snapshot_at=snapshot.get('finished_at'),reference_matches=bool(reference['version'] and snapshot.get('reference_version')==reference['version']),
         missing_symbols=absent,stale_at_snapshot_symbols=stale,missing_previous_close=no_previous,
         universe_known=bool(equity_universe),note='分钟采集来自现有HTTP，不由Wind或DDB实时提供；盘后收盘参考另用DDB日线')
+    result['constituent_quotes'].update(all_four_universes_known=all(w['weights_available'] for w in wind.values()),
+        known_missing_count=len(absent),total_missing_count=len(absent) if all(w['weights_available'] for w in wind.values()) else None)
     result['other_inputs']=dict(iopv=[dict(symbol=f['symbol'],iopv_id=f.get('iopv_id'),
         status='mapping_configured_quote_pair_still_required' if f.get('iopv_id') else 'source_or_explicit_mapping_missing') for f in etfs(config,data,day)],
         iopv_field_discovery=iopv_fields or {},net_creation='verified_share_NAV_source_not_configured',pcf='verified_daily_creation_file_not_configured',
         note='IOPV、净申赎、PCF的缺来源不等于DDB历史缺口；不拿成交量、规模变化或历史折溢价代替')
     result['summary']=dict(missing_index_reference_roots=[r for r,g in wind.items() if not g['weights_available']],
         missing_etf_size_roots=[r for r,g in wind.items() if not g['selected_etfs']],
-        missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])),
+        missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])) if all(w['weights_available'] for w in wind.values()) else None,
+        known_missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])),
         continuous_windows_incomplete=[alias+'/'+window for alias,slot in result.get('continuous_annual',{}).get('slots',{}).items()
             for window,value in slot['windows'].items() if not value['complete']],
         history_pending_current=history.get('pending_current',False),
         source_availability_tested=False,company_acceptance_passed=False)
+    try:result['page_calculation_preview']=calculation_preview(config,local_root,stamp,repo,frozen)
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        result['page_calculation_preview']=dict(status='unavailable',error_type=type(exc).__name__,ui_application_verified=False,network_requested=False)
     return result

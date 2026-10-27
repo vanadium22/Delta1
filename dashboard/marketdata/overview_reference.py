@@ -20,15 +20,15 @@ SCHEMA = 'overview-reference-v1'
 def worker_status(value):
     """Share controlled diagnostics only, never arbitrary status/config keys."""
     if not isinstance(value,dict):return dict(status='not_recorded')
-    result={k:v for k,v in value.items() if k in ('status','provider','error_type','reason','warnings','started_at','finished_at')}
+    result={k:v for k,v in value.items() if k in ('status','provider','error_type','started_at','finished_at')}
+    if value.get('reason'):
+        result['reason']='低频任务未完成；安全失败阶段与ErrorCode见diagnostics，具体原因待核验'
+    if isinstance(value.get('warnings'),list):
+        result['warning_count']=len(value['warnings'])
     diagnostics=value.get('diagnostics') or {}
     if isinstance(diagnostics,dict):
-        result['diagnostics']={k:v for k,v in diagnostics.items() if k in ('provider','python','user_site_enabled','requested_day',
-            'operations','groups','etf_sector','tracking_field','aum_field','aum_unit','aum_field_comment')}
-        for name in ('etf_universe_attempts','tracking_attempts'):
-            rows=diagnostics.get(name)
-            if isinstance(rows,list):result['diagnostics'][name]=[{k:v for k,v in row.items() if k in
-                ('sector','candidates','field','matching','unresolved','unresolved_sample','error_type','reason')} for row in rows if isinstance(row,dict)]
+        from .wind_terminal_worker import safe_diagnostics
+        result['diagnostics']=safe_diagnostics(diagnostics)
     return result
 
 

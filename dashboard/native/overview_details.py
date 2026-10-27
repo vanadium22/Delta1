@@ -7,6 +7,7 @@ import pandas as pd
 from dashboard.marketdata.overview_reference import load, ranking, finite
 from dashboard.marketdata.overview_contributions import contributions, read_equities
 from dashboard.marketdata.quote_quality import aligned_quotes, quote_quality
+from dashboard.session_clock import market_phase
 from .instruments import UNDERLYINGS
 
 
@@ -33,6 +34,7 @@ def five_minute(row, now):
 def premium_pairs(symbol, iopv_id, observations, now):
     if observations.empty or not iopv_id:
         return None, []
+    continuous=market_phase(now.to_pydatetime())['continuous']
     frame = observations[observations.instrument_id.isin([symbol, iopv_id]) & observations.observed_at.le(now)]
     funds = []
     for q in frame[frame.instrument_id.eq(symbol)].to_dict('records'):
@@ -62,7 +64,7 @@ def premium_pairs(symbol, iopv_id, observations, now):
                      session='am' if minutes <= 690 else 'pm', etf_price=q['close'])
         if str(local.date()) == str(now.tz_convert('Asia/Shanghai').date()):
             series.append(point)
-        if aligned_quotes([q, ref], now)[0] and (current is None or source > pd.Timestamp(current['source_at'])):
+        if continuous and aligned_quotes([q, ref], now)[0] and (current is None or source > pd.Timestamp(current['source_at'])):
             current = point
     return current, sorted(series, key=lambda p: p['source_at'])
 
@@ -78,9 +80,8 @@ def enrich(model, data, reference, now):
     if hasattr(model,'local_root'):
         from dashboard.marketdata.overview_weights import roll,closed_snapshot
         from dashboard.marketdata.overview_daily import directory
-        from dashboard.session_clock import session_policy
         from .market_overview import previous_session
-        closed=not session_policy(now.to_pydatetime())['allowed'] and bool(data.get('completed_session'))
+        closed=market_phase(now.to_pydatetime())['phase'] not in ('morning','lunch','afternoon') and bool(data.get('completed_session'))
         if closed:
             previous=previous_session(data['completed_session'])
         days={previous,data.get('completed_session'),*(g.get('as_of') for g in groups.values())}-{None}

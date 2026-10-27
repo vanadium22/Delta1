@@ -1,3 +1,31 @@
+# 2026-10-27 当前验收与显式Wind分阶段只读入口
+
+本轮已读取11:32–11:33的公司overview (2).json，属于午休；不能因两样本源时不推进判断断网。没有同次diagnosis，无法确认公司HEAD/正在使用窗口版本。WindPy已安装，具体WindError原因须看新阶段/错误码，勿重装环境或改用Oracle。16档20/60连续历史已齐，1120行只是独立缓存待补；unknown_groups=12600仍不是分钟深核完成，allow_unverified保持原值。
+
+在原公司Git根目录更新，先执行默认离线检查：
+
+```powershell
+Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+git pull --ff-only
+./dashboard/diagnose_presentation.cmd -Overview
+```
+
+回传这次输出目录的overview.json和diagnosis.json。默认程序不连接Wind/HTTP/DDB，不改配置/VPN，不启动窗口。新字段包括真实交易阶段、缓存可本地复制/复制后仍缺、history_only历史窗口，以及page_calculation_preview（正式引擎计算预览，不证明运行UI已应用）；后台报告中的计算和页面时间仍保留原时间，不认证进程存活。预计公司午休phase=lunch、checked_in_continuous_session=false，即使checked_in_access_window=true。
+
+需要定位Wind时，在保持日常Wind终端已登录的公司电脑**显式选择**以下阶段，每次等待结束后再进行下一项：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -WindStage Connect
+./dashboard/diagnose_presentation.cmd -WindStage Indices
+./dashboard/diagnose_presentation.cmd -WindStage ETFs
+```
+
+每次仅读取Wind低频接口并生成独立wind.json+diagnosis.json；不发布参考快照、不修改配置/缓存/凭据、不连接HTTP/DDB或操作VPN。Connect只检查start/isconnected；Indices读取完整成分/权重、缺失行业及指定已完成日基准收盘；ETFs读取同指数候选/跟踪映射和同日规模。每阶段上限180秒，失败/超时保留最后安全调用，原SDK消息不回传。ErrorCode=0但status=invalid_response是字段/数量/日期校验未通过；连接状态null表示未读得该状态，不等于断开。profile_files_unchanged应为true，published始终false。请回传失败阶段的wind.json与同次diagnosis.json；不要回传native.json、凭据或原始连接异常。
+
+资料实际发布仍通过重开原dashboard/start_presentation.vbs后点击DDB一键补齐。更新后的正常低频任务会重新尝试一次，此后保留每周限制；显式补齐可重试。完整四指数数量300/50/500/1000、分类、基准收盘及ETF同日全集规模齐备后再验行业贡献/规模前三；ETF两个跟踪字段互补可以补全，仍未解析的候选不能忽略。缓存先从已有有效标准历史复制，仍缺才按原政策准备DDB；别按旧1120清单手动重新下载。
+
+页面验收仍用原蓝白入口：IF/IH/IC/IM切换后四张实际合约与00/01/02/03对应，20/60两行年化分位一致，窄宽窗口及滚动正常，清空后不残留。09:29仍显示实际已完成收盘参考；午休原源时保留且不标实时；连续交易使用30秒/3秒；暂停/关闭时源时不被重绘推进。实际源时间、接收时间、计算与页面应用分别核对。盘中主行情及行业分钟采样持续10–15分钟仍待现场，未以本机回归代替公司通过。IOPV/净申赎/PCF仍缺可靠输入。
+
 # 2026-10-27 本轮公司只读检查与四档分位验收
 
 用户已明确卡片继续显示实际合约，00/01/02/03只作统计档位。公司先在原Git根目录执行一次 `git pull --ff-only`，再运行：

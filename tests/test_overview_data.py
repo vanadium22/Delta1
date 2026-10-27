@@ -139,6 +139,26 @@ def write_day(root,day,rows,stamp='2026-10-26T15:50:00+08:00'):
 
 
 class DatedDataTests(unittest.TestCase):
+    def test_preopen_lunch_and_close_do_not_label_fresh_saved_pairs_realtime(self):
+        symbol='IF2611.CFE';spot='000300.SH';metadata={symbol:dict(expiry_date='2026-11-20')}
+        for clock,usable in [('09:29:59',False),('09:30:00',True),('11:30:00',False),('12:59:59',False),('13:00:00',True),('15:00:00',False)]:
+            at=pd.Timestamp('2026-10-27T'+clock+'+08:00')
+            live={s:observation(4000,4000,at) for s in (symbol,spot)}
+            row=quote_card(symbol,'期指','IF',live,{},at,'2026-10-26')
+            index=quote_card(spot,'指数','IF',live,{},at,'2026-10-26')
+            futures_values(row,live,{},metadata,at,index)
+            self.assertEqual(row['quality']['usable'],usable,clock)
+            self.assertEqual(row['annual_pct'],0 if usable else None,clock)
+            self.assertEqual(row['source_at'],at.isoformat())
+
+    def test_valid_side_close_replaces_unusable_standard_row_without_mutating_original(self):
+        original=pd.DataFrame([dict(trade_date='2026-10-26',is_final=True,close=float('nan'))])
+        backup=original.copy(deep=True)
+        merged=daily.merge_daily(original,[dict(trade_date='2026-10-26',is_final=True,close=4100)])
+        self.assertEqual(merged.iloc[0]['close'],4100);pd.testing.assert_frame_equal(original,backup)
+        original.loc[0,'close']=4000
+        self.assertEqual(daily.merge_daily(original,[dict(trade_date='2026-10-26',is_final=True,close=4100)]).iloc[0]['close'],4000)
+
     def test_calendar_includes_today_only_after_completed_close_and_handles_weekends(self):
         for stamp,expected in [('2026-10-26T09:00:00+08:00','2026-10-23'),('2026-10-26T15:09:59+08:00','2026-10-23'),
             ('2026-10-26T15:10:00+08:00','2026-10-26'),('2026-10-25T20:00:00+08:00','2026-10-23'),

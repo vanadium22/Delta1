@@ -18,7 +18,7 @@ from dashboard.marketdata.quote_quality import quote_quality
 from dashboard.native.overview_instruments import quote_registry
 from dashboard.native.overview_instruments import etfs
 from dashboard.native.market_overview import previous_session
-from dashboard.session_clock import session_policy
+from dashboard.session_clock import session_policy,market_phase
 
 
 def read_status(path):
@@ -59,6 +59,10 @@ def app_reports(local_root, runtime_root=None):
                     'last_failure_at','last_failure_status','received_at')},
                 overview_runtime=dict(schema=runtime.get('schema'),pipeline_enabled=runtime.get('pipeline_enabled'),
                     reference_scheduler={k:scheduler.get(k) for k in ('status','reason','checked_at','worker_running','worker_exit_code')}))
+            for name in ('calculation','applied'):
+                timing=value.get(name) or {}
+                entry[name]={k:timing.get(k) for k in ('calculation_started_at','calculation_finished_at','calculation_seconds',
+                    'realtime_sequence','ui_applied_at','ui_apply_seconds','selection_generation','active_workers','pending_requests')}
             target=matching if same else others
             if len(target)<3:target.append(entry)
         except (OSError,ValueError,TypeError,AttributeError):
@@ -119,6 +123,7 @@ def sample(config, local_root, *, now=None):
     from index_strategy.instant_dld.reader import RealtimeReader
     now = pd.Timestamp(now or datetime.now(timezone.utc))
     today = str(now.tz_convert('Asia/Shanghai').date())
+    phase=market_phase(now.to_pydatetime())
     reference = load(config, local_root, now=now.to_pydatetime())
     registry = {**{s:dict(asset_type='cn_index',market_region='CN') for s in ROOTS.values()},
                 **quote_registry(config,reference['data'],today)}
@@ -150,6 +155,7 @@ def sample(config, local_root, *, now=None):
         mapping,mapping_error=slot_map(metadata,root,today)
         for alias,symbol in mapping.items():
             ok,reason=aligned_quotes([quotes.get(symbol),quotes.get(spot)],now)
+            if ok and not phase['continuous']:ok,reason=False,'非连续交易时段；当前实时报价分位不在本样本核验'
             current_pairs[alias]=dict(symbol=symbol,spot=spot,usable=ok,reason=reason)
     groups = {}
     for root in ROOTS:
@@ -176,7 +182,7 @@ def sample(config, local_root, *, now=None):
             pending=json.loads((directory(config,local_root)/'status.json').read_text(encoding='utf8'))
             closed_evidence['daily_maintenance']={k:pending.get(k) for k in ('status','target','inserted','pending_rows','pending_batches','error_types','updated_at')}
         except (OSError,ValueError):pass
-        if not session_policy(now.to_pydatetime())['allowed']:
+        if phase['phase'] not in ('morning','lunch','afternoon'):
             equity=closed_snapshot(config,local_root,completed,reference['version'])
             previous=previous_session(completed)
         for root,symbol in ROOTS.items():
@@ -186,7 +192,7 @@ def sample(config, local_root, *, now=None):
             detail[root]['classified'] = sum(bool(r.get('industry')) for r in reference['data'].get('indices',{}).get(root,{}).get('rows',[]))
     except Exception as exc:
         errors.append(dict(stage='contributions',error_type=type(exc).__name__))
-    return dict(at=now.isoformat(),observations=observations,etfs=groups,indices=detail,
+    return dict(at=now.isoformat(),market_session=market_phase(now.to_pydatetime()),observations=observations,etfs=groups,indices=detail,
         reference=dict(fetched_at=reference['data'].get('fetched_at'),due=reference['due'],error=reference['error'],errors=reference['data'].get('errors',[])),
         wind=read_status(Path(local_root)/'overview_reference/status.json'),iopv_source_fields=discovery,
         closed_data=closed_evidence,current_futures_pairs=current_pairs,errors=errors)
@@ -218,9 +224,11 @@ def collect(local_root, *, samples=2, interval=3, runtime_root=None):
         values=pd.to_datetime([q.get(field) for q in first.values()],utc=True,errors='coerce').dropna()
         return values.max().tz_convert('Asia/Shanghai').isoformat() if len(values) else None
     result['quote_cache_summary']=dict(latest_source_at=latest('source_at'),latest_received_at=latest('received_at'),
-        checked_in_continuous_session=bool(result['session']['allowed']),
+        checked_in_continuous_session=all(s['market_session']['continuous'] for s in result['samples']),
+        market_phase=result['samples'][-1]['market_session']['phase'],
+        checked_in_access_window=bool(result['session']['allowed']),
         fresh_symbols_in_first_sample=[s for s,q in first.items() if q.get('quality',{}).get('usable')],
-        note='盘后两样本不推进不能判连接失败；缓存若停在更早盘中时刻，仍需核对对应配置的采集状态')
+        note='采集许可窗口包含午休，不等于连续交易；午休/盘前盘后源时不推进不能判断网。更早盘中停更需另核对原配置采集状态，历史状态文件不证明进程存活')
     from dashboard.marketdata.overview_audit import collect as collect_gaps
     try:result['data_gaps']=collect_gaps(config,root,iopv_fields=result['samples'][-1].get('iopv_source_fields'))
     except (OSError,ValueError,TypeError,KeyError) as exc:

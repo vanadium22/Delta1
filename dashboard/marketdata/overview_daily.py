@@ -88,6 +88,33 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
     return result
 
 
+def usable_records(frame):
+    if frame is None or frame.empty:return []
+    return [row for row in frame.to_dict('records') if row.get('is_final')==True and finite(row.get('close')) and row['close']>0]
+
+
+def merge_daily(frame,additions):
+    """A bad standard close cannot mask a verified side-cache close of that day."""
+    rows=usable_records(frame)+list(additions)
+    if not rows:return pd.DataFrame()
+    result=pd.DataFrame(rows)
+    result['trade_date']=result.trade_date.astype(str).str[:10]
+    return result.drop_duplicates('trade_date',keep='first').sort_values('trade_date')
+
+
+def local_copy_plan(jobs,daily):
+    """Classify cache absence without copying, connecting or assuming remote supply."""
+    available={s:{str(r['trade_date'])[:10] for r in usable_records(f)} for s,f in daily.items()}
+    local=[];remaining=[]
+    for job in jobs:
+        codes=[s for s in job['symbols'] if job['asset'] in ('index','future') and job['day'] in available.get(s,set())]
+        if codes:local.append(dict(job,symbols=codes))
+        pending=[s for s in job['symbols'] if s not in codes]
+        if pending:remaining.append(dict(job,symbols=pending))
+    return dict(local_copy_rows=sum(len(j['symbols']) for j in local),local_copy_batches=local,
+                remaining_rows=sum(len(j['symbols']) for j in remaining),remaining_batches=remaining)
+
+
 def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False):
     """Build missing close cache from usable original bars before any network."""
     jobs=requests(config,local_root,target,metadata);wanted={}
@@ -100,9 +127,9 @@ def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False
         try:frame=repo.read_window(symbol,'1d',count=65,as_of=pd.Timestamp(target+'T23:59:59+08:00'),
             fields=('open','high','low','close','volume','turnover','open_interest'),frozen=frozen)
         except ValueError:continue
-        for row in frame.to_dict('records'):
+        for row in usable_records(frame):
             day=str(row['trade_date'])[:10]
-            if day not in days or row.get('is_final')!=True or not finite(row.get('close')) or row['close']<=0:continue
+            if day not in days:continue
             values={k:float(row[k]) if finite(row.get(k)) else None for k in ('open','high','low','close','volume')}
             values.update(amount=float(row['turnover']) if finite(row.get('turnover')) else None,
                 oi=float(row['open_interest']) if finite(row.get('open_interest')) else None)
