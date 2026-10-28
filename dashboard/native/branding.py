@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 
-ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "research.ico"
+ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "company_overview.ico"
 APP_ID = "Delta1.IndexDashboard.Native"
 
 

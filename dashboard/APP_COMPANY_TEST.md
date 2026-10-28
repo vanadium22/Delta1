@@ -1,3 +1,17 @@
+# 2026-10-28 第二批：新概览与一键快捷方式
+
+公司正常关闭旧看板后git pull --ff-only，仍从原入口启动。现在默认“概览”为4指数＋16期货卡，指数/ETF/股指期货为右侧同级详情；每卡“去分红年化基差”下有较昨日变化，两档分位保留。左上时间是行情参考时点，不是页面重绘；详细时点可悬浮查看。行业/ETF能力和行情分析待第三批，不能以本批页面变化声称公司缺数据全解决。
+
+在公司Git根一键生成/更新桌面入口：
+
+```powershell
+./dashboard/create_desktop_shortcut.cmd -NoPause
+```
+
+自动定位真实桌面，生成Delta1股指看板.lnk，目标dashboard/start_presentation.vbs，显式public；已有本看板LocalRoot保留，无已有链接时优先dashboard/localsetting/app。特殊配置可加-LocalRoot真实目录；不改native.json，不启动程序，不覆盖其他应用入口。新链接验证后替换原件，旧链接备份在dashboard/runtime/shortcut_backups，原图标不留额外桌面入口。新图标资产随Git发布，勿复制开发机配置。
+
+建议验证860/1440/1920窗口、概览上下滚动、同级详情切换、四品种/空值清空，以及同一实际合约的较昨日点基差。历史D未齐按下方第一批Import后Local复核；缺D不能通过最新表回填过去来消掉。公司真实刷新与数据仍回传同次Overview+diagnosis。
+
 # 2026-10-28 第一批：公司分红导入与非交易复测
 
 更新后仍用原入口，先在公司根目录git pull --ff-only，LocalRoot沿用dashboard/localsetting/app。当前已实施逐日分红/历史缓存/连续分位/非交易参考；20卡等其余需求继续下一批，暂不以旧页面标题判断新数据逻辑未更新。

@@ -42,10 +42,13 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
             close_timer.stop();window.close()
     close_timer.timeout.connect(check_replacement)
     if instance is not None:close_timer.start()
-    window.pipeline_page=PipelinePage(pipeline);window.pages.addTab(window.pipeline_page,'数据更新 / 设置 / 诊断')
-    window.pipeline_note=QLabel();window.pipeline_note.setWordWrap(True)
-    window.centralWidget().layout().insertWidget(1,window.pipeline_note)
+    window.pipeline_page=PipelinePage(pipeline);window.pages.addTab(window.pipeline_page,'数据更新 / 设置')
+    compact=hasattr(window,'update_overview_status')
+    window.pipeline_note=window.status if compact else QLabel()
+    if not compact:
+        window.pipeline_note.setWordWrap(True);window.centralWidget().layout().insertWidget(1,window.pipeline_note)
     def pipeline_note():
+        if compact:window.update_overview_status();return
         trace=getattr(window,'applied_trace',{});calc=getattr(model,'refresh_trace',{});elapsed=''
         if window.busy and calc.get('calculation_started_monotonic'):
             import time

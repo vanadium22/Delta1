@@ -90,7 +90,7 @@ class FlowGrid(QWidget):
         self.columns = columns
         while self.grid.count():
             self.grid.takeAt(0)
-        for i in range(self.maximum):
+        for i in range(max(self.maximum,self.grid.columnCount())):
             self.grid.setColumnStretch(i, 1 if i < columns else 0)
             self.grid.setColumnMinimumWidth(i, 0)
         for i, widget in enumerate(self.items):
@@ -127,7 +127,7 @@ class IndexCard(Panel):
         self.change.setAlignment(Qt.AlignmentFlag.AlignRight); top.addWidget(self.heading, 1); top.addWidget(self.change, 1)
         self.box.addLayout(top); self.price = lab('—', 36, ACCENT, True); self.box.addWidget(self.price)
         bottom = QHBoxLayout(); self.short = lab('5分钟 —', 16, MUTED); self.clock = lab('行情源 —', 14, MUTED)
-        self.clock.setAlignment(Qt.AlignmentFlag.AlignRight); bottom.addWidget(self.short, 1); bottom.addWidget(self.clock, 1)
+        self.clock.setAlignment(Qt.AlignmentFlag.AlignRight); bottom.addWidget(self.short, 1);self.clock.setParent(self);self.clock.hide()
         self.box.addLayout(bottom); self.setMinimumHeight(148)
 
     def mouseReleaseEvent(self, event):
@@ -252,8 +252,9 @@ class IndexOverviewPage(ScrollPage):
         for card in self.cards.values():
             card.selected(card.root == root)
         self.heading.setText(name+' · 谁在推动，谁在拖累')
-        self.snapshot.setText((('收盘 '+stamp(detail.get('source_at'),True) if detail.get('mode')=='completed_daily' else '停更快照 '+stamp(detail.get('source_at'),True) if detail.get('stale') else '快照 '+clock(detail.get('source_at')))+
-            ' · 权重覆盖 '+numeric(detail.get('coverage_pct'), 1, suffix='%')) if detail.get('source_at') else '分钟快照待接入 · 60秒汇总')
+        self.snapshot.setText(('有效成分 '+str(detail.get('covered',0))+'/'+str(detail.get('expected',0))+
+            ' · 权重覆盖 '+numeric(detail.get('coverage_pct'),1,suffix='%')) if detail.get('expected') else '待成分资料')
+        self.snapshot.setToolTip('成分源 '+str(detail.get('source_at') or '—')+'\n'+str(detail.get('reason') or ''))
         self.snapshot.setToolTip('实际取得 '+stamp(detail.get('snapshot_at'))+'\n权重基准 '+str(detail.get('weight_date') or '待核验')+'\n官方权重日 '+str(detail.get('official_weight_date') or '待核验')+'\n'+str(detail.get('weight_reason') or detail.get('reason',''))+f"\n有效 {detail.get('covered',0)}/{detail.get('expected',0)}只")
         for widget, key, suffix in zip(self.metrics, ('up_pct', 'actual_points', 'contribution_points', 'residual_points'), ('%', '点', '点', '点')):
             value = detail.get(key); put(widget, numeric(value, 1 if key == 'up_pct' else 2, key != 'up_pct', suffix), color=ink(value), size=28, bold=True)
@@ -326,7 +327,8 @@ class EtfCard(Panel):
         self.closing_premium=lab('',16,MUTED);self.box.addWidget(self.closing_premium)
         divider = QFrame(); divider.setFixedHeight(1); divider.setStyleSheet(f'background:{BORDER};'); self.box.addWidget(divider)
         self.scale = lab('', 17); self.activity = lab('', 16, MUTED); self.clock = lab('', 14, MUTED)
-        for w in (self.scale, self.activity, self.clock): self.box.addWidget(w)
+        for w in (self.scale, self.activity): self.box.addWidget(w)
+        self.clock.setParent(self);self.clock.hide()
         self.setMinimumHeight(265)
 
     def render(self, row, position):

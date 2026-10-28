@@ -7,6 +7,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
+import pandas as pd
 
 from dashboard.native.bootstrap import configure_qt
 configure_qt()
@@ -19,7 +20,7 @@ from dashboard.native.overview_instruments import etfs
 from dashboard.native.instruments import UNDERLYINGS
 from dashboard.marketdata.overview_contributions import contributions
 from dashboard.marketdata.overview_reference import ROOTS
-from tests.test_market_overview import NOW, observation,futures_values
+from tests.test_market_overview import NOW, observation,futures_values,ZERO_DIVIDENDS
 
 
 APP=QApplication.instance() or QApplication([])
@@ -54,9 +55,11 @@ def state():
             futures.append(row)
     for row in [*indices,*funds,*futures]:
         row['series']=[dict(x=i,value=.1+i*.01,source_at=f'2026-10-26T10:00:0{i}+08:00',session='am') for i in range(3)]
+    from dashboard.native.futures_overview import details
+    groups=details(futures,indices,live,pd.DataFrame(),NOW,dividends=ZERO_DIVIDENDS)
     return dict(as_of=NOW.isoformat(),versions={},overview=[],entities=[],selection=dict(overview_slot=0),
                 market_overview=dict(schema='market-overview-v1',indices=indices,etfs=funds,futures=futures,
-                                     previous_session='2026-10-23',errors=[]))
+                                     previous_session='2026-10-23',errors=[],futures_details=groups))
 
 
 class OverviewUiTests(unittest.TestCase):
@@ -80,7 +83,7 @@ class OverviewUiTests(unittest.TestCase):
             w.resize(width,height);pump()
             self.assertEqual(w.width(),width)
             for index,kind in enumerate(('indices','etfs','futures')):
-                w.quotes.tabs.setCurrentIndex(index);pump()
+                w.pages.setCurrentIndex(index+1);pump()
                 page=w.quotes.views[kind]
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
                 for row in page.visible_rows:
@@ -98,8 +101,54 @@ class OverviewUiTests(unittest.TestCase):
                         if a is not None and b is not None:self.assertLess(a.bottom(),b.top())
                 page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum());pump()
 
+    def test_twenty_card_summary_and_flat_navigation_keep_clear_large_cards(self):
+        w=self.window();summary=w.quotes
+        self.assertEqual([w.pages.tabText(i) for i in range(w.pages.count())],['概览','指数','ETF','股指期货'])
+        self.assertEqual(len(summary.index_cards),4);self.assertEqual(len(summary.cards),16)
+        self.assertEqual(w.pages.currentIndex(),0)
+        for width,height in ((860,620),(1440,900),(1920,1080)):
+            w.resize(width,height);pump()
+            self.assertEqual(summary.scroll.horizontalScrollBar().maximum(),0)
+            for root,group in summary.products.items():
+                self.assertEqual(len(group.futures),4)
+                for card in group.futures:
+                    self.assertTrue(card.heading.text().startswith(root))
+                    self.assertEqual(card.captions[1].text(),'去分红年化基差')
+                    self.assertEqual(card.captions[2].text(),'较昨日基差变化')
+                    self.assertTrue(card.clock.isHidden())
+                    self.assertGreaterEqual(card.price.font().pixelSize(),30)
+            summary.scroll.verticalScrollBar().setValue(summary.scroll.verticalScrollBar().maximum());pump()
+        summary.products['IH'].index.clicked.emit('IH');pump()
+        self.assertEqual(w.pages.currentIndex(),1);self.assertEqual(summary.views['indices'].selected_root,'IH')
+
+    def test_per_contract_yesterday_change_and_empty_snapshot_clear_summary(self):
+        payload=state()
+        for row in payload['market_overview']['futures']:row['basis_change_previous']=row['slot']+0.5
+        w=self.window(freeze_window(payload))
+        for card in w.quotes.cards.values():self.assertIn(str(card.row['slot']+0.5),card.previous_value.text())
+        cleared=dict(payload,market_overview=dict(indices=[],futures=[],etfs=[]))
+        w.render(cleared);pump()
+        self.assertEqual(w.quotes.cards,{})
+        self.assertTrue(all(c.price.text()=='—' for g in w.quotes.products.values() for c in g.futures))
+        self.assertTrue(all(c.previous_value.text()=='—' for g in w.quotes.products.values() for c in g.futures))
+        self.assertTrue(all(c.price.text()=='—' for c in w.quotes.index_cards.values()))
+        self.assertIn('等待行情',w.status.text())
+
+    def test_status_uses_data_clock_not_repaint_and_shows_only_active_provider(self):
+        from dashboard.native.overview_status import status
+        payload=state();data=payload['market_overview'];first,_=status(data,now=NOW)
+        payload['as_of']=(NOW+pd.Timedelta(seconds=10)).isoformat()
+        second,_=status(data,now=NOW)
+        self.assertEqual(first,second)
+        pipeline=SimpleNamespace(history=SimpleNamespace(process=None),overview_reference=SimpleNamespace(running=lambda:True),overview_dividends=None)
+        text,detail=status(data,pipeline,now=NOW)
+        self.assertIn('Wind更新中',text);self.assertNotIn('DDB更新中',text)
+        self.assertIn('IF2611.CFE',detail)
+        text,_=status(data,now=NOW+pd.Timedelta(seconds=31))
+        self.assertNotIn('实时',text)
+
     def test_future_filter_keeps_contract_identity_and_valid_zero(self):
-        w=self.window();w.quotes.tabs.setCurrentIndex(2);pump()
+        w=self.window();w.pages.setCurrentIndex(3);pump()
         page=w.quotes.views['futures'];self.assertEqual(len(page.visible_rows),4)
         page.products['IC'].click();pump()
         self.assertEqual(len(page.visible_rows),4)
@@ -154,7 +203,7 @@ class OverviewUiTests(unittest.TestCase):
                 rank=i+1,aum_cny=(3-i)*1e8,aum_share_pct=(3-i)*10,aum_date='2026-10-23',
                 iopv=4,premium_bp=0,premium_source_at=NOW.isoformat()) for i in range(3)])
         payload['market_overview']['etf_groups']=groups
-        w=self.window(freeze_window(payload));w.quotes.tabs.setCurrentIndex(1);pump();page=w.quotes.views['etfs']
+        w=self.window(freeze_window(payload));w.pages.setCurrentIndex(2);pump();page=w.quotes.views['etfs']
         for root in ROOTS:
             page.products[root].click();pump()
             self.assertEqual(len(page.visible_rows),3)

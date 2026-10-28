@@ -26,10 +26,9 @@ from dashboard.numeric_snapshot import freeze_state,save_snapshot,numeric_rows
 
 
 def edition_icon(developer=False):
-    pix=QPixmap(64,64);pix.fill(QColor('#344d71' if developer else '#087e8b'))
-    painter=QPainter(pix);painter.setPen(QColor('white'));painter.setFont(QFont('Segoe UI',30,QFont.Weight.Bold))
-    painter.drawText(pix.rect(),Qt.AlignmentFlag.AlignCenter,'D' if developer else 'Δ');painter.end()
-    return QIcon(pix)
+    from .branding import app_icon
+    return app_icon()
+
 
 
 def export_window(window,payload):
@@ -70,22 +69,25 @@ class PresentationWindow(QMainWindow):
         self.setStyleSheet(CARD_STYLE)
         widget=QWidget();self.setCentralWidget(widget);layout=QVBoxLayout(widget);layout.setContentsMargins(24,18,24,18)
         row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  市场看板');title.setStyleSheet('font-size:24px;font-weight:700');row.addWidget(title);row.addStretch()
-        self.network=QLabel('离线 · 已发布历史');self.network.setWordWrap(True);self.network.setMaximumWidth(240)
-        self.network.setMinimumWidth(102)
-        self.network.setStyleSheet('font-size:14px');row.addWidget(self.network)
         for text,fn in [('更新报价',lambda:self.start_collection(False)),('DDB一键补齐',lambda:self.pipeline.one_click()),('暂停',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
             if self.frozen_payload and text!='导出快照':b.hide()
         layout.addLayout(row)
+        self.status=QLabel('等待行情');self.status.setWordWrap(True);self.status.setStyleSheet('font-size:16px;');layout.addWidget(self.status)
+        self.network=self.status
         self.notice=QLabel('');self.notice.setWordWrap(True);layout.addWidget(self.notice)
         self.pages=QTabWidget();layout.addWidget(self.pages,1)
         if self.market_mode:
             from .market_overview_view import MarketOverviewPanel
             self.quotes=MarketOverviewPanel()
         else:self.quotes=QuotePanel()
-        self.pages.addTab(self.quotes,'市场概览')
+        self.pages.addTab(self.quotes,'概览' if self.market_mode else '市场概览')
+        if self.market_mode:
+            for key,title in [('indices','指数'),('etfs','ETF'),('futures','股指期货')]:self.pages.addTab(self.quotes.views[key],title)
+            self.quotes.index_clicked.connect(self.open_index)
         self.research_pages={}
-        if self.frozen_payload:
+        if self.frozen_payload and (not self.market_mode or self.frozen_payload.get('research') or
+                self.frozen_payload.get('research_v6') or self.frozen_payload['snapshots'][0].get('research_pages')):
             from .research_pages_view import add_research_pages
             add_research_pages(self,self.pages,self.selection_changed)
         if self.frozen_payload:
@@ -113,7 +115,6 @@ class PresentationWindow(QMainWindow):
             card.layout.addWidget(indicators);self.indicator_numbers[root]=indicators
         # Only current four-product cards; raw quote/debug tables are not exposed.
         if not self.market_mode and hasattr(self.quotes,'tabs'):self.quotes.tabs.setTabVisible(1,False)
-        self.status=QLabel();self.status.setWordWrap(True);layout.addWidget(self.status)
         self.quotes.changed.connect(self.selection_changed)
         self.timer=QTimer(self);self.timer.setInterval(3000);self.timer.timeout.connect(self.refresh)
         if not self.frozen_payload:self.timer.start()
@@ -191,17 +192,24 @@ class PresentationWindow(QMainWindow):
             '第六版研究 · 未调整基差与相对定价；各输出保留真实观测时间与数据来源' if research_v6 else
             '最新行情 / 昨日参照 · 灰色状态为缓存或待接入，真实源时见卡片')
         self.notice.setVisible(bool(self.frozen_payload or research_v6))
-        s=self.collection.state()
-        live_read=any(r.get('quality',{}).get('usable') for rows in (state.get('market_overview') or {}).values() if isinstance(rows,list) for r in rows if isinstance(r,dict))
-        market_rows=[r for values in (state.get('market_overview') or {}).values() if isinstance(values,list) for r in values if isinstance(r,dict)]
-        closed_read=any(r.get('display_kind')=='completed_daily' for r in market_rows)
-        snapshot_read=any(r.get('display_kind')=='http_snapshot' for r in market_rows)
-        self.network.setText('冻结快照' if self.frozen_payload else '本窗口持续采集' if self.collection.running() else
-            '读取已有行情' if live_read else '收盘参考' if closed_read else '盘前盘后快照' if snapshot_read else '只读缓存')
-        self.status.setText('页面刷新 '+stamp(state['as_of'])+' · 行情源时间见卡片')
         from dashboard.refresh_evidence import applied
         applied(self,state)
+        self.update_overview_status()
         self.loaded.emit(state)
+
+    def update_overview_status(self,*_):
+        if not self.state:return
+        if self.market_mode:
+            from .overview_status import status
+            text,detail=status(self.state.get('market_overview') or {},getattr(self,'pipeline',None))
+            self.status.setText(('冻结 · ' if self.frozen_payload else '')+text)
+            trace=getattr(self,'applied_trace',{})
+            self.status.setToolTip(detail+'\n计算 '+str(self.state.get('as_of') or '—')+'\n页面应用 '+str(trace.get('ui_applied_at') or '—'))
+        else:self.status.setText('冻结快照回看' if self.frozen_payload else '读取已有行情')
+
+    def open_index(self,root):
+        page=self.quotes.views['indices'];page.select(root)
+        self.pages.setCurrentWidget(page)
 
     def start_collection(self,once):
         if not self.frozen_payload and hasattr(self,'pipeline'):self.pipeline.request_realtime(once)

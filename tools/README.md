@@ -19,3 +19,7 @@ python -B -X utf8 tools/workspace_cleanup.py --apply 'local_artifacts/cleanup/pl
 执行先生成 ZIP，逐文件核验 SHA256，再核对每个源文件仍与计划相同，最后移除已经验证的旧副本；不使用递归强删。归档与原路径/哈希清单在 `local_artifacts/archives/validation/`，最近结果索引在 `local_artifacts/LATEST_CLEANUP.json`。源文件或配置发生变化时保留原件；中断后仍保留已验证归档。
 
 归档含原 `.deps/` 相对路径与 `archive_manifest.json`。需要恢复时先解压到单独空目录，按原路径清单查找所需文件；不要直接覆盖现有工作区。新验证产物使用 `local_artifacts/validation/<任务日期>/`，保持 `.deps/` 主要用于运行依赖。
+
+## 看板图标构建
+
+在仓库根运行 `python -m tools.build_dashboard_icon`，离屏从dashboard/assets/company_overview.svg重建多尺寸ICO；使用现有Qt/Pillow，不安装依赖、不运行清理或启动看板。公司已包含构建好的ICO，只需看板一键快捷方式CMD。

@@ -21,39 +21,41 @@ class FuturesCard(Panel):
     def __init__(self,parent):
         super().__init__(parent=parent);self.row={}
         head=QHBoxLayout();self.heading=lab('',23,ACCENT,True);self.badge=lab('',16,ACCENT)
-        self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,1);self.box.addLayout(head)
+        self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,2);self.box.addLayout(head)
         self.price=lab('—',36,ACCENT,True);self.box.addWidget(self.price)
         self.values=[];self.captions=[]
-        for title in ('实际基差','简单年化','20日年化分位','60日年化分位'):
+        for title in ('去分红基差','去分红年化基差','较昨日基差变化','20日年化分位','60日年化分位'):
             line=QHBoxLayout();caption=lab(title,16,MUTED);value=lab('—',25,TEXT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
             self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
-        self.basis_value,self.annual_value,self.rank_value,self.rank60_value=self.values
-        self.clock=lab('',14,MUTED);self.box.addWidget(self.clock);self.setMinimumHeight(290)
+        self.basis_value,self.annual_value,self.previous_value,self.rank_value,self.rank60_value=self.values
+        self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(355)
 
     def render(self,row,position):
         self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(f'0{position} · '+SLOTS[position])
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
         self.price.setText(numeric(row.get('price')))
-        for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2)):
+        for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2),(self.previous_value,'basis_change_previous','点',1)):
             put(widget,numeric(row.get(key),digits,True,suffix),color=ink(row.get(key)),size=25,bold=True)
             widget.setToolTip(row.get('basis_reason') or '待有效同步期现报价')
+        self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(row.get('basis_prev_day') or '待核验'))
         history=row.get('continuous_percentiles') or {}
-        for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),2):
+        for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),3):
             widget.show();self.captions[i].show()
             result=history.get('windows',{}).get(str(length),{});rank=result.get('percentile')
             missing=result.get('missing',[])
-            label=(numeric(rank,1,suffix='%') if rank is not None else '缺合约档案' if any(r['reason']=='mapping_missing' for r in missing) else
-                '缺'+str(len(missing))+'日' if missing else 'T<5' if row.get('days') is not None and row['days']<5 else '待年化行情')
+            label=(numeric(rank,1,suffix='%') if rank is not None else '缺映射' if any(r['reason']=='mapping_missing' for r in missing) else
+                '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else 'T<5' if row.get('days') is not None and row['days']<5 else '待年化行情')
             widget.setText(label)
-            widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 分红调整简单年化\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
+            widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 去分红年化基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
         source=source_label(row)
         self.clock.setText(source)
-        self.clock.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
+        self.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
             '\n分红 '+str(row.get('dividend_points'))+' 点；缓存日 '+str(row.get('dividend_snapshot') or '待核验')+
             ('\n沿用 '+row['dividend_inherited_from'] if row.get('dividend_inherited_from') else '')+
+            '\n分红生效 '+str(row.get('dividend_effective_from') or '—')+'；精度 '+str(row.get('dividend_precision') or '—')+
             '\n'+str(row.get('percentile_start') or '—')+' 至 '+str(row.get('percentile_end') or '—'))
 
 
@@ -90,12 +92,12 @@ class FuturesOverviewPage(ScrollPage):
         self.term=Panel('年化期限结构','按真实到期日');self.curve=pg.PlotWidget(background=PANEL)
         self.curve.setMinimumWidth(0);self.curve.setMinimumHeight(225);self.curve.setMaximumHeight(240)
         self.curve.setMenuEnabled(False);self.curve.setMouseEnabled(x=False,y=False);self.curve.hideButtons()
-        self.curve.showGrid(y=True,alpha=.13);self.curve.getAxis('left').setLabel('%')
+        self.curve.showGrid(y=True,alpha=.13);self.curve.getAxis('left').setLabel('%');self.curve.getAxis('left').enableAutoSIPrefix(False)
         self.term.box.addWidget(self.curve);self.empty_curve=lab('待有效同步期现报价与到期日',17,MUTED)
         self.empty_curve.setAlignment(Qt.AlignmentFlag.AlignCenter);self.empty_curve.setMinimumHeight(225);self.term.box.addWidget(self.empty_curve)
-        self.changes=Panel('相对昨日的定价变化','按具体合约')
+        self.changes=Panel('盘中定价变化','按具体合约')
         self.change_values=[]
-        for title in ('当月基差变化','近月 − 次月价差','近5分钟基差变化'):
+        for title in ('近月 − 次月价差','近5分钟基差变化'):
             line=QHBoxLayout();line.addWidget(lab(title,18,MUTED),1);value=lab('—',27,ACCENT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(value,1);self.changes.box.addLayout(line);self.change_values.append(value)
         self.changes.box.addWidget(lab('分位：00 / 01 / 02 / 03年化前窗',17,ACCENT,True))
@@ -106,7 +108,7 @@ class FuturesOverviewPage(ScrollPage):
         self.more=QPushButton('量仓明细 ›');self.more.setCheckable(True);self.volumes.box.addWidget(self.more,alignment=Qt.AlignmentFlag.AlignRight)
         self.volume_table=table(['合约','累计成交（手）','成交占比','昨日持仓','持仓日期'],190)
         self.volume_table.hide();self.more.toggled.connect(self.volume_table.setVisible);self.volumes.box.addWidget(self.volume_table)
-        self.box.addWidget(self.volumes);self.footer=lab('实际合约展示 · 00/01/02/03按历日换月；20/60交易日前窗，当前日排除，已知T<5另列排除',15,MUTED);self.box.addWidget(self.footer)
+        self.box.addWidget(self.volumes);self.footer=lab('实际合约展示 · 00/01/02/03按历日换月；20/60交易日前窗，当前日排除，已知T<5另列排除',15,MUTED);self.footer.hide()
 
     def select(self,root):
         self.selected_root=root;self.show_group()
@@ -140,12 +142,11 @@ class FuturesOverviewPage(ScrollPage):
             self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
         self.curve.setVisible(bool(self.curve_points));self.empty_curve.setVisible(not self.curve_points)
         group=self.groups.get(root,{})
-        self.changes.title.setText('收盘定价变化' if group.get('basis_kind')=='completed_daily' else '相对昨日的定价变化')
-        for widget,key in zip(self.change_values,('basis_change_previous','calendar_points','basis_change_5m')):
+        self.changes.title.setText('盘中定价变化' if group.get('basis_kind')=='realtime' else '参考定价变化')
+        for widget,key in zip(self.change_values,('calendar_points','basis_change_5m')):
             value=group.get(key);put(widget,numeric(value,2,True,'点'),color=ink(value),size=27,bold=True)
-        self.change_values[0].setToolTip(group.get('previous_reason') or '待同步当前基差与准确昨日参照')
-        self.change_values[1].setToolTip('近月−次月原始点差；两合约与现货需同步')
-        self.change_values[2].setToolTip(group.get('five_minute_reason') or '待五分钟前同步期现观测')
+        self.change_values[0].setToolTip('近月−次月原始点差；两合约与现货需同步')
+        self.change_values[1].setToolTip(group.get('five_minute_reason') or '待五分钟前同步期现观测')
         distribution=group.get('distribution',[]);reason=group.get('distribution_reason') or '待四个到期合约的完整有效成交数据'
         self.distribution.render(distribution,reason);shares={r['symbol']:r['share_pct'] for r in distribution}
         self.volume_table.setRowCount(len(rows));self.volume_table.clearContents()

@@ -177,30 +177,20 @@ class CardPage(QWidget):
         for i,row in enumerate(rows):self.grid.addWidget(self.cards[row['symbol']],i//columns,i%columns)
 
 
-class MarketOverviewPanel(QWidget):
-    changed = Signal()
+from .overview_summary import OverviewSummary
+
+
+class MarketOverviewPanel(OverviewSummary):
     def __init__(self):
-        super().__init__(); self.state = None
-        layout = QVBoxLayout(self); layout.setContentsMargins(12,8,12,8); layout.setSpacing(6)
-        self.tabs = QTabWidget(); self.views = {}
-        from .overview_pages import IndexOverviewPage, EtfOverviewPage
+        super().__init__();self.state=None
+        from .overview_pages import IndexOverviewPage,EtfOverviewPage
         from .futures_overview_view import FuturesOverviewPage
-        for key,title in [('indices','指数'),('etfs','ETF'),('futures','股指期货')]:
-            page = IndexOverviewPage() if key == 'indices' else EtfOverviewPage() if key == 'etfs' else FuturesOverviewPage()
-            self.views[key] = page; self.tabs.addTab(page,title)
-        layout.addWidget(self.tabs,1)
-        self.note = label(14,MUTED); self.note.setText('正在读取最新行情和昨日参照…'); layout.addWidget(self.note)
+        self.views=dict(indices=IndexOverviewPage(),etfs=EtfOverviewPage(),futures=FuturesOverviewPage())
 
     def render(self,state):
-        data = state.get('market_overview')
-        if not data:
-            self.note.setText('等待本轮最新行情；旧研究型启动缓存不混入新概览'); return
-        self.state = state
-        self.views['indices'].render(data['indices'], data.get('index_details'), data.get('reference'))
-        self.views['etfs'].render(data['etfs'], data.get('etf_groups'), data.get('reference'))
-        self.views['futures'].render(data['futures'],data['indices'],data.get('futures_details'))
-        phase={'pre_open':'盘前参考','morning':'上午交易','lunch':'午休 · 保留原源时','afternoon':'下午交易',
-            'post_close':'盘后参考','closed_day':'休市参考','calendar_unverified':'日历待核验'}.get(data.get('market_session',{}).get('phase'))
-        self.note.setText((phase+'　· ' if phase else '')+'昨日参照 '+str(data.get('previous_session') or '待核验')+
-                          ('　· 最近完成日 '+data['completed_session'] if data.get('completed_session') else '')+'　· 源时与日期依据见卡片'+
-                          ('　· '+'；'.join(data['errors']) if data.get('errors') else ''))
+        data=state.get('market_overview') or {}
+        self.state=state
+        self.render_data(data)
+        self.views['indices'].render(data.get('indices',[]),data.get('index_details'),data.get('reference'))
+        self.views['etfs'].render(data.get('etfs',[]),data.get('etf_groups'),data.get('reference'))
+        self.views['futures'].render(data.get('futures',[]),data.get('indices',[]),data.get('futures_details'))
