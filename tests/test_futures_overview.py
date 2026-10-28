@@ -4,8 +4,8 @@ import unittest
 import pandas as pd
 
 from dashboard.native.futures_overview import details
-from dashboard.native.market_overview import quote_card, futures_values
-from tests.test_market_overview import NOW, observation
+from dashboard.native.market_overview import quote_card
+from tests.test_market_overview import NOW, observation,futures_values
 
 
 def fixture():

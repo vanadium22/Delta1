@@ -114,7 +114,7 @@ class WindEvidenceTests(unittest.TestCase):
             elif stage=='indices':
                 self.assertTrue(any(c[1]=='industry_sw' for c in sdk.calls))
                 self.assertFalse(any(c[1] in ('sectorconstituent','netasset_total') for c in sdk.calls))
-            else:self.assertFalse(any(c[1] in ('indexconstituent','industry_sw','close') for c in sdk.calls))
+            else:self.assertFalse(any(c[1] in ('indexconstituent','industry_sw') for c in sdk.calls))
 
     def test_real_hidden_worker_failure_reaches_saved_job_status_without_secret_or_publication(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,13 +203,15 @@ class WindEvidenceTests(unittest.TestCase):
                 result.Data[2][2]=-1;result.Data[3]=[datetime(2026,10,27)]*len(result.Data[0])
             return result
         sdk.wset=invalid
-        with self.assertRaises(WindError) as raised:refresh(sdk,self.request('indices'))
-        for step in raised.exception.diagnostics['failures']:
+        value=refresh(sdk,self.request('indices'))
+        self.assertTrue(all(g['weights_complete'] is False for g in value['data']['indices'].values()))
+        self.assertEqual(len(value['data']['indices']['IF']['rows']),300)
+        for step in value['diagnostics']['failures']:
             self.assertEqual(step['error_code'],0)
             self.assertEqual(step['missing_weight_count'],1);self.assertEqual(step['invalid_weight_count'],1)
             self.assertEqual(step['negative_weight_count'],1)
             self.assertEqual(step['returned_row_dates'],['2026-10-27'])
-        self.assertNotIn('CANARY',json.dumps(raised.exception.diagnostics))
+        self.assertNotIn('CANARY',json.dumps(value))
 
     def test_wrong_or_partially_missing_dataset_dates_never_publish_reference(self):
         for stage,kind,dates in [('indices','indexconstituent',[datetime(2026,10,26)]),
@@ -222,8 +224,12 @@ class WindEvidenceTests(unittest.TestCase):
                         pos=value.Fields.index('date');value.Data[pos][0]=dates[0]
                     return value
                 sdk.wset=wrong
-                with self.assertRaises(WindError) as raised:refresh(sdk,self.request(stage))
-                failed=raised.exception.diagnostics['failures'][0]
+                if stage=='etfs':
+                    with self.assertRaises(WindError) as raised:refresh(sdk,self.request(stage))
+                    failed=raised.exception.diagnostics['failures'][0]
+                else:
+                    result=refresh(sdk,self.request(stage));failed=result['diagnostics']['failures'][0]
+                    self.assertTrue(all(g['weights_complete'] is False for g in result['data']['indices'].values()))
                 self.assertIn(failed['reason_code'],('weight_date_mismatch','weight_date_unverified','universe_date_unverified'))
                 self.assertEqual(failed['error_code'],0)
 

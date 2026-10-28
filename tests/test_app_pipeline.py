@@ -60,7 +60,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_cancel_during_slow_probe_never_starts_collector(self):
         w,p=self.fixture();p.enabled=True
-        def slow(_):time.sleep(.06);return dict(ok=True)
+        def slow(_,**kwargs):time.sleep(.06);return dict(ok=True)
         with patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='test')),\
              patch('dashboard.session_guard.probe_realtime',side_effect=slow):
             p.start_probe();p.readonly();pump(.16)
@@ -167,7 +167,7 @@ class RefreshQueueTests(unittest.TestCase):
                     nonlocal active,maximum
                     active+=1;maximum=max(active,maximum);calls.append(len(calls)+1)
                     time.sleep(.07);active-=1;return {'number':calls[-1]}
-                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                target='dashboard.native.market_overview.capture'
                 with patch(target,side_effect=capture):
                     w=self.window(cls);w.render=lambda s:rendered.append(s['number'])
                     for _ in range(30):w.refresh();pump(.004)
@@ -185,7 +185,7 @@ class RefreshQueueTests(unittest.TestCase):
                 delivered=[];calls=[]
                 def capture(*a,**kw):
                     number=len(calls);calls.append(number);time.sleep(.06);return number
-                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                target='dashboard.native.market_overview.capture'
                 with patch(target,side_effect=capture):
                     w=self.window(cls);w.render=delivered.append
                     w.refresh();pump(.01)
@@ -197,7 +197,7 @@ class RefreshQueueTests(unittest.TestCase):
     def test_failure_clears_busy_and_latest_retry_runs(self):
         for cls in (PresentationWindow,DeveloperWindow):
             with self.subTest(edition=cls.__name__):
-                target='dashboard.native.market_overview.capture' if cls is PresentationWindow else 'dashboard.native.research_pages_view.capture'
+                target='dashboard.native.market_overview.capture'
                 with patch(target,side_effect=[ValueError('synthetic'),{}]):
                     w=self.window(cls);rendered=[];w.render=rendered.append
                     pump(.05);self.assertFalse(w.busy)

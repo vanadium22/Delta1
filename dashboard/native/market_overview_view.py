@@ -96,7 +96,7 @@ class MarketCard(QFrame):
             detail.append(row['premium_reason']+'；IOPV源 '+stamp(row.get('iopv_source_at')))
         if self.kind == 'futures':
             detail.extend([row.get('basis_reason',''), row.get('percentile_reason',''),
-                           '未调整对数基差 '+text(row.get('log_basis_bp'))+' bp；分位仅作历史位置参考'])
+                           '分红 '+text(row.get('dividend_points'))+' 点；简单年化分位仅作历史位置参考'])
         self.details.setText('\n'.join(detail))
         points = row.get('series', [])
         key = repr(points)
@@ -161,7 +161,7 @@ class CardPage(QWidget):
             self.summary.setText('ETF尚无报价观测；需启动新版采集订阅，采集/锁状态见窗口顶部' if not observed else
                                  f'对应指数代表 ETF　· 有效观测 {fresh}/{len(self.visible_rows)}　· IOPV按同步输入单独判断')
         else:
-            self.summary.setText(f"{len(self.visible_rows)} 个合约　· 有效观测 {fresh}　· 分位：自身对数基差 / 前20交易日")
+            self.summary.setText(f"{len(self.visible_rows)} 个合约　· 有效观测 {fresh}　· 分位：连续档位分红调整简单年化 / 前20及60交易日")
         while self.grid.count(): self.grid.takeAt(0)
         wanted = {r['symbol'] for r in self.visible_rows}
         for s,card in self.cards.items():card.setVisible(s in wanted)

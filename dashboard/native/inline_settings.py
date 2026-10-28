@@ -18,6 +18,7 @@ class InlineSettings(QWidget):
         from dashboard.app_config import connection_path,vpn_profile
         vpn=vpn_profile(config,pipeline.model.local_root)
         for key,title in [('reference_file','合约参考文件'),('realtime_root','已有实时目录'),('dividend_root','分红目录'),
+                          ('overview_dividend_file','概览分红Excel（空白沿用原目录）'),
                           ('history_python','历史 Python（空白自动选择）'),('history_connection_file','DDB 配置引用'),
                           ('overview_wind_python','WindPy Python（空白复用已有终端环境）'),
                           ('history_vpn_config','已有 DDB VPN 配置'),('history_vpn_trust','已有 VPN 证书信任文件'),
@@ -37,14 +38,15 @@ class InlineSettings(QWidget):
 
     def idle(self):
         p=self.pipeline
-        if p.history.process is not None or p.collection.running() or p.task is not None or p.window.busy:
+        reference=getattr(p,'overview_reference',None)
+        if p.history.process is not None or p.collection.running() or p.task is not None or p.window.busy or reference is not None and reference.running():
             p.readonly();self.notice.setText('已请求安全停止；等待后台结束后再次保存。');return False
         return True
 
     def save_paths(self):
         if not self.idle():return
         p=self.pipeline;candidate=deepcopy(p.model.config)
-        candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','history_python','history_connection_file',
+        candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','overview_dividend_file','history_python','history_connection_file',
                          'history_vpn_config','history_vpn_trust','history_vpn_powershell','overview_wind_python')})
         candidate['history_roots']=[s.strip() for s in self.paths.toPlainText().splitlines() if s.strip()]
         p.window.busy=True

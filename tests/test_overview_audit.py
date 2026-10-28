@@ -16,6 +16,7 @@ from dashboard.marketdata.history_publication import maintenance_root
 from dashboard.overview_check import read_status
 from tests.test_overview_percentiles import metadata,daily_data,NOW,DAY
 from tests.test_overview_details import reference
+from tests.test_market_overview import ZERO_DIVIDENDS
 
 
 def save(path,value):
@@ -32,6 +33,9 @@ def profile(root):
 
 
 class OverviewAuditTests(unittest.TestCase):
+    def setUp(self):
+        for target in ('dashboard.marketdata.overview_basis.load_dividends','dashboard.native.market_overview.load_dividends'):
+            mocked=patch(target,return_value=ZERO_DIVIDENDS);mocked.start();self.addCleanup(mocked.stop)
     def test_old_wind_record_does_not_claim_unrecorded_stage_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'status.json'

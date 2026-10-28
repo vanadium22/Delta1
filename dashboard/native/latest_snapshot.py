@@ -54,7 +54,7 @@ def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
                     known[row['source_symbol']]=row
     with network_lease(config):
         if stop():return dict(status='cancelled')
-        client=(client_factory or MarketDataClient)(connect_timeout=3,read_timeout=6)
+        client=(client_factory or MarketDataClient)(connect_timeout=1,read_timeout=2)
         try:result=client.fetch(symbols)
         finally:client.close()
         result.update(symbols=symbols,poll=1,batch=1,batch_count=1)

@@ -6,7 +6,7 @@ history, changes a profile, or presents receipt time as the market source clock.
 from datetime import date, timedelta
 import pandas as pd
 
-from dashboard.indicator_v6.core import basis, raw
+from dashboard.marketdata.overview_basis import calculate,FORMULA,input_token,load_dividends
 from dashboard.indicator_v6.sources import dates_between
 from dashboard.marketdata.contract_reference import latest_contracts
 from dashboard.marketdata.quote_quality import aligned_quotes, finite, quote_quality
@@ -129,7 +129,7 @@ def observed_series(row, observations, now):
     return list({p['source_at']:p for p in sorted(result, key=lambda p:p['source_at'])}.values())
 
 
-def futures_values(row, live, daily, metadata, now,spot_row=None):
+def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=None):
     symbol = row['symbol']; spot = UNDERLYINGS[row['root']][0]
     q, s = live.get(symbol), live.get(spot)
     ok, reason = aligned_quotes([q, s], now)
@@ -137,7 +137,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None):
     if ok and not phase['continuous']:
         ok, reason = False, '午休，仅展示保存行情' if phase['phase']=='lunch' else '盘前盘后，仅展示保存行情或同日收盘参考'
     expiry = metadata.get(symbol, {}).get('expiry_date')
-    row.update(expiry=expiry, basis_points=None, log_basis_bp=None, annual_pct=None,
+    row.update(expiry=expiry, basis_points=None, raw_basis_points=None,log_basis_bp=None, annual_pct=None,dividend_points=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
                percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None,
                basis_kind=None,pricing_day=None,days=None,percentile_start=None,percentile_end=None)
@@ -153,12 +153,18 @@ def futures_values(row, live, daily, metadata, now,spot_row=None):
         s=dict(close=spot_row['price'],source_event_time=spot_row['source_at'])
         mode='completed_daily'
     t = (date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
-    current = basis(raw(q.get('close'), 'price'), raw(s.get('close'), 'price'), t)
-    row.update(basis_points=current['points'].value, log_basis_bp=current['b'].value,
-               annual_pct=current['a'].value, days=t,
+    dividend=dividends.points(symbol,day) if dividends is not None else None
+    current=calculate(q.get('close'),s.get('close'),dividend,t)
+    scenario=(getattr(dividends,'info',{}) or {}).get('mapping',{}).get(symbol,{})
+    row.update(basis_points=current['points'],raw_basis_points=q['close']-s['close'],
+               annual_pct=current['annual_pct'], days=t,dividend_points=dividend,
+               dividend_inherited_from=scenario.get('inherited_from'),dividend_source_contract=scenario.get('value_source_contract'),
+               dividend_snapshot=scenario.get('source_snapshot'),dividend_version=getattr(dividends,'version',None),
                basis_source_at=max(pd.Timestamp(q['source_event_time']), pd.Timestamp(s['source_event_time'])).isoformat(),
                basis_kind=mode,pricing_day=day)
-    row['basis_reason'] = ('收盘参考 '+day+' · ' if mode=='completed_daily' else '')+('第六版A01：未调整对数基差；年化T<5留空' if t is not None else '到期日缺失，年化留空')
+    row['basis_reason'] = ('收盘参考 '+day+' · ' if mode=='completed_daily' else '')+(FORMULA+'；T<5年化留空' if dividend is not None else '缺分红；保留原始点基差，不把缺值当0')
+    if scenario.get('inherited_from'):row['basis_reason']+='；分红沿用 '+scenario['inherited_from']
+    if t is None:row['basis_reason']+='；到期日缺失，年化留空'
 
 
 class MarketOverviewEngine:
@@ -168,10 +174,14 @@ class MarketOverviewEngine:
         self.daily = {}
         self.percentiles={}
         self.side_cache={}
+        self.dividend_key=None;self.dividends=None
 
     def snapshot(self, *, now=None):
         from dashboard.refresh_evidence import begin, calculated
         model = self.model; trace = begin(model)
+        def check_stop():
+            if getattr(model,'overview_stop',None) is not None and model.overview_stop.is_set():raise InterruptedError()
+        check_stop();explicit_now=now is not None
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
         phase=market_phase(now.to_pydatetime())
         reference_mode=phase['phase'] not in ('morning','lunch','afternoon')
@@ -213,13 +223,9 @@ class MarketOverviewEngine:
         for s, _, _ in UNDERLYINGS.values():
             instruments[s] = dict(asset_type='cn_index', market_region='CN')
         instruments.update(quote_registry(model.config, reference_data['data'], day))
-        live = model._live(instruments, now)
-        if reference_mode and hasattr(model,'local_root'):
-            from .latest_snapshot import load as load_snapshot
-            for symbol,q in load_snapshot(model.local_root).get('quotes',{}).items():
-                old=timestamp(live.get(symbol,{}).get('source_event_time'));source=timestamp(q.get('source_event_time'))
-                if symbol in instruments and source is not None and (old is None or source>=old):live[symbol]=q
-        model._overview_latest = live
+        token=input_token(model.config,metadata,pricing_day or day)
+        if token!=self.dividend_key:
+            self.dividends=load_dividends(model.config,metadata,pricing_day or day);self.dividend_key=token
         versions = {k:v['version'] for k,v in frozen.items()}
         symbols={*[v[0] for v in UNDERLYINGS.values()],*contracts,*quote_registry(model.config,reference_data['data'],day),*(r['symbol'] for r in required['rows'])}
         side={}
@@ -235,11 +241,12 @@ class MarketOverviewEngine:
                     self.side_cache[d]=cached
                 side[d]=cached['value']
         key = (tuple(versions.items()), reference.version, completed,pricing_day,
-            tuple((d,self.side_cache[d]['token']) for d in side),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None)
+            tuple((d,self.side_cache[d]['token']) for d in side),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None,self.dividends.version)
         if key != self.daily_key:
             self.daily = {}
             cutoff = (pd.Timestamp(completed, tz='Asia/Shanghai') + pd.Timedelta(hours=23, minutes=59, seconds=59)) if completed else now.normalize()-pd.Timedelta(seconds=1)
             for s in sorted(symbols):
+                check_stop()
                 if repo is None:
                     self.daily[s] = pd.DataFrame()
                 else:
@@ -258,8 +265,19 @@ class MarketOverviewEngine:
             if pricing_day:
                 for root in UNDERLYINGS:
                     for slot in SLOTS:
-                        try:self.percentiles[root,slot]=prepare(root,slot,metadata,self.daily,pricing_day)
+                        check_stop()
+                        try:self.percentiles[root,slot]=prepare(root,slot,metadata,self.daily,pricing_day,dividends=self.dividends)
                         except ValueError:pass
+        check_stop()
+        # Cold history/dividend reads must not freeze the live receipt cutoff.
+        if not explicit_now:now=pd.Timestamp.now(tz='UTC');phase=market_phase(now.to_pydatetime())
+        live=model._live(instruments,now)
+        if reference_mode and hasattr(model,'local_root'):
+            from .latest_snapshot import load as load_snapshot
+            for symbol,q in load_snapshot(model.local_root).get('quotes',{}).items():
+                old=timestamp(live.get(symbol,{}).get('source_event_time'));source=timestamp(q.get('source_event_time'))
+                if symbol in instruments and source is not None and (old is None or source>=old):live[symbol]=q
+        model._overview_latest=live
         indices = [quote_card(s, name, root, live, self.daily, now, previous)
                    for root, (s, name, _) in UNDERLYINGS.items()]
         funds = []
@@ -283,21 +301,23 @@ class MarketOverviewEngine:
                 row = quote_card(s, name, root, live, self.daily, now, previous)
                 row['slot'] = slot
                 try:
-                    futures_values(row, live, self.daily, metadata, now,next(r for r in indices if r['root']==root))
+                    futures_values(row, live, self.daily, metadata, now,next(r for r in indices if r['root']==root),dividends=self.dividends)
                 except ValueError:
                     row.update(percentile=None, percentile_reason='交易日历缺失')
                 apply(row,self.percentiles.get((root,slot)))
                 futures.append(row)
         observations = model.live_rows
         for row in [*indices, *funds, *futures]:
+            check_stop()
             row['series'] = observed_series(row, observations, now)
         state = dict(as_of=now.isoformat(), versions=versions, selection=dict(overview_slot=0), overview=[], entities=[],
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
-                                          previous_session=previous,completed_session=completed,market_session=phase, errors=errors, source_date_basis='每值保留日期依据'),
+                                          previous_session=previous,completed_session=completed,market_session=phase, errors=errors, source_date_basis='每值保留日期依据',
+                                          basis_formula=FORMULA,dividend_version=self.dividends.version,dividend_reason=self.dividends.reason),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)
         from .futures_overview import details
-        state['market_overview']['futures_details']=details(futures,indices,live,observations,now)
+        state['market_overview']['futures_details']=details(futures,indices,live,observations,now,dividends=self.dividends)
         return calculated(model, state, trace)
 
 

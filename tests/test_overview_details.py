@@ -56,7 +56,9 @@ class ReferenceTests(unittest.TestCase):
             self.assertIn('历史',job.state()['reason']);self.assertFalse((Path(tmp)/'overview_reference').exists())
             job.tick({'overview_wind_enabled':False},enabled=True,now=NOW.to_pydatetime())
             self.assertEqual(job.state()['status'],'disabled');spawn.assert_not_called()
-            publish(Path(tmp)/'overview_reference/latest.json',reference())
+            value=reference();value['etf_nav']=dict(schema='etf-nav-v1',rows={r['symbol']:dict(symbol=r['symbol'],as_of='2026-10-23',
+                nav_cny=4,close_cny=4,source='fixture') for r in ranking(value,'IF',today='2026-10-26')[0]})
+            publish(Path(tmp)/'overview_reference/latest.json',value)
             job.tick({},enabled=True,now=NOW.to_pydatetime());self.assertEqual(job.state()['status'],'up_to_date')
 
     def test_top_three_use_whole_same_benchmark_universe_and_stable_ties(self):

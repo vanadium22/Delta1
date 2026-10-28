@@ -9,12 +9,15 @@ from unittest.mock import Mock,patch
 import pandas as pd
 
 from dashboard.indicator_v6.sources import SPOTS
-from dashboard.marketdata.overview_percentiles import prior_days,requirements,prepare,evaluate,apply,SLOTS
+from dashboard.marketdata.overview_percentiles import prior_days,requirements,prepare as actual_prepare,evaluate,apply,SLOTS
+from tests.test_market_overview import ZERO_DIVIDENDS
 from dashboard.native.continuous import slot_map
 from dashboard.native.market_overview import MarketOverviewEngine
 
 DAY='2026-10-27'
 NOW=pd.Timestamp(DAY+'T10:00:05+08:00')
+
+def prepare(*args,**kwargs):return actual_prepare(*args,**dict(dividends=ZERO_DIVIDENDS,**kwargs))
 
 
 def metadata():
@@ -33,7 +36,7 @@ def daily_data(meta=None,annual_by_slot=(0,0,0,0),*,day=DAY):
             mapped,_=slot_map(meta,root,d)
             for slot in SLOTS:
                 symbol=mapped[f'{root}0{slot}.CFE'];t=(pd.Timestamp(meta[symbol]['expiry_date'])-pd.Timestamp(d)).days
-                values.setdefault(symbol,{})[d]=4000*math.exp(annual_by_slot[slot]/100*t/365)
+                values.setdefault(symbol,{})[d]=4000*(1+annual_by_slot[slot]/100*t/365)
     return {s:pd.DataFrame([dict(trade_date=d,is_final=True,event_time=pd.Timestamp(d+'T15:00:00+08:00'),close=p)
         for d,p in by_day.items()]) for s,by_day in values.items()}
 
@@ -124,6 +127,7 @@ class ContinuousPercentileTests(unittest.TestCase):
         repo.read_window.side_effect=lambda symbol,*args,**kwargs:data.get(symbol,pd.DataFrame())
         model=SimpleNamespace(config={},configure_repository=lambda _:repo,_live=lambda *args:deepcopy(live),live_rows=pd.DataFrame())
         with patch('dashboard.native.market_overview.ReferenceBook',return_value=reference),\
+             patch('dashboard.native.market_overview.load_dividends',return_value=ZERO_DIVIDENDS),\
              patch('dashboard.native.market_overview.latest_contracts',return_value=meta):
             value=MarketOverviewEngine(model).snapshot(now=now)['market_overview']
         rows=[r for r in value['futures'] if r['root']=='IF']

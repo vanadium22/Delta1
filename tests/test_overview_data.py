@@ -22,8 +22,8 @@ from dashboard.marketdata.wind_terminal_worker import refresh as wind_refresh,RO
 from dashboard.marketdata.overview_windpy import refresh as terminal_refresh,setup
 from dashboard.marketdata.overview_contributions import contributions
 from dashboard.native.latest_snapshot import collect,load
-from dashboard.native.market_overview import quote_card,futures_values,MarketOverviewEngine
-from tests.test_market_overview import NOW,frame,observation
+from dashboard.native.market_overview import quote_card,MarketOverviewEngine
+from tests.test_market_overview import NOW,frame,observation,futures_values
 from tests.test_overview_details import reference
 from tests.test_realtime_store import quote
 
@@ -51,7 +51,7 @@ class FakeWind:
         return response(['wind_code','sec_name','date'],[['510301.SH','510302.SH','510303.SH','510304.SH'],['普通ETF'+str(i) for i in range(4)],[day]*4])
     def wss(self,codes,field,options):
         self.calls.append(('WSS',field,options));codes=codes.split(',')
-        values={'industry_sw':lambda s:'电子','close':lambda s:100,
+        values={'industry_sw':lambda s:'电子','close':lambda s:100,'nav':lambda s:100,
             'fund_trackindexcode':lambda s:None if self.incomplete and s=='510304.SH' else '000300.SH',
             'fund_trackindex':lambda s:None if self.incomplete and s=='510304.SH' else '沪深300指数',
             'netasset_total':lambda s:None if self.missing_scale and s=='510304.SH' else

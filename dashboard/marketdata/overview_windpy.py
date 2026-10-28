@@ -5,6 +5,31 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
+
+
+def run_readonly_worker(command,request,stop_file,*,timeout=180):
+    """Cancel only our private SDK reader, never the publisher/history writer."""
+    if Path(stop_file).exists():raise InterruptedError()
+    payload=json.dumps(request,ensure_ascii=False);started=time.monotonic()
+    with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        text=True,encoding='utf8',errors='replace',creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)) as process:
+        try:
+            while True:
+                if Path(stop_file).exists():raise InterruptedError()
+                remaining=timeout-(time.monotonic()-started)
+                if remaining<=0:raise subprocess.TimeoutExpired(command,timeout)
+                try:
+                    stdout,_=process.communicate(input=payload,timeout=min(.2,remaining))
+                    return subprocess.CompletedProcess(command,process.returncode,stdout)
+                except subprocess.TimeoutExpired:payload=None
+        finally:
+            if process.poll() is None:
+                # This process only reads Wind and writes disposable evidence.
+                # The owning publisher checks stop_file before atomic publish.
+                process.terminate()
+                try:process.communicate(timeout=2)
+                except subprocess.TimeoutExpired:process.kill();process.communicate(timeout=2)
 
 
 class TerminalFailure(RuntimeError):
@@ -43,7 +68,7 @@ def refresh(config,local_root,old,*,now,stop_file=None,stage='all',requested_day
             raise ValueError('Wind只读测试日期须为已核验的已完成交易日')
         day=requested_day
     fields={key:config.get('overview_wind_'+key) for key in ('etf_sector','tracking_field','aum_field','industry_field') if config.get('overview_wind_'+key)}
-    if stage not in ('all','connect','indices','etfs'):raise ValueError('低频检查阶段无效')
+    if stage not in ('all','connect','indices','etfs','nav'):raise ValueError('低频检查阶段无效')
     request=dict(day=day,fetched_at=now.isoformat(),old=old,config=fields,stage=stage,stop_file=str(stop_file) if stop_file else None)
     worker=Path(__file__).with_name('wind_terminal_worker.py')
     # No -s: preserves the user's WindPy registration and original Wind install.
@@ -55,9 +80,14 @@ def refresh(config,local_root,old,*,now,stop_file=None,stage='all',requested_day
             evidence.setdefault('steps',[]).append(dict(stage=phase,status='failed'))
             return TerminalFailure(kind,evidence)
         try:
-            result=subprocess.run([executable(config,local_root),'-B','-X','utf8',str(worker)],
+            command=[executable(config,local_root),'-B','-X','utf8',str(worker)]
+            if stop_file is not None:result=run_readonly_worker(command,request,stop_file)
+            else:result=subprocess.run(command,
                 input=json.dumps(request,ensure_ascii=False),capture_output=True,text=True,encoding='utf8',errors='replace',
                 timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except InterruptedError as exc:
+            exc.diagnostics=failure('InterruptedError','worker_cancelled').diagnostics
+            raise
         except (OSError,subprocess.TimeoutExpired) as exc:
             # Never export TimeoutExpired.stdout/stderr or the driver message.
             raise failure(type(exc).__name__,'worker_timeout' if isinstance(exc,subprocess.TimeoutExpired) else 'worker_start') from None

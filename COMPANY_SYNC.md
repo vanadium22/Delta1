@@ -6,7 +6,7 @@
 
 | 模块 | 职责 | 交接 |
 |---|---|---|
-| dashboard | 蓝白市场看板、第六版研究、数据编排；Excel 冻结保留 | [看板交接](dashboard/PROJECT_HANDOFF.md) |
+| dashboard | 蓝白市场概览、数据编排；研究页暂停，32项源码及Excel保留 | [看板交接](dashboard/PROJECT_HANDOFF.md) |
 | securities_lending | 券源下载、查询、行业与金额筛选 | [券源交接](securities_lending/PROJECT_HANDOFF.md) |
 | script_making | 日报下载、查询、收益与风险邮件产物 | [日报交接](script_making/PROJECT_HANDOFF.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
@@ -14,6 +14,8 @@
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |
 
 ## 最近发布
+
+- 本批10月28日看板：概览和20/60分位保留，统一分红调整简单年化及前序合约D继承；其他研究页暂停。主报价三秒、取消只读Wind阻塞、名单/权重拆分、日频收盘净值溢价及overview-only日线补齐。Excel16合约对比通过，真实公司效果待验收。
 
 - 本批Wind返回解析：修复标准单日多证券1×N、规范WSET日期/字段、保留安全行日期/权重/形状证据；显式只读阶段可固定已完成日，真实公司资料需重测。
 - `c356b65`：统一工作区目录/文档分类与维护工具；本机27,371个旧验证文件已压缩校验归档，净减少约644 MiB，10,244个保护文件哈希无变化。11项维护回归及离线预检通过。

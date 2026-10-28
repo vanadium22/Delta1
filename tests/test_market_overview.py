@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from dashboard.native.market_overview import (MarketOverviewEngine, quote_card,
-    futures_values, previous_session, observed_series)
+    futures_values as actual_futures_values, previous_session, observed_series)
 from dashboard.native.overview_instruments import etfs, quote_registry
 from dashboard.marketdata.adapters import read_realtime_observations
 from dashboard.marketdata.bars import validate_instruments
@@ -19,6 +19,11 @@ from tests.test_realtime_store import quote
 
 
 NOW = pd.Timestamp('2026-10-26T10:00:05+08:00')
+ZERO_DIVIDENDS=SimpleNamespace(points=lambda symbol,day:0.,version='explicit-zero-fixture',info={},reason='')
+
+
+def futures_values(*args,**kwargs):
+    return actual_futures_values(*args,**dict(dividends=ZERO_DIVIDENDS,**kwargs))
 
 
 def observation(price=4000, previous=3980, at=NOW, **extra):

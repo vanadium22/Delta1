@@ -125,6 +125,12 @@ def enrich(model, data, reference, now):
             pcf=dict(as_of=None, reason='待当日申赎清单'))
     data['etf_groups'] = groups
     for row in data['etfs']:
+        nav=source.get('etf_nav',{}).get('rows',{}).get(row['symbol'],{})
+        n,c=nav.get('nav_cny'),nav.get('close_cny')
+        dated=bool(nav.get('as_of')) and nav['as_of']<=today and finite(n) and n>0 and finite(c) and c>0
+        row.update(closing_nav_cny=n if dated else None,closing_price_cny=c if dated else None,
+            nav_date=nav.get('as_of') if dated else None,closing_premium_bp=10000*(c/n-1) if dated else None,
+            closing_premium_reason='同一交易日未复权收盘 / 单位净值；非盘中IOPV' if dated else '待同日单位净值和未复权收盘，未以前值填充')
         row['spread_bp'] = None
         q = getattr(model, '_overview_latest', {}).get(row['symbol'], {})
         bid, ask = q.get('bid_price_1'), q.get('ask_price_1')

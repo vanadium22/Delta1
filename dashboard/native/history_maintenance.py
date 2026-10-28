@@ -29,7 +29,8 @@ class HistoryMaintenance:
         roots=self.model.config.get('history_roots') or []
         if not roots:
             self.error=dict(state='waiting_configuration',message='请在数据设置中指定已有历史目录');return False
-        self.root=maintenance_root(roots);self.root.mkdir(parents=True,exist_ok=True)
+        from dashboard.marketdata.overview_daily import directory
+        self.root=directory(self.model.config,self.model.local_root)/'maintenance';self.root.mkdir(parents=True,exist_ok=True)
         self.stop_file=self.root/('app-stop-'+uuid.uuid4().hex)
         from dashboard.marketdata.bars import _atomic_bytes,_json_bytes
         _atomic_bytes(self.model.local_root/'history_control.json',_json_bytes(dict(paused=False)))
@@ -44,7 +45,7 @@ class HistoryMaintenance:
         if self.model.config.get('reference_file'):cmd+=['--reference-file',self.model.config['reference_file']]
         if os.name=='nt':cmd+=['--owner-pid',str(os.getpid())]
         if not deep:cmd+=['--incremental']
-        cmd+=['--include-completed-today','--overview-daily']
+        cmd+=['--include-completed-today','--overview-daily','--overview-only']
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'BELOW_NORMAL_PRIORITY_CLASS',0)
         try:
             self.process=subprocess.Popen(cmd,cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,

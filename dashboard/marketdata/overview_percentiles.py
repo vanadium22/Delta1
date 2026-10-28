@@ -1,12 +1,14 @@
-"""00/01/02/03 dated slots: unadjusted annual log-basis reference windows.
+"""00/01/02/03 dated slots: Excel-style dividend-adjusted simple annual windows.
 
 This is an overview distribution, separate from v6 A02's concrete-contract b.
-No network, future-day close, dividend scenario or adjusted continuous price.
+No network, future-day close or adjusted continuous price. Dividend assumptions
+are explicit fixed scenarios and inherit only an earlier concrete expiry.
 """
 from datetime import date,timedelta
 import pandas as pd
 
-from dashboard.indicator_v6.core import basis,raw,statistic
+from dashboard.indicator_v6.core import raw,statistic
+from .overview_basis import calculate,FORMULA
 from dashboard.indicator_v6.sources import dates_between,SPOTS
 from dashboard.native.continuous import slot_map
 
@@ -49,7 +51,7 @@ def final_rows(frame):
     return {str(row['trade_date'])[:10]:row for row in frame.to_dict('records') if row.get('is_final')==True}
 
 
-def prepare(root,slot,metadata,daily,day):
+def prepare(root,slot,metadata,daily,day,*,dividends=None):
     days=prior_days(day);rows=dated_slots(metadata,root,slot,days)
     spot=final_rows(daily.get(SPOTS[root]));tables={}
     for item in rows:
@@ -57,17 +59,20 @@ def prepare(root,slot,metadata,daily,day):
         if item['reason']:continue
         if symbol not in tables:tables[symbol]=final_rows(daily.get(symbol))
         f=tables[symbol].get(item['day'],{});s=spot.get(item['day'],{})
-        value=basis(raw(f.get('close'),'price'),raw(s.get('close'),'price'),item['days'])['a']
-        item['annual_pct']=value.value
-        if value.value is None:
+        dividend=dividends.points(symbol,item['day']) if dividends is not None else None
+        item['dividend_points']=dividend
+        value=calculate(f.get('close'),s.get('close'),dividend,item['days'])['annual_pct']
+        item['annual_pct']=value
+        if value is None:
             item['missing_symbols']=[]
             if raw(f.get('close'),'price').value is None:item['missing_symbols'].append(symbol)
             if raw(s.get('close'),'price').value is None:item['missing_symbols'].append(SPOTS[root])
-            item['reason']='future_close_missing' if symbol in item['missing_symbols'] else 'index_close_missing'
+            item['reason']='future_close_missing' if symbol in item['missing_symbols'] else 'index_close_missing' if item['missing_symbols'] else 'dividend_missing'
     current,error=slot_map(metadata,root,day)
     return dict(alias=f'{root}0{slot}.CFE',pricing_day=day,current_symbol=current.get(f'{root}0{slot}.CFE'),
-        current_mapping_error=bool(error),rows=rows,method='continuous_slot_annual_log_basis',
-        formula='100 × ln(F/S) × 365/T; T<5留空；不调整价格，不加分红',
+        current_mapping_error=bool(error),rows=rows,method='continuous_slot_dividend_simple_annual',
+        formula=FORMULA+'；已知T<5另列排除；不调整期现价格',
+        dividend_version=getattr(dividends,'version',None),dividend_policy=(getattr(dividends,'info',{}) or {}).get('historical_policy'),
         mapping_policy='按历日挂牌/到期重建；交割日保留旧档，下一交易日换月；非当时可得映射')
 
 

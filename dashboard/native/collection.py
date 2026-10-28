@@ -11,6 +11,9 @@ from index_strategy.instant_dld.collector import collect
 from index_strategy.instant_dld.contract_aliases import DualIdentityStore
 from index_strategy.instant_dld.service import write_json
 
+HEADLINE_INTERVAL_SECONDS=3
+REQUEST_TIMEOUTS=(1,2)
+
 
 class ScopedResolver:
     def __init__(self,index_ids,reference_file=None):
@@ -139,7 +142,8 @@ class CollectionJob:
                 leased=True
                 if not self._policy()['allowed']:
                     self.status.update(status='stopped');return
-                client=client_factory(connect_timeout=5,read_timeout=10)
+                client=client_factory(connect_timeout=REQUEST_TIMEOUTS[0],read_timeout=REQUEST_TIMEOUTS[1])
+                self.status.update(interval_seconds=HEADLINE_INTERVAL_SECONDS,request_timeouts=list(REQUEST_TIMEOUTS))
                 if auto_roll and not once:
                     from .equity_collection import EquitySampler
                     equities=EquitySampler(self.local_root,config or {},
@@ -189,7 +193,7 @@ class CollectionJob:
                                 valid_rows=len(store.last_rows),validation_status=(store.last_report or {}).get('status'),
                                 invalid_symbols=(store.last_report or {}).get('failed_symbols',[]))
                     store.batch=batch
-                    collect(client,store,[symbols_file],interval=2,max_polls=1 if once else 0,
+                    collect(client,store,[symbols_file],interval=HEADLINE_INTERVAL_SECONDS,max_polls=1 if once else 0,
                             stop=SessionStop(self.stop_event, self._policy),resolver=resolver)
                 with self.lock: self.status["status"]="stopped" if not self.status.get("error") else "failed"
             except Exception as exc:
@@ -209,3 +213,4 @@ class CollectionJob:
 
     def stop(self):
         self.stop_event.set()
+        if getattr(self,'equities',None) is not None:self.equities.stop()

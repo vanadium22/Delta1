@@ -54,6 +54,8 @@ def validate(data):
     fetched = datetime.fromisoformat(value['fetched_at'])
     if fetched.tzinfo is None:
         raise ValueError('资料取得时间缺时区')
+    reviewed=datetime.fromisoformat(value.get('reference_reviewed_at') or value['fetched_at'])
+    if reviewed.tzinfo is None or reviewed>fetched:raise ValueError('资料复核时间无效')
     fund_roots = {}
     for kind in ('indices', 'etfs'):
         groups = value.setdefault(kind, {})
@@ -71,6 +73,11 @@ def validate(data):
             if not isinstance(rows, list) or len(rows) > (3000 if kind == 'indices' else 300):
                 raise ValueError('资料行数无效')
             seen = set()
+            partial_weights=kind=='indices' and group.get('weights_complete') is False
+            if partial_weights:
+                if group.get('membership_complete') is not True or len(rows)!={'IF':300,'IH':50,'IC':500,'IM':1000}[root]:
+                    raise ValueError('未核验权重须附完整成分名单')
+                if day(group.get('membership_as_of'))>fetched.date().isoformat():raise ValueError('成分请求日期晚于取得日期')
             for row in rows:
                 if not isinstance(row, dict):
                     raise ValueError('资料行格式无效')
@@ -83,7 +90,7 @@ def validate(data):
                 if kind == 'indices':
                     if row.get('industry') is not None and (not isinstance(row['industry'],str) or len(row['industry'])>64):
                         raise ValueError('行业名称无效')
-                    if not finite(row.get('weight_pct')) or not 0 <= row['weight_pct'] <= 100:
+                    if not (partial_weights and row.get('weight_pct') is None) and (not finite(row.get('weight_pct')) or not 0 <= row['weight_pct'] <= 100):
                         raise ValueError('指数权重必须是0至100的百分比')
                 else:
                     if symbol in fund_roots and fund_roots[symbol]!=root:
@@ -93,8 +100,16 @@ def validate(data):
                         raise ValueError('ETF须确认普通ETF及相同标的指数')
                     if not finite(row.get('aum_cny')) or row['aum_cny'] <= 0 or day(row.get('aum_date')) != group['as_of']:
                         raise ValueError('ETF规模须是同一日期的正数人民币资产净值')
-            if kind == 'indices' and rows and not 99 <= sum(r['weight_pct'] for r in rows) <= 101:
+            if kind == 'indices' and rows and not partial_weights and not 99 <= sum(r['weight_pct'] for r in rows) <= 101:
                 raise ValueError('完整指数权重合计偏离100%，不自动归一化')
+    if 'etf_nav' in value:
+        nav=value['etf_nav']
+        if not isinstance(nav,dict) or nav.get('schema')!='etf-nav-v1' or not isinstance(nav.get('rows'),dict) or len(nav['rows'])>100:
+            raise ValueError('ETF净值缓存格式无效')
+        for symbol,row in nav['rows'].items():
+            if not SECURITY.fullmatch(symbol) or not isinstance(row,dict) or row.get('symbol')!=symbol:raise ValueError('ETF净值代码不匹配')
+            if day(row['as_of'])>fetched.date().isoformat() or not row.get('source'):raise ValueError('ETF净值日期或来源无效')
+            if not all(finite(row.get(k)) and row[k]>0 for k in ('nav_cny','close_cny')):raise ValueError('ETF净值/同日收盘无效')
     return value
 
 
@@ -109,7 +124,7 @@ def load(config, local_root, *, now=None):
         if fetched > now:
             raise ValueError('资料取得时间晚于当前时刻')
         return dict(data=data, version=hashlib.sha256(raw).hexdigest(),
-                    due=fetched.astimezone(now.tzinfo).isocalendar()[:2] != now.isocalendar()[:2], error=None)
+                    due=datetime.fromisoformat(data.get('reference_reviewed_at') or data['fetched_at']).astimezone(now.tzinfo).isocalendar()[:2] != now.isocalendar()[:2], error=None)
     except FileNotFoundError:
         return dict(data={}, version=None, due=True, error='尚无已核验低频资料')
     except (OSError, ValueError, TypeError, KeyError):

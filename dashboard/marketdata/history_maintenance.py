@@ -256,9 +256,85 @@ def run_cycle(local_root, **kwargs):
         return _run_cycle(local_root, **kwargs)
 
 
-def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None):
+def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,lifetime,vpn_mode,include_completed_today,now):
+    """App-only daily cache work; shared research scans/ledgers stay untouched."""
+    from datetime import time as wall_time
+    from .overview_daily import directory,requests,seed_local,fill
+    from .overview_sessions import latest_completed_session
+    from .overview_percentiles import requirements
+    from .repository import MarketDataRepository
+    root=directory(config,local_root)/'maintenance';root.mkdir(parents=True,exist_ok=True)
+    shared=maintenance_root(config.get('history_roots',[]));prior=read_json(shared/'status.json')
+    state=dict(scope='overview_completed_closes_only',research_downloads_enabled=False,inserted=0,
+        network_policy='auto_ddb_manual_realtime' if vpn_mode=='auto' else 'existing_route_only_no_vpn_change',
+        unknown_groups=prior.get('unknown_groups'),scan_complete=False,ddb_vpn=dict(state='not_needed',mode=None))
+    def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(local_root/'history_control.json').get('paused',False)
+    def report(name,message,**values):
+        state.update(state=name,message=message,updated_at=now_iso(),**values)
+        _atomic_bytes(root/'status.json',_json_bytes(state));return state
+    client=None
+    with _writer_lock(root):
+        try:
+            if stopped():raise Stopped()
+            clock=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai')).tz_convert('Asia/Shanghai')
+            target=latest_completed_session(clock.to_pydatetime(),ready_at=wall_time(15,10) if include_completed_today else wall_time.max)
+            state['target']=target
+            metadata=latest_contracts(read_json(config.get('reference_file','')))
+            if any(sum(r['listing_date']<=target<=r['expiry_date'] for s,r in metadata.items() if s.startswith(p))!=4 for p in UNDERLYINGS):
+                return report('waiting_reference','当前四档合约参考不足；没有请求DDB')
+            distribution=requirements(metadata,target)
+            state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
+                mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
+            report('scanning','仅核对概览所需收盘；研究分钟历史保持原样')
+            repo=MarketDataRepository(config.get('history_roots',[]),allow_unverified=config.get('allow_unverified',False),publication=shared/'publication.json')
+            seeded=seed_local(repo,repo.freeze(),config,local_root,target,metadata,stop=stopped)
+            jobs=requests(config,local_root,target,metadata)
+            state['overview_daily']=dict(target=target,status='pending' if jobs else 'complete',inserted=0,seeded_local=seeded,
+                pending_rows=sum(len(j['symbols']) for j in jobs),pending_batches=len(jobs))
+            if stopped():raise Stopped()
+            if not jobs:
+                return report('waiting_reference' if distribution['mapping_gaps'] else 'complete',
+                    '概览收盘已齐；历史分钟完整性沿用原审计，未重新深核' if not distribution['mapping_gaps'] else '连续档位历史映射待补；无已知价格缺口')
+            from dashboard.app_config import connection_path,vpn_profile
+            connection_file=connection_path(config)
+            if vpn_mode=='auto':
+                from . import ddb_vpn
+                from index_strategy.history.credentials import load_config
+                connection=load_config(connection_file)
+                try:
+                    if not all(connection.get(k) for k in ('host','port','username','password')):raise CredentialsUnavailable()
+                    profile=vpn_profile(config,local_root);report('connecting_vpn','已确认概览收盘缺口，按原策略准备DDB网络')
+                    outcome=ddb_vpn.ensure_connected(connection,profile['config'],profile['trust'],stop_file=stopped,interpreter=profile['powershell'])
+                    state['ddb_vpn']={k:outcome.get(k) for k in ('state','mode','tcp_verified','tls_pin_verified')}
+                finally:connection.clear()
+            if stopped():raise Stopped()
+            report('downloading','仅补概览缺少的日线；不下载研究分钟历史')
+            client=direct_factory(connection_file)
+            result=fill(client,config,local_root,target,metadata,stop=stopped,budget=min(45,budget))
+            state['overview_daily']={**result,'seeded_local':seeded};state['inserted']=result.get('inserted',0)
+            if stopped():raise Stopped()
+            pending=result.get('pending_rows',0)
+            return report('partial' if pending else 'waiting_reference' if distribution['mapping_gaps'] else 'complete',
+                '概览日线仍有缺口，保留待补清单' if pending else '概览日线已齐；未下载或重新核验研究分钟历史',
+                next_retry=time.time()+(5 if state['inserted'] else 300) if pending else None)
+        except Stopped:return report('stopped','概览补齐已安全停止；已发布缓存保留')
+        except Exception as exc:
+            from .ddb_vpn import VPNCancelled,VPNError
+            if isinstance(exc,VPNCancelled):return report('stopped','已取消概览数据VPN准备；原数据保留')
+            if isinstance(exc,VPNError):return report('waiting_vpn','DDB数据VPN未就绪；保留已有数据',error_type=type(exc).__name__,error_code=exc.code)
+            return report('waiting_calendar' if isinstance(exc,CalendarUnavailable) else 'waiting_credentials' if isinstance(exc,CredentialsUnavailable) else 'failed',
+                '概览补齐未完成，保留已有数据；错误类型见诊断',error_type=type(exc).__name__)
+        finally:
+            if client is not None:
+                try:client.close()
+                except Exception:pass
+
+
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None,overview_only=False):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
     if reference_file:config['reference_file']=str(reference_file)
+    if overview_only:return _run_overview_cycle(local_root,config,budget=budget,stop_file=stop_file,direct_factory=direct_factory,
+        lifetime=lifetime,vpn_mode=vpn_mode,include_completed_today=include_completed_today,now=now)
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
     controls=local_root/'history_control.json'
     def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(controls).get('paused',False)
@@ -493,6 +569,7 @@ def main():
     parser.add_argument('--incremental',action='store_true')
     parser.add_argument('--include-completed-today',action='store_true',help='App may include today only after 15:10, never an unfinished session')
     parser.add_argument('--overview-daily',action='store_true',help='Fill separate ETF/constituent completed-close cache')
+    parser.add_argument('--overview-only',action='store_true',help='App-only completed-close cache; no research minute downloads or shared audit rewrite')
     parser.add_argument('--owner-pid',type=int)
     parser.add_argument('--reference-file',type=Path)
     parser.add_argument('--vpn-mode',choices=('auto','manual'),default='manual')
@@ -502,7 +579,7 @@ def main():
         with LauncherLifetime(args.owner_pid,stop_file=args.stop_file) as lifetime:
             result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing,
                              incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file,vpn_mode=args.vpn_mode,
-                             include_completed_today=args.include_completed_today,overview_daily=args.overview_daily)
+                             include_completed_today=args.include_completed_today,overview_daily=args.overview_daily,overview_only=args.overview_only)
         print(json.dumps({k:result.get(k) for k in ('state','target','pending_symbol_days','inserted')},ensure_ascii=False))
         return 0 if result.get('state') in ('complete','date_checked') else 2
     except OSError:

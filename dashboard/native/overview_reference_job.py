@@ -1,4 +1,4 @@
-"""One hidden, bounded reference worker per calendar week, with safe draining."""
+"""Weekly reference review and daily dated ETF NAV, each bounded and owned."""
 from datetime import datetime
 import hashlib
 import json
@@ -40,28 +40,42 @@ class ReferenceJob:
             record('disabled','配置已关闭Wind低频更新')
             return
         current = load(config, self.local_root, now=now)
-        if not current['due'] and not current['data'].get('errors'):
-            record('up_to_date','本周资料已核验')
-            return
+        from dashboard.marketdata.overview_sessions import latest_completed_session
+        from dashboard.marketdata.overview_reference import ranking,ROOTS
+        try:target=latest_completed_session(now)
+        except ValueError:record('waiting_calendar','完成交易日日历待核验');return
+        chosen={r['symbol'] for root in ROOTS for r in ranking(current['data'],root,today=now.date().isoformat())[0]}
+        saved_nav=current['data'].get('etf_nav',{}).get('rows',{})
+        nav_due=bool(chosen) and (config.get('overview_reference_backend') or 'windpy')=='windpy' and any(saved_nav.get(s,{}).get('as_of')!=target for s in chosen)
         week = '-'.join(map(str, now.isocalendar()[:2]))
         profile=hashlib.sha256(json.dumps([PROTOCOL,{k:config.get(k) for k in
             ('overview_reference_backend','overview_wind_python','overview_wind_config','overview_wind_aum_field',
              'overview_wind_aum_multiplier','overview_wind_etf_sector','overview_wind_tracking_field','overview_wind_industry_field')}],sort_keys=True).encode()).hexdigest()
+        attempt={}
         try:
             attempt = json.loads((self.directory/'attempt.json').read_text(encoding='utf8'))
-            if not force and attempt.get('week') == week and attempt.get('profile') == profile:
-                record('attempted_this_week','本周已尝试；结果以Wind任务状态文件为准')
-                return
         except (OSError, ValueError):
             pass
+        weekly_tried=attempt.get('week')==week and attempt.get('profile')==profile
+        stage='all'
+        if not force and (not current['due'] and not current['data'].get('errors') or weekly_tried):
+            if not nav_due:
+                record('attempted_this_week' if weekly_tried and (current['due'] or current['data'].get('errors')) else 'up_to_date',
+                    '本周已尝试；结果以Wind任务状态文件为准' if weekly_tried else '本周资料及最近完成日净值已核验');return
+            stage='nav';profile=hashlib.sha256((profile+target).encode()).hexdigest()
+            try:nav_attempt=json.loads((self.directory/'nav-attempt.json').read_text(encoding='utf8'))
+            except (OSError,ValueError):nav_attempt={}
+            if nav_attempt.get('day')==target and nav_attempt.get('checked_day')==now.date().isoformat() and nav_attempt.get('profile')==profile:
+                record('nav_attempted_today','该完成日净值已尝试；保留原数据日期');return
         self.directory.mkdir(parents=True, exist_ok=True)
         # A persistent stop file is never deleted while an old worker is alive.
         if self.stop_file.exists():
             self.stop_file.unlink()
-        _atomic_bytes(self.directory/'attempt.json', _json_bytes(dict(week=week, profile=profile, attempted_at=now.isoformat())))
+        _atomic_bytes(self.directory/('attempt.json' if stage=='all' else 'nav-attempt.json'),
+            _json_bytes(dict(week=week,day=target,checked_day=now.date().isoformat(),stage=stage,profile=profile,attempted_at=now.isoformat())))
         try:
             self.process = subprocess.Popen([sys.executable, '-B', '-s', '-X', 'utf8', '-m', __name__,
-                '--local-root', str(self.local_root)], cwd=str(Path(__file__).resolve().parents[2]),
+                '--local-root', str(self.local_root),'--stage',stage], cwd=str(Path(__file__).resolve().parents[2]),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             record('worker_started','已启动隐藏低频资料任务，等待结果')
@@ -78,6 +92,7 @@ class ReferenceJob:
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(); parser.add_argument('--local-root', required=True, type=Path)
+    parser.add_argument('--stage',choices=('all','nav'),default='all')
     args = parser.parse_args(argv); directory = args.local_root/'overview_reference'
     status = dict(started_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),diagnostics={})
     try:
@@ -88,9 +103,10 @@ def main(argv=None):
         status['provider']=backend
         if backend=='windpy':
             from dashboard.marketdata.overview_windpy import refresh
-            result=refresh(config,args.local_root,prior['data'],now=now,stop_file=directory/'stop.request')
+            result=refresh(config,args.local_root,prior['data'],now=now,stop_file=directory/'stop.request',stage=args.stage)
             value=result['data'];status['diagnostics']=result['diagnostics']
         elif backend=='oracle':
+            if args.stage!='all':raise ValueError('独立净值任务仅使用WindPy')
             from dashboard.marketdata.overview_wind import refresh
             value=refresh(config,args.local_root,prior['data'],now=now,stop=lambda:(directory/'stop.request').exists(),diagnostics=status['diagnostics'])
         else:raise ValueError('未识别低频资料接口')

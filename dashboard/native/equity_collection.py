@@ -1,6 +1,6 @@
 """Slow equity snapshots owned by the main collector's network lease.
 
-Separate HTTP session and storage keep constituent batches off the two-second
+Separate HTTP session and storage keep constituent batches off the three-second
 headline path. No VPN control, Wind access, or historical bar publication.
 """
 from datetime import datetime, timezone
@@ -71,7 +71,7 @@ class EquitySampler:
                     reference = load(self.config, self.local_root)
                     if any(g.get('rows') for g in reference['data'].get('indices', {}).values()):
                         if client is None:
-                            client = self.client_factory(connect_timeout=5, read_timeout=10)
+                            client = self.client_factory(connect_timeout=1, read_timeout=2)
                             store = RealtimeStore(self.local_root/'overview_equities/observations')
                         poll += 1
                         self.cycle(client, store, reference, poll)

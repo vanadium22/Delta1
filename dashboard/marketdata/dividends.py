@@ -17,7 +17,8 @@ def digest(value):
 
 def read_snapshot(directory):
     snapshots = []
-    for path in sorted(Path(directory).glob("*.xlsx")):
+    source=Path(directory)
+    for path in ([source] if source.is_file() else sorted(source.glob("*.xlsx"))):
         if path.name.startswith(("~$", ".")): continue
         book = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_links=False)
         try:

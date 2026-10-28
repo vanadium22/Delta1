@@ -14,12 +14,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 from dashboard.native.app import configure_style
 from dashboard.native.editions_current import PresentationWindow, freeze_window
-from dashboard.native.market_overview import quote_card, futures_values
+from dashboard.native.market_overview import quote_card
 from dashboard.native.overview_instruments import etfs
 from dashboard.native.instruments import UNDERLYINGS
 from dashboard.marketdata.overview_contributions import contributions
 from dashboard.marketdata.overview_reference import ROOTS
-from tests.test_market_overview import NOW, observation
+from tests.test_market_overview import NOW, observation,futures_values
 
 
 APP=QApplication.instance() or QApplication([])
@@ -32,8 +32,8 @@ def pump(seconds=.05):
 
 
 def state():
-    from tests.test_overview_percentiles import metadata,daily_data
-    from dashboard.marketdata.overview_percentiles import prepare,apply
+    from tests.test_overview_percentiles import metadata,daily_data,prepare
+    from dashboard.marketdata.overview_percentiles import apply
     meta=metadata();history=daily_data(meta,day='2026-10-26')
     live={s:observation() for s,_,_ in UNDERLYINGS.values()}
     indices=[quote_card(s,n,r,live,{},NOW,'2026-10-23') for r,(s,n,_) in UNDERLYINGS.items()]

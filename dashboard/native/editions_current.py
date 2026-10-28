@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import os
+import threading
 
 if '--theme' in sys.argv:
     index=sys.argv.index('--theme')
@@ -61,6 +62,7 @@ class PresentationWindow(QMainWindow):
 
     def __init__(self,model):
         super().__init__();self.model=model;self.state=None;self.demo=False;self.busy=False;self.closing=False;self.pending=False;self.generation=0
+        self.model.overview_stop=threading.Event()
         self.market_mode=not self.frozen_payload or bool(self.frozen_payload['snapshots'][0].get('market_overview'))
         self.collection=CollectionJob(model.local_root);self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
         self.resize(1580,980);self.setMinimumSize(860,620)
@@ -82,8 +84,10 @@ class PresentationWindow(QMainWindow):
             self.quotes=MarketOverviewPanel()
         else:self.quotes=QuotePanel()
         self.pages.addTab(self.quotes,'市场概览')
-        from .research_pages_view import add_research_pages
-        add_research_pages(self,self.pages,self.selection_changed)
+        self.research_pages={}
+        if self.frozen_payload:
+            from .research_pages_view import add_research_pages
+            add_research_pages(self,self.pages,self.selection_changed)
         if self.frozen_payload:
             # A frozen export carries only the groups evaluated at capture.
             # Keep it readable without allowing filters to imply recalculation.
@@ -144,7 +148,9 @@ class PresentationWindow(QMainWindow):
         if self.pending:self.pending=False;QTimer.singleShot(0,self.refresh)
 
     def failed(self,error):
-        self.busy=False;self.status.setText('读取失败：'+str(error))
+        self.busy=False
+        if self.closing:return
+        self.status.setText('读取失败：'+str(error))
         if self.pending:self.pending=False;QTimer.singleShot(0,self.refresh)
 
     def render(self,state):
@@ -207,22 +213,18 @@ class PresentationWindow(QMainWindow):
         if 0<=index<self.pages.count():self.pages.setCurrentIndex(index)
 
     def closeEvent(self,event):
-        self.closing=True;self.timer.stop();self.collection.stop()
+        if not self.closing:
+            self.closing=True;self.timer.stop();self.collection.stop();self.model.overview_stop.set()
+            if hasattr(self,'pipeline'):self.pipeline.stop()
         if hasattr(self,'pipeline'):
-            self.pipeline.stop()
             if not self.pipeline.drained():event.ignore();QTimer.singleShot(100,self.close);return
         if self.busy or self.collection.running() or any(getattr(p,'busy',False) for p in self.research_pages.values()):event.ignore();QTimer.singleShot(100,self.close);return
         if hasattr(self,'pipeline'):self.pipeline.timer.stop()
         self.model.close();event.accept()
 
 
-class DeveloperWindow(ResearchWindow):
-    def __init__(self,model):
-        super().__init__(model)
-        b=QPushButton('导出当前数字快照');b.clicked.connect(self.export)
-        self.centralWidget().layout().insertWidget(1,b)
-    def export(self):
-        if self.state:export_window(self,freeze_window(self.state))
+class DeveloperWindow(PresentationWindow):
+    """Research pages are temporarily paused in both live editions."""
 
 
 def main(argv=None):

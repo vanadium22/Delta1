@@ -1,5 +1,5 @@
 param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview,
-    [ValidateSet('Connect','Indices','ETFs')][string]$WindStage,
+    [ValidateSet('Connect','Indices','ETFs','Nav')][string]$WindStage,
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$WindDay)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent

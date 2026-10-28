@@ -65,7 +65,16 @@ class DataPipeline(QObject):
         config=deepcopy(self.model.config)
         def work():
             from dashboard.app_preview import load
-            return dict(quick=quick_check(config),credentials=credential_state(config,self.model.local_root),preview=load(config))
+            pending=None
+            try:
+                from dashboard.marketdata.overview_daily import requests
+                from dashboard.marketdata.overview_sessions import latest_completed_session
+                from dashboard.marketdata.contract_reference import latest_contracts
+                from dashboard.marketdata.repository import ReferenceBook
+                jobs=requests(config,self.model.local_root,latest_completed_session(),latest_contracts(ReferenceBook(config.get('reference_file')).data))
+                pending=sum(len(j['symbols']) for j in jobs)
+            except (OSError,ValueError,TypeError,KeyError):pass
+            return dict(quick=quick_check(config),overview_pending=pending,credentials=credential_state(config,self.model.local_root),preview=load(config))
         def done(result):
             self.quick=result.get('quick',{});self.credentials=result.get('credentials',{})
             if result.get('preview') and self.window.state is None and not self.window.generation:
@@ -74,8 +83,8 @@ class DataPipeline(QObject):
             self.quick_due=time.monotonic()+30
             if not self.instance_ready():return
             if self.enabled and not self.action:
-                if self.model.config.get('history_maintenance_enabled',True):
-                    self.one_click(force_reference=False,force_history=bool(self.credentials.get('available')))
+                if self.model.config.get('history_maintenance_enabled',True) and (result.get('overview_pending') or 0)>0:
+                    self.request_history(force=False)
                 else:self.request_realtime()
             elif not self.enabled:self.set_state('cache','只读缓存；自动更新已关闭')
         self.submit(work,done)
@@ -146,14 +155,14 @@ class DataPipeline(QObject):
                     (' 当前窗口没有启动采集；仍可读取其他采集者写入的行情，ETF可能尚未订阅。' if is_lock else ''))
                 self.offer_realtime_prompt(result)
         def work():
-            result=probe_realtime(config)
+            result=probe_realtime(config,timeouts=(1,2))
             if force_reference or not result.get('ok') and result.get('diagnostics',{}).get('stage')=='reference_read':
                 from dashboard.session_guard import network_lease
                 from dashboard.marketdata.contract_reference import synchronize
                 with network_lease(config):
                     reference=synchronize(config.get('reference_file'),self.model.local_root/'contract_reference',quote_checker=None,force=force_reference)
                 config['reference_file']=reference['reference_file'];self.pending_reference=reference['reference_file']
-                result=probe_realtime(config)
+                result=probe_realtime(config,timeouts=(1,2))
             return result
         self.submit(work,done)
 
@@ -321,10 +330,12 @@ class DataPipeline(QObject):
         state=self.collection.state()
         collection={k:state.get(k) for k in ('status','stage','polls','rows','data_sequence','valid_rows','validation_status',
             'invalid_symbols','request_started_at','request_seconds','received_at','storage_finished_at','storage_seconds',
-            'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status')}
+            'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status',
+            'interval_seconds','request_timeouts')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
-            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous')}
+            'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous',
+            'scope','research_downloads_enabled')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
@@ -357,6 +368,7 @@ class DataPipeline(QObject):
         return path
 
     def stop(self):
+        if self.closing:return
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.closing=True;self.enabled=False;self.history.stop();self.collection.stop();self.write_report()
         if self.overview_reference is not None:self.overview_reference.stop()
@@ -370,7 +382,7 @@ class DataPipeline(QObject):
 class PipelinePage(QWidget):
     def __init__(self,pipeline):
         super().__init__();self.pipeline=pipeline;layout=QVBoxLayout(self);row=QHBoxLayout()
-        for title,fn in [('DDB一键补齐',pipeline.one_click),('完整深核（后台）',lambda:pipeline.request_history(True)),
+        for title,fn in [('DDB一键补齐',pipeline.one_click),('概览日线核验',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
             button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());row.addWidget(button)
         layout.addLayout(row)

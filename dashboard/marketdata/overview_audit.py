@@ -102,7 +102,8 @@ def calculation_preview(config,local_root,now,repo,frozen):
     model._live=lambda instruments,as_of:NativeModel._live(model,instruments,as_of)
     state=MarketOverviewEngine(model).snapshot(now=now)
     fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day',
-        'basis_points','annual_pct','basis_reason','percentile_20','percentile_60','percentile_reason','continuous_percentiles')
+        'basis_points','raw_basis_points','annual_pct','basis_reason','dividend_points','dividend_snapshot','dividend_inherited_from',
+        'percentile_20','percentile_60','percentile_reason','continuous_percentiles')
     return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
         calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],
         futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']])
@@ -130,7 +131,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         equity_universe.update(m['symbol'] for m in members)
         expected={'IF':300,'IH':50,'IC':500,'IM':1000}[root];complete=len(members)==expected
         wind[root]=dict(index_id=spot,weight_date=group.get('as_of'),expected_members=expected,
-            members=len(members),missing_industry=unknown,weights_available=complete,
+            members=len(members),missing_industry=unknown,weights_available=complete and group.get('weights_complete') is not False,
+            membership_as_of=group.get('membership_as_of'),weight_source_dates=group.get('weight_source_dates'),
             ranking=meta,etf_universe_complete=fund_group.get('complete') is True,
             selected_etfs=[dict(symbol=f['symbol'],rank=f['rank'],aum_date=f['aum_date']) for f in funds],
             dependency='先取得完整成分/权重才能列出该指数全部股票的DDB缺口' if not complete else None)
@@ -143,22 +145,25 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     daily={}
     try:
         daily,required,errors=daily_inputs(config,local_root,pricing,metadata,repo=repo,frozen=frozen)
+        from .overview_basis import load_dividends
+        dividends=load_dividends(config,metadata,pricing)
         result['errors'].extend(dict(stage='daily_read',**e) for e in errors)
         slots={};missing=defaultdict(set)
         for root in ROOTS:
             for slot in SLOTS:
-                prepared=prepare(root,slot,metadata,daily,pricing)
+                prepared=prepare(root,slot,metadata,daily,pricing,dividends=dividends)
                 checked=evaluate(prepared,None,prepared['current_symbol'])
                 checked.update(evaluation_scope='history_only',current_value_evaluated=False)
                 # This audit certifies history coverage, never an untested live marker.
                 for window in checked['windows'].values():
                     if window['complete']:window['reason']='历史窗口完整；本历史审计未计算当前分位，需另查页面的实时配对或收盘模式'
                     for row in window['missing']:
-                        if row['reason']!='mapping_missing':
+                        if row['reason'] in ('future_close_missing','index_close_missing'):
                             for symbol in row.get('missing_symbols') or [row.get('symbol') or ROOTS[root]]:missing[symbol].add(row['day'])
                 slots[prepared['alias']]=checked
         result['continuous_annual']=dict(start=required['start'],end=required['end'],windows=[20,60],
-            slots=slots,mapping_gaps=required['mapping_gaps'],
+            slots=slots,mapping_gaps=required['mapping_gaps'],dividend_version=dividends.version,dividend_reason=dividends.reason,
+            dividend_missing=[dict(alias=alias,day=r['day'],symbol=r['symbol']) for alias,checked in slots.items() for r in checked['windows']['60']['missing'] if r['reason']=='dividend_missing'],
             daily_missing=[dict(symbol=s,dates=sorted(d)) for s,d in sorted(missing.items())],
             note='逐行读取可用已完成收盘；缺档案、缺行情和已知T<5规则排除分别列示；不把旧合约上市短误当连续窗口不足')
         present=defaultdict(set)

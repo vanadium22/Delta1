@@ -24,7 +24,7 @@ class FuturesCard(Panel):
         self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,1);self.box.addLayout(head)
         self.price=lab('—',36,ACCENT,True);self.box.addWidget(self.price)
         self.values=[];self.captions=[]
-        for title in ('点基差','对数年化','20日年化分位','60日年化分位'):
+        for title in ('实际基差','简单年化','20日年化分位','60日年化分位'):
             line=QHBoxLayout();caption=lab(title,16,MUTED);value=lab('—',25,TEXT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
             self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
@@ -46,12 +46,14 @@ class FuturesCard(Panel):
             label=(numeric(rank,1,suffix='%') if rank is not None else '缺合约档案' if any(r['reason']=='mapping_missing' for r in missing) else
                 '缺'+str(len(missing))+'日' if missing else 'T<5' if row.get('days') is not None and row['days']<5 else '待年化行情')
             widget.setText(label)
-            widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 年化对数基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
+            widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 分红调整简单年化\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
         source=source_label(row)
         self.clock.setText(source)
         self.clock.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
+            '\n分红 '+str(row.get('dividend_points'))+' 点；缓存日 '+str(row.get('dividend_snapshot') or '待核验')+
+            ('\n沿用 '+row['dividend_inherited_from'] if row.get('dividend_inherited_from') else '')+
             '\n'+str(row.get('percentile_start') or '—')+' 至 '+str(row.get('percentile_end') or '—'))
 
 
@@ -142,7 +144,7 @@ class FuturesOverviewPage(ScrollPage):
         for widget,key in zip(self.change_values,('basis_change_previous','calendar_points','basis_change_5m')):
             value=group.get(key);put(widget,numeric(value,2,True,'点'),color=ink(value),size=27,bold=True)
         self.change_values[0].setToolTip(group.get('previous_reason') or '待同步当前基差与准确昨日参照')
-        self.change_values[1].setToolTip('第六版B01近月−次月点差；两合约与现货需同步')
+        self.change_values[1].setToolTip('近月−次月原始点差；两合约与现货需同步')
         self.change_values[2].setToolTip(group.get('five_minute_reason') or '待五分钟前同步期现观测')
         distribution=group.get('distribution',[]);reason=group.get('distribution_reason') or '待四个到期合约的完整有效成交数据'
         self.distribution.render(distribution,reason);shares={r['symbol']:r['share_pct'] for r in distribution}

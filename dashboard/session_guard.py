@@ -14,7 +14,7 @@ def network_lease(config):
         yield
 
 
-def probe_realtime(config, client_factory=None, *, report_dir=None):
+def probe_realtime(config, client_factory=None, *, report_dir=None,timeouts=(3,5)):
     """One bounded request, no persistence, no credentials or endpoint in result."""
     from dashboard.connection_diagnostics import error_detail,failure_message,probe_evidence,save_probe_report
     evidence=probe_evidence();stage='session_clock';outcome=None
@@ -46,7 +46,7 @@ def probe_realtime(config, client_factory=None, *, report_dir=None):
                 outcome=dict(ok=False,offline=True,message=policy['reason'])
             else:
                 stage='client_init';evidence['stage']=stage
-                client=(client_factory or MarketDataClient)(connect_timeout=3,read_timeout=5)
+                client=(client_factory or MarketDataClient)(connect_timeout=timeouts[0],read_timeout=timeouts[1])
                 if isinstance(client,MarketDataClient):
                     post=client.session.post
                     def observed_post(*args,**kwargs):

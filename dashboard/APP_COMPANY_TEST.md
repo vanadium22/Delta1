@@ -1,3 +1,36 @@
+# 2026-10-28 当前公司验收
+
+本节覆盖下方旧对数年化、研究页及全分钟补库操作。已完整读取这次4份JSON和Excel：公司是468033a，ETF规模阶段complete但published=false；指数名单已全返，权重缺项/旧日期导致原整组拒绝。新源码保留概览全部计算和20/60分位，研究页暂时暂停。
+
+1. 正常关闭旧看板并等原任务退出，在原公司Git根目录更新一次：
+
+```powershell
+Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+git pull --ff-only
+git log -1 --oneline
+$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
+```
+
+2. 仍用原dashboard/start_presentation.vbs。应只看到市场概览和数据更新/设置，不再加载三个研究页；指数、ETF、股指期货三个概览子页和20/60分位保留。期指标“实际基差 / 简单年化”，四卡仍为实际合约，计算(F-S+D)/S*365/T。当前和历史分位采用相同固定分红情景，缺D沿用前一到期合约，明确0优先，悬浮可查继承来源。
+3. 如果要使用本次附表的G列，在内联设置填“概览分红Excel”为公司电脑该文件的实际路径。字段留空仍使用原分红目录，程序不会擅自改原配置或覆盖旧表。保存时先按提示等后台安全暂停，再保存。文件名虽含09-18，本次Sheet1!B1缓存日为2026-10-28；请以缓存日期/C列合约/G列点数为准，不把E列覆盖独立合约参考。
+4. 保持日常Wind终端登录。新版正常流程会再尝试一次周频资料，名单不再因少量缺权重全丢；行业/股票快照需要等待下一分钟采样。ETF规模前三仍须从正常任务实际发布后才进入订阅，只读阶段成功不会发布。必要时按DDB一键补齐：仅填概览所需日线，先本地复制再按真实缺口用DDB，不下载研究分钟/秒历史或重写原深核记录。实时不等待周频Wind完成；实时VPN仍手动。
+5. 连续交易保持窗口10–15分钟：主行情应按三秒请求（不代表源端必定每次改变），股票采样约60秒独立进行；切IF/IH/IC/IM、缩放/滚动、暂停/恢复及关闭应正常。源时、接收、计算和页面刷新分开，30秒/3秒规则未放宽。D缺项应列“分红缺失”，不当成价格缺口重下。最早无前序合约D时不能造值。
+6. ETF新增“收盘折溢价”，只用同日未复权收盘和单位净值并显示日期；盘中IOPV仍须明确字段/映射，净申赎/PCF仍缺可靠输入。本机只用假SDK验证新nav字段链路，真实公司字段/日期及发布须核验。正常资料发布后，可显式运行只读日频净值阶段：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Nav -WindDay 2026-10-27 -NoPause
+```
+
+固定27日便于在28日对比；不发布资料、不改配置/VPN、不连接HTTP/DDB。返回nav.expected与same_day应覆盖已选规模前三；失败回传安全阶段/ErrorCode即可。此测试从已发布ETF名单选择代码，名单尚未发布时不会猜代码。盘后当天净值未披露保留旧日期，次晨可有限重试。
+
+保持看板开着，导出当前概览：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -Overview -NoPause
+```
+
+回传同次overview.json+diagnosis.json；若跑了Nav，再加该次wind.json+diagnosis.json。默认-Overview仍不请求接口。新报告含简单年化/分红来源、分位D缺项、主请求interval_seconds=3，以及历史scope=overview_completed_closes_only、research_downloads_enabled=false。Indices即便权重未齐也可有完整名单，不能把partial误当名单0；真实公司三秒/关闭性能与行业/NAV可用性不以本机回归代替。
+
 # 2026-10-27 14:46 / 14:55 新回传后的复测
 
 这8份新文件已完整解析。四份同次diagnosis确认公司源码638ee82。Connect成功；Indices接口均ErrorCode=0但三组权重无效、IH行日期不符；ETF候选1310、跟踪映射匹配66且未解析0，指定10月26日规模返回ErrorCode=0但矩阵校验失败。14:55两个样本24/24报价新鲜、20个标的源时推进，16个实际合约20/60分位可计算；短样本仍不能通过10–15分钟持续运行验收。

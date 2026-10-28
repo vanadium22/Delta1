@@ -9,6 +9,31 @@ from dashboard.marketdata.history_quick import quick_check,incremental_scan,save
 
 
 class AppHistoryTests(unittest.TestCase):
+    def test_overview_only_does_not_scan_download_or_rewrite_research_history(self):
+        c=self.fixture();c.cycle()
+        protected={name:(c.root/name).read_bytes() for name in ('status.json','pending.json','coverage_ledger.json','coverage_summary.json')}
+        distribution=dict(start='2026-07-01',end='2026-10-16',mapping_gaps=[])
+        factory=Mock(side_effect=AssertionError('No remote gap'))
+        with patch.object(hm,'scan',side_effect=AssertionError('No research scan')),\
+             patch.object(hm,'plan',side_effect=AssertionError('No minute plan')),\
+             patch('dashboard.marketdata.overview_percentiles.requirements',return_value=distribution),\
+             patch('dashboard.marketdata.overview_daily.seed_local',return_value=12),\
+             patch('dashboard.marketdata.overview_daily.requests',return_value=[]):
+            result=hm.run_cycle(c.local,overview_only=True,direct_factory=factory,now='2026-10-19T10:00:00+08:00')
+        self.assertEqual(result['state'],'complete');self.assertFalse(result['research_downloads_enabled'])
+        self.assertEqual(result['scope'],'overview_completed_closes_only');factory.assert_not_called()
+        for name,raw in protected.items():self.assertEqual((c.root/name).read_bytes(),raw)
+
+    def test_overview_only_gap_uses_daily_filler_and_closes_owned_session(self):
+        c=self.fixture();c.cycle();fetch=Mock(side_effect=AssertionError('No legacy minute fetch'))
+        with patch('dashboard.marketdata.overview_percentiles.requirements',return_value=dict(start='2026-07-01',end='2026-10-16',mapping_gaps=[])),\
+             patch('dashboard.marketdata.overview_daily.seed_local',return_value=0),\
+             patch('dashboard.marketdata.overview_daily.requests',return_value=[dict(day='2026-10-16',asset='index',symbols=['000300.SH'])]),\
+             patch('dashboard.marketdata.overview_daily.fill',return_value=dict(inserted=1,pending_rows=0,pending_batches=0,status='complete')) as daily:
+            result=hm.run_cycle(c.local,overview_only=True,direct_factory=lambda _:c.client,fetcher=fetch,now='2026-10-19T10:00:00+08:00')
+        self.assertEqual(result['state'],'complete');self.assertEqual(result['inserted'],1)
+        daily.assert_called_once();fetch.assert_not_called();self.assertGreater(c.client.close.call_count,0)
+
     def test_overview_missing_historical_slot_mapping_is_not_reported_as_complete(self):
         c=self.fixture();c.cycle()
         with patch('dashboard.marketdata.overview_daily.fill',return_value=dict(status='complete',target='2026-10-16',

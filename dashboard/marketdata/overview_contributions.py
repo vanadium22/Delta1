@@ -49,7 +49,10 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     # Older snapshots remain visible with their original date and an explicit status.
     valid_cutoff = cutoff is not None and same_generation
     quotes = snapshot.get('quotes', {}) if valid_cutoff else {}
-    previous_weights = group.get('as_of') == previous and group.get('effective_date', group.get('as_of')) <= str(now.date())
+    verified_weights=group.get('weights_complete') is not False
+    result['weights_complete']=verified_weights
+    if not verified_weights:result.update(weight_date=None,official_weight_date=None)
+    previous_weights = verified_weights and group.get('as_of') == previous and group.get('effective_date', group.get('as_of')) <= str(now.date())
     closed=snapshot.get('mode')=='completed_daily'
     same_day = (snapshot.get('pricing_day')<=str(now.tz_convert('Asia/Shanghai').date()) if closed and snapshot.get('pricing_day') else
                 cutoff is not None and cutoff.tz_convert('Asia/Shanghai').date() == now.tz_convert('Asia/Shanghai').date())
@@ -69,7 +72,7 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         prior = q.get('prev_close')
         valid = usable(q) and finite(prior) and prior > 0
         ret = 100*(q['close']/prior-1) if valid else None
-        point = base*member['weight_pct']/100*ret/100 if valid and previous_weights and base_valid else None
+        point = base*member['weight_pct']/100*ret/100 if valid and previous_weights and base_valid and finite(member.get('weight_pct')) else None
         item = dict(symbol=member['symbol'], name=member.get('name') or member['symbol'],
                     industry=member.get('industry') or '待分类', weight_pct=member['weight_pct'],
                     change_pct=ret, contribution_points=point, source_at=q.get('source_event_time') if valid else None)
@@ -78,22 +81,23 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         if valid:
             times.append(pd.Timestamp(q['source_event_time']))
     covered = [r for r in result['rows'] if r['change_pct'] is not None]
-    result.update(covered=len(covered), coverage_pct=sum(r['weight_pct'] for r in covered),
+    result.update(covered=len(covered), coverage_pct=sum(r['weight_pct'] for r in covered) if verified_weights else None,
                   up=sum(r['change_pct'] > 0 for r in covered), down=sum(r['change_pct'] < 0 for r in covered),
                   flat=sum(r['change_pct'] == 0 for r in covered),
                   up_pct=100*sum(r['change_pct'] > 0 for r in covered)/len(covered) if covered else None,
                   source_at=min(times).isoformat() if times else None)
     for name, members in industries.items():
         priced = [r for r in members if r['change_pct'] is not None]
-        weight = sum(r['weight_pct'] for r in members)
-        good_weight = sum(r['weight_pct'] for r in priced)
+        weights_known=all(finite(r['weight_pct']) for r in members)
+        weight = sum(r['weight_pct'] for r in members) if weights_known else None
+        good_weight = sum(r['weight_pct'] for r in priced) if weights_known else None
         # A partial industry return is not the full basket return.
-        complete = len(priced) == len(members)
+        complete = len(priced) == len(members) and weights_known and verified_weights
         points = [r['contribution_points'] for r in priced if r['contribution_points'] is not None]
         result['industries'].append(dict(name=name, weight_pct=weight, covered_weight_pct=good_weight,
             change_pct=sum(r['weight_pct']*r['change_pct'] for r in priced)/weight if complete and weight else None,
             contribution_points=sum(points) if points else None, complete=complete, members=members))
-    result['industries'].sort(key=lambda r: (-r['weight_pct'], r['name']))
+    result['industries'].sort(key=lambda r: (r['weight_pct'] is None, -(r['weight_pct'] or 0), r['name']))
     eligible = [r for r in result['industries'] if r['complete'] and r['name'] != '待分类' and r['contribution_points'] is not None]
     result['leaders'] = sorted((r for r in eligible if r['contribution_points'] > 0), key=lambda r: -r['contribution_points'])[:3]
     result['laggards'] = sorted((r for r in eligible if r['contribution_points'] < 0), key=lambda r: r['contribution_points'])[:3]

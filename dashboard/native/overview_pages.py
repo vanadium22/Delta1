@@ -186,7 +186,7 @@ class IndustryWeights(QWidget):
     def __init__(self):
         super().__init__(); self.rows = []; self.hit = []; self.setMinimumHeight(264); self.setMinimumWidth(0)
     def render(self, rows):
-        rows = sorted(rows, key=lambda r: -r['weight_pct'])
+        rows = sorted((r for r in rows if isinstance(r.get('weight_pct'),(int,float))), key=lambda r: -r['weight_pct'])
         self.rows = rows[:7]
         if len(rows) > 7:
             self.rows += [dict(name='其他', weight_pct=sum(r['weight_pct'] for r in rows[7:]))]
@@ -258,10 +258,10 @@ class IndexOverviewPage(ScrollPage):
         for widget, key, suffix in zip(self.metrics, ('up_pct', 'actual_points', 'contribution_points', 'residual_points'), ('%', '点', '点', '点')):
             value = detail.get(key); put(widget, numeric(value, 1 if key == 'up_pct' else 2, key != 'up_pct', suffix), color=ink(value), size=28, bold=True)
         self.weight_panel.note.setText((detail.get('industry_standard') or '行业分类待核验')+(' · 估算权重 ' if detail.get('weight_method')=='fixed_quantity_estimate' else ' · 权重 ')+str(detail.get('weight_date') or '待核验'))
-        groups = detail.get('industries', []); self.weights.render(groups)
+        groups = detail.get('industries', []); self.weights.render(groups if detail.get('weights_complete') is not False else [])
         ranked = detail.get('leaders', [])+detail.get('laggards', [])
         displayed = ranked if ranked else groups[:6]
-        self.industry_panel.note.setText('完整行业参与排名' if ranked else '贡献待核验，先看权重')
+        self.industry_panel.note.setText('完整行业参与排名' if ranked else '权重待核验，可查看成分涨跌' if detail.get('weights_complete') is False else '贡献待核验，先看权重')
         self.displayed_industries = displayed; self.industries.setRowCount(max(6, len(displayed)))
         self.industries.clearContents()
         maximum = max([abs(r['contribution_points']) for r in displayed if r.get('contribution_points') is not None] or [1]) or 1
@@ -299,7 +299,7 @@ class IndexOverviewPage(ScrollPage):
     def show_stocks(self):
         root = self.selected_root; selected = self.selected_industry.get(root)
         group = next((r for r in self.details.get(root, {}).get('industries', []) if r['name'] == selected), {})
-        members = sorted(group.get('members', []), key=lambda r: (r.get('contribution_points') is None, -abs(r.get('contribution_points') or 0), -r['weight_pct']))
+        members = sorted(group.get('members', []), key=lambda r: (r.get('contribution_points') is None, -abs(r.get('contribution_points') or 0), -(r.get('weight_pct') or 0)))
         rows = members if self.expanded else members[:3]
         self.stock_panel.title.setText((selected+' → 仅看'+UNDERLYINGS[root][1]+'内成分') if selected else '选择行业 → 查看指数内成分')
         self.stocks.setRowCount(max(3, len(rows))); self.stocks.clearContents()
@@ -323,6 +323,7 @@ class EtfCard(Panel):
         self.change.setAlignment(Qt.AlignmentFlag.AlignRight); values.addWidget(self.price, 1); values.addWidget(self.change, 1); self.box.addLayout(values)
         second = QHBoxLayout(); self.iopv = lab('', 19); self.premium = lab('', 28, TEXT, True)
         self.premium.setAlignment(Qt.AlignmentFlag.AlignRight); second.addWidget(self.iopv, 1); second.addWidget(self.premium, 1); self.box.addLayout(second)
+        self.closing_premium=lab('',16,MUTED);self.box.addWidget(self.closing_premium)
         divider = QFrame(); divider.setFixedHeight(1); divider.setStyleSheet(f'background:{BORDER};'); self.box.addWidget(divider)
         self.scale = lab('', 17); self.activity = lab('', 16, MUTED); self.clock = lab('', 14, MUTED)
         for w in (self.scale, self.activity, self.clock): self.box.addWidget(w)
@@ -339,6 +340,8 @@ class EtfCard(Panel):
         put(self.premium, numeric(row['premium_bp'], 1, True, ' bp') if row.get('premium_bp') is not None else '折溢价 —', color=ink(row.get('premium_bp')), size=27 if row.get('premium_bp') is not None else 21, bold=True)
         self.iopv.setToolTip(row.get('premium_reason') or '缺少可核验IOPV来源或明确映射')
         self.premium.setToolTip(row.get('premium_reason') or '不使用昨日净值替代IOPV')
+        self.closing_premium.setText('收盘折溢价 '+numeric(row.get('closing_premium_bp'),1,True,' bp')+' · '+str(row.get('nav_date') or '待净值'))
+        self.closing_premium.setToolTip(row.get('closing_premium_reason') or '待同日收盘和单位净值，非盘中IOPV')
         self.scale.setText('基金规模 '+money(row.get('aum_cny'))+' · 同指数占比 '+numeric(row.get('aum_share_pct'), 1, suffix='%'))
         self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；占比的分母为同指数全部普通ETF')
         self.activity.setText(('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')+' · 买卖价差 '+numeric(row.get('spread_bp'), 1, suffix=' bp'))

@@ -7,6 +7,7 @@ from .overview_daily import read_day,quote_rows
 
 
 def roll(group,config,local_root,previous):
+    if group.get('weights_complete') is False:return group
     anchor=group.get('as_of')
     if not anchor or not previous or anchor==previous:return group
     if not 0<abs((date.fromisoformat(previous)-date.fromisoformat(anchor)).days)<=14:return group
