@@ -14,15 +14,20 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame, QHBox
 
 from .desktop_theme import STYLE
 from .desktop_widgets import (ColumnsDialog, CopyTable, DetailDialog, FilterRow,
-                              ReportModel, SettingsDialog, button, default_visible, label)
+                              PresetMappingDialog, ReportModel, SettingsDialog, button, default_visible, label)
+from .bookkeeping import BookkeepingStore
+from .bookkeeping_report import report_target_candidates
+from .bookkeeping_widgets import BookkeepingDialog, report_ref
+from .candidate_widgets import CandidateDialog, TargetPicker
+from .query import read_table
 from .service import ALL_REPORTS, ReportService
 from .storage import REPORTS, ReportError
 from .downloads import DOWNLOADS
 from .download_widgets import DownloadsDialog, open_location
 
 QUICK_FIELDS = {
-    "标的物代码": ("标的物代码", "标的"),
-    "标的物名称": ("标的物名称",),
+    "标的物代码": ("标的物代码", "标的代码", "标的"),
+    "标的物名称": ("标的物名称", "标的名称", "标的"),
     "交易对手名称": ("交易对手名称", "交易对手"),
     "交易确认书编号": ("交易确认书编号",),
     "合约编号": ("合约编号",),
@@ -137,6 +142,8 @@ class Window(QMainWindow):
         self.statistics_button = button("统计", self.open_statistics, "nav")
         self.statistics_button.setCheckable(True)
         sidebar.addWidget(self.statistics_button)
+        self.bookkeeping_button = button("人工簿记", self.open_bookkeeping, "nav")
+        sidebar.addWidget(self.bookkeeping_button)
         self.download_notice = label("四类日报 · 本地归档", "muted", True)
         sidebar.addWidget(self.download_notice)
         sidebar.addStretch()
@@ -219,6 +226,9 @@ class Window(QMainWindow):
         self.preset_owner.toggled.connect(self._preset_toggled)
         filter_heading.addWidget(self.preset_amount)
         filter_heading.addWidget(self.preset_owner)
+        self.preset_mapping_button = button("映射列…", self.open_preset_mapping)
+        self.preset_mapping_button.setToolTip("为当前工作表明确选择预设对应的列。")
+        filter_heading.addWidget(self.preset_mapping_button)
         filter_heading.addStretch()
         filter_heading.addWidget(label("按列筛选", "sectionTitle"))
         self.add_button = button("＋ 添加条件", self.add_filter, "quiet")
@@ -250,6 +260,10 @@ class Window(QMainWindow):
         toolbar.addStretch()
         self.selection_info = label("双击记录查看详情", "muted")
         toolbar.addWidget(self.selection_info)
+        self.back_search_button = button("查找背对", self.open_candidates)
+        self.back_search_button.setToolTip("在结果中先选中一行，确定目标合约，再查找相同标的的内部交易台候选。")
+        self.back_search_button.setEnabled(False)
+        toolbar.addWidget(self.back_search_button)
         self.copy_cell_button = button("复制单元格", lambda: self.table.copy_cell())
         self.copy_cell_button.setToolTip("先单击要复制的值，再点击此按钮；也可右键或按 Ctrl+Shift+C")
         self.copy_cell_button.setEnabled(False)
@@ -401,7 +415,7 @@ class Window(QMainWindow):
         self.sync_button.setText("正在同步…" if current_running else
                                  "检查并同步" if self.kind in DOWNLOADS else "同步前一交易日")
         for control in (self.search, self.add_button, self.clear_button, self.epsilon,
-                        self.filter_scroll, self.page_size, self.columns_button):
+                        self.filter_scroll, self.page_size, self.columns_button, self.preset_mapping_button):
             control.setEnabled(bool(self.columns) and not mutation and not self._closing)
         self._update_quick_controls(not mutation and not self._closing)
         self.date_combo.setEnabled(self.date_combo.count() > 0 and not mutation and not self._closing)
@@ -533,30 +547,92 @@ class Window(QMainWindow):
                 return None
         return None
 
+    def _preset_mapping_key(self):
+        return f"preset_mapping/{self.kind}/{self.sheet_combo.currentText()}"
+
+    def _preset_mappings(self):
+        raw = self.preferences.value(self._preset_mapping_key(), "{}")
+        try:
+            mappings = json.loads(raw)
+            if not isinstance(mappings, dict) or any(key not in ("amount", "owner") for key in mappings):
+                raise ValueError("invalid preset mapping")
+            return mappings
+        except (ValueError, TypeError):
+            # Do not quietly restore automatic selection over a damaged saved mapping.
+            return {"amount": {"name": "金额"}, "owner": {"name": "我的开仓"}}
+
+    def _preset_column(self, key, names):
+        mappings = self._preset_mappings()
+        if key not in mappings:
+            return self._column_for(names), False
+        saved = mappings[key]
+        if isinstance(saved, dict):
+            matches = [column for column in self.columns
+                       if column["id"] == saved.get("id") and column["name"] == saved.get("name")]
+            if len(matches) == 1:
+                return matches[0], False
+        return None, True
+
+    def open_preset_mapping(self):
+        dialog = PresetMappingDialog(self.columns, self._preset_mappings(), self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            def available(key, names):
+                if key not in dialog.mappings:
+                    return self._column_for(names) is not None
+                saved = dialog.mappings[key]
+                return any(column["id"] == saved["id"] and column["name"] == saved["name"]
+                           for column in self.columns)
+            count = (len(self.filters)
+                     + int(self.preset_amount.isChecked() and available("amount", ("标的名义本金额",)))
+                     + int(self.preset_owner.isChecked() and available("owner", ("开仓操作人员",))))
+            if count > 30:
+                self.statusBar().showMessage("最多可组合 30 个条件，请先移除一条条件。")
+                return
+            key = self._preset_mapping_key()
+            previous = self.preferences.value(key, "{}")
+            self.preferences.setValue(key, json.dumps(dialog.mappings, ensure_ascii=False))
+            self.preferences.sync()
+            if self.preferences.status() != QSettings.Status.NoError:
+                self.preferences.setValue(key, previous)
+                self._update_quick_controls()
+                self.error.setText("无法保存映射，请检查本机设置目录的写入权限。")
+                self.error.show()
+                return
+            self._update_quick_controls()
+            self.schedule_query()
+
     def _update_quick_controls(self, ready=True):
         for name, control in self.quick_buttons.items():
             column = self._column_for(QUICK_FIELDS[name])
             control.setEnabled(bool(column) and ready)
             control.setToolTip(("添加「" + column["name"] + "」筛选条件，输入值后生效。")
                                if column else "当前工作表缺少对应列或存在多个同名列，请手动选择。")
-        for control, names, title, description in (
-            (self.preset_amount, ("标的名义本金额",), "标的名义本金额 > 0.1",
+        for key, control, names, title, description in (
+            ("amount", self.preset_amount, ("标的名义本金额",), "标的名义本金额 > 0.1",
              "严格大于 0.1，不使用 ε；空值和非数字不匹配。"),
-            (self.preset_owner, ("开仓操作人员",), "我的开仓 201464",
-             "开仓操作人员精确等于 201464。"),
+            ("owner", self.preset_owner, ("开仓操作人员",), "我的开仓",
+             "按我的工号精确匹配所选开仓人员列。"),
         ):
-            column = self._column_for(names)
+            column, stale = self._preset_column(key, names)
             control.setEnabled(bool(column) and ready)
+            if key == "amount" and column:
+                current_name = column["name"]
+                title = (current_name if len(current_name) <= 12 else current_name[:12] + "…") + " > 0.1"
+            if key == "owner" and column and column["name"] != "开仓操作人员":
+                title = "我的开仓（需筛类型）"
+                description = "仅按工号精确匹配所选列，不判断是否开仓；请另行筛选交易类型。"
             if self.columns and not column:
-                mark = "不可用 · "
+                mark = "需重配 · " if stale else "未映射 · "
             else:
                 mark = "已开 · " if control.isChecked() else "未开 · "
             control.setText(mark + title)
-            control.setToolTip(description if column else "当前工作表缺少或存在多个「" + names[0] + "」列，此条件不生效。")
+            control.setToolTip((description + " 当前列：" + column["name"]) if column else
+                               "原映射列已变化，请点击「映射列」重新选择。" if stale else
+                               "当前工作表缺少或存在多个「" + names[0] + "」列；点击「映射列」选择。")
 
     def _preset_conditions(self):
-        amount = self._column_for(("标的名义本金额",))
-        owner = self._column_for(("开仓操作人员",))
+        amount, _ = self._preset_column("amount", ("标的名义本金额",))
+        owner, _ = self._preset_column("owner", ("开仓操作人员",))
         conditions = []
         if self.preset_amount.isChecked() and amount:
             conditions.append({"column": amount["id"], "value_type": "number", "op": "strict_gt",
@@ -725,6 +801,42 @@ class Window(QMainWindow):
         self.selection_info.setText(f"已选 {count} 条 · Ctrl+C 复制" if count else "双击记录查看详情")
         self.copy_button.setEnabled(count > 0)
         self.copy_cell_button.setEnabled(bool(self.result) and self.table.can_copy_cell())
+        self.back_search_button.setEnabled(count == 1)
+
+    def _bookkeeping_store(self):
+        return BookkeepingStore(self.service.settings.paths.root / "bookkeeping" / "manual.sqlite3")
+
+    def open_bookkeeping(self):
+        BookkeepingDialog(self._bookkeeping_store(), parent=self).exec()
+
+    def open_candidates(self):
+        selected = self.table.selectionModel().selectedRows() if self.result else []
+        if len(selected) != 1:
+            self.statusBar().showMessage("请先选中一行，确定目标合约。")
+            return
+        row = self.result["rows"][selected[0].row()]
+        try:
+            path = self.service.path_for(self.kind, self.result["date"])
+            table = read_table(path, self.result["sheet"])
+            source = {"date": self.result["date"], "filename": self.result["filename"],
+                      "sheet": self.result["sheet"], "kind": self.kind}
+            if self.kind != "swap" or self.result["sheet"] != "存续合约估值":
+                selected_from = report_ref(table["columns"], row, source)["source"]
+                target_path = self.service.path_for("swap", self.result["date"])
+                target_table = read_table(target_path, "存续合约估值")
+                proposed = report_target_candidates(table, row, target_table)
+                if proposed["state"] != "matched":
+                    raise ReportError("当前行未能在同日期的存续合约表中找到明确编号候选；请在存续合约表搜索并选择目标。")
+                picker = TargetPicker(proposed, target_table["columns"], self)
+                if picker.exec() != QDialog.DialogCode.Accepted:
+                    return
+                row, table = picker.selected_row, target_table
+                source = {"date": self.result["date"], "filename": target_path.name,
+                          "sheet": "存续合约估值", "kind": "swap", "selected_from": selected_from}
+            CandidateDialog(self._bookkeeping_store(), table, row, source, self.preferences, self).exec()
+        except Exception as exc:
+            self.error.setText(str(exc) or "无法读取当前报表。")
+            self.error.show()
 
     def show_detail(self, index):
         if self.result and index.isValid():

@@ -24,7 +24,7 @@ DEFAULT_COLUMNS = {
                "期初/结算汇率是否在当前汇率10%变动区间内", "操作人员"],
 }
 COMMON_OPS = [("blank", "为空"), ("not_blank", "不为空")]
-PRIORITY_COLUMNS = ("标的物代码", "标的物名称", "交易对手名称", "交易确认书编号", "合约编号",
+PRIORITY_COLUMNS = ("标的物代码", "标的代码", "标的物名称", "标的名称", "交易对手名称", "交易确认书编号", "合约编号",
                     "交易达成日", "起始日", "标的", "交易对手", "交易起始日")
 OPERATORS = {
     "text": [("fuzzy", "模糊匹配"), ("contains", "连续包含"), ("eq", "精确等于"), ("ne", "不等于")],
@@ -281,6 +281,70 @@ class CopyTable(QTableView):
             self.copy()
         else:
             super().keyPressEvent(event)
+
+
+class PresetMappingDialog(QDialog):
+    """Assign presets to user-selected columns, keeping ID and source name."""
+    def __init__(self, columns, mappings, parent=None):
+        super().__init__(parent)
+        self.columns = columns
+        self.mappings = None
+        self.setWindowTitle("设置预设对应列")
+        self.resize(580, 270)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+        layout.addWidget(label("设置预设对应列", "dialogTitle"))
+        layout.addWidget(label("只对当前报表与工作表生效。请确认所选列的业务含义；选择自动识别可恢复默认。\n"
+                               "人员预设只匹配工号，不会自动判断交易类型；使用通用操作人员列时需另筛开仓。", "muted", True))
+        form = QFormLayout()
+        form.setSpacing(12)
+        self.combos = {}
+        for key, caption in (("amount", "金额预设"), ("owner", "我的开仓")):
+            combo = QComboBox()
+            combo.addItem("自动识别", None)
+            for column in columns:
+                col_id, name = column["id"], column["name"]
+                letter = get_column_letter(int(col_id[1:]) + 1) if col_id.startswith("c") and col_id[1:].isdigit() else col_id
+                combo.addItem(f"{name}  （Excel {letter} 列）", col_id)
+            saved = mappings.get(key)
+            if saved is not None:
+                match = next((column for column in columns
+                              if isinstance(saved, dict) and column["id"] == saved.get("id")
+                              and column["name"] == saved.get("name")), None)
+                if match:
+                    combo.setCurrentIndex(combo.findData(match["id"]))
+                else:
+                    name = saved.get("name", "原列") if isinstance(saved, dict) else "原列"
+                    combo.addItem(f"原映射「{name}」已失效，请重新选择", "__invalid__")
+                    combo.setCurrentIndex(combo.count() - 1)
+            self.combos[key] = combo
+            form.addRow(caption, combo)
+        layout.addLayout(form)
+        self.error = label("", "error", True)
+        self.error.hide()
+        layout.addWidget(self.error)
+        layout.addStretch()
+        actions = QDialogButtonBox()
+        actions.addButton("取消", QDialogButtonBox.ButtonRole.RejectRole)
+        actions.addButton("保存映射", QDialogButtonBox.ButtonRole.AcceptRole)
+        actions.accepted.connect(self.validate)
+        actions.rejected.connect(self.reject)
+        layout.addWidget(actions)
+
+    def validate(self):
+        mappings = {}
+        for key, combo in self.combos.items():
+            col_id = combo.currentData()
+            if col_id == "__invalid__":
+                self.error.setText("原映射列已变化，请重新选择对应列或选择自动识别。")
+                self.error.show()
+                return
+            if col_id is not None:
+                column = next(column for column in self.columns if column["id"] == col_id)
+                mappings[key] = {"id": column["id"], "name": column["name"]}
+        self.mappings = mappings
+        self.accept()
 
 
 class SettingsDialog(QDialog):
