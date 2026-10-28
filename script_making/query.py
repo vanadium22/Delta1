@@ -43,6 +43,17 @@ def fuzzy_match(value, query: str) -> bool:
     return any(all(term_matches(term) for term in alt.split()) for alt in alternatives)
 
 
+def underlying_terms(value) -> list[str]:
+    """Separate ticker/name alternatives while preserving dots within tickers."""
+    return [term for term in re.split(r"(?:[^\w.]|_)+", normalized(value)) if term]
+
+
+def is_underlying_column(column: dict) -> bool:
+    return normalized(column.get("name")) in {
+        "标的", "标的物", "标的代码", "标的名称", "标的物代码", "标的物名称",
+    }
+
+
 def number(value):
     if value is None or isinstance(value, (bool, date, datetime, time)):
         return None
@@ -207,7 +218,7 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
     if op == "not_blank":
         return lambda x: not is_blank(x)
     if column["type"] == "number":
-        allowed = {"range", "gt", "gte", "lt", "lte", "eq", "ne", "zero", "nonzero"}
+        allowed = {"range", "gt", "strict_gt", "gte", "lt", "lte", "eq", "ne", "zero", "nonzero"}
         if op not in allowed:
             raise ReportError("数值列的筛选方式无效。")
         if op in ("zero", "nonzero"):
@@ -237,6 +248,7 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
             raise ReportError("请输入有效数值，可使用千分位、科学计数法或百分号。")
         comparisons = {
             "gt": lambda x: x > bound + epsilon, "gte": lambda x: x >= bound - epsilon,
+            "strict_gt": lambda x: x > bound,
             "lt": lambda x: x < bound - epsilon, "lte": lambda x: x <= bound + epsilon,
             "eq": lambda x: abs(x - bound) <= epsilon, "ne": lambda x: abs(x - bound) > epsilon,
         }
@@ -272,6 +284,14 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
         raise ReportError("文本列的筛选方式无效。")
     if is_blank(raw):
         return lambda x: True
+    if is_underlying_column(column) and op in ("fuzzy", "contains"):
+        alternatives = underlying_terms(raw)
+        if not alternatives:
+            return lambda x: True
+        if op == "fuzzy":
+            return lambda x: not is_blank(x) and any(fuzzy_match(x, term) for term in alternatives)
+        if op == "contains":
+            return lambda x: not is_blank(x) and any(term in normalized(x) for term in alternatives)
     if op == "fuzzy":
         return lambda x: not is_blank(x) and fuzzy_match(x, raw)
     if op == "contains":
@@ -279,12 +299,15 @@ def build_predicate(column: dict, condition: dict, epsilon: float):
     return lambda x: not is_blank(x) and ((normalized(x) == normalized(raw)) if op == "eq" else (normalized(x) != normalized(raw)))
 
 
-def condition_is_active(condition: dict) -> bool:
+def condition_is_active(condition: dict, column: dict | None = None) -> bool:
     op = condition.get("op", "fuzzy")
     if op in ("blank", "not_blank", "zero", "nonzero"):
         return True
     if op == "range":
         return not is_blank(condition.get("min")) or not is_blank(condition.get("max"))
+    if (column and column.get("type") == "text" and is_underlying_column(column)
+            and op in ("fuzzy", "contains")):
+        return bool(underlying_terms(condition.get("value")))
     return not is_blank(condition.get("value"))
 
 
@@ -309,7 +332,7 @@ def query_table(table: dict, request: dict) -> dict:
         effective_column = {**columns[idx], "type": value_type}
         predicate = build_predicate(effective_column, condition, epsilon)
         # A newly added, empty OR row must not make the entire OR group true.
-        if condition_is_active(condition):
+        if condition_is_active(condition, effective_column):
             (predicates if join == "must" else alternatives).append((idx, predicate))
     query = str(request.get("search", ""))[:500]
     matches = []

@@ -57,6 +57,44 @@ def fixture(path, sheet="存续合约估值", headers=None, rows=None, inflated=
 
 
 class FilteringTests(unittest.TestCase):
+    def test_underlying_multiple_codes_or_names_keep_ticker_dots(self):
+        table = {"columns": [{"id": "c0", "name": "标的物代码", "type": "text"},
+                             {"id": "c1", "name": "标的物名称", "type": "text"},
+                             {"id": "c2", "name": "交易对手名称", "type": "text"}],
+                 "rows": [["000001.SZ", "平安银行", "申万证券投资总部"],
+                          ["600000.SH", "浦发银行", "国信证券"],
+                          ["300750.SZ", "宁德时代", "申万宏源"],
+                          ["500001.SH", "其他", "证券投资"]],
+                 "source_rows": [2, 3, 4, 5]}
+        for query in ("000001.SZ 600000.SH", "000001.sz；600000.SH", "000001.SZ,600000.SH",
+                      "000001.SZ/600000.SH", "000001．SZ、600000.SH", "000001.SZ_600000.SH"):
+            with self.subTest(query=query):
+                result = query_table(table, {"filters": [{"column": "c0", "op": "fuzzy", "value": query}]})
+                self.assertEqual([r["excel_row"] for r in result["rows"]], [2, 3])
+        result = query_table(table, {"filters": [{"column": "c1", "op": "fuzzy", "value": "平安 宁德"}]})
+        self.assertEqual([r["excel_row"] for r in result["rows"]], [2, 4])
+        # Spaces in counterpart names still mean AND, as before this change.
+        result = query_table(table, {"filters": [{"column": "c2", "op": "fuzzy", "value": "申万 证投"}]})
+        self.assertEqual([r["excel_row"] for r in result["rows"]], [2])
+        # A separator-only optional target row must not make an existing OR group match everything.
+        result = query_table(table, {"filters": [{"column": "c0", "op": "fuzzy", "value": "；/", "join": "any"},
+                                                {"column": "c2", "op": "fuzzy", "value": "国信", "join": "any"}]})
+        self.assertEqual([r["excel_row"] for r in result["rows"]], [3])
+
+    def test_underlying_multiple_values_respect_selected_text_operation(self):
+        columns = ["标的", "标的代码", "标的名称", "标的物", "标的物代码", "标的物名称"]
+        for name in columns:
+            with self.subTest(column=name):
+                column = {"name": name, "type": "text"}
+                contains = build_predicate(column, {"op": "contains", "value": "000001.SZ 600000.SH"}, 0)
+                self.assertTrue(contains("600000.SH"))
+                self.assertFalse(contains("600000.SZ"))
+                equals = build_predicate(column, {"op": "eq", "value": "000001.SZ; 600000.SH"}, 0)
+                not_equals = build_predicate(column, {"op": "ne", "value": "000001.SZ; 600000.SH"}, 0)
+                self.assertFalse(equals("000001.SZ")); self.assertTrue(equals("000001.SZ; 600000.SH"))
+                self.assertTrue(not_equals("000001.SZ")); self.assertFalse(not_equals("000001.SZ; 600000.SH"))
+                self.assertFalse(not_equals(None))
+
     def test_abbreviations_and_contiguous_words(self):
         for term in ("申万", "证投", "证券投资", "申万/证投", "不存在 / 证投", "申万 证投"):
             with self.subTest(term=term):
@@ -99,6 +137,14 @@ class FilteringTests(unittest.TestCase):
         self.assertTrue(self.predicate("gte", value="0")(-5e-9))
         self.assertTrue(self.predicate("lt", value="0")(-1e-7))
         self.assertFalse(self.predicate("ne", value="0")(5e-9))
+
+    def test_strict_greater_preset_does_not_use_epsilon(self):
+        compare = self.predicate("strict_gt", value="0.1")
+        for value in (0.100000001, "0.100000001", "10.0000001%", 1):
+            self.assertTrue(compare(value))
+        for value in (0.1, "10%", 0.099999999, None, "", "非数值", "NaN"):
+            self.assertFalse(compare(value))
+        self.assertFalse(self.predicate("gt", value="0.1")(0.100000001))
 
     def test_open_range_percent_and_invalid_input(self):
         self.assertTrue(self.predicate("range", min="5%")(.06))

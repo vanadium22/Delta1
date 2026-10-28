@@ -20,6 +20,16 @@ from .storage import REPORTS, ReportError
 from .downloads import DOWNLOADS
 from .download_widgets import DownloadsDialog, open_location
 
+QUICK_FIELDS = {
+    "标的物代码": ("标的物代码", "标的"),
+    "标的物名称": ("标的物名称",),
+    "交易对手名称": ("交易对手名称", "交易对手"),
+    "交易确认书编号": ("交易确认书编号",),
+    "合约编号": ("合约编号",),
+    "交易达成日": ("交易达成日",),
+    "起始日": ("起始日", "交易起始日"),
+}
+
 
 class Worker(QThread):
     def __init__(self, job, parent=None):
@@ -186,10 +196,31 @@ class Window(QMainWindow):
         search_line.addWidget(self.search, 1)
         search_line.addWidget(self.clear_button)
         filtering.addLayout(search_line)
+        quick_line = QHBoxLayout()
+        quick_line.setSpacing(6)
+        quick_line.addWidget(label("快捷添加", "sectionTitle"))
+        self.quick_buttons = {}
+        for name in QUICK_FIELDS:
+            control = button(name, lambda checked=False, field=name: self.add_quick_filter(field), "quickField")
+            self.quick_buttons[name] = control
+            quick_line.addWidget(control)
+        quick_line.addStretch()
+        filtering.addLayout(quick_line)
         filter_heading = QHBoxLayout()
-        filter_heading.addWidget(label("按列筛选", "sectionTitle"))
-        filter_heading.addWidget(label("组合关系  →  列 / 内容格式  →  条件与数值", "muted"))
+        filter_heading.setSpacing(6)
+        filter_heading.addWidget(label("预设条件", "sectionTitle"))
+        self.preset_amount = button("", name="preset")
+        self.preset_amount.setCheckable(True)
+        self.preset_amount.setChecked(True)
+        self.preset_owner = button("", name="preset")
+        self.preset_owner.setCheckable(True)
+        self.preset_owner.setChecked(False)
+        self.preset_amount.toggled.connect(self._preset_toggled)
+        self.preset_owner.toggled.connect(self._preset_toggled)
+        filter_heading.addWidget(self.preset_amount)
+        filter_heading.addWidget(self.preset_owner)
         filter_heading.addStretch()
+        filter_heading.addWidget(label("按列筛选", "sectionTitle"))
         self.add_button = button("＋ 添加条件", self.add_filter, "quiet")
         filter_heading.addWidget(self.add_button)
         filtering.addLayout(filter_heading)
@@ -204,7 +235,7 @@ class Window(QMainWindow):
         self.filter_scroll.setWidget(holder)
         self.filter_scroll.setFixedHeight(40)
         filtering.addWidget(self.filter_scroll)
-        filtering.addWidget(label("必须条件全部满足；若有「任一 OR」条件，至少满足一条。空白条件不参与；全字段搜索也必须满足。", "muted", True))
+        filtering.addWidget(label("预设与必须条件均需满足；任一 OR 至少满足一条。标的模糊/包含可用空格或分号分隔多个值。", "muted", True))
         outer.addWidget(filters_card)
         self.error = label("", "error", True)
         self.error.hide()
@@ -372,6 +403,7 @@ class Window(QMainWindow):
         for control in (self.search, self.add_button, self.clear_button, self.epsilon,
                         self.filter_scroll, self.page_size, self.columns_button):
             control.setEnabled(bool(self.columns) and not mutation and not self._closing)
+        self._update_quick_controls(not mutation and not self._closing)
         self.date_combo.setEnabled(self.date_combo.count() > 0 and not mutation and not self._closing)
         self.sheet_combo.setEnabled(self.sheet_combo.count() > 0 and not mutation and not self._closing)
         for control in self.nav.values():
@@ -444,6 +476,7 @@ class Window(QMainWindow):
         self._remove_filters()
         self.model.set_result()
         self.table.horizontalHeader().setSortIndicatorShown(False)
+        self._update_controls()
 
     def load_report(self, *_):
         self._reset_dataset()
@@ -491,10 +524,73 @@ class Window(QMainWindow):
             message = f"当前显示 {day} 报表，来源为共享目录下载。同步选择早于今日的最新日期文件夹。"
         self.notice.setText(message)
 
+    def _column_for(self, names):
+        for name in names:
+            matches = [column for column in self.columns if column["name"] == name]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                return None
+        return None
+
+    def _update_quick_controls(self, ready=True):
+        for name, control in self.quick_buttons.items():
+            column = self._column_for(QUICK_FIELDS[name])
+            control.setEnabled(bool(column) and ready)
+            control.setToolTip(("添加「" + column["name"] + "」筛选条件，输入值后生效。")
+                               if column else "当前工作表缺少对应列或存在多个同名列，请手动选择。")
+        for control, names, title, description in (
+            (self.preset_amount, ("标的名义本金额",), "标的名义本金额 > 0.1",
+             "严格大于 0.1，不使用 ε；空值和非数字不匹配。"),
+            (self.preset_owner, ("开仓操作人员",), "我的开仓 201464",
+             "开仓操作人员精确等于 201464。"),
+        ):
+            column = self._column_for(names)
+            control.setEnabled(bool(column) and ready)
+            if self.columns and not column:
+                mark = "不可用 · "
+            else:
+                mark = "已开 · " if control.isChecked() else "未开 · "
+            control.setText(mark + title)
+            control.setToolTip(description if column else "当前工作表缺少或存在多个「" + names[0] + "」列，此条件不生效。")
+
+    def _preset_conditions(self):
+        amount = self._column_for(("标的名义本金额",))
+        owner = self._column_for(("开仓操作人员",))
+        conditions = []
+        if self.preset_amount.isChecked() and amount:
+            conditions.append({"column": amount["id"], "value_type": "number", "op": "strict_gt",
+                               "value": "0.1", "join": "must"})
+        if self.preset_owner.isChecked() and owner:
+            conditions.append({"column": owner["id"], "value_type": "text", "op": "eq",
+                               "value": "201464", "join": "must"})
+        return conditions
+
+    def _preset_toggled(self, checked):
+        if checked and len(self.filters) + len(self._preset_conditions()) > 30:
+            control = self.sender()
+            control.blockSignals(True)
+            control.setChecked(False)
+            control.blockSignals(False)
+            self.statusBar().showMessage("最多可组合 30 个条件，请先移除一条条件。")
+            self._update_quick_controls()
+            return
+        self._update_quick_controls()
+        self.schedule_query()
+
+    def add_quick_filter(self, name):
+        column = self._column_for(QUICK_FIELDS[name])
+        if not column:
+            return
+        row = self.add_filter(selected=column["id"])
+        if row:
+            self.filter_scroll.ensureWidgetVisible(row)
+            row.value.setFocus()
+
     def add_filter(self, *_args, selected=None, schedule=True):
         if not self.columns:
             return
-        if len(self.filters) >= 30:
+        if len(self.filters) + len(self._preset_conditions()) >= 30:
             self.statusBar().showMessage("最多可组合 30 个列条件。")
             return
         if selected is None:
@@ -518,7 +614,7 @@ class Window(QMainWindow):
         self.schedule_query()
 
     def _filter_height(self):
-        limit = 176 if self.height() >= 850 else 84
+        limit = 176 if self.height() >= 850 else 42
         self.filter_scroll.setFixedHeight(min(limit, max(40, len(self.filters) * 42)))
 
     def resizeEvent(self, event):
@@ -528,6 +624,11 @@ class Window(QMainWindow):
 
     def clear_filters(self):
         self._remove_filters()
+        for control in (self.preset_amount, self.preset_owner):
+            control.blockSignals(True)
+            control.setChecked(False)
+            control.blockSignals(False)
+        self._update_quick_controls()
         self.search.blockSignals(True)
         self.search.clear()
         self.search.blockSignals(False)
@@ -548,7 +649,7 @@ class Window(QMainWindow):
         if not day or not sheet or self._closing:
             return
         request = {"kind": self.kind, "date": day, "sheet": sheet,
-                   "filters": [row.condition() for row in self.filters],
+                   "filters": self._preset_conditions() + [row.condition() for row in self.filters],
                    "search": self.search.text(), "epsilon": self.epsilon.text(),
                    "sort": self.sort, "page": self.page, "page_size": int(self.page_size.currentText())}
         self.table_title.setText(sheet)
@@ -557,7 +658,7 @@ class Window(QMainWindow):
                      "正在读取工作表…" if first else "正在筛选记录…")
 
     def _queried(self, result, first):
-        self.result, self.page, self.columns = result, result["page"], result["columns"]
+        self.page, self.columns = result["page"], result["columns"]
         if first:
             try:
                 stored = json.loads(self.preferences.value(self._columns_key(), "[]"))
@@ -567,6 +668,12 @@ class Window(QMainWindow):
             if not self.visible:
                 self.visible = default_visible(self.columns, self.kind)
             self.add_filter(schedule=False)
+            # The first pass obtains columns; never display rows before applying
+            # the enabled presets using those columns' actual IDs.
+            if self._preset_conditions():
+                self.query()
+                return
+        self.result = result
         self.model.set_result(result)
         self._apply_columns()
         self.stack.setCurrentIndex(0 if result["matched"] else 1)

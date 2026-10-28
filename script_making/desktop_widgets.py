@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter
 
 from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QModelIndex, QPersistentModelIndex, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence
@@ -10,8 +11,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                               QListWidgetItem, QMenu, QPushButton, QTableView, QVBoxLayout,
                               QWidget)
+from openpyxl.utils import get_column_letter
 
-from .query import number, parse_epsilon
+from .query import is_underlying_column, number, parse_epsilon
 from .storage import ReportError
 
 DEFAULT_COLUMNS = {
@@ -22,6 +24,8 @@ DEFAULT_COLUMNS = {
                "期初/结算汇率是否在当前汇率10%变动区间内", "操作人员"],
 }
 COMMON_OPS = [("blank", "为空"), ("not_blank", "不为空")]
+PRIORITY_COLUMNS = ("标的物代码", "标的物名称", "交易对手名称", "交易确认书编号", "合约编号",
+                    "交易达成日", "起始日", "标的", "交易对手", "交易起始日")
 OPERATORS = {
     "text": [("fuzzy", "模糊匹配"), ("contains", "连续包含"), ("eq", "精确等于"), ("ne", "不等于")],
     "number": [("range", "范围（含边界）"), ("gt", "大于 >"), ("gte", "大于等于 ≥"),
@@ -75,8 +79,14 @@ class FilterRow(QWidget):
         self.column.setMaximumWidth(260)
         self.column.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.column.setToolTip("第一步：选择要筛选的列")
-        for entry in columns:
-            self.column.addItem(entry["name"], entry["id"])
+        ordered = [c for name in PRIORITY_COLUMNS for c in columns if c["name"] == name]
+        ordered += [c for c in columns if c["name"] not in PRIORITY_COLUMNS]
+        counts = Counter(entry["name"] for entry in columns)
+        for entry in ordered:
+            caption, column_id = entry["name"], entry["id"]
+            if counts[caption] > 1 and column_id.startswith("c") and column_id[1:].isdigit():
+                caption += f"（Excel {get_column_letter(int(column_id[1:]) + 1)} 列）"
+            self.column.addItem(caption, column_id)
         if selected:
             self.column.setCurrentIndex(max(0, self.column.findData(selected)))
         self.value_type = QComboBox()
@@ -132,10 +142,18 @@ class FilterRow(QWidget):
         self.separator.setVisible(interval)
         kind = self.value_type.currentData()
         hint = "YYYY-MM-DD" if kind == "date" else "支持 1,000 / 1e-8 / 5%"
+        name = next((entry["name"] for entry in self.columns if entry["id"] == self.column.currentData()), "")
+        underlying = kind == "text" and is_underlying_column({"name": name}) and op in ("fuzzy", "contains")
+        text_hint = "例如：600000.SH；000001.SZ" if name in ("标的物代码", "标的代码", "标的物", "标的") else "例如：浦发银行；平安银行"
+        if op in ("eq", "ne"):
+            text_hint = "输入完整值"
         self.value.setPlaceholderText("下限，可留空" if interval else (
-            "例如：申万 / 证投" if kind == "text" else hint))
+            text_hint if underlying or (kind == "text" and op in ("eq", "ne")) else "例如：申万 / 证投" if kind == "text" else hint))
         self.upper.setPlaceholderText("上限，可留空")
-        self.value.setToolTip(hint if kind != "text" else "空格：同时满足；/：满足任一；支持顺序简称")
+        self.value.setToolTip(hint if kind != "text" else
+                              "多个标的用空格、分号或逗号分隔，满足任一项；代码中的点号保留。" if underlying else
+                              "按单个完整值精确比较。" if op in ("eq", "ne") else
+                              "空格：同时满足；/：满足任一；支持顺序简称")
         self.upper.setToolTip(hint)
         self.changed.emit()
 

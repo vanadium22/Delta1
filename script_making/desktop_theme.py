@@ -41,6 +41,16 @@ QPushButton#primary:hover { background: #126b67; }
 QPushButton#primary:disabled { background: #b9cecd; border-color: #b9cecd; }
 QPushButton#quiet { border-color: transparent; background: transparent; color: #53738b; }
 QPushButton#quiet:hover { background: #eff5f7; }
+QPushButton#quickField { background: #f5f8fc; border: 1px solid #d4e1ef;
+  border-radius: 5px; color: #355c79; padding: 4px 8px; min-height: 19px; }
+QPushButton#quickField:hover { background: #eaf3f8; border-color: #97bbc4; }
+QPushButton#quickField:disabled { background: #f5f6f8; border-color: #e8edf2; color: #b0bac7; }
+QPushButton#preset { background: #f7f8fb; border: 1px solid #d4dce8; border-radius: 5px;
+  color: #5d7188; padding: 4px 9px; min-height: 19px; }
+QPushButton#preset:checked { background: #def2ed; border-color: #85bdb1; color: #126b60; font-weight: 600; }
+QPushButton#preset:hover { border-color: #81afa9; }
+QPushButton#preset:disabled, QPushButton#preset:checked:disabled {
+  background: #f1f3f5; border-color: #e3e7ec; color: #9aa7b6; }
 QTableView { background: white; alternate-background-color: #f8fafc; border: none;
   selection-background-color: #dcefed; selection-color: #113c46; gridline-color: #edf1f6; }
 QTableView::item { padding: 5px 10px; border-bottom: 1px solid #edf1f6; }
