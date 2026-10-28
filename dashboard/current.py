@@ -36,6 +36,7 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     window.instance_lease=instance
     if icon:window.setWindowIcon(icon())
     pipeline=window.pipeline=DataPipeline(window,enabled=not (quiet or args.no_realtime or frozen) and (instance is None or instance.owned))
+    if getattr(window,'query_page',None) is not None and not pipeline.enabled:window.query_page.set_readonly()
     close_timer=QTimer(window);close_timer.setInterval(200)
     def check_replacement():
         if instance is not None and instance.stop_requested():

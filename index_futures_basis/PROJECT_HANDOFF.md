@@ -1,3 +1,9 @@
+## 2026-10-28 看板复用行情分析的连接修复
+
+看板新增独立按需行情页，复用本模块SecurityQuery/Service/计算契约，不启动本App的基差/报告服务，不改任何业务公式或原数据。security_futures的mode=ro SQLite连接改为contextlib.closing显式关闭，修复Windows临时库不能释放；SecurityService增加可选lock_factory注入参数，默认仍原file_lock，原App行为不变。看板用其自有缓存和可取消锁，原查询缓存只读复制。
+
+本模块原42项行情查询/本地期货/离屏Qt全部通过，已包含看板272项组合；另相关资源检查在ResourceWarning视为错误时通过。未安装环境或连接公司Wind，独立App的真实输入/配置/Excel/报告均保留。发布随根COMPANY_SYNC的10月28日看板第三批统一提交推送。
+
 # Delta1 股指基差 App：项目交接
 
 ## 2026-10-19 公司第二轮实测通过：CFFEX设为首选

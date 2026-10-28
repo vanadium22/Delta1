@@ -34,8 +34,12 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
                   weight_date=group.get('as_of'),official_weight_date=group.get('official_as_of',group.get('as_of')),
                   weight_method=group.get('weight_method','official_previous_close'),weight_reason=group.get('weight_reason'),
                   industry_standard=group.get('industry_standard'),mode=snapshot.get('mode','minute'),
-                  reason='待成分权重与行情', estimate=True)
+                  reason='缺成分名单；股票数据缺口数量尚未知', estimate=True,
+                  inputs=dict(membership_available=bool(rows),missing_weights=0,missing_industries=0,
+                    missing_quotes=0,missing_previous_closes=0,index_previous_close_valid=False,
+                    reference_matches=False,previous_weights_valid=False))
     if not rows:
+        for key in ('missing_weights','missing_industries','missing_quotes','missing_previous_closes'):result['inputs'][key]=None
         return result
     # Do not mix a previous membership generation with a newly reviewed index.
     same_generation = snapshot.get('reference_version') == reference_version
@@ -60,6 +64,9 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     quotes = snapshot.get('quotes', {}) if valid_cutoff else {}
     base = quotes.get(index_row['symbol'], {}).get('prev_close')
     base_valid = finite(base) and base > 0
+    result['inputs'].update(missing_weights=sum(not finite(r.get('weight_pct')) for r in rows),
+        missing_industries=sum(not r.get('industry') for r in rows),index_previous_close_valid=bool(base_valid),
+        reference_matches=bool(same_generation),previous_weights_valid=bool(previous_weights),snapshot_valid=bool(valid_cutoff))
     industries = defaultdict(list)
     times = []
     def usable(q):
@@ -70,6 +77,8 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     for member in rows:
         q = quotes.get(member['symbol'], {})
         prior = q.get('prev_close')
+        if not usable(q):result['inputs']['missing_quotes']+=1
+        if not finite(prior) or prior<=0:result['inputs']['missing_previous_closes']+=1
         valid = usable(q) and finite(prior) and prior > 0
         ret = 100*(q['close']/prior-1) if valid else None
         point = base*member['weight_pct']/100*ret/100 if valid and previous_weights and base_valid and finite(member.get('weight_pct')) else None
@@ -94,9 +103,16 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         # A partial industry return is not the full basket return.
         complete = len(priced) == len(members) and weights_known and verified_weights
         points = [r['contribution_points'] for r in priced if r['contribution_points'] is not None]
+        missing_prices=len(members)-len(priced)
+        issues=[]
+        if missing_prices:issues.append('缺有效行情/昨收 '+str(missing_prices)+'只')
+        if not weights_known or not verified_weights:issues.append('权重未完整核验')
+        if not previous_weights:issues.append('权重未滚动至准确昨日')
+        if not base_valid:issues.append('缺指数准确昨收')
         result['industries'].append(dict(name=name, weight_pct=weight, covered_weight_pct=good_weight,
             change_pct=sum(r['weight_pct']*r['change_pct'] for r in priced)/weight if complete and weight else None,
-            contribution_points=sum(points) if points else None, complete=complete, members=members))
+            contribution_points=sum(points) if complete and len(points)==len(members) else None,
+            reason='；'.join(issues) or '完整行业估算',complete=complete,members=members))
     result['industries'].sort(key=lambda r: (r['weight_pct'] is None, -(r['weight_pct'] or 0), r['name']))
     eligible = [r for r in result['industries'] if r['complete'] and r['name'] != '待分类' and r['contribution_points'] is not None]
     result['leaders'] = sorted((r for r in eligible if r['contribution_points'] > 0), key=lambda r: -r['contribution_points'])[:3]
@@ -119,4 +135,10 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         result['reason'] = '分钟快照已停更，保留原始截止时间'
     else:
         result['reason'] = ('收盘参考 '+snapshot['pricing_day']+' · ' if closed else '')+('全成分收盘价滚动权重估算；非官方昨日权重' if group.get('weight_method')=='fixed_quantity_estimate' else '上一交易日权重估算')+'；仅完整行业参与贡献排名'
+    missing=result['inputs']
+    explanation=[]
+    for key,label in [('missing_weights','缺权重'),('missing_industries','缺行业'),('missing_quotes','缺有效报价'),('missing_previous_closes','缺准确昨收')]:
+        if missing[key]:explanation.append(label+str(missing[key])+'只')
+    if not base_valid:explanation.append('缺指数准确昨收')
+    if explanation:result['reason']+='；'+'，'.join(explanation)
     return result

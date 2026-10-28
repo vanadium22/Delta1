@@ -1,5 +1,5 @@
 """Weekly reference review and daily dated ETF NAV, each bounded and owned."""
-from datetime import datetime
+from datetime import date,datetime
 import hashlib
 import json
 from pathlib import Path
@@ -10,6 +10,24 @@ from zoneinfo import ZoneInfo
 from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
 from dashboard.marketdata.overview_reference import load, path_for, publish
 from dashboard.marketdata.wind_terminal_worker import PROTOCOL
+
+
+def repair_needs(data,target):
+    """A valid weekly review can still need a bounded repair, separate from NAV."""
+    from dashboard.marketdata.overview_reference import ROOTS,finite
+    reasons=[]
+    for root,expected in dict(IF=300,IH=50,IC=500,IM=1000).items():
+        group=data.get('indices',{}).get(root,{})
+        rows=group.get('rows',[])
+        if len(rows)!=expected:reasons.append(root+':membership')
+        if group.get('weights_complete') is False or not rows or any(not finite(r.get('weight_pct')) for r in rows):reasons.append(root+':weights')
+        if any(not r.get('industry') for r in rows):reasons.append(root+':industry')
+        try:age=(date.fromisoformat(target)-date.fromisoformat(group.get('as_of',''))).days
+        except (ValueError,TypeError):age=999
+        if age<0 or age>14:reasons.append(root+':weight_date')
+        fund=data.get('etfs',{}).get(root,{})
+        if fund.get('complete') is not True or not fund.get('rows'):reasons.append(root+':etf_ranking')
+    return reasons
 
 
 class ReferenceJob:
@@ -57,11 +75,13 @@ class ReferenceJob:
         except (OSError, ValueError):
             pass
         weekly_tried=attempt.get('week')==week and attempt.get('profile')==profile
+        repairs=repair_needs(current['data'],target)
+        daily_repair_due=bool(repairs) and (attempt.get('day')!=target or attempt.get('checked_day')!=now.date().isoformat())
         stage='all'
-        if not force and (not current['due'] and not current['data'].get('errors') or weekly_tried):
+        if not force and not daily_repair_due and (not current['due'] and not repairs or weekly_tried):
             if not nav_due:
                 record('attempted_this_week' if weekly_tried and (current['due'] or current['data'].get('errors')) else 'up_to_date',
-                    '本周已尝试；结果以Wind任务状态文件为准' if weekly_tried else '本周资料及最近完成日净值已核验');return
+                    '该完成日今日已尝试；缺项明日有界复核，结果见Wind状态' if repairs else '本周资料及最近完成日净值已核验');return
             stage='nav';profile=hashlib.sha256((profile+target).encode()).hexdigest()
             try:nav_attempt=json.loads((self.directory/'nav-attempt.json').read_text(encoding='utf8'))
             except (OSError,ValueError):nav_attempt={}
@@ -79,6 +99,7 @@ class ReferenceJob:
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             record('worker_started','已启动隐藏低频资料任务，等待结果')
+            self.scheduling['repair_needs']=repairs
         except OSError as exc:
             record('failed_to_start','低频任务子进程未能启动')
             _atomic_bytes(self.directory/'status.json', _json_bytes(dict(status='unavailable', error_type=type(exc).__name__)))

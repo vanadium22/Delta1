@@ -86,6 +86,12 @@ class PresentationWindow(QMainWindow):
             for key,title in [('indices','指数'),('etfs','ETF'),('futures','股指期货')]:self.pages.addTab(self.quotes.views[key],title)
             self.quotes.index_clicked.connect(self.open_index)
         self.research_pages={}
+        self.query_page=None
+        if self.market_mode and not self.frozen_payload:
+            from .market_analysis_view import MarketAnalysisPage
+            self.query_page=MarketAnalysisPage(model)
+            self.pages.addTab(self.query_page,'行情分析')
+            self.query_page.state_changed.connect(self.update_overview_status)
         if self.frozen_payload and (not self.market_mode or self.frozen_payload.get('research') or
                 self.frozen_payload.get('research_v6') or self.frozen_payload['snapshots'][0].get('research_pages')):
             from .research_pages_view import add_research_pages
@@ -202,6 +208,7 @@ class PresentationWindow(QMainWindow):
         if self.market_mode:
             from .overview_status import status
             text,detail=status(self.state.get('market_overview') or {},getattr(self,'pipeline',None))
+            if self.query_page is not None and self.query_page.source_active=='wind':text+=' · Wind查询中'
             self.status.setText(('冻结 · ' if self.frozen_payload else '')+text)
             trace=getattr(self,'applied_trace',{})
             self.status.setToolTip(detail+'\n计算 '+str(self.state.get('as_of') or '—')+'\n页面应用 '+str(trace.get('ui_applied_at') or '—'))
@@ -224,9 +231,10 @@ class PresentationWindow(QMainWindow):
         if not self.closing:
             self.closing=True;self.timer.stop();self.collection.stop();self.model.overview_stop.set()
             if hasattr(self,'pipeline'):self.pipeline.stop()
+            if self.query_page is not None:self.query_page.stop()
         if hasattr(self,'pipeline'):
             if not self.pipeline.drained():event.ignore();QTimer.singleShot(100,self.close);return
-        if self.busy or self.collection.running() or any(getattr(p,'busy',False) for p in self.research_pages.values()):event.ignore();QTimer.singleShot(100,self.close);return
+        if self.busy or self.collection.running() or getattr(self.query_page,'busy',False) or any(getattr(p,'busy',False) for p in self.research_pages.values()):event.ignore();QTimer.singleShot(100,self.close);return
         if hasattr(self,'pipeline'):self.pipeline.timer.stop()
         self.model.close();event.accept()
 

@@ -59,7 +59,9 @@ class ReferenceTests(unittest.TestCase):
             value=reference();value['etf_nav']=dict(schema='etf-nav-v1',rows={r['symbol']:dict(symbol=r['symbol'],as_of='2026-10-23',
                 nav_cny=4,close_cny=4,source='fixture') for r in ranking(value,'IF',today='2026-10-26')[0]})
             publish(Path(tmp)/'overview_reference/latest.json',value)
-            job.tick({},enabled=True,now=NOW.to_pydatetime());self.assertEqual(job.state()['status'],'up_to_date')
+            # This small ranking fixture is not a full four-index membership.
+            with patch('dashboard.native.overview_reference_job.repair_needs',return_value=[]):
+                job.tick({},enabled=True,now=NOW.to_pydatetime());self.assertEqual(job.state()['status'],'up_to_date')
 
     def test_top_three_use_whole_same_benchmark_universe_and_stable_ties(self):
         ranked, meta = ranking(validate(reference()), 'IF', today='2026-10-26')

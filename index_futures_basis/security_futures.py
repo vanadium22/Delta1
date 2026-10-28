@@ -1,4 +1,5 @@
 """Read the permanent daily basis store without contacting a market provider."""
+from contextlib import closing
 from datetime import datetime
 import hashlib
 import re
@@ -36,7 +37,7 @@ def query_local_future(service, query, *, force=False):
     for path in candidates:
         if not path.is_file():
             continue
-        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as con:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as con:
             # Same one-source fallback rule as the basis app; never mix stores or demo data.
             available = con.execute("SELECT 1 FROM quotes WHERE day<=? LIMIT 1", (query.end,)).fetchone()
             if not available:

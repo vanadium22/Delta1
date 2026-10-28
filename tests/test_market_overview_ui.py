@@ -103,7 +103,7 @@ class OverviewUiTests(unittest.TestCase):
 
     def test_twenty_card_summary_and_flat_navigation_keep_clear_large_cards(self):
         w=self.window();summary=w.quotes
-        self.assertEqual([w.pages.tabText(i) for i in range(w.pages.count())],['概览','指数','ETF','股指期货'])
+        self.assertEqual([w.pages.tabText(i) for i in range(w.pages.count())],['概览','指数','ETF','股指期货','行情分析'])
         self.assertEqual(len(summary.index_cards),4);self.assertEqual(len(summary.cards),16)
         self.assertEqual(w.pages.currentIndex(),0)
         for width,height in ((860,620),(1440,900),(1920,1080)):
@@ -133,6 +133,20 @@ class OverviewUiTests(unittest.TestCase):
         self.assertTrue(all(c.previous_value.text()=='—' for g in w.quotes.products.values() for c in g.futures))
         self.assertTrue(all(c.price.text()=='—' for c in w.quotes.index_cards.values()))
         self.assertIn('等待行情',w.status.text())
+
+    def test_analysis_complete_field_and_unit_form_reflows_inside_narrow_window(self):
+        window=self.window();page=window.query_page;window.pages.setCurrentWidget(page)
+        page.code.setText('510300.SH')
+        for key in ('open','high','low','volume','amt'):page.fields[key].setChecked(True)
+        for width in (1580,860,1100):
+            window.resize(width,620)
+            for volume in range(page.volume_unit.count()):
+                page.volume_unit.setCurrentIndex(volume)
+                page.amount_unit.setCurrentIndex(page.amount_unit.count()-1);pump(.025)
+                self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
+        page.code.setText('IF00');self.assertEqual(page.frequency.currentData(),'1d')
+        self.assertFalse(page.twap.isEnabled());self.assertFalse(page.vwap.isEnabled())
+        self.assertFalse(page.volume_unit.isEnabled());self.assertFalse(page.amount_unit.isEnabled())
 
     def test_status_uses_data_clock_not_repaint_and_shows_only_active_provider(self):
         from dashboard.native.overview_status import status

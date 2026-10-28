@@ -188,7 +188,7 @@ def sample(config, local_root, *, now=None):
         for root,symbol in ROOTS.items():
             group=roll(reference['data'].get('indices',{}).get(root,{}),config,local_root,previous)
             value = contributions(group,equity,dict(symbol=symbol),now,previous,reference['version'])
-            detail[root] = {k:value.get(k) for k in ('mode','weight_date','official_weight_date','weight_method','weight_reason','source_at','snapshot_at','coverage_pct','covered','expected','reason')}
+            detail[root] = {k:value.get(k) for k in ('mode','weight_date','official_weight_date','weight_method','weight_reason','source_at','snapshot_at','coverage_pct','covered','expected','reason','inputs')}
             detail[root]['classified'] = sum(bool(r.get('industry')) for r in reference['data'].get('indices',{}).get(root,{}).get('rows',[]))
     except Exception as exc:
         errors.append(dict(stage='contributions',error_type=type(exc).__name__))

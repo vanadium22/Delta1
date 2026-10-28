@@ -105,7 +105,7 @@ def enrich(model, data, reference, now):
         cutoff = detail.get('snapshot_at')
         if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > 90:
             detail['stale'] = True
-            detail['reason'] = '分钟快照已停更，保留原始截止时间'
+            detail['reason'] = '分钟快照已停更，保留原始截止时间；'+detail.get('reason','')
     for row in data['indices']:
         row['change_5m_pct'] = five_minute(row, now)
     groups = {}

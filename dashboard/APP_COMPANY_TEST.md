@@ -1,3 +1,21 @@
+# 2026-10-28 第三批：公司更新后从这里验收
+
+先正常关闭旧看板，在原公司Git根执行git pull --ff-only，原入口重开。现有同级页为“概览 | 指数 | ETF | 股指期货 | 行情分析 | 数据更新/设置”；研究32项/A02继续暂停并保留源码。前两批的逐日分红、非交易参考、20卡及新图标继续有效。
+
+完整可复制的分红Share/Import/Local、指数/ETF只读阶段、新ETF能力CMD、字段定义文件及行情分析步骤见[公司数据能力与行情分析验收](docs/DATA_CAPABILITIES.md)。当前仍需公司Import公盘历史D并Local核验；开发机不可达不代表公司不可达。
+
+新入口可直接运行：
+
+```powershell
+$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
+./dashboard/diagnose_data_capabilities.cmd -LocalRoot $deltaLocalRoot -Stage Local -NoPause
+./dashboard/diagnose_data_capabilities.cmd -LocalRoot $deltaLocalRoot -Stage ETF -NoPause
+```
+
+默认Local离线；显式ETF测试90秒且只读，不发布、不订阅或改VPN；无经核验IOPV/份额/PCF定义时mapping_required属真实缺输入，退出2查看JSON，不用重录凭据。正常Wind任务才会发布资料，指数缺项每日有界修复，成分行情一分钟更新。请回传capabilities.json、分红JSON，以及保持窗口运行时同次overview.json/diagnosis.json。原-WindStage及默认-Overview行为保留。
+
+行情分析点击后才按选定标的/窗口请求，默认今日；VWAP先确认量额单位。期货仅本地日线，不能当已支持分钟/VWAP。查询、取消/关闭与缓存结果需公司实际验收。旧章节的“仅分析”“三个子页”“固定分红情景”等为历史状态，以本节和最新规格为准。
+
 # 2026-10-28 第二批：新概览与一键快捷方式
 
 公司正常关闭旧看板后git pull --ff-only，仍从原入口启动。现在默认“概览”为4指数＋16期货卡，指数/ETF/股指期货为右侧同级详情；每卡“去分红年化基差”下有较昨日变化，两档分位保留。左上时间是行情参考时点，不是页面重绘；详细时点可悬浮查看。行业/ETF能力和行情分析待第三批，不能以本批页面变化声称公司缺数据全解决。

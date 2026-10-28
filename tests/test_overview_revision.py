@@ -188,7 +188,7 @@ class OverviewRevisionTests(unittest.TestCase):
         for cls in (PresentationWindow,DeveloperWindow):
             with tempfile.TemporaryDirectory() as tmp,patch('dashboard.indicator_v6.service.Service') as service:
                 model=NativeModel(tmp);window=cls(model);window.timer.stop()
-                self.assertEqual(window.research_pages,{});self.assertEqual([window.pages.tabText(i) for i in range(window.pages.count())],['概览','指数','ETF','股指期货'])
+                self.assertEqual(window.research_pages,{});self.assertEqual([window.pages.tabText(i) for i in range(window.pages.count())],['概览','指数','ETF','股指期货','行情分析'])
                 service.assert_not_called();window.close();APP.processEvents()
 
     def test_no_known_history_gap_starts_realtime_without_waiting_for_wind(self):

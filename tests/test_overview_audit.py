@@ -97,6 +97,8 @@ class OverviewAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config,_=profile(tmp)
             payload=sample(config,tmp,now=lunch)
+            self.assertEqual(set(payload['indices']),{'IF','IH','IC','IM'})
+            self.assertTrue(all(not row['inputs']['membership_available'] for row in payload['indices'].values()))
             with patch('dashboard.overview_check.sample',return_value=payload),\
                  patch('dashboard.overview_check.session_policy',return_value=session_policy(lunch.to_pydatetime())),\
                  patch('dashboard.marketdata.overview_audit.collect',return_value={}),\

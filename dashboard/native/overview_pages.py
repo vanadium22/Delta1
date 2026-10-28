@@ -277,6 +277,7 @@ class IndexOverviewPage(ScrollPage):
             cell(self.industries, i, 2, numeric(r.get('change_pct'), signed=True, suffix='%'), ink(r.get('change_pct')))
             self.industries.setCellWidget(i, 3, MiniBar(value, maximum, self.industries))
             cell(self.industries, i, 4, numeric(value, signed=True), ink(value))
+            for column in (2,4):self.industries.item(i,column).setToolTip(r.get('reason') or detail.get('reason',''))
         names = {r['name'] for r in groups}
         if self.selected_industry.get(root) not in names:
             self.selected_industry[root] = displayed[0]['name'] if displayed else None

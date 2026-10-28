@@ -74,13 +74,14 @@ class SecurityResult:
 
 
 class SecurityService:
-    def __init__(self, paths, config, mode="wind", cancel=None, basis=None):
+    def __init__(self, paths, config, mode="wind", cancel=None, basis=None, *, lock_factory=file_lock):
         if mode not in {"wind", "offline", "demo"}:
             raise ValueError("未知数据模式")
         self.paths, self.config, self.mode = paths, config, mode
         self.cancel = cancel if cancel is not None else threading.Event()
         self.catalog = Catalog(paths)
         self.basis = basis
+        self.lock = lock_factory
 
     def cache(self, frequency):
         # Offline is an explicitly labelled read-only view of previously acquired Wind queries.
@@ -117,7 +118,7 @@ class SecurityService:
             name = provider.request("info", code=code)["name"]
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("Wind 未返回有效证券名称")
-            with file_lock(root / ".writer.lock"):
+            with self.lock(root / ".writer.lock"):
                 reference = read_document(reference_file) if reference_file.exists() else {
                     "schema_version": 1, "names": {}, "calendar": {}}
                 reference["names"][code] = name.strip()
@@ -162,7 +163,7 @@ class SecurityService:
             return value
 
         try:
-            with file_lock(root / ".writer.lock"):
+            with self.lock(root / ".writer.lock"):
                 reference_file = root / "reference.json"
                 reference = read_document(reference_file) if reference_file.exists() else {"schema_version": 1, "names": {}, "calendar": {}}
                 if query.code not in reference["names"]:
@@ -338,7 +339,7 @@ class SecurityService:
 
     def inventory(self, frequency):
         _, root = self.cache(frequency)
-        with file_lock(root / ".writer.lock"):
+        with self.lock(root / ".writer.lock"):
             return [{"date": p.parent.name, "file": p.name, "bytes": p.stat().st_size} for p in sorted(root.glob("????-??-??/*.json"))]
 
     def prune(self, frequency, apply=False):
