@@ -1,3 +1,11 @@
+## 2026-10-28 第一批运行修复验证
+
+基线d25cd8c；本批代码实际实施逐日分红、连续分位历史缓存和非交易参考。最终229项相关回归全部通过，82.431秒，无跳过。覆盖精确日期/时刻版本、AM/PM及跨日、新D不回写过去、明确0/前序继承/禁止未来版本、同日冲突不任意排序、raw归档/内容去重/SQLite关闭、全16档20/60与旧实际合约、坏派生缓存保留且计算可用、合法缓存/共同收盘/错腿拒绝、较昨日当时D、AM/PM跨重启去重、真实隐藏publisher→private reader IPC及原Wind/行情/历史/VPN/启动/离屏UI/32项core边界。随后补充取消时已完成部分仍保留且published如实记录的边界，15项定向检查全通过（1.771秒），8项源Excel/原配置/快捷方式/提示词哈希未变，语法与diff检查通过。首次完整228项有3项旧fixture/非交易空值断言失败，修正输入/新口径断言并新增坏缓存保护后完整重跑通过；未放宽30秒/3秒或跳过缺口。
+
+原配置Local入口实际运行：16条09-18分红记录，历史覆盖不完整，退出2，network_requested=false、configuration_changed=false；旧archive也只有同一快照。新Share入口通过沙箱外真实私有进程有界运行，share_listing FileNotFoundError/WinError53、source_files=0、published=false、配置未变；未连接Wind/HTTP/DDB/VPN，不把开发机公盘不可达当成公司结论。新增公司Local/Share/Import均为真实入口，原-Overview默认仍离线。旧日期缺D不能以新表或DDB重下价格掩盖。
+
+证据仅存local_artifacts/validation/implementation_20261028。源Excel、原配置、桌面入口及4提示词需在精确提交前再核验；本批没有更换图标/快捷方式、没有实施其余页面/ETF/查询功能，公司覆盖与实际窗口待回传。
+
 ## 2026-10-28 下一轮分析验证（不是产品修复验收）
 
 重新核验本地/远端：开始a446bbe，日报任务独立提交后为a16d0af；本批仅文档。完整只读读取新2026-10-27 Excel，两表均保留；B1日期匹配，16合约简单分红年化与缓存I列一致，最大百分数误差约3.38e-14，SHA256 83fcc5ac9f67dd96e14dbcc3a305f75e2c068ec987fefc9e89b065df7710e409。

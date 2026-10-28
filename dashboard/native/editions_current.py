@@ -62,7 +62,7 @@ class PresentationWindow(QMainWindow):
 
     def __init__(self,model):
         super().__init__();self.model=model;self.state=None;self.demo=False;self.busy=False;self.closing=False;self.pending=False;self.generation=0
-        self.model.overview_stop=threading.Event()
+        self.model.overview_stop=threading.Event();self.model.overview_write_cache=not bool(self.frozen_payload)
         self.market_mode=not self.frozen_payload or bool(self.frozen_payload['snapshots'][0].get('market_overview'))
         self.collection=CollectionJob(model.local_root);self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
         self.resize(1580,980);self.setMinimumSize(860,620)

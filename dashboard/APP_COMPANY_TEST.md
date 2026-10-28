@@ -1,3 +1,23 @@
+# 2026-10-28 第一批：公司分红导入与非交易复测
+
+更新后仍用原入口，先在公司根目录git pull --ff-only，LocalRoot沿用dashboard/localsetting/app。当前已实施逐日分红/历史缓存/连续分位/非交易参考；20卡等其余需求继续下一批，暂不以旧页面标题判断新数据逻辑未更新。
+
+```powershell
+Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+git pull --ff-only
+$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
+./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Local -NoPause
+./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Share -NoPause
+./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Import -NoPause
+./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Local -NoPause
+```
+
+Local不连接接口；Share只读公盘、临时验证，不发布；Import是明确的本地追加导入，不改公盘/源Excel/个人配置/原库。默认公盘\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，匹配指数基差情况_*.xlsx；内联设置可修改目录/规则/早午时刻。新库在LocalRoot/overview_dividends，raw按SHA归档，records.sqlite及derived.sqlite分别保存历史分红与派生缓存。相同内容不重复解析/复制；同名日期文件的后续版只影响生效后。正常看板也会上午/下午各自动检查，成功不重复。
+
+请回传各次输出路径中的JSON，重点看history_dividends_complete、16档dividend_missing/mapping_missing、记录首末日期及Share错误阶段。退出2表示输入/覆盖尚未完整，不要删库或重填凭据。Share在开发机实际WinError53，不能据此断言公司路径错误。若公盘文件规则不同，先回传文件名清单并修改对应规则，不拿最新一表代替过去。
+
+保持看板开着，在午休/盘前盘后检查期指年化和20/60：有合法缓存配对或共同收盘即显示参考，源时/价格日不推进，不冒称实时；无D仍明确分红缺项，不能造0。新数据已导入后再用原-Overview导出同次overview.json+diagnosis.json，默认仍离线。三秒主采集、一分钟成分、实时30秒/3秒不变；真实公司历史导入和持续运行仍待回传。
+
 # 2026-10-28 下一轮测试入口说明
 
 本轮按用户要求先分析、生成新对话提示词；没有实施新公盘同步/ETF能力入口或界面改动。现有可执行Overview、Indices、ETFs、Nav命令及公盘只读查看步骤，见[新交接的公司测试节](docs/NEXT_OVERVIEW_IMPLEMENTATION.md#现在已有的公司测试命令)。旧-Overview继续离线；Nav需已发布ETF名单。公盘/ETF净申赎/PCF/IOPV及新行情页的一键能力测试须下一对话真实实现后提供，不能以旧阶段成功当成新功能验收。

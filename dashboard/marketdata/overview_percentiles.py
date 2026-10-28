@@ -1,14 +1,15 @@
 """00/01/02/03 dated slots: Excel-style dividend-adjusted simple annual windows.
 
 This is an overview distribution, separate from v6 A02's concrete-contract b.
-No network, future-day close or adjusted continuous price. Dividend assumptions
-are explicit fixed scenarios and inherit only an earlier concrete expiry.
+No network, future-day close or back-adjusted continuous price. Each historical
+day uses its actual dated contract and that time's dividend version.
 """
 from datetime import date,timedelta
 import pandas as pd
 
 from dashboard.indicator_v6.core import raw,statistic
-from .overview_basis import calculate,FORMULA
+from .overview_basis import calculate,FORMULA,dividend_record
+from .dividends import digest
 from dashboard.indicator_v6.sources import dates_between,SPOTS
 from dashboard.native.continuous import slot_map
 
@@ -51,7 +52,7 @@ def final_rows(frame):
     return {str(row['trade_date'])[:10]:row for row in frame.to_dict('records') if row.get('is_final')==True}
 
 
-def prepare(root,slot,metadata,daily,day,*,dividends=None):
+def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day=None):
     days=prior_days(day);rows=dated_slots(metadata,root,slot,days)
     spot=final_rows(daily.get(SPOTS[root]));tables={}
     for item in rows:
@@ -59,18 +60,22 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None):
         if item['reason']:continue
         if symbol not in tables:tables[symbol]=final_rows(daily.get(symbol))
         f=tables[symbol].get(item['day'],{});s=spot.get(item['day'],{})
-        dividend=dividends.points(symbol,item['day']) if dividends is not None else None
+        record=dividend_record(dividends,symbol,item['day']);dividend=record.get('points')
         item['dividend_points']=dividend
-        value=calculate(f.get('close'),s.get('close'),dividend,item['days'])['annual_pct']
+        item['dividend_revision']=record.get('revision');item['dividend_inherited_from']=record.get('inherited_from')
+        values=(cache.calculate(symbol,item['day'],f.get('close'),s.get('close'),dividend,item['days'],
+            dividend_record=record,price_version=digest([f,s])) if cache is not None else
+            calculate(f.get('close'),s.get('close'),dividend,item['days']))
+        value=values['annual_pct']
         item['annual_pct']=value
         if value is None:
             item['missing_symbols']=[]
             if raw(f.get('close'),'price').value is None:item['missing_symbols'].append(symbol)
             if raw(s.get('close'),'price').value is None:item['missing_symbols'].append(SPOTS[root])
             item['reason']='future_close_missing' if symbol in item['missing_symbols'] else 'index_close_missing' if item['missing_symbols'] else 'dividend_missing'
-    current,error=slot_map(metadata,root,day)
+    current,error=slot_map(metadata,root,current_day or day)
     return dict(alias=f'{root}0{slot}.CFE',pricing_day=day,current_symbol=current.get(f'{root}0{slot}.CFE'),
-        current_mapping_error=bool(error),rows=rows,method='continuous_slot_dividend_simple_annual',
+        current_mapping_error=bool(error),slot_day=current_day or day,rows=rows,method='continuous_slot_dividend_simple_annual',
         formula=FORMULA+'；已知T<5另列排除；不调整期现价格',
         dividend_version=getattr(dividends,'version',None),dividend_policy=(getattr(dividends,'info',{}) or {}).get('historical_policy'),
         mapping_policy='按历日挂牌/到期重建；交割日保留旧档，下一交易日换月；非当时可得映射')
@@ -89,13 +94,16 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
         pct=None
         if available and matches and current.value is not None:
             pct=statistic([*values,current],len(values),n=len(values))[0].value
-        reason=('历史窗口不完整，缺'+str(len(missing))+'日' if missing else
+        counts={kind:sum(r['reason']==kind for r in missing) for kind in ('dividend_missing','future_close_missing','index_close_missing','mapping_missing')}
+        missing_reason='；'.join(title+str(counts[k])+'日' for k,title in [('dividend_missing','分红缺'),('future_close_missing','期货收盘缺'),('index_close_missing','指数收盘缺'),('mapping_missing','映射缺')] if counts[k])
+        reason=(missing_reason if missing else
                 '当前连续档位合约映射不完整' if not matches else
                 current_reason or '当前年化基差不可用' if current.value is None else
                 '有效年化样本不足' if not available else '前'+str(length)+'交易日窗口；排除当前日，等值半权，已知T<5日另列排除')
         output['windows'][str(length)]=dict(percentile=pct,samples=len(good),calendar_days=length,
             expected_eligible=length-len(excluded),excluded=len(excluded),complete=available,
             start=rows[0]['day'] if rows else None,end=rows[-1]['day'] if rows else None,reason=reason,
+            missing_counts=counts,
             missing=[dict(day=r['day'],symbol=r['symbol'],reason=r['reason'],missing_symbols=r.get('missing_symbols',[])) for r in missing],
             excluded_dates=[r['day'] for r in excluded])
     return output

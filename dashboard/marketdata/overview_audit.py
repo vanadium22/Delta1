@@ -146,7 +146,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     try:
         daily,required,errors=daily_inputs(config,local_root,pricing,metadata,repo=repo,frozen=frozen)
         from .overview_basis import load_dividends
-        dividends=load_dividends(config,metadata,pricing)
+        dividends=load_dividends(config,metadata,pricing,local_root)
         result['errors'].extend(dict(stage='daily_read',**e) for e in errors)
         slots={};missing=defaultdict(set)
         for root in ROOTS:

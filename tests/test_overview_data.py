@@ -151,7 +151,8 @@ class DatedDataTests(unittest.TestCase):
             index=quote_card(spot,'指数','IF',live,{},at,'2026-10-26')
             futures_values(row,live,{},metadata,at,index)
             self.assertEqual(row['quality']['usable'],usable,clock)
-            self.assertEqual(row['annual_pct'],0 if usable else None,clock)
+            self.assertEqual(row['annual_pct'],0,clock)
+            self.assertEqual(row['basis_kind'],'realtime' if usable else 'cached_pair',clock)
             self.assertEqual(row['source_at'],at.isoformat())
 
     def test_valid_side_close_replaces_unusable_standard_row_without_mutating_original(self):
@@ -262,7 +263,8 @@ class DatedDataTests(unittest.TestCase):
         self.assertEqual(row['days'],25)
         row['display_kind']='observation'
         futures_values(row,{},data,{s:dict(expiry_date='2026-11-20')},CLOSE,spot)
-        self.assertIsNone(row['basis_points'])
+        self.assertEqual(row['basis_points'],0)
+        self.assertEqual(row['basis_kind'],'completed_daily')
 
     def test_verified_completed_close_precedes_same_day_inferred_http_clock(self):
         symbol='510300.SH';data={symbol:frame(['2026-10-23','2026-10-26'],lambda i:100+i*10)}

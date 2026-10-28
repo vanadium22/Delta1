@@ -6,16 +6,16 @@ from .instruments import UNDERLYINGS
 
 
 def previous_basis_change(row, spot,dividends=None):
-    f, s = row.get('prev_close'), spot.get('prev_close')
+    f, s = row.get('basis_prev_future',row.get('prev_close')), row.get('basis_prev_spot',spot.get('prev_close'))
     if row.get('basis_points') is None or not finite(f) or not finite(s) or min(f, s) <= 0:
         return None
-    previous=spot.get('prev_date') or spot.get('yesterday_date')
+    previous=row.get('basis_prev_day') or spot.get('prev_date') or spot.get('yesterday_date')
     dividend=dividends.points(row['symbol'],previous) if dividends is not None and previous else row.get('dividend_points')
     old=f-s+dividend if finite(dividend) else None
     return row['basis_points']-old if old is not None else None
 
 
-def five_minute_basis_change(row, spot_id, observations, now):
+def five_minute_basis_change(row, spot_id, observations, now,dividends=None):
     if row.get('basis_points') is None or not row.get('basis_source_at') or observations.empty:
         return None
     target = pd.Timestamp(row['basis_source_at'])-pd.Timedelta(minutes=5)
@@ -36,7 +36,8 @@ def five_minute_basis_change(row, spot_id, observations, now):
     if not pairs:
         return None
     _, f, s = min(pairs,key=lambda p:p[0])
-    dividend=row.get('dividend_points')
+    at=max(pd.Timestamp(f['source_event_time']),pd.Timestamp(s['source_event_time']))
+    dividend=dividends.points(row['symbol'],at) if dividends is not None else row.get('dividend_points')
     old=f['close']-s['close']+dividend if finite(dividend) else None
     return row['basis_points']-old if old is not None else None
 
@@ -51,12 +52,14 @@ def details(rows, indices, live, observations, now,*,dividends=None):
                    distribution=[],distribution_reason='待四个到期合约的完整有效成交数据',
                    previous_reason='较准确昨日收盘；不使用昨结算替代',
                    five_minute_reason='需要五分钟前同一合约及现货的同步观测')
+        for contract in contracts:
+            contract['basis_change_previous']=previous_basis_change(contract,spot,dividends)
         if contracts:
             near=contracts[0]
             group['basis_kind']=near.get('basis_kind')
             if near.get('basis_kind')=='completed_daily':group['previous_reason']='已完成收盘 '+str(near.get('pricing_day'))+' 相对其准确上一交易日；非当前盘中变化'
             group['basis_change_previous']=previous_basis_change(near,spot,dividends)
-            group['basis_change_5m']=five_minute_basis_change(near,spot_id,observations,now)
+            group['basis_change_5m']=five_minute_basis_change(near,spot_id,observations,now,dividends)
         if len(contracts)>=2:
             near,far=contracts[:2]
             try:gap=(pd.Timestamp(far['expiry'])-pd.Timestamp(near['expiry'])).days

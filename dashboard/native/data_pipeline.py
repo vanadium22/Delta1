@@ -34,6 +34,8 @@ class DataPipeline(QObject):
         self.realtime_dialog=None;self.prompted_key=None;self.awaiting_realtime=False
         from .overview_reference_job import ReferenceJob
         self.overview_reference=ReferenceJob(self.model.local_root) if getattr(window,'market_mode',False) else None
+        from .overview_dividend_job import DividendJob
+        self.overview_dividends=DividendJob(self.model.local_root) if getattr(window,'market_mode',False) else None
         self.report_path=Path(__file__).resolve().parents[1]/'runtime/app_sessions'/self.run_id/'status.json'
         self.timer=QTimer(self);self.timer.setInterval(1000);self.timer.timeout.connect(self.tick);self.timer.start()
         if auto_inspect:QTimer.singleShot(0,self.inspect)
@@ -124,7 +126,16 @@ class DataPipeline(QObject):
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=False;self.action=None;self.history.pause();self.collection.stop()
         if self.overview_reference is not None:self.overview_reference.stop()
+        if self.overview_dividends is not None:self.overview_dividends.stop()
         self.set_state('draining','正在安全停止本轮后台；保留已发布数据')
+
+    def refresh_dividends(self):
+        if self.closing or not self.instance_ready() or self.overview_dividends is None:return
+        if self.overview_dividends.closed and not self.overview_dividends.running():
+            from .overview_dividend_job import DividendJob
+            self.overview_dividends=DividendJob(self.model.local_root)
+        self.overview_dividends.tick(self.model.config,enabled=True,force=True)
+        self.changed.emit()
 
     def start_probe(self):
         if not self.instance_ready() or self.history.process is not None or self.task or self.collection.running():return
@@ -221,6 +232,13 @@ class DataPipeline(QObject):
 
     def tick(self):
         code=self.history.tick()
+        if self.overview_dividends is not None:
+            owner=getattr(self.window,'instance_lease',None)
+            eligible=self.enabled and not self.closing and self.task is None and self.action!='history' and (owner is None or owner.owned)
+            if eligible and self.overview_dividends.closed and not self.overview_dividends.running():
+                from .overview_dividend_job import DividendJob
+                self.overview_dividends=DividendJob(self.model.local_root)
+            self.overview_dividends.tick(self.model.config,enabled=eligible)
         if self.overview_reference is not None:
             eligible=(self.enabled and not self.closing and
                 self.action is None and self.history.process is None and self.task is None and
@@ -354,6 +372,7 @@ class DataPipeline(QObject):
             instance_handover=instance.summary() if instance is not None else None,overview_coverage=coverage,
             overview_runtime=dict(schema='overview-runtime-v2',pipeline_enabled=self.enabled,
                 latest_snapshot=self.latest_snapshot,
+                dividend_scheduler=self.overview_dividends.state() if self.overview_dividends is not None else None,
                 reference_scheduler=self.overview_reference.state() if self.overview_reference is not None else None))
 
     def write_report(self):
@@ -372,17 +391,19 @@ class DataPipeline(QObject):
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.closing=True;self.enabled=False;self.history.stop();self.collection.stop();self.write_report()
         if self.overview_reference is not None:self.overview_reference.stop()
+        if self.overview_dividends is not None:self.overview_dividends.stop()
 
     def drained(self):
         self.history.tick()
         return self.history.process is None and self.task is None and not self.collection.running() and not (
-            self.overview_reference is not None and self.overview_reference.running())
+            self.overview_reference is not None and self.overview_reference.running() or
+            self.overview_dividends is not None and self.overview_dividends.running())
 
 
 class PipelinePage(QWidget):
     def __init__(self,pipeline):
         super().__init__();self.pipeline=pipeline;layout=QVBoxLayout(self);row=QHBoxLayout()
-        for title,fn in [('DDB一键补齐',pipeline.one_click),('概览日线核验',lambda:pipeline.request_history(True)),
+        for title,fn in [('DDB一键补齐',pipeline.one_click),('更新分红',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
             button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());row.addWidget(button)
         layout.addLayout(row)

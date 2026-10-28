@@ -1,3 +1,5 @@
+当前第一批：概览使用日期/实际合约分红历史和非交易缓存参考，连续20/60不变；公盘早/午后增量与公司Local/Share/Import入口见[公司测试](APP_COMPANY_TEST.md)。20卡等其余新需求继续实施。
+
 # Delta1 公司蓝白展示版
 
 日常入口为 [start_presentation.vbs](start_presentation.vbs)，命令行兼容入口为 [start_presentation.cmd](start_presentation.cmd)，使用 `public` 主题。统一分支 `codex/company-apps`，公司原 Git 根目录执行一次 `git pull --ff-only`，再通过原入口重开。

@@ -47,11 +47,15 @@ class OverviewRevisionTests(unittest.TestCase):
         self.assertEqual(row['raw_basis_points'],-10);self.assertIsNone(row['annual_pct'])
 
     def test_dividend_inherits_only_earlier_same_product_and_zero_wins(self):
-        meta=metadata();source=DividendBook(info=dict(mapping={
-            'IF2610.CFE':dict(points=2,expiry='2026-10-16',value_source_contract='IF2610.CFE'),
-            'IF2612.CFE':dict(points=0,expiry='2026-12-18',value_source_contract='IF2612.CFE')},snapshot_date='2026-09-18'),reason='')
-        with patch('dashboard.marketdata.overview_basis.DividendBook.load',return_value=source):
-            book=load_dividends(dict(dividend_root='explicit-fixture'),meta,DAY)
+        meta=metadata()
+        records=[dict(contract_id=symbol,points=value,effective_from='2026-09-18T00:00:00+08:00',
+            source_business_date='2026-09-18',file_sha256='fixture',revision=symbol)
+            for symbol,value in [('IF2610.CFE',2),('IF2612.CFE',0)]]
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'fixture.xlsx';path.write_bytes(b'explicit mocked workbook')
+            with patch('dashboard.marketdata.overview_dividends.local_sources',return_value=[path]), \
+                 patch('dashboard.marketdata.overview_dividends.records_from_file',return_value=records):
+                book=load_dividends(dict(dividend_root=str(path)),meta,DAY)
         self.assertEqual(book.points('IF2611.CFE',DAY),2)
         self.assertEqual(book.info['mapping']['IF2611.CFE']['inherited_from'],'IF2610.CFE')
         self.assertEqual(book.points('IF2703.CFE',DAY),0)
