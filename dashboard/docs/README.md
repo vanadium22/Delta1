@@ -2,6 +2,7 @@
 
 | 分类 | 文件 |
 |---|---|
+| 下一轮实施（当前仅分析） | [十项规格、诊断与新对话提示词](NEXT_OVERVIEW_IMPLEMENTATION.md) |
 | 日常使用与现场测试 | [README](../README.md)、[公司测试](../APP_COMPANY_TEST.md)、[打开方式](../打开方式.md) |
 | 当前口径 | [市场概览](../APP_MARKET_OVERVIEW.md)、[第六版 32 项](../APP_INDICATORS_V6.md) |
 | 当前交接 / 发布 / 验证 | [交接](../PROJECT_HANDOFF.md)、[发布清单](../APP_RELEASE.json)、[验证记录](../APP_VALIDATION.md)、[开发约定](../AGENTS.md) |
