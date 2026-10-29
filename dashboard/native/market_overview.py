@@ -140,6 +140,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
     row.update(expiry=expiry, basis_points=None, raw_basis_points=None,log_basis_bp=None, annual_pct=None,dividend_points=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
                percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None,
+               basis_future_price=None,basis_spot_price=None,basis_future_source_at=None,basis_spot_source_at=None,
                basis_kind=None,pricing_day=None,days=None,percentile_start=None,percentile_end=None)
     day = str(now.tz_convert('Asia/Shanghai').date())
     mode='realtime'
@@ -180,8 +181,11 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
                annual_pct=current['annual_pct'], days=t,dividend_points=dividend,
                dividend_inherited_from=scenario.get('inherited_from'),dividend_source_contract=scenario.get('value_source_contract'),
                dividend_snapshot=scenario.get('source_snapshot'),dividend_version=getattr(dividends,'version',None),
+               dividend_file_sha256=record.get('file_sha256'),dividend_source_kind=record.get('source_kind'),
                basis_source_at=at.isoformat(),
-               basis_kind=mode,pricing_day=day,pricing_at=at.isoformat(),basis_spot_price=s['close'],
+               basis_kind=mode,pricing_day=day,pricing_at=at.isoformat(),basis_future_price=q['close'],basis_spot_price=s['close'],
+               basis_future_source_at=pd.Timestamp(q.get('source_event_time',q.get('event_time'))).isoformat(),
+               basis_spot_source_at=pd.Timestamp(s.get('source_event_time',s.get('event_time'))).isoformat(),
                dividend_revision=record.get('revision'),dividend_effective_from=record.get('effective_from'),dividend_precision=record.get('precision'))
     row['basis_reason'] = (('收盘参考 ' if mode=='completed_daily' else '缓存参考 ')+day+' · ' if mode!='realtime' else '')+(FORMULA+'；T<5年化留空' if dividend is not None else '缺分红；保留原始点基差，不把缺值当0')
     if scenario.get('inherited_from'):row['basis_reason']+='；分红沿用 '+scenario['inherited_from']
@@ -193,6 +197,7 @@ class MarketOverviewEngine:
         self.model = model
         self.daily_key = None
         self.daily = {}
+        self.daily_errors=[]
         self.percentiles={}
         self.side_cache={}
         self.dividend_key=None;self.dividends=None
@@ -225,12 +230,12 @@ class MarketOverviewEngine:
             repo = model.configure_repository(False)
             frozen = repo.freeze()
             instruments = repo.symbols(frozen)
-        except (OSError,ValueError) as exc:
+        except (OSError,ValueError,KeyError,TypeError) as exc:
             repo, frozen, instruments = None, {}, {}
             errors.append('历史参考不可用，仅显示可用最新报价（'+type(exc).__name__+'）')
         try:
             reference = ReferenceBook(model.config.get('reference_file'))
-        except (OSError,ValueError) as exc:
+        except (OSError,ValueError,KeyError,TypeError) as exc:
             reference = ReferenceBook()
             errors.append('合约参考不可用（'+type(exc).__name__+'）')
         metadata = latest_contracts(reference.data)
@@ -270,6 +275,7 @@ class MarketOverviewEngine:
             tuple((d,self.side_cache[d]['token']) for d in side),reference_data['version'],tuple(model.config.get('history_roots', ())),repo is not None,registry_day)
         if key != self.daily_key:
             self.daily = {}
+            self.daily_errors=[]
             cutoff = (pd.Timestamp(completed, tz='Asia/Shanghai') + pd.Timedelta(hours=23, minutes=59, seconds=59)) if completed else now.normalize()-pd.Timedelta(seconds=1)
             for s in sorted(symbols):
                 check_stop()
@@ -279,15 +285,19 @@ class MarketOverviewEngine:
                     try:
                         self.daily[s] = repo.read_window(s, '1d', count=90, as_of=cutoff,
                             fields=('open','high','low','close','volume','turnover','open_interest'), frozen=frozen)
-                    except ValueError:
+                    except (OSError,ValueError,KeyError,TypeError) as exc:
                         self.daily[s] = pd.DataFrame()
+                        self.daily_errors.append('历史参考缺项 '+s+'（'+type(exc).__name__+'）；保留可用最新报价')
                 additions=[dict(r,event_time=pd.Timestamp(r['source_at']),is_final=True,fetched_at=v.get('fetched_at'),
                                 open_interest=r.get('oi'),turnover=r.get('amount')) for d,v in side.items() if (r:=v.get('rows',{}).get(s))]
                 if additions:
                     from dashboard.marketdata.overview_daily import merge_daily
-                    self.daily[s]=merge_daily(self.daily[s],additions)
+                    try:self.daily[s]=merge_daily(self.daily[s],additions)
+                    except (OSError,ValueError,KeyError,TypeError) as exc:
+                        self.daily_errors.append('补充日线缺项 '+s+'（'+type(exc).__name__+'）；保留其他有效输入')
             self.daily_key = key
             self.percentiles={};self.requirement_cache={};self.dividend_versions={}
+        errors.extend(self.daily_errors)
         check_stop()
         # Cold history/dividend reads must not freeze the live receipt cutoff.
         if not explicit_now:now=pd.Timestamp.now(tz='UTC');phase=market_phase(now.to_pydatetime())

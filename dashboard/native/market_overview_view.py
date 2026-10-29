@@ -74,7 +74,8 @@ class MarketCard(QFrame):
             pct = row.get('percentile')
             rank = text(pct, 0)+'%' if pct is not None else '—'
             self.secondary.setText('基差 '+text(row.get('basis_points'), 1, True)+'点　年化 '+text(row.get('annual_pct'), 2, True)+'%　分位 '+rank)
-            self.secondary.setToolTip(row.get('basis_reason','')+'\n'+row.get('percentile_reason','')+
+            from dashboard.marketdata.overview_basis import input_summary
+            self.secondary.setToolTip(row.get('basis_reason','')+'\n'+input_summary(row)+'\n'+row.get('percentile_reason','')+
                 f"\n有效样本 {row.get('percentile_samples',0)}/20；区间 {row.get('percentile_start') or '—'} 至 {row.get('percentile_end') or '—'}")
         elif self.kind == 'etfs':
             if row.get('iopv') is not None:
@@ -95,7 +96,7 @@ class MarketCard(QFrame):
         if self.kind == 'etfs':
             detail.append(row['premium_reason']+'；IOPV源 '+stamp(row.get('iopv_source_at')))
         if self.kind == 'futures':
-            detail.extend([row.get('basis_reason',''), row.get('percentile_reason',''),
+            detail.extend([row.get('basis_reason',''), input_summary(row), row.get('percentile_reason',''),
                            '分红 '+text(row.get('dividend_points'))+' 点；简单年化分位仅作历史位置参考'])
         self.details.setText('\n'.join(detail))
         points = row.get('series', [])

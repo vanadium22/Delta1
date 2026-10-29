@@ -201,7 +201,7 @@ def sample(config, local_root, *, now=None):
     except Exception as exc:
         errors.append(dict(stage='contributions',error_type=type(exc).__name__))
     return dict(at=now.isoformat(),market_session=market_phase(now.to_pydatetime()),observations=observations,etfs=groups,indices=detail,
-        reference=dict(fetched_at=reference['data'].get('fetched_at'),due=reference['due'],error=reference['error'],errors=reference['data'].get('errors',[])),
+        reference=dict(fetched_at=reference['data'].get('fetched_at'),due=reference['due'],error=reference['error'],issues=reference.get('issues',[]),errors=reference['data'].get('errors',[])),
         wind=read_status(Path(local_root)/'overview_reference/status.json'),iopv_source_fields=discovery,
         closed_data=closed_evidence,current_futures_pairs=current_pairs,errors=errors)
 

@@ -16,3 +16,5 @@
 | 历史说明与哈希索引 | [2026-10-29七份唯一归档](../../docs/archive/2026-10-29/README.md)、[MANIFEST](../../docs/archive/2026-10-29/MANIFEST.json)、[更早README](../../docs/archive/2026-10-27/DASHBOARD_README.md) |
 
 AGENTS、PROJECT_HANDOFF、APP_RELEASE、APP_COMPANY_TEST等固定入口保留。归档的ROOT_AGENTS/DASHBOARD_AGENTS不是当前指令入口；旧UNC、旧固定分红情景和阶段限制不覆盖最新用户要求。不重复制作多套旧说明。项目总体目录见 [分类索引](../../docs/PROJECT_STRUCTURE.md)。
+
+本轮接续75d9da0，210项回归通过：可选资料/单股/历史错误隔离，年化实际输入与来源；公司诊断直接保存本轮目录，使用 [安全打包脚本](../collect_company_return.ps1)。两份Excel32行同输入一致，下午三JSON包缺Overview，现场年化与新关闭仍待有效报告。操作见 [公司复测](../APP_COMPANY_TEST.md)，接续见 [新提示词](NEXT_COMPANY_RETEST_PROMPT.md)。

@@ -17,9 +17,11 @@ def read_equities(config, local_root):
     try:
         data = json.loads(equity_path(config, local_root).read_text(encoding='utf8'))
         if (not isinstance(data,dict) or data.get('schema') != 'overview-equities-v1' or
-            not isinstance(data.get('quotes'), dict) or not isinstance(data.get('snapshot_id'),str) or
-            any(not isinstance(q,dict) for q in data['quotes'].values())):
+            not isinstance(data.get('quotes'), dict) or not isinstance(data.get('snapshot_id'),str)):
             raise ValueError('成分快照格式无效')
+        valid={s:q for s,q in data['quotes'].items() if isinstance(q,dict)}
+        data['invalid_quote_count']=len(data['quotes'])-len(valid)
+        data['quotes']=valid
         return data
     except (OSError, ValueError, TypeError):
         return {}

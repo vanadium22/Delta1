@@ -1,6 +1,6 @@
 # Delta1 公司统一开发约定
 
-当前日期：2026-10-29。所有 App 的开发、验证、提交、推送和公司运行统一使用 `codex/company-apps`。看板本轮从f345174接续公司真实回传，当前状态见 [PROJECT_HANDOFF](dashboard/PROJECT_HANDOFF.md)，公司Y读取/导入与收盘折溢价已有证据，历史D、完整行业输入、IOPV/申赎及新关闭耗时仍有待办。
+当前日期：2026-10-29。所有 App 的开发、验证、提交、推送和公司运行统一使用 `codex/company-apps`。看板本轮从75d9da0接续公司回传与Excel输入对账，当前状态见 [PROJECT_HANDOFF](dashboard/PROJECT_HANDOFF.md)，公司Y读取/导入与收盘折溢价已有证据，历史D、完整行业输入、IOPV/申赎及新关闭耗时仍有待办。
 
 ## 工作区与发布
 

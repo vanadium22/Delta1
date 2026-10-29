@@ -1,8 +1,8 @@
-本轮2026-10-29已核验公司24份JSON和截图：Y盘10-27表成功导入、ETF收盘溢价已显示；60日D、完整行业权重及盘中IOPV/申赎仍有缺项。本轮新增安全归档/关闭进度与诊断修正，98项回归通过，公司新关闭耗时待复测。操作见 [公司复测](APP_COMPANY_TEST.md)，下一对话见 [新提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)。
-
 # Delta1 公司蓝白展示版
 
 日常入口为 [start_presentation.vbs](start_presentation.vbs)，命令行兼容入口为 [start_presentation.cmd](start_presentation.cmd)，使用 `public` 主题。统一分支 `codex/company-apps`，公司原 Git 根目录执行一次 `git pull --ff-only`，再通过原入口重开。
+
+本轮接续75d9da0：下午包仅3份JSON、缺Overview，新增缺损数据影响隔离、年化F/S/D/T与来源显示，以及直接保存本轮报告的诊断/安全打包。210项回归通过；两份Excel32行同输入一致，现场年化与新关闭仍待有效报告。
 
 ## 现在从哪里看
 

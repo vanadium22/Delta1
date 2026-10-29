@@ -1,14 +1,16 @@
-param([string]$LocalRoot,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview,
+param([string]$LocalRoot,[string]$OutputDirectory,[switch]$NoPause,[switch]$Routes,[switch]$Connect,[switch]$Overview,
     [ValidateSet('Connect','Indices','ETFs','Nav')][string]$WindStage,
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$WindDay)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $repository
-$runtime=Join-Path $PSScriptRoot ('runtime/app_startup/diagnosis-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss')+'-'+$PID)
-New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+$reportRoot=if ($OutputDirectory) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory) } else { Join-Path $PSScriptRoot 'runtime/app_startup' }
+$runtime=Join-Path $reportRoot ('diagnosis-'+[DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff')+'-'+$PID+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8))
+New-Item -ItemType Directory -Path $runtime -ErrorAction Stop | Out-Null
 $report=@{schema='presentation-startup-diagnosis-v1';at=[DateTimeOffset]::Now.ToString('o');
     repository=$repository;network_requested=$false;wind_requested=$false;vpn_changed=$false;app_started=$false;files=@{};
-    branch=$null;commit=$null;python=$null;latest_launch=$null;preflight_exit_code=$null}
+    branch=$null;commit=$null;python=$null;latest_launch=$null;preflight_exit_code=$null;
+    local_root=$(if ($LocalRoot) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LocalRoot) } else { $null })}
 try {
     if ($WindDay -and -not $WindStage) { throw 'WindDayRequiresExplicitWindStage' }
     $report.script_host=@{wscript_exists=(Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32/wscript.exe'));policies=@{}}
@@ -24,7 +26,7 @@ try {
         $report.branch=(& git branch --show-current 2>$null | Out-String).Trim()
         $report.commit=(& git rev-parse HEAD 2>$null | Out-String).Trim()
     }
-    $launch=Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'runtime/app_startup') -Filter launcher.json -Recurse -File |
+    $launch=Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'runtime/app_startup') -Filter launcher.json -Recurse -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($launch) {
         $value=Get-Content -LiteralPath $launch.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -37,6 +39,10 @@ try {
     if ($LocalRoot) { $checkArguments+=@('--local-root',$LocalRoot) }
     & $report.python @checkArguments 1> (Join-Path $runtime 'preflight.log') 2> (Join-Path $runtime 'preflight.stderr.log')
     $report.preflight_exit_code=$LASTEXITCODE
+    if (-not $report.local_root -and (Test-Path -LiteralPath (Join-Path $runtime 'preflight.json'))) {
+        $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($profile.profile) { $report.local_root=Split-Path $profile.profile -Parent }
+    }
     if ($Overview) {
         $profile=Get-Content -LiteralPath (Join-Path $runtime 'preflight.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         $overviewRoot=$LocalRoot

@@ -113,18 +113,62 @@ def validate(data):
     return value
 
 
+def available_sections(data):
+    """Read intact sections independently. Publishing still requires validate().
+
+    A broken optional NAV must not hide memberships or other ETFs. Index and
+    ranking groups remain atomic: a damaged member cannot imply a full basket.
+    """
+    if not isinstance(data,dict):raise ValueError('低频资料格式不匹配')
+    base={k:v for k,v in data.items() if k not in ('indices','etfs','etf_nav')}
+    value=validate(base);issues=[]
+    for kind in ('indices','etfs'):
+        groups=data.get(kind,{})
+        if not isinstance(groups,dict):
+            issues.append(dict(scope=kind,error_type='InvalidGroups'));continue
+        if set(groups)-set(ROOTS):issues.append(dict(scope=kind,error_type='UnknownIndex'))
+        for root in ROOTS:
+            if root not in groups:continue
+            try:value[kind][root]=validate(dict(base,**{kind:{root:groups[root]}}))[kind][root]
+            except (ValueError,TypeError,KeyError):issues.append(dict(scope=kind+'.'+root,error_type='InvalidGroup'))
+    # Per-group validation cannot certify conflicting benchmark identities.
+    owners={}
+    for root,group in value['etfs'].items():
+        for row in group.get('rows',[]):owners.setdefault(row['symbol'],set()).add(root)
+    conflicts={root for roots in owners.values() if len(roots)>1 for root in roots}
+    for root in sorted(conflicts):
+        del value['etfs'][root];issues.append(dict(scope='etfs.'+root,error_type='ConflictingBenchmark'))
+    if 'etf_nav' in data:
+        nav=data['etf_nav']
+        if not isinstance(nav,dict) or nav.get('schema')!='etf-nav-v1' or not isinstance(nav.get('rows'),dict) or len(nav['rows'])>100:
+            issues.append(dict(scope='etf_nav',error_type='InvalidContainer'))
+        else:
+            value['etf_nav']=dict(nav,rows={})
+            for symbol,row in nav['rows'].items():
+                try:
+                    checked=validate(dict(base,etf_nav=dict(nav,rows={symbol:row})))
+                    value['etf_nav']['rows'][symbol]=checked['etf_nav']['rows'][symbol]
+                except (ValueError,TypeError,KeyError):
+                    safe=symbol if isinstance(symbol,str) and SECURITY.fullmatch(symbol) else 'unknown'
+                    issues.append(dict(scope='etf_nav.'+safe,error_type='InvalidRow'))
+    return value,issues
+
+
 def load(config, local_root, *, now=None):
     now = now or datetime.now(timezone.utc)
     now = now.astimezone(ZoneInfo('Asia/Shanghai'))
     path = path_for(config, local_root)
     try:
         raw = path.read_bytes()
-        data = validate(json.loads(raw))
+        decoded=json.loads(raw)
+        try:data,issues=validate(decoded),[]
+        except (ValueError,TypeError,KeyError):data,issues=available_sections(decoded)
         fetched = datetime.fromisoformat(data['fetched_at'])
         if fetched > now:
             raise ValueError('资料取得时间晚于当前时刻')
         return dict(data=data, version=hashlib.sha256(raw).hexdigest(),
-                    due=datetime.fromisoformat(data.get('reference_reviewed_at') or data['fetched_at']).astimezone(now.tzinfo).isocalendar()[:2] != now.isocalendar()[:2], error=None)
+                    due=bool(issues) or datetime.fromisoformat(data.get('reference_reviewed_at') or data['fetched_at']).astimezone(now.tzinfo).isocalendar()[:2] != now.isocalendar()[:2],
+                    error='部分低频资料不可用；其余有效资料保留，缺项等待核验' if issues else None,issues=issues)
     except FileNotFoundError:
         return dict(data={}, version=None, due=True, error='尚无已核验低频资料')
     except (OSError, ValueError, TypeError, KeyError):

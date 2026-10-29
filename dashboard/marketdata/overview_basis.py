@@ -9,6 +9,16 @@ from .dividends import DividendBook,adjusted_basis,digest
 FORMULA='(F - S + D) / S × 365 / T × 100%'
 
 
+def input_summary(row):
+    """Display the exact arithmetic inputs, without rounding before calculation."""
+    def number(key):
+        value=row.get(key)
+        return format(value,'.10g') if isinstance(value,Real) and not isinstance(value,bool) and isfinite(value) else '—'
+    return ('F='+number('basis_future_price')+' · S='+number('basis_spot_price')+
+        ' · D='+number('dividend_points')+' · T='+number('days')+'天\n定价日 '+str(row.get('pricing_day') or '—')+
+        '；分红表业务日 '+str(row.get('dividend_snapshot') or '—'))
+
+
 def calculate(future,spot,dividend,days):
     # Shared Excel arithmetic, independent of the paused research-v6 formulas.
     if (any(isinstance(v,bool) or not isinstance(v,Real) or not isfinite(v) for v in (future,spot,dividend)) or

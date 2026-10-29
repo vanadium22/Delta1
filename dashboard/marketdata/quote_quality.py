@@ -4,16 +4,20 @@ import pandas as pd
 
 
 def finite(v):
-    return isinstance(v, (int, float)) and math.isfinite(v)
+    return isinstance(v, (int, float)) and not isinstance(v,bool) and math.isfinite(v)
 
 
 def quote_quality(quote, as_of, max_age=30):
     if not quote: return {"usable":False, "status":"缺少实时行情", "reason":"未收到该标的HTTP观测"}
     now = pd.Timestamp(as_of).tz_convert("Asia/Shanghai")
-    received = pd.Timestamp(quote.get("observed_at", quote.get("received_at")))
-    source = pd.Timestamp(quote.get("source_event_time"))
     result = dict(usable=False, status="源日期待认证", reason="只有源时分秒，日期按接收日推定")
+    if not isinstance(quote,dict):return {**result,"status":"行情格式无效"}
+    try:
+        received = pd.Timestamp(quote.get("observed_at", quote.get("received_at")))
+        source = pd.Timestamp(quote.get("source_event_time"))
+    except (ValueError,TypeError,OverflowError):return {**result,"status":"源时间无效"}
     if pd.isna(received) or pd.isna(source): return {**result, "status":"源时间缺失"}
+    if received.tzinfo is None or source.tzinfo is None:return {**result,"status":"源时间缺时区"}
     age, source_age = (now-received).total_seconds(), (now-source).total_seconds()
     result.update(receipt_age=age, source_age=source_age)
     if age < 0 or source_age < -3: return {**result, "status":"时间倒置"}

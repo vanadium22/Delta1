@@ -102,11 +102,13 @@ def calculation_preview(config,local_root,now,repo,frozen):
         live_rows=pd.DataFrame(),configure_repository=configured)
     model._live=lambda instruments,as_of:NativeModel._live(model,instruments,as_of)
     state=MarketOverviewEngine(model).snapshot(now=now)
-    fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day',
+    fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day','pricing_at',
+        'basis_future_price','basis_spot_price','basis_future_source_at','basis_spot_source_at','expiry','days',
         'basis_points','raw_basis_points','annual_pct','basis_reason','dividend_points','dividend_snapshot','dividend_inherited_from',
+        'dividend_source_contract','dividend_source_kind','dividend_file_sha256','dividend_effective_from','dividend_revision','dividend_precision',
         'percentile_20','percentile_60','percentile_reason','continuous_percentiles')
     return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
-        calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],
+        calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],basis_formula=state['market_overview']['basis_formula'],
         futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']],
         etfs=[{k:r.get(k) for k in ('symbol','root','price','source_at','iopv','iopv_id','premium_bp','premium_reason',
             'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason')} for r in state['market_overview']['etfs']])
@@ -144,7 +146,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             dependency='先取得完整成分名单才能列出该指数全部股票的DDB缺口' if not complete else None)
     all_members_known=all(w['membership_complete'] for w in wind.values())
     result['wind']=dict(provider=config.get('overview_reference_backend') or 'windpy',reference_valid=reference['error'] is None,
-        fetched_at=data.get('fetched_at'),due=reference['due'],load_error=reference['error'],warnings=data.get('errors',[]),indices=wind)
+        fetched_at=data.get('fetched_at'),due=reference['due'],load_error=reference['error'],load_issues=reference.get('issues',[]),warnings=data.get('errors',[]),indices=wind)
     result['wind']['last_job']=worker_status(read_object(Path(local_root)/'overview_reference/status.json'))
     repo,frozen,history=inspect_history(config,target=target);result['historical']=history
     history['minute_deep_verification_complete']=bool(history.get('pending_current') and

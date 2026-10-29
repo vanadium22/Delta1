@@ -12,6 +12,7 @@ from .overview_pages import (ScrollPage, Panel, FlowGrid, Split, lab, put, numer
 from .instruments import UNDERLYINGS
 from .card_views import stamp
 from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
+from dashboard.marketdata.overview_basis import input_summary
 
 SLOTS=('当月','次月','季月','远季')
 COLORS=(ACCENT,'#4c8fbc','#7bb3d3','#a7c9e0') if THEME=='public' else CHART_COLORS
@@ -37,7 +38,7 @@ class FuturesCard(Panel):
         self.price.setText(numeric(row.get('price')))
         for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2),(self.previous_value,'basis_change_previous','点',1)):
             put(widget,numeric(row.get(key),digits,True,suffix),color=ink(row.get(key)),size=25,bold=True)
-            widget.setToolTip(row.get('basis_reason') or '待有效同步期现报价')
+            widget.setToolTip((row.get('basis_reason') or '待有效同步期现报价')+'\n'+input_summary(row))
         self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(row.get('basis_prev_day') or '待核验'))
         history=row.get('continuous_percentiles') or {}
         for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),3):

@@ -16,7 +16,9 @@
 
 ## 最近发布
 
-- 2026-10-29公司回传收尾，批次 `2026-10-29-company-feedback-safe-shutdown-and-evidence`，公司证据f345174：24个JSON与截图确认Y读取/导入、16档20日完整及12组ETF收盘NAV/价格；60日D缺556行、IF/IC/IM权重缺1/2/2、IOPV/申赎定义仍缺。App专用成分归档有界并行/批量登记，关闭进度与最终排空；名单/权重和快照质量诊断修正，盘中/收盘溢价标签明确。98项回归通过；1800标的本机合成归档8.884→2.489秒，不代替公司新关闭计时。默认[Runtime复测](dashboard/APP_COMPANY_TEST.md)只需新HEAD、开窗和关闭后Overview及安全JSON ZIP；[当前证据/待办](dashboard/PROJECT_HANDOFF.md)。
+- 2026-10-29接续75d9da0，批次 `2026-10-29-company-resilience-and-excel-reconciliation`：下午包只有3个JSON、缺Overview，现场年化/新关闭仍待验收。读取可选资料、单股坏时间和历史I/O错误按范围隔离；年化显示F/S/D/T和D来源，公式不改。两份Excel32行同输入复算一致、15合约D不同。诊断直接进入本轮目录，统一白名单打包按时间/HEAD/配置及同一运行核对，Complete/MissingReports不冒报。210项回归通过；[公司步骤](dashboard/APP_COMPANY_TEST.md)、[证据/待办](dashboard/PROJECT_HANDOFF.md)。
+
+- 75d9da0：2026-10-29公司回传收尾，批次 `2026-10-29-company-feedback-safe-shutdown-and-evidence`，公司证据f345174：24个JSON与截图确认Y读取/导入、16档20日完整及12组ETF收盘NAV/价格；60日D缺556行、IF/IC/IM权重缺1/2/2、IOPV/申赎定义仍缺。App专用成分归档有界并行/批量登记，关闭进度与最终排空；名单/权重和快照质量诊断修正，盘中/收盘溢价标签明确。98项回归通过；1800标的本机合成归档8.884→2.489秒，不代替公司新关闭计时。默认[Runtime复测](dashboard/APP_COMPANY_TEST.md)只需新HEAD、开窗和关闭后Overview及安全JSON ZIP；[当前证据/待办](dashboard/PROJECT_HANDOFF.md)。
 
 - 2026-10-29 日报侧栏整理为交易前查询与日报管理；统计独立为 `statistics_app` 桌面入口，原自动任务和数据位置保留。公司更新后分别通过各模块 `start.cmd` 打开，见 [日报交接](script_making/PROJECT_HANDOFF.md) 和 [统计交接](statistics_app/PROJECT_HANDOFF.md)。
 

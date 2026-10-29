@@ -77,10 +77,16 @@ class OverviewAuditTests(unittest.TestCase):
             with patch('requests.sessions.Session.request',side_effect=AssertionError('offline')):
                 result=calculation_preview(config,tmp,pd.Timestamp('2026-10-27T09:29:59+08:00'),repo,{})
             self.assertEqual(len(result['futures']),16)
+            self.assertEqual(result['basis_formula'],'(F - S + D) / S × 365 / T × 100%')
             for row in result['futures']:
                 self.assertEqual(row['basis_kind'],'completed_daily');self.assertEqual(row['pricing_day'],'2026-10-26')
                 self.assertEqual(row['annual_pct'],0);self.assertEqual(row['percentile_20'],50);self.assertEqual(row['percentile_60'],50)
                 self.assertEqual(row['continuous_percentiles']['alias'],row['symbol'][:2]+f"0{row['slot']}.CFE")
+                self.assertEqual(row['basis_future_price'],row['price']);self.assertIsNotNone(row['basis_spot_price'])
+                self.assertEqual(row['basis_future_source_at'],row['basis_spot_source_at'])
+                self.assertEqual(row['days'],(pd.Timestamp(row['expiry'])-pd.Timestamp(row['pricing_day'])).days)
+                expected=100*(row['basis_future_price']-row['basis_spot_price']+row['dividend_points'])/row['basis_spot_price']*365/row['days']
+                self.assertAlmostEqual(row['annual_pct'],expected)
             self.assertFalse(result['ui_application_verified']);self.assertNotIn('ui_applied_at',result['calculation'])
 
     def test_local_copy_plan_rejects_a_present_nonfinal_or_invalid_close(self):

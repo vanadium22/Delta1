@@ -72,7 +72,7 @@ def premium_pairs(symbol, iopv_id, observations, now):
 def enrich(model, data, reference, now):
     source = reference['data']
     today = str(now.tz_convert('Asia/Shanghai').date())
-    data['reference'] = dict(due=reference['due'], error=reference['error'], fetched_at=source.get('fetched_at'))
+    data['reference'] = dict(due=reference['due'], error=reference['error'], fetched_at=source.get('fetched_at'),issues=reference.get('issues',[]))
     equity = read_equities(model.config, model.local_root) if hasattr(model, 'local_root') else {}
     previous=data.get('previous_session')
     groups=source.get('indices',{})
