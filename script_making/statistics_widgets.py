@@ -137,7 +137,7 @@ class StatisticsPage(QWidget):
     finished = Signal()
     busy_changed = Signal()
 
-    def __init__(self, service, parent=None):
+    def __init__(self, service, parent=None, *, auto_generate=True):
         super().__init__(parent)
         self.service = service
         self.snapshot = None
@@ -233,7 +233,7 @@ class StatisticsPage(QWidget):
         self.metric_combo.currentIndexChanged.connect(self.invalidate)
         self.threshold.textChanged.connect(self.invalidate)
         self.invalidate()
-        if not config_error and any(combo.currentData() for combo in self.dates.values()):
+        if auto_generate and not config_error and any(combo.currentData() for combo in self.dates.values()):
             QTimer.singleShot(0, self.generate)
 
     def fill_previous(self):

@@ -127,7 +127,7 @@ class Window(QMainWindow):
         sidebar.addWidget(label("D1 交易工作台", "brand"))
         sidebar.addWidget(label("DELTA ONE", "brandCaption"))
         sidebar.addSpacing(30)
-        sidebar.addWidget(label("日报工作区"))
+        sidebar.addWidget(label("交易前查询"))
         self.nav = {}
         for kind, caption in (("swap", "收益互换日报"), ("review", "日报复核表")):
             control = button(caption, lambda checked=False, key=kind: self.switch_kind(key), "nav")
@@ -135,15 +135,14 @@ class Window(QMainWindow):
             control.setChecked(kind == self.kind)
             self.nav[kind] = control
             sidebar.addWidget(control)
-        self.download_button = button("日报下载", self.open_downloads, "nav")
-        self.query_button = button("日报查询 · 全部 Excel", self.open_query, "nav")
-        sidebar.addWidget(self.query_button)
-        sidebar.addWidget(self.download_button)
-        self.statistics_button = button("统计", self.open_statistics, "nav")
-        self.statistics_button.setCheckable(True)
-        sidebar.addWidget(self.statistics_button)
         self.bookkeeping_button = button("人工簿记", self.open_bookkeeping, "nav")
         sidebar.addWidget(self.bookkeeping_button)
+        sidebar.addSpacing(12)
+        sidebar.addWidget(label("日报管理"))
+        self.download_button = button("日报下载", self.open_downloads, "nav")
+        self.query_button = button("查询全部日报", self.open_query, "nav")
+        sidebar.addWidget(self.download_button)
+        sidebar.addWidget(self.query_button)
         self.download_notice = label("四类日报 · 本地归档", "muted", True)
         sidebar.addWidget(self.download_notice)
         sidebar.addStretch()
@@ -407,7 +406,6 @@ class Window(QMainWindow):
         self.settings_button.setEnabled(not busy and not stats_busy and not self._syncing and not downloading and not self._closing)
         self.download_button.setEnabled(not self._closing)
         self.query_button.setEnabled(not mutation and not self._closing)
-        self.statistics_button.setEnabled(not mutation and not self._closing)
         self.report_combo.setEnabled(not mutation and not self._closing)
         current_running = (self.service.download_status(self.kind)["state"] == "running"
                            if self.kind in DOWNLOADS else self._syncing)
@@ -454,7 +452,6 @@ class Window(QMainWindow):
 
     def switch_kind(self, kind):
         self.content.setCurrentWidget(self.query_page)
-        self.statistics_button.setChecked(False)
         if self.kind == kind:
             if kind in self.nav:
                 self.nav[kind].setChecked(True)
@@ -874,7 +871,6 @@ class Window(QMainWindow):
 
     def open_query(self):
         self.content.setCurrentWidget(self.query_page)
-        self.statistics_button.setChecked(False)
         self.report_combo.setFocus()
         self.report_combo.showPopup()
 
@@ -887,7 +883,6 @@ class Window(QMainWindow):
                 self.statistics_page.busy_changed.connect(self._update_controls)
                 self.content.addWidget(self.statistics_page)
             self.content.setCurrentWidget(self.statistics_page)
-            self.statistics_button.setChecked(True)
             for control in self.nav.values():
                 control.setChecked(False)
         except (ReportError, OSError) as exc:

@@ -1,0 +1,6 @@
+# Local validation, configuration, generated outputs and downloaded business files.
+/local_artifacts/
+/cache/
+/materials/
+/inputs/
+/outputs/

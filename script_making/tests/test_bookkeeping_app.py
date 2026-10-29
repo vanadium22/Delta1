@@ -77,6 +77,16 @@ class BookkeepingAppTests(unittest.TestCase):
             booking.return_value.exec.assert_called_once()
             self.assertEqual(booking.call_args.kwargs["parent"], self.window)
 
+    def test_sidebar_places_bookkeeping_before_report_management(self):
+        sidebar = self.window.bookkeeping_button.parentWidget().layout()
+        order = [sidebar.indexOf(control) for control in (
+            self.window.nav["swap"], self.window.nav["review"],
+            self.window.bookkeeping_button, self.window.download_button,
+            self.window.query_button)]
+        self.assertTrue(all(index >= 0 for index in order))
+        self.assertEqual(order, sorted(order))
+        self.assertGreater(order[3] - order[2], 1)  # Separate management section.
+
     def test_review_row_requires_explicit_target_choice_in_same_day_swap_report(self):
         root = Path(self.temp.name)
         review = fixture(root / filename("review", "2000-01-07"), "簿记要素",

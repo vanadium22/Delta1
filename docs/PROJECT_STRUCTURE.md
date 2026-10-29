@@ -2,7 +2,7 @@
 
 | 分类 | 路径 | 用途与维护边界 |
 |---|---|---|
-| 日常应用 | dashboard/、securities_lending/、script_making/、index_futures_basis/ | 正式源码、原启动入口、各自交接 |
+| 日常应用 | dashboard/、securities_lending/、script_making/、statistics_app/、index_futures_basis/ | 正式源码、原启动入口、各自交接 |
 | 基础采集与兼容工具 | index_strategy/ | 历史/实时 SDK 与采集、旧桌面/前端兼容 |
 | 公共数据接口 | shared_data/、SHARED_DATA.md | 公共目录、登记、原有复制校验迁移 |
 | 配置模板 | config/examples/、模块 *.example.* | 可提交模板；真实配置不放这里 |

@@ -8,12 +8,15 @@
 |---|---|---|
 | dashboard | 蓝白市场概览、数据编排；研究页暂停，32项源码及Excel保留 | [看板交接](dashboard/PROJECT_HANDOFF.md) |
 | securities_lending | 券源下载、查询、行业与金额筛选 | [券源交接](securities_lending/PROJECT_HANDOFF.md) |
-| script_making | 日报下载、查询、收益与风险邮件产物 | [日报交接](script_making/PROJECT_HANDOFF.md) |
+| script_making | 交易前日报查询、人工簿记和日报管理；兼容既有统计自动任务 | [日报交接](script_making/PROJECT_HANDOFF.md) |
+| statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
 | index_strategy | 历史 / 实时采集与兼容桌面工具 | [采集接口](index_strategy/instant_dld/README.md) |
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |
 
 ## 最近发布
+
+- 2026-10-29 日报侧栏整理为交易前查询与日报管理；统计独立为 `statistics_app` 桌面入口，原自动任务和数据位置保留。公司更新后分别通过各模块 `start.cmd` 打开，见 [日报交接](script_making/PROJECT_HANDOFF.md) 和 [统计交接](statistics_app/PROJECT_HANDOFF.md)。
 
 - 2026-10-29看板收尾批次 `2026-10-29-confirmed-y-dividend-source-and-company-retest`，基线69789a4：确认Y盘默认源、旧默认运行时迁移及调度重查；SourceDirectory/InputFile显式桥接与互斥；B1业务日期筛选、来源/全库日期/16合约D审计；当前文档精简，七份旧说明保持唯一SHA归档。最终55项受影响测试通过（12.676秒，无跳过，ResourceWarning作为错误）。公司完整更新/导入/行业ETF/开窗Overview/安全JSON ZIP步骤见 [APP_COMPANY_TEST](dashboard/APP_COMPANY_TEST.md)，本地证据见 [APP_VALIDATION](dashboard/APP_VALIDATION.md)，精确清单见 [APP_RELEASE](dashboard/APP_RELEASE.json)。**公司真实Y取数、历史D覆盖、资料发布与持续页面仍待验收**。实际当前提交号由git log与远端分支核验，不用基线号冒充本轮提交。
 
