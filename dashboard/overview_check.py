@@ -12,7 +12,7 @@ import time
 
 import pandas as pd
 
-from dashboard.marketdata.overview_reference import load, ranking, ROOTS, path_for
+from dashboard.marketdata.overview_reference import load, ranking, ROOTS, path_for, closing_nav
 from dashboard.marketdata.overview_contributions import read_equities, contributions, equity_path
 from dashboard.marketdata.quote_quality import quote_quality
 from dashboard.native.overview_instruments import quote_registry
@@ -54,11 +54,18 @@ def app_reports(local_root, runtime_root=None):
             scheduler=runtime.get('reference_scheduler') or {}
             entry={k:value.get(k) for k in ('observed_at','local_root','phase','closing',
                 'collection_worker_running','history_worker_running')}
+            shutdown=value.get('shutdown') or {}
+            entry['shutdown']={k:shutdown.get(k) for k in ('requested','complete','waiting','elapsed_seconds')}
             entry.update(report_path=str(path.resolve()),same_profile=same,
                 collection={k:collection.get(k) for k in ('status','stage','polls','rows','last_success_at',
                     'last_failure_at','last_failure_status','received_at')},
                 overview_runtime=dict(schema=runtime.get('schema'),pipeline_enabled=runtime.get('pipeline_enabled'),
                     reference_scheduler={k:scheduler.get(k) for k in ('status','reason','checked_at','worker_running','worker_exit_code')}))
+            equities=collection.get('equities') or {}
+            archive=equities.get('archive') or {}
+            entry['collection']['equities']={k:equities.get(k) for k in ('status','worker_running','rows','requested','snapshot_at','error_type')}
+            entry['collection']['equities']['archive']={k:archive.get(k) for k in ('status','symbols_total','symbols_finished',
+                'parts_published','rows_published','elapsed_seconds','updated_at','error_type')}
             for name in ('calculation','applied'):
                 timing=value.get(name) or {}
                 entry[name]={k:timing.get(k) for k in ('calculation_started_at','calculation_finished_at','calculation_seconds',
@@ -162,6 +169,7 @@ def sample(config, local_root, *, now=None):
         selected,meta = ranking(reference['data'],root,today=today)
         groups[root] = dict(ranking=meta, selected=[dict(symbol=r['symbol'],name=r['name'],rank=r['rank'],
             aum_date=r['aum_date'],aum_share_pct=r['aum_share_pct']) for r in selected])
+        groups[root]['closing_nav']=[dict(symbol=r['symbol'],**closing_nav(reference['data'],r['symbol'],today)) for r in selected]
         groups[root]['iopv'] = [dict(etf_id=r['symbol'],iopv_id=r.get('iopv_id'),
             status='待有效同步观测' if r.get('iopv_id') else '待明确IOPV映射或字段') for r in etfs(config,reference['data'],today) if r['root']==root]
     equity = read_equities(config,local_root)
@@ -188,7 +196,7 @@ def sample(config, local_root, *, now=None):
         for root,symbol in ROOTS.items():
             group=roll(reference['data'].get('indices',{}).get(root,{}),config,local_root,previous)
             value = contributions(group,equity,dict(symbol=symbol),now,previous,reference['version'])
-            detail[root] = {k:value.get(k) for k in ('mode','weight_date','official_weight_date','weight_method','weight_reason','source_at','snapshot_at','coverage_pct','covered','expected','reason','inputs')}
+            detail[root] = {k:value.get(k) for k in ('mode','weight_date','official_weight_date','weight_method','weight_reason','weight_source_dates','source_at','snapshot_at','coverage_pct','covered','expected','reason','inputs')}
             detail[root]['classified'] = sum(bool(r.get('industry')) for r in reference['data'].get('indices',{}).get(root,{}).get('rows',[]))
     except Exception as exc:
         errors.append(dict(stage='contributions',error_type=type(exc).__name__))

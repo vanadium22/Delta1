@@ -340,7 +340,7 @@ class EtfCard(Panel):
         self.price.setText(numeric(row.get('price'), 3))
         put(self.change, numeric(row.get('change_pct'), signed=True, suffix='%'), color=ink(row.get('change_pct')), size=27, bold=True)
         self.iopv.setText('IOPV '+numeric(row['iopv'], 4) if row.get('iopv') is not None else 'IOPV待有效报价' if row.get('iopv_id') else 'IOPV待接入')
-        put(self.premium, numeric(row['premium_bp'], 1, True, ' bp') if row.get('premium_bp') is not None else '折溢价 —', color=ink(row.get('premium_bp')), size=27 if row.get('premium_bp') is not None else 21, bold=True)
+        put(self.premium, numeric(row['premium_bp'], 1, True, ' bp') if row.get('premium_bp') is not None else '盘中折溢价 —', color=ink(row.get('premium_bp')), size=27 if row.get('premium_bp') is not None else 21, bold=True)
         self.iopv.setToolTip(row.get('premium_reason') or '缺少可核验IOPV来源或明确映射')
         self.premium.setToolTip(row.get('premium_reason') or '不使用昨日净值替代IOPV')
         self.closing_premium.setText('收盘折溢价 '+numeric(row.get('closing_premium_bp'),1,True,' bp')+' · '+str(row.get('nav_date') or '待净值'))
@@ -383,11 +383,11 @@ class EtfOverviewPage(ScrollPage):
         for text in ('是否允许申购 / 赎回：待核验', '最小申赎单位 / 当日限额：待核验', '仅展示真实已披露状态'):
             self.pcf.box.addWidget(lab(text, 18, MUTED))
         self.box.addWidget(Split(self.flows, self.pcf, (2, 1)))
-        self.chart = Panel('折溢价采集轨迹 · bp', 'ETF与IOPV同刻配对')
+        self.chart = Panel('盘中折溢价采集轨迹 · bp', 'ETF与IOPV同刻配对')
         self.plot = pg.PlotWidget(background=PANEL,axisItems={'bottom':MinuteAxis(orientation='bottom')}); self.plot.setMinimumWidth(0); self.plot.setMinimumHeight(155); self.plot.setMaximumHeight(180)
         self.plot.setMenuEnabled(False); self.plot.setMouseEnabled(x=False, y=False); self.plot.hideButtons()
         self.plot.showGrid(y=True, alpha=.12)
-        self.chart.box.addWidget(self.plot); self.empty_plot = lab('待可核验IOPV及同步报价；不以昨日净值替代', 17, MUTED)
+        self.chart.box.addWidget(self.plot); self.empty_plot = lab('待可核验IOPV及同步报价；收盘折溢价见上方卡片', 17, MUTED)
         self.empty_plot.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_plot.setMinimumHeight(120); self.chart.box.addWidget(self.empty_plot)
         legend=QHBoxLayout();self.legend=[]
         for i in range(3):

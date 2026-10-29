@@ -226,7 +226,7 @@ class OverviewUiTests(unittest.TestCase):
             self.assertEqual(page.fund_cards[0].badge.text(),'规模 #1')
         page.render(payload['market_overview']['etfs'],{},{});pump()
         self.assertTrue(all(c.badge.text()=='待排名' for c in page.fund_cards))
-        self.assertTrue(all(c.premium.text()=='折溢价 —' for c in page.fund_cards))
+        self.assertTrue(all(c.premium.text()=='盘中折溢价 —' for c in page.fund_cards))
         self.assertTrue(page.empty_plot.isVisible());self.assertFalse(page.plot.isVisible())
 
 

@@ -12,7 +12,7 @@ import uuid
 from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
 from dashboard.marketdata.overview_reference import load
 from dashboard.marketdata.overview_contributions import equity_path
-from index_strategy.instant_dld.realtime_store import RealtimeStore
+from dashboard.marketdata.equity_observations import EquityObservationStore
 
 
 class EquitySampler:
@@ -24,6 +24,13 @@ class EquitySampler:
         self.stop_event = threading.Event()
         self.worker = None
         self.status = {'status': 'waiting_reference'}
+        self.archive = {}
+
+    def state(self):
+        return dict(self.status, worker_running=self.running(), archive=dict(self.archive))
+
+    def archive_progress(self, value):
+        self.archive = value
 
     def running(self):
         return self.worker is not None and self.worker.is_alive()
@@ -72,16 +79,29 @@ class EquitySampler:
                     if any(g.get('rows') for g in reference['data'].get('indices', {}).values()):
                         if client is None:
                             client = self.client_factory(connect_timeout=1, read_timeout=2)
-                            store = RealtimeStore(self.local_root/'overview_equities/observations')
+                            store = EquityObservationStore(self.local_root/'overview_equities/observations', progress=self.archive_progress)
                         poll += 1
                         self.cycle(client, store, reference, poll)
                     self.stop_event.wait(max(1, 60-(time.monotonic()-started)))
             except Exception as exc:
                 self.status = dict(status='failed', error_type=type(exc).__name__)
             finally:
-                if store is not None:
-                    store.close()
-                if client is not None:
-                    client.close()
+                failed = self.status.get('status') == 'failed'
+                self.status = dict(self.status, status='draining')
+                try:
+                    if store is not None:
+                        store.close()
+                except Exception as exc:
+                    self.status = dict(self.status, status='failed', error_type=type(exc).__name__)
+                finally:
+                    if client is not None:
+                        try:
+                            client.close()
+                        except Exception as exc:
+                            self.status = dict(self.status, status='failed', error_type=type(exc).__name__)
+                if failed:
+                    self.status = dict(self.status, status='failed')
+                elif self.status.get('status') != 'failed':
+                    self.status = dict(self.status, status='stopped')
         self.worker = threading.Thread(target=work, name='overview-minute-equities', daemon=True)
         self.worker.start()

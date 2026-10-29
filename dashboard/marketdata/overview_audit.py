@@ -12,6 +12,7 @@ from .overview_reference import load,ranking,ROOTS,finite,worker_status
 from .overview_daily import read_day,requests,directory,merge_daily,local_copy_plan
 from .overview_percentiles import requirements,prepare,evaluate,prior_days,SLOTS
 from .overview_sessions import latest_completed_session
+from .overview_contributions import read_equities
 
 
 def read_object(path):
@@ -106,7 +107,9 @@ def calculation_preview(config,local_root,now,repo,frozen):
         'percentile_20','percentile_60','percentile_reason','continuous_percentiles')
     return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
         calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],
-        futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']])
+        futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']],
+        etfs=[{k:r.get(k) for k in ('symbol','root','price','source_at','iopv','iopv_id','premium_bp','premium_reason',
+            'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason')} for r in state['market_overview']['etfs']])
 
 
 def collect(config,local_root,*,now=None,iopv_fields=None):
@@ -118,6 +121,9 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     day=str(stamp.date());target=latest_completed_session(stamp.to_pydatetime())
     pricing=day if market_phase(stamp.to_pydatetime())['phase'] in ('morning','lunch','afternoon') else target
     reference=load(config,local_root,now=stamp.to_pydatetime());data=reference['data']
+    # Freeze the constituent generation before slow historical/page reads. A
+    # later published snapshot must not be labelled stale against the old clock.
+    snapshot=read_equities(config,local_root)
     result=dict(schema='overview-data-gaps-v1',at=stamp.isoformat(),expected_completed_session=target,
         percentile_pricing_day=pricing,network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
     try:metadata=latest_contracts(ReferenceBook(config.get('reference_file')).data)
@@ -131,11 +137,12 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         equity_universe.update(m['symbol'] for m in members)
         expected={'IF':300,'IH':50,'IC':500,'IM':1000}[root];complete=len(members)==expected
         wind[root]=dict(index_id=spot,weight_date=group.get('as_of'),expected_members=expected,
-            members=len(members),missing_industry=unknown,weights_available=complete and group.get('weights_complete') is not False,
+            members=len(members),membership_complete=complete,missing_industry=unknown,weights_available=complete and group.get('weights_complete') is not False,
             membership_as_of=group.get('membership_as_of'),weight_source_dates=group.get('weight_source_dates'),
             ranking=meta,etf_universe_complete=fund_group.get('complete') is True,
             selected_etfs=[dict(symbol=f['symbol'],rank=f['rank'],aum_date=f['aum_date']) for f in funds],
-            dependency='先取得完整成分/权重才能列出该指数全部股票的DDB缺口' if not complete else None)
+            dependency='先取得完整成分名单才能列出该指数全部股票的DDB缺口' if not complete else None)
+    all_members_known=all(w['membership_complete'] for w in wind.values())
     result['wind']=dict(provider=config.get('overview_reference_backend') or 'windpy',reference_valid=reference['error'] is None,
         fetched_at=data.get('fetched_at'),due=reference['due'],load_error=reference['error'],warnings=data.get('errors',[]),indices=wind)
     result['wind']['last_job']=worker_status(read_object(Path(local_root)/'overview_reference/status.json'))
@@ -180,7 +187,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         # seeding during one-click runs before deciding whether DDB is needed.
         result['ddb']=dict(target=target,close_cache_missing_batches=batches,
             close_cache_missing_rows=sum(j['missing_count'] for j in batches),
-            equity_universe_known=bool(equity_universe),all_four_equity_universes_known=all(w['weights_available'] for w in wind.values()),
+            equity_universe_known=bool(equity_universe),all_four_equity_universes_known=all_members_known,
             source_availability='not_tested',note='这是缓存待补清单；已有可用标准历史先本地复制，仍缺才请求DDB；不证明远端源表没有数据',
             last_job=read_object(directory(config,local_root)/'status.json'))
         plan=local_copy_plan(jobs,daily)
@@ -193,33 +200,36 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         result['ddb']['last_job']={k:v for k,v in result['ddb']['last_job'].items() if k in
             ('schema','target','inserted','pending_rows','pending_batches','status','error_types','updated_at')}
     except (OSError,ValueError,TypeError,KeyError) as exc:result['ddb']=dict(status='unavailable',error_type=type(exc).__name__)
-    from .overview_contributions import read_equities
     from .quote_quality import quote_quality
-    snapshot=read_equities(config,local_root);quotes=snapshot.get('quotes',{})
+    quotes=snapshot.get('quotes',{})
     absent=sorted(equity_universe-set(quotes));stale=[];no_previous=[]
+    cutoff_status='valid'
     try:
         cutoff=pd.Timestamp(snapshot['finished_at']) if snapshot.get('finished_at') else None
-        if cutoff is not None and (pd.isna(cutoff) or cutoff.tzinfo is None or cutoff>stamp):cutoff=None
-    except (ValueError,TypeError):cutoff=None
+        if cutoff is None or pd.isna(cutoff) or cutoff.tzinfo is None:cutoff=None;cutoff_status='invalid_or_missing_cutoff'
+        elif cutoff>stamp:cutoff=None;cutoff_status='snapshot_after_audit_start'
+    except (ValueError,TypeError):cutoff=None;cutoff_status='invalid_or_missing_cutoff'
     for symbol in sorted(equity_universe & set(quotes)):
         q=quotes[symbol]
         try:usable=cutoff is not None and quote_quality(q,cutoff)['usable']
         except (ValueError,TypeError):usable=False
-        if not usable:stale.append(symbol)
+        if cutoff is not None and not usable:stale.append(symbol)
         if not finite(q.get('prev_close')) or q['prev_close']<=0:no_previous.append(symbol)
     result['constituent_quotes']=dict(expected=len(equity_universe),received=len(equity_universe & set(quotes)),
         snapshot_at=snapshot.get('finished_at'),reference_matches=bool(reference['version'] and snapshot.get('reference_version')==reference['version']),
-        missing_symbols=absent,stale_at_snapshot_symbols=stale,missing_previous_close=no_previous,
+        missing_symbols=absent,stale_at_snapshot_symbols=stale if cutoff is not None else None,missing_previous_close=no_previous,
+        quality_evaluation=cutoff_status,
         universe_known=bool(equity_universe),note='分钟采集来自现有HTTP，不由Wind或DDB实时提供；盘后收盘参考另用DDB日线')
-    result['constituent_quotes'].update(all_four_universes_known=all(w['weights_available'] for w in wind.values()),
-        known_missing_count=len(absent),total_missing_count=len(absent) if all(w['weights_available'] for w in wind.values()) else None)
+    result['constituent_quotes'].update(all_four_universes_known=all_members_known,
+        known_missing_count=len(absent),total_missing_count=len(absent) if all_members_known else None)
     result['other_inputs']=dict(iopv=[dict(symbol=f['symbol'],iopv_id=f.get('iopv_id'),
         status='mapping_configured_quote_pair_still_required' if f.get('iopv_id') else 'source_or_explicit_mapping_missing') for f in etfs(config,data,day)],
         iopv_field_discovery=iopv_fields or {},net_creation='verified_share_NAV_source_not_configured',pcf='verified_daily_creation_file_not_configured',
         note='IOPV、净申赎、PCF的缺来源不等于DDB历史缺口；不拿成交量、规模变化或历史折溢价代替')
     result['summary']=dict(missing_index_reference_roots=[r for r,g in wind.items() if not g['weights_available']],
         missing_etf_size_roots=[r for r,g in wind.items() if not g['selected_etfs']],
-        missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])) if all(w['weights_available'] for w in wind.values()) else None,
+        missing_membership_roots=[r for r,g in wind.items() if not g['membership_complete']],
+        missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])) if all_members_known else None,
         known_missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])),
         continuous_windows_incomplete=[alias+'/'+window for alias,slot in result.get('continuous_annual',{}).get('slots',{}).items()
             for window,value in slot['windows'].items() if not value['complete']],

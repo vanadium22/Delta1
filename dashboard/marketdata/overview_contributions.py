@@ -33,6 +33,7 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
                   actual_points=None, contribution_points=None, residual_points=None,
                   weight_date=group.get('as_of'),official_weight_date=group.get('official_as_of',group.get('as_of')),
                   weight_method=group.get('weight_method','official_previous_close'),weight_reason=group.get('weight_reason'),
+                  weight_source_dates=group.get('weight_source_dates',[]),
                   industry_standard=group.get('industry_standard'),mode=snapshot.get('mode','minute'),
                   reason='缺成分名单；股票数据缺口数量尚未知', estimate=True,
                   inputs=dict(membership_available=bool(rows),missing_weights=0,missing_industries=0,
@@ -127,6 +128,8 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         result['residual_points'] = result['actual_points']-result['contribution_points']
     if not valid_cutoff:
         result['reason'] = '待匹配当前权重版本的分钟行情'
+    elif not verified_weights:
+        result['reason'] = '权重缺失或参考日期混合；完整行业篮子和贡献待核验'
     elif not previous_weights:
         result['reason'] = '权重日期不是准确上一交易日；展示权重与涨跌，贡献待滚动核验'
     elif not covered:

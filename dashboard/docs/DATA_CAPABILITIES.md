@@ -1,10 +1,10 @@
 # 公司数据能力与行情分析验收
 
-2026-10-29。这些入口均已实现，当前完整公司命令以APP_COMPANY_TEST为准。默认 `-Overview` 仍离线；新ETF测试必须显式 `-Stage ETF` 才调用Wind，没有正式资料发布、订阅、VPN切换或配置改写。测试返回非空不等于字段业务含义、时点和单位已全部核验。
+2026-10-29。本次公司同日NAV/未复权close配对12/12、Nav阶段和收盘折溢价截图已确认；IOPV/份额/PCF仍缺核验定义。入口均已实现，默认Runtime复测和可选Full命令以APP_COMPANY_TEST为准。默认 `-Overview` 仍离线；新ETF测试必须显式 `-Stage ETF` 才调用Wind，没有正式资料发布、订阅、VPN切换或配置改写。测试返回非空不等于字段业务含义、时点和单位已全部核验。
 
 ## 更新和分红
 
-公司更新、确认Y源、Local/Share/Import、可选InputFile以及完整回传命令统一在 [APP_COMPANY_TEST](../APP_COMPANY_TEST.md)。源为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`，Y:映射192.168.91.230，完整UNC共享名未知，不猜拼或重新映射。年份目录、Sheet1!B1业务日、原配置/源文件保护和历史D缺项判断均按当前公司步骤执行。
+公司更新、确认Y源、Local/Share/Import、可选InputFile以及完整回传命令统一在 [APP_COMPANY_TEST](../APP_COMPANY_TEST.md)。源为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`，Y:映射192.168.91.230，本次公司实录DisplayRoot为 `\\192.168.91.230\FTPServer`，默认仍用Y，不猜拼或重新映射。年份目录、Sheet1!B1业务日、原配置/源文件保护和历史D缺项判断均按当前公司步骤执行。
 
 ## 指数行业
 

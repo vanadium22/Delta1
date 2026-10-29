@@ -1,8 +1,10 @@
 # 公司本轮完整复测命令（2026-10-29）
 
-本轮接续69789a4的Y盘、导入及审计修复；公司真实取数尚未验收。本页是完整命令入口。公司Git根为 `D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard`，LocalRoot为其下 `dashboard/localsetting/app`。先正常关闭旧看板并等后台退出，保留Wind终端登录；用平时能打开Y:的同一Windows用户，在同一个PowerShell窗口按顺序执行。
+本轮接续f345174的公司回传修复：Y盘10月27日表已成功读取/导入；20日分位16档完整，60日仍缺历史D。截图确认收盘折溢价已显示，盘中IOPV/净申购/申赎仍缺可靠定义；公司关闭耗时约1–2分钟待复测。本页是完整命令入口。公司Git根为 `D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard`，LocalRoot为其下 `dashboard/localsetting/app`。先正常关闭旧看板并等后台退出，保留Wind终端登录；用平时能打开Y:的同一Windows用户，在同一个PowerShell窗口按顺序执行。
 
-确认公盘为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。Y:映射192.168.91.230，完整UNC共享名未知，不猜拼IP地址、不重新映射。2026是年份目录，匹配 `指数基差情况_*.xlsx`，业务日以Sheet1!B1为准。
+确认公盘为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。本次公司drive_y.json记录DisplayRoot为 `\\192.168.91.230\FTPServer`，默认仍用Y路径，不猜拼IP地址、不重新映射。2026是年份目录，匹配 `指数基差情况_*.xlsx`，业务日以Sheet1!B1为准。
+
+本次已回传过ZIP的公司用户，只需执行第1、4、5节；默认Runtime模式只要求版本/映射和开窗、关闭后两次Overview。第2、3节保留为按需数据排查，完整源复测时把下方deltaReturnMode改成full。
 
 ## 1. 更新与本轮输出
 
@@ -17,6 +19,7 @@ git log -1 --oneline
 $deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
 if (-not (Test-Path -LiteralPath (Join-Path $deltaLocalRoot 'native.json'))) { throw '公司LocalRoot/native.json不存在，先核对实际配置位置。' }
 $deltaSource = 'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+$deltaReturnMode = 'runtime'
 $deltaTestStarted = Get-Date
 $deltaReport = Join-Path (Get-Location) ('dashboard/runtime/company_retest/' + $deltaTestStarted.ToString('yyyyMMdd_HHmmss_fff'))
 New-Item -ItemType Directory -Path $deltaReport -ErrorAction Stop | Out-Null
@@ -30,7 +33,7 @@ Write-Host ('本轮输出目录：' + $deltaReport)
 
 `drive_y.json`仅记录映射元数据。DisplayRoot为空时可额外执行 `net use Y:` 查看Remote名称；此命令不重新映射。Git有冲突/错误时保留现场，不reset/clean。不要将native.json或命令的原始异常日志放进回传目录。
 
-## 2. 分红导入与实际来源
+## 2. 按需复核分红导入与实际来源
 
 ```powershell
 ./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Local -Output (Join-Path $deltaReport 'dividend_before.json') -NoPause
@@ -61,7 +64,7 @@ $deltaDownloadedFile = 'T:\inani\下载\AI\分红\指数基差情况_2026-10-27.
 
 `InputFile`只允许Import，与SourceDirectory互斥；跳过公盘同步，追加到相同新库，原件/配置不改。`file_import.status=imported/unchanged`、business_dates和SHA证明指定文件已读取或同内容已存在。下载目录不会自动扫描。默认自动主源为Y盘；已有其他自定义目录保留，若要持续改源，需在设置中核对并手动保存，SourceDirectory不会替你持久化。
 
-## 3. 行业与ETF只读阶段
+## 3. 按需复核行业与ETF只读阶段
 
 ```powershell
 ./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Connect -NoPause
@@ -86,11 +89,19 @@ ETF能力测试总预算90秒，close_nav查看同日有效配对数；IOPV/净�
 检查20卡/16期货20与60分位、逐卡较昨日变化、行业覆盖/缺项、ETF同日收盘溢价、午休/盘前盘后参考及切页/滚动；可选验证行情分析查询、取消和CSV。研究32项/A02继续暂停。然后**保持窗口开着**，回到同一PowerShell执行：
 
 ```powershell
-./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Nav -NoPause
+if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -WindStage Nav -NoPause }
 ./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -Overview -NoPause
 ```
 
 默认Overview离线，不启动采集或任何接口。Nav需要正常任务已发布ETF排名；尚未发布时失败也回传，不能用只读ETFs成功冒充生产发布。历史closing/stopped记录不能单独证明采样时当前窗口状态。
+
+正常关闭看板，观察左上“正在安全关闭”的等待阶段、成分归档进度和秒数，等窗口自行退出；不强杀、不删锁。关闭后在同一PowerShell再运行一次：
+
+```powershell
+./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -Overview -NoPause
+```
+
+这次离线Overview读取最终closed/shutdown.complete/elapsed_seconds和成分归档状态；它不启动App或网络。两次Overview都保留在本轮诊断目录，分别说明开窗行情/页面和关闭后排空，不能用关闭后的缓存时间判断开窗时网络中断。
 
 ## 5. 仅收白名单JSON并打包
 
@@ -109,14 +120,21 @@ function Copy-DeltaSafeJson {
         return $true
     } catch { return $false }
 }
+$deltaRequiredRoot = @('git.json','drive_y.json')
+if ($deltaReturnMode -eq 'full') { $deltaRequiredRoot += @('dividend_before.json','dividend_share.json','dividend_import.json','dividend_after.json','etf_local.json','etf_capabilities.json') }
 foreach ($deltaName in @('git.json','drive_y.json','dividend_before.json','dividend_share.json','dividend_import.json','dividend_after.json','etf_local.json','etf_capabilities.json')) {
-    if (-not (Copy-DeltaSafeJson (Join-Path $deltaReport $deltaName) (Join-Path $deltaSafe $deltaName))) { $deltaMissing += $deltaName }
+    $deltaSourceFile = Join-Path $deltaReport $deltaName
+    if ((Test-Path -LiteralPath $deltaSourceFile) -or $deltaName -in $deltaRequiredRoot) {
+        if (-not (Copy-DeltaSafeJson $deltaSourceFile (Join-Path $deltaSafe $deltaName))) { $deltaMissing += $deltaName }
+    }
 }
 $deltaOptional = Join-Path $deltaReport 'dividend_downloaded.json'
 if (Test-Path -LiteralPath $deltaOptional) {
     if (-not (Copy-DeltaSafeJson $deltaOptional (Join-Path $deltaSafe 'dividend_downloaded.json'))) { $deltaMissing += 'dividend_downloaded.json (invalid)' }
 }
 $deltaSeenStages = @()
+$deltaOpenRun = @()
+$deltaClosedRun = @()
 $deltaDiagnosisRoot = Join-Path (Get-Location) 'dashboard/runtime/app_startup'
 $deltaDiagnosisDirs = @(Get-ChildItem -LiteralPath $deltaDiagnosisRoot -Directory -Filter 'diagnosis-*' -ErrorAction SilentlyContinue |
     Where-Object { $_.CreationTime -ge $deltaTestStarted })
@@ -134,14 +152,25 @@ foreach ($deltaDir in $deltaDiagnosisDirs) {
         $deltaMeta = Get-Content -LiteralPath $deltaMetaFile -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($deltaMeta.wind_stage -and (Test-Path -LiteralPath (Join-Path $deltaTarget 'wind.json'))) { $deltaSeenStages += $deltaMeta.wind_stage }
     }
-    if (Test-Path -LiteralPath (Join-Path $deltaTarget 'overview.json')) { $deltaSeenStages += 'Overview' }
+    $deltaOverviewFile = Join-Path $deltaTarget 'overview.json'
+    if (Test-Path -LiteralPath $deltaOverviewFile) {
+        $deltaSeenStages += 'Overview'
+        $deltaOverviewMeta = Get-Content -LiteralPath $deltaOverviewFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $deltaLatestApp = @($deltaOverviewMeta.app_reports.matching_profile)[0]
+        if ($deltaLatestApp -and $deltaLatestApp.observed_at -and [DateTimeOffset]::Parse($deltaLatestApp.observed_at) -ge [DateTimeOffset]$deltaTestStarted) {
+            if ($deltaLatestApp.collection_worker_running -and -not $deltaLatestApp.closing) { $deltaOpenRun += $deltaLatestApp.report_path }
+            if ($deltaLatestApp.shutdown.complete -and $deltaLatestApp.phase -eq 'closed') { $deltaClosedRun += $deltaLatestApp.report_path }
+        }
+    }
 }
-foreach ($deltaStage in @('Connect','Indices','ETFs','Nav','Overview')) {
+$deltaRequiredStages = if ($deltaReturnMode -eq 'full') { @('Connect','Indices','ETFs','Nav','Overview') } else { @('Overview') }
+foreach ($deltaStage in $deltaRequiredStages) {
     if ($deltaStage -notin $deltaSeenStages) { $deltaMissing += ($deltaStage + ' report absent') }
 }
+if ($deltaReturnMode -ne 'full' -and -not @($deltaOpenRun | Where-Object { $_ -in $deltaClosedRun }).Count) { $deltaMissing += 'same-run open and completed shutdown reports absent' }
 $deltaFiles = @(Get-ChildItem -LiteralPath $deltaSafe -Recurse -File)
 if (@($deltaFiles | Where-Object { $_.Extension -ne '.json' }).Count) { throw '安全目录出现非JSON文件，停止打包。' }
-[pscustomobject]@{ Schema='company-safe-return-v1'; CreatedAt=(Get-Date).ToString('o'); MissingReports=@($deltaMissing); IncludedFiles=@($deltaFiles | ForEach-Object { $_.FullName.Substring($deltaSafe.Length + 1) }) } |
+[pscustomobject]@{ Schema='company-safe-return-v1'; RunMode=$deltaReturnMode; CreatedAt=(Get-Date).ToString('o'); MissingReports=@($deltaMissing); IncludedFiles=@($deltaFiles | ForEach-Object { $_.FullName.Substring($deltaSafe.Length + 1) }) } |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $deltaSafe 'return_manifest.json') -Encoding UTF8
 $deltaZip = $deltaSafe + '.zip'
 Compress-Archive -LiteralPath $deltaSafe -DestinationPath $deltaZip -ErrorAction Stop
@@ -156,7 +185,7 @@ Write-Host ('缺少或无效报告：' + ($deltaMissing -join ', '))
 Write-Host ('请回传：' + $deltaZip)
 ```
 
-回传最后打印的ZIP，含git/映射元数据、分红before/share/import/after（可选downloaded）、ETF Local/能力报告、五个阶段的diagnosis/preflight及对应wind/overview JSON，以及缺失文件清单return_manifest.json。缺阶段也保留并回传，不补造成功结果。
+回传最后打印的ZIP：Runtime模式包含git/映射、开窗与关闭后各自diagnosis/preflight/overview及return_manifest；Full模式另含分红、ETF能力、各Wind阶段结果。脚本核对Runtime两次报告属于同一看板运行记录且最终shutdown.complete，缺失时照实记录并回传，不补造成功结果。
 
 另用一句话注明测试时间、Overview取样时窗口是否开着、行业/ETF是否出现、正常关闭约几秒；页面异常可另附截图。正常关闭后等写入者排空，不强杀、不删锁。不要发送native.json、凭据、原始异常日志、SQLite或Excel。
 
@@ -164,4 +193,4 @@ Write-Host ('请回传：' + $deltaZip)
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮本地55项受影响测试通过，包含真实Windows CMD中文空格路径与B1错名文件测试；不代表公司Y盘、真实历史D/行业/ETF或持续运行已经验收。历史229/62/272项属于此前批次，当前验收只依据本轮公司同次HEAD、来源、正式发布与开窗报告。
+本轮本地98项受影响测试通过（ResourceWarning作为错误，无跳过）；1800标的隔离归档从8.884秒降至2.489秒，仅代表本机合成数据，不承诺公司相同耗时。Y读取/导入和收盘折溢价已由本次公司报告/截图确认；60日历史D、完整行业贡献、盘中IOPV/净申购/PCF和新关闭耗时仍有待办，缺定义不能猜填。此前55及229/62/272项属于历史批次。

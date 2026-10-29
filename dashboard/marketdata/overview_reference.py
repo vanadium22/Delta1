@@ -148,6 +148,16 @@ def ranking(reference, root, *, today):
                         universe_count=len(rows), total_aum_cny=total)
 
 
+def closing_nav(reference, symbol, today):
+    """The page and offline evidence share the same dated close/NAV selection."""
+    row=reference.get('etf_nav',{}).get('rows',{}).get(symbol,{})
+    nav,close=row.get('nav_cny'),row.get('close_cny')
+    valid=bool(row.get('as_of')) and row['as_of']<=today and finite(nav) and nav>0 and finite(close) and close>0
+    return dict(closing_nav_cny=nav if valid else None,closing_price_cny=close if valid else None,
+        nav_date=row.get('as_of') if valid else None,closing_premium_bp=10000*(close/nav-1) if valid else None,
+        closing_premium_reason='同一交易日未复权收盘 / 单位净值；非盘中IOPV' if valid else '待同日单位净值和未复权收盘，未以前值填充')
+
+
 def publish(path, data):
     """Publish only validated data; retain the last good version and all archives."""
     from dashboard.marketdata.bars import _atomic_bytes, _json_bytes

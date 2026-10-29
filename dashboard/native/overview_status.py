@@ -11,6 +11,8 @@ def at(value):
 
 
 def status(data, pipeline=None, *, now=None):
+    if pipeline is not None and getattr(pipeline,'closing',False):
+        return pipeline.shutdown_message(),'等待已有请求、计算和写入安全结束'
     now=pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
     rows = [*data.get('indices', []),*data.get('futures', [])]
     good = [r for r in rows if r.get('price') is not None and at(r.get('source_at')) is not None]

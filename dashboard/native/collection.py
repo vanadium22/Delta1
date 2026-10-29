@@ -92,7 +92,10 @@ class CollectionJob:
         return session_policy()
 
     def state(self):
-        with self.lock: return dict(self.status)
+        with self.lock: result=dict(self.status)
+        equities=getattr(self,'equities',None)
+        if equities is not None:result['equities']=equities.state()
+        return result
 
     def running(self):
         return self.worker is not None and self.worker.is_alive()
@@ -204,7 +207,12 @@ class CollectionJob:
                 try:
                     if equities is not None:
                         equities.stop()
+                        with self.lock:self.status['stage']='draining_equities'
                         while equities.running():equities.worker.join(.1)
+                        with self.lock:
+                            self.status['stage']='stopped'
+                            if equities.state().get('status')=='failed':
+                                self.status.update(status='failed',error=equities.state().get('error_type','EquitySamplerFailed'))
                     if client is not None: client.close()
                 finally:
                     if leased: lease.__exit__(None,None,None)

@@ -25,6 +25,7 @@ class DataPipeline(QObject):
         self.history=HistoryMaintenance(self.model);self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
         self.task=None;self.phase='cache';self.message='读取已有数据';self.quick={};self.credentials={};self.probe={}
         self.enabled=enabled;self.closing=False;self.action=None;self.deep=False;self.once=False;self.force=False;self.pending_reference=None;self.force_reference=False
+        self.shutdown_started=None;self.shutdown_finished=None
         self.next_retry=0;self.history_retry=0;self.history_not_before=0;self.quick_due=0;self.last_day=None
         self.latest_snapshot={};self.reference_started=False;self.completed_target=None
         from dashboard.marketdata.overview_sessions import latest_completed_session
@@ -260,7 +261,7 @@ class DataPipeline(QObject):
             self.model.config['reference_file']=reference;self.pending_reference=None
             self.window.generation=getattr(self.window,'generation',0)+1
         if self.closing:
-            self.set_state('closing','正在等待本轮请求、计算和历史写入安全结束；不会强制结束进程')
+            self.set_state('closing',self.shutdown_message())
         elif not self.instance_ready():pass
         elif self.action=='reference_before_history':
             if not self.task and self.history.process is None:
@@ -349,7 +350,7 @@ class DataPipeline(QObject):
         collection={k:state.get(k) for k in ('status','stage','polls','rows','data_sequence','valid_rows','validation_status',
             'invalid_symbols','request_started_at','request_seconds','received_at','storage_finished_at','storage_seconds',
             'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status',
-            'interval_seconds','request_timeouts')}
+            'interval_seconds','request_timeouts','equities')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
             'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous',
@@ -361,6 +362,7 @@ class DataPipeline(QObject):
                           observed=sum(r.get('source_at') is not None for r in overview.get(key,[]))) for key in ('indices','etfs','futures')}
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
+            shutdown=self.shutdown_state(),
             history_pid=self.history.process.pid if self.history.process else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,
             finite_probe=self.probe,collection=collection,history=history,applied=self.applied,
@@ -389,9 +391,36 @@ class DataPipeline(QObject):
     def stop(self):
         if self.closing:return
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
+        self.shutdown_started=time.monotonic()
         self.closing=True;self.enabled=False;self.history.stop();self.collection.stop();self.write_report()
         if self.overview_reference is not None:self.overview_reference.stop()
         if self.overview_dividends is not None:self.overview_dividends.stop()
+
+    def shutdown_state(self):
+        if self.shutdown_started is None:return dict(requested=False)
+        waiting=[]
+        for active,label in ((self.window.busy,'页面计算'),(self.collection.running(),'行情采集/归档'),
+                (self.history.process is not None,'历史写入'),(self.task is not None,'后台检查'),
+                (self.overview_reference is not None and self.overview_reference.running(),'Wind资料'),
+                (self.overview_dividends is not None and self.overview_dividends.running(),'分红同步'),
+                (getattr(getattr(self.window,'query_page',None),'busy',False),'行情查询')):
+            if active:waiting.append(label)
+        return dict(requested=True,complete=self.shutdown_finished is not None,waiting=waiting,
+            elapsed_seconds=round((self.shutdown_finished or time.monotonic())-self.shutdown_started,3),
+            equities=self.collection.state().get('equities'))
+
+    def shutdown_message(self):
+        state=self.shutdown_state();parts=['正在安全关闭']
+        archive=(state.get('equities') or {}).get('archive') or {}
+        if archive.get('status')=='archiving':
+            parts.append('成分数据归档 '+str(archive.get('symbols_finished',0))+'/'+str(archive.get('symbols_total',0)))
+        elif state.get('waiting'):parts.append('等待'+ '、'.join(state['waiting']))
+        if state.get('elapsed_seconds') is not None:parts.append('已等待 '+str(int(state['elapsed_seconds']))+' 秒')
+        return ' · '.join(parts)
+
+    def finish_shutdown(self):
+        self.shutdown_finished=time.monotonic();self.phase='closed';self.message='已安全关闭，写入已结束'
+        self.write_report()
 
     def drained(self):
         self.history.tick()

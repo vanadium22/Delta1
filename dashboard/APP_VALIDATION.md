@@ -1,49 +1,52 @@
-# 看板当前本地验证与公司验收边界
+# 看板当前验证与公司验收边界
 
-2026-10-29。本轮从69789a419391e627615c03b6ac284251da3a7ab5接续已有未提交补丁；统一分支codex/company-apps。发布文件清单见 [APP_RELEASE.json](APP_RELEASE.json)，公司步骤见 [APP_COMPANY_TEST](APP_COMPANY_TEST.md)。
+2026-10-29。本轮基线f345174b07d7acea469d6ba1655e8f7355792ce3，统一分支codex/company-apps。发布清单见APP_RELEASE，现场事实见 [PROJECT_HANDOFF](PROJECT_HANDOFF.md)，命令见 [APP_COMPANY_TEST](APP_COMPANY_TEST.md)。
 
-## 最终受影响回归
+## 本次公司证据
 
-**55项通过，12.676秒，无跳过，ResourceWarning按错误处理。** 包含此前尚未运行的旧成功调度状态迁移测试；旧51项未作为最终结果。审查前52项通过后，增加B1窗口/来源汇总/设置不改配置等覆盖，最终完整重跑以下组合：
+完整解析用户ZIP的24个JSON，逐文件记录SHA与结构；return_manifest无缺失，五个diagnosis及git.json均为f345174。原配置SHA一致，实际公司Python为D:/conda/envs/swhy_delta1/python.exe。
+
+Y源Share complete、无错误，Import新增16条；库从16条/1版本变成32条/2版本，B1为10-27，16当前合约选到新D。目录本次只匹配1份表；20日分位16档完整，60日0档完整，历史D缺556行、真实历史日线缺价0。不能将ok=false解释为此次Y文件未读。
+
+32主标的新鲜且两次样本源时推进，同配置有collecting/closing=false和页面应用时间；用户确认窗口开着。四组名单300/50/500/1000已知，IF/IC/IM缺1/2/2权重且行日期混合，IH权重09-30。分类缺17/2/49/148，有效涨跌覆盖300/50/500/997。股价存在不等于完整行业权重/贡献可用。
+
+ETF四组各前三已发布；12/12同日NAV/未复权close配对、Nav只读阶段通过。用户截图显示三只IF ETF的10-28收盘折溢价−20.0/−19.8/−18.2 bp；大字空白为缺IOPV的盘中折溢价。IOPV/份额/PCF定义仍mapping_required，不制造返回或用NAV/规模/成交量替代。
+
+用户报告正常关闭约1–2分钟。旧closing状态没有成分归档细节，不能由旧文件认定当前窗口存活，亦不能认定逐股归档是现场唯一原因；下一包需新关闭进度/最终状态。
+
+## 最终本地回归
+
+**98项通过，20.927秒，无跳过，ResourceWarning作为错误。**
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
 $env:DELTA1_THEME='public'
-$env:TEMP='P:/project/swhy/Delta1/company-apps-worktree/local_artifacts/validation/company_test_20261029/tmp'
+$env:TEMP='P:/project/swhy/Delta1/company-apps-worktree/local_artifacts/validation/company_feedback_20261029/tmp'
 $env:TMP=$env:TEMP
-& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning -m unittest tests.test_dividend_check_input tests.test_overview_dated tests.test_app_pipeline tests.test_overview_audit tests.test_overview_capabilities
+& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning -m unittest tests.test_overview_company_feedback tests.test_overview_details tests.test_overview_revision tests.test_overview_capabilities tests.test_overview_audit tests.test_app_pipeline tests.test_app_collection tests.test_market_overview_ui tests.test_realtime_store
 ```
 
-最终日志仅在忽略目录 `local_artifacts/validation/company_test_20261029/release_tests_final.log`。参数拒绝用例的argparse错误和合成历史缺项返回2为预期断言，不是未解决失败。
+覆盖有界并行归档/SQLite目录提交、关闭等待写入和writer锁、标准Reader逐股Parquet一致、磁盘失败后全部自有写入者排空/SQLite重放/原件SHA不变；真实名单完整但权重缺失、慢历史期间发布新快照及晚于检查起点的质量未知；同日NAV/收盘与盘中IOPV分列、离屏卡片、关闭进度/最终closed、诊断秘密字段过滤，以及原三秒主行情/一分钟成分/原标准库采集与安全停止。
 
-覆盖包括：确认Y源/旧默认迁移、保留自定义/显式空白、必要跨年目录、旧成功状态重查、设置显示有效源但不写原配置；InputFile显式性/互斥/原件与配置保护/内容去重/跳过公盘；SourceDirectory临时覆盖与原配置目录分列；全库日期不被单个配置Excel覆盖，当前与历史D按各自定价时点选择。
+初轮97项的2项未通过分别是新测试误把WriterLock当上下文管理器、旧UI断言仍期望“折溢价”旧标签；修正测试后97项通过，再补未来快照边界后完整98项重跑通过。首次测试的ResourceWarning来自上述测试锁未显式关闭，已修正，最终日志无该警告。没有放宽质量门槛或修改业务公式。
 
-新增B1反例：文件名在窗口外但表内业务日在窗口内仍导入；表内窗口外/未来日不自动导入；同批SHA重复只解析一次，元数据不变复查不再读取文件。本地构造真实.xlsx通过Windows CMD→PowerShell→Python/私有reader，验证中文空格InputFile、中文年份目录SourceDirectory、文件名01-02而B1为10-27、Share不发布及原配置未变。
+## 隔离归档和页面检查
 
-原逐日分红/连续16档20与60/非交易合法配对/共同收盘/昨日D版本、派生缓存/SQLite关闭、AM/PM重启去重及采集/补齐/停止写入边界一并通过。所有页面验证离屏，实际入口测试使用隔离本地输入，没有触发真实公司Wind/HTTP/DDB或VPN。
+同机同结构1800标的合成SQLite，关闭前禁用周期归档，比较末尾排空：共享原实现8.884秒，App专用实现2.489秒，均生成1800个逐股Parquet。新实现最多4个文件写入者、每64个已完成文件批量登记；原SQLite/raw/Parquet及标准读取格式不变，原共享RealtimeStore默认行为未改。数据、文件和目录写入完成后才释放writer锁，不把写入推迟到未知未来或强杀。
 
-## 文档、脚本与原件保护
+上述性能仅属本机合成数据，不承诺公司同样耗时。1580/860宽窄ETF界面已离屏生成并查看，明确显示盘中空项及收盘数值/日期，无遮挡或缩字号；用户原截图不改。只有新的公司关闭报告能确认现场效果及剩余等待阶段。
 
-当前AGENTS、交接、市场规则、验证和实施入口只保留最新状态。七份旧说明的归档字节数/SHA256及69789a4基线内容已核验，未修改归档payload或MANIFEST，新增一个索引；基线比较只正规化换行。这7份归档在.gitattributes中单独禁止Git换行转换，暂存及提交对象逐个核验原始SHA，避免公司拉取改变归档字节。原十项规格保留于OVERVIEW_IMPLEMENTATION_SPEC，旧规则不覆盖当前授权。
+当前PowerShell代码块/入口参数、安全ZIP的full/runtime完整及缺项分支、同运行开窗/完成关闭匹配、本地文档链接、JSON白名单、Python语法和Git diff均核验后发布。原7份归档及MANIFEST保持不变，其Git对象原始字节SHA继续核验，无重复归档。
 
-APP_COMPANY_TEST的7段PowerShell经Windows PowerShell解析，13次诊断脚本调用参数对照真实CMD/PS入口。108处当前文档本地链接已核验。安全打包片段用隔离目录实跑完整与缺失/无效两种场景，包含中文空格路径及混入的伪配置/原始日志/Excel反例；完整ZIP为25个JSON，异常场景21个JSON并列明缺项，不复制原始文件或修改业务目录。实际结果和清单仅在本轮忽略的验证目录。
+## 原件保护与历史
 
-本轮保护清单记录8,444个现存文件，365,291,740字节，覆盖原配置/数据/依赖、原Excel、四份提示词及先前保护输入；发布前逐文件复核大小/SHA，无变更或丢失。未对其他工作区或无关进程执行修改/关闭。语法、文档链接、JSON清单、git diff检查及APP_RELEASE精确文件集合核对完成后发布。
+8,445个保护文件包括先前原行情/缓存/配置/凭据/Excel/依赖、四份提示词及本次原始ZIP；发布前逐个大小/SHA复核。当前证据、测试、原件清单和性能产物仅在忽略的local_artifacts/validation/company_feedback_20261029，不提交真实JSON、原ZIP或截图。其他worktree/进程未操作。
 
-## 历史测试只作对应批次证据
+| 前序发布 | 当时验证 |
+|---|---|
+| f345174 | 55项，12.676秒：Y默认迁移/导入参数/B1窗口/审计及唯一归档 |
+| 69789a4 | 272项：行情分析/行业修复/ETF能力；另资源边界 |
+| 1408292 | 62项：20卡/同级页/状态/图标 |
+| 67c2db6 | 229项：逐日D/四档连续分位/非交易参考 |
 
-| 已发布提交 | 当时范围 | 当时结果 |
-|---|---|---|
-| 67c2db6 | 日期版本D、四档连续分位、非交易参考、公盘有界任务 | 229项，82.431秒 |
-| 1408292 | 20卡/同级详情、状态、图标/真实COM快捷方式 | 62项，33.617秒 |
-| 69789a4 | 行情分析/行业有界修复/ETF能力及原查询 | 272项，56.756秒；另16项资源边界 |
-
-本轮未重跑全部272项，不将历史数字合并或套作公司验收。旧证据原文见 [唯一归档](../docs/archive/2026-10-29/README.md)，历史日志/数据仍保留原位置。
-
-## 尚未完成的公司验收
-
-本机没有Y映射，未读取公司真实公盘或取得新公司接口报告。此前WinError53针对旧源，本机WindPy缺模块也不能推断公司；公司既往报告已确认WindPy存在。当前本地测试只证明代码/本地入口及隔离数据行为。
-
-尚待公司同次HEAD、LocalRoot与解释器确认；Y源Share/Import和真实B1/SHA/16合约来源及历史D覆盖；正常任务真正发布行业/权重/ETF排名/NAV及持续60秒覆盖；运行中Overview、20卡/非交易参考、查询/取消和关闭耗时。IOPV/份额/PCF仍需可靠字段/单位/带日定义，mapping_required不冒充可用。
-
-默认Overview离线、实时VPN手动、30秒/3秒、原数据/配置/凭据/Excel、研究32项/A02暂停且保留均继续；不因HTTP失败切DDB，不强杀写入者。
+历史测试数字不套作本轮测试或公司新关闭验收。7份旧长文只保留 [唯一归档](../docs/archive/2026-10-29/README.md)。默认Overview离线，实时VPN手动，研究32项/A02暂停保留；真实缺项继续保留。

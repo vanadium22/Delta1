@@ -16,9 +16,11 @@
 
 ## 最近发布
 
+- 2026-10-29公司回传收尾，批次 `2026-10-29-company-feedback-safe-shutdown-and-evidence`，公司证据f345174：24个JSON与截图确认Y读取/导入、16档20日完整及12组ETF收盘NAV/价格；60日D缺556行、IF/IC/IM权重缺1/2/2、IOPV/申赎定义仍缺。App专用成分归档有界并行/批量登记，关闭进度与最终排空；名单/权重和快照质量诊断修正，盘中/收盘溢价标签明确。98项回归通过；1800标的本机合成归档8.884→2.489秒，不代替公司新关闭计时。默认[Runtime复测](dashboard/APP_COMPANY_TEST.md)只需新HEAD、开窗和关闭后Overview及安全JSON ZIP；[当前证据/待办](dashboard/PROJECT_HANDOFF.md)。
+
 - 2026-10-29 日报侧栏整理为交易前查询与日报管理；统计独立为 `statistics_app` 桌面入口，原自动任务和数据位置保留。公司更新后分别通过各模块 `start.cmd` 打开，见 [日报交接](script_making/PROJECT_HANDOFF.md) 和 [统计交接](statistics_app/PROJECT_HANDOFF.md)。
 
-- 2026-10-29看板收尾批次 `2026-10-29-confirmed-y-dividend-source-and-company-retest`，基线69789a4：确认Y盘默认源、旧默认运行时迁移及调度重查；SourceDirectory/InputFile显式桥接与互斥；B1业务日期筛选、来源/全库日期/16合约D审计；当前文档精简，七份旧说明保持唯一SHA归档。最终55项受影响测试通过（12.676秒，无跳过，ResourceWarning作为错误）。公司完整更新/导入/行业ETF/开窗Overview/安全JSON ZIP步骤见 [APP_COMPANY_TEST](dashboard/APP_COMPANY_TEST.md)，本地证据见 [APP_VALIDATION](dashboard/APP_VALIDATION.md)，精确清单见 [APP_RELEASE](dashboard/APP_RELEASE.json)。**公司真实Y取数、历史D覆盖、资料发布与持续页面仍待验收**。实际当前提交号由git log与远端分支核验，不用基线号冒充本轮提交。
+- f345174：2026-10-29确认Y默认源、旧默认运行时迁移和调度重查，SourceDirectory/InputFile、B1窗口及来源审计，当前文档精简与七份唯一SHA归档。55项受影响测试通过（12.676秒）；后续公司真实回传结果以本页最新条目及看板交接为准。
 
 | 看板已发布前序提交 | 内容 | 当时验证 |
 |---|---|---|

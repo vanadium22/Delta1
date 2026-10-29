@@ -1,6 +1,6 @@
 # Delta1 公司统一开发约定
 
-当前日期：2026-10-29。所有 App 的开发、验证、提交、推送和公司运行统一使用 `codex/company-apps`。看板本轮从69789a4接续，当前状态见 [PROJECT_HANDOFF](dashboard/PROJECT_HANDOFF.md)，公司真实取数和持续页面仍须验收。
+当前日期：2026-10-29。所有 App 的开发、验证、提交、推送和公司运行统一使用 `codex/company-apps`。看板本轮从f345174接续公司真实回传，当前状态见 [PROJECT_HANDOFF](dashboard/PROJECT_HANDOFF.md)，公司Y读取/导入与收盘折溢价已有证据，历史D、完整行业输入、IOPV/申赎及新关闭耗时仍有待办。
 
 ## 工作区与发布
 
@@ -22,7 +22,7 @@
 
 以 [dashboard/AGENTS](dashboard/AGENTS.md)、[市场口径](dashboard/APP_MARKET_OVERVIEW.md) 和 [公司测试](dashboard/APP_COMPANY_TEST.md) 为准：逐日实际合约D、四档连续20/60分位、简单去分红年化、20卡和非交易参考保留；研究32项/A02暂停且保留。默认Overview离线、实时VPN手动、写入者安全排空。
 
-用户确认分红公盘源为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。Y:映射192.168.91.230，完整UNC共享名未知，不猜拼、不重新映射。业务日期以Sheet1!B1为准。旧内置UNC仅作运行时迁移匹配，不能再当公司已核验地址。
+用户确认分红公盘源为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。Y:映射192.168.91.230；本轮公司drive_y.json已记录DisplayRoot为 `\\192.168.91.230\FTPServer`，仅作现场映射证据，默认仍用Y路径，不猜拼或重新映射。业务日期以Sheet1!B1为准。旧内置UNC仅作运行时迁移匹配，不能再当公司已核验地址。
 
 ## 文档与历史
 

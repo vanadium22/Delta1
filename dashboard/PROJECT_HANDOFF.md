@@ -1,63 +1,51 @@
 # Delta1 公司看板当前交接
 
-更新：2026-10-29。本轮从69789a419391e627615c03b6ac284251da3a7ab5接续现有补丁，发布批次 `2026-10-29-confirmed-y-dividend-source-and-company-retest`，统一分支 `codex/company-apps`。实际提交号以 `git log -1`、远端分支及本次交付回复为准，文件清单见APP_RELEASE.latest_update.files。公司真实源、资料发布和持续页面仍待验收。
+2026-10-29。基线为已发布f345174b07d7acea469d6ba1655e8f7355792ce3；本轮接续真实公司ZIP和ETF截图，提交时保留并继承并行日报/统计提交8f658f9，发布批次 `2026-10-29-company-feedback-safe-shutdown-and-evidence`。统一分支codex/company-apps，实际提交号看最新Git/远端及交付回复；精确文件清单见APP_RELEASE.latest_update.files。公司验收按下列证据逐项判断。
 
-## 本轮已完成
+## 本次公司证据
 
-1. 默认分红源改为用户确认的Y路径，旧内置UNC只在运行时迁移；其他自定义源和显式空白保留，原个人配置不自动改写。设置显示有效源，调度指纹包含有效源，旧默认源当天已成功也须重新检查。
-2. Local/Share/Import新增显式SourceDirectory、InputFile及CMD/PowerShell桥接：SourceDirectory仅本次Share/Import，InputFile仅Import本地指定Excel，互斥；InputFile不运行公盘同步，原文件/配置保留。
-3. 来源报告包含实际扫描年份目录、匹配文件名样本、请求范围、B1业务日期、当前16合约D的生效时间/SHA/继承来源、原配置文件位置/SHA、有效与原配置目录、缓存位置。修复本地单文件日期覆盖全库日期汇总的问题。
-4. 年份目录中不再按文件名日期提前排除输入。同步按解析后的Sheet1!B1筛选历史窗口，窗口外/未来业务日不自动导入；保留元数据和SHA去重，同批相同内容只解析一次。显式InputFile可追加指定历史文件，不用当前表回填旧日。
-5. 七份旧说明已核验原有SHA与69789a4基线内容，未重复归档；当前AGENTS、交接、市场口径、验证和旧实施提示词精简为最新状态，固定路径和归档索引保留。
-6. 公司完整步骤及仅JSON白名单ZIP统一在 [APP_COMPANY_TEST](APP_COMPANY_TEST.md)，另见 [下一对话提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)。
+完整解析24个JSON，包SHA256为2838eb4a803ff624f096f5af3d19b5148769e2df20da8b46d6e40c8ff0dff99b，return_manifest缺失清单为空。五次diagnosis及git.json均为f345174，实际Python为D:/conda/envs/swhy_delta1/python.exe，原配置SHA一致、未改写。用户确认取样时窗口开着，关闭约1–2分钟。
 
-本轮受影响组合最终55项通过（12.676秒，无跳过，ResourceWarning作为错误），含此前未运行的调度迁移用例；初轮52项为审查前证据，旧51项和此前229/62/272项不冒充本轮最终结果。真实Windows CMD测试通过本地构造Excel，未访问公司源。完整检查、保护与脚本验证见 [APP_VALIDATION](APP_VALIDATION.md)。
-
-## 正确源和运行位置
-
-```text
-Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026
-```
-
-Y:映射到192.168.91.230，完整UNC共享名未知，不猜拼、不重新映射。2026为年份目录，匹配指数基差情况_*.xlsx，业务日以Sheet1!B1为准。原内置UNC不等于公司已核验共享名。
-
-| 位置 | 当前路径 |
-|---|---|
-| 本机统一工作区 | P:/project/swhy/Delta1/company-apps-worktree |
-| 公司Git根 | D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard |
-| 公司LocalRoot | 公司Git根/dashboard/localsetting/app |
-| 本机原配置 | P:/project/swhy/Delta1/project/dashboard/localsetting/native.json |
-| 公司入口 | dashboard/start_presentation.vbs，显式public；CMD兼容入口保留 |
-| 默认新分红库 | LocalRoot/overview_dividends，实际自定义路径看audit.sources.store_directory |
-
-开发机没有Y映射，未取得公司真实文件或新接口结果。此前旧源WinError53和本机WindPy缺模块仅是开发机历史证据，不能推断公司目录或Wind环境错误。
-
-## 公司待验收顺序
-
-使用 [APP_COMPANY_TEST](APP_COMPANY_TEST.md) 在同一PowerShell顺序执行：
-
-1. 正常关闭旧看板并等写入结束，核对统一分支，git pull --ff-only，保存本轮HEAD与Y映射元数据。
-2. Local(before)→Y源Share→Y源Import→Local(after)，可选InputFile指定本地下载表。看同步读取/导入证据与历史覆盖两类结果；退出2可能仅历史D未齐。
-3. 显式Wind Connect/Indices/ETFs及ETF Local/能力测试；这些只读阶段不发布正式资料，IOPV/份额/PCF缺核验定义时仍为mapping_required。
-4. 正常打开看板，必要时点一次DDB一键补齐，等待正常任务发布Wind资料并按真实缺口补概览日线；实时VPN手动。观察20卡、行业/ETF和分钟覆盖10–15分钟。
-5. 保持窗口开着运行Nav与默认离线Overview；生成仅含白名单JSON的ZIP，记录缺失报告，回传并注明窗口/页面/关闭耗时。不得压缩LocalRoot、原始日志或业务数据。
-
-真实公司验收需同次HEAD、Y盘读取/B1/导入、逐日历史D及16卡来源、行业权重/昨收/NAV正式发布和持续页面证据。历史资料齐备、只读测试成功或一次行情非空都不能代替这些条件。缺可靠IOPV/份额/PCF定义继续保留缺项，不宣称四项全可用。
-
-## 已交付功能与长期边界
-
-| 已发布批次 | 已实施 | 当时本地验证 |
+| 项目 | 已确认 | 仍有缺项 |
 |---|---|---|
-| 67c2db6 | 逐日实际合约分红、连续四档20/60缓存、非交易合法配对/共同收盘参考、公盘有界任务 | 229项 |
-| 1408292 | 4指数＋16期货卡、同级详情、逐卡变化、统一状态、新图标与公司快捷方式 | 62项 |
-| 69789a4 | 原服务行情分析/TWAP/VWAP/图像/CSV、独立缓存/取消、行业每日有界修复及ETF能力CMD | 272项 |
+| Y盘分红 | Share complete、无错误；Import新增16条，库由16增至32；B1为2026-10-27，当前16合约选到新D | 本次年份目录只匹配1份表；历史D缺556行，不能以最新表回填旧日 |
+| 四档分位 | 16个连续档位的20日窗口完整，历史日线真实缺价0 | 16个60日窗口均缺早期D；缺D不触发重复DDB下载价格 |
+| 主行情/页面 | 两次样本32标的新鲜且源时推进；同配置App collecting、closing=false并有页面应用时间，用户确认开窗 | 两样本和截图不认证10–15分钟全部持续运行或新关闭耗时 |
+| 行业 | 300/50/500/1000名单齐；有效涨跌300/50/500/997；可查看行业及已有权重 | IF/IC/IM缺权重1/2/2且行日期混合；IH权重日期09-30，未滚动至准确昨日；分类缺17/2/49/148 |
+| ETF | 四指数各前三，价格已显示；同日10-28 NAV/未复权close配对12/12，Nav显式阶段通过 | 盘中IOPV、份额/单位/拆分、带日PCF定义未配置，仍mapping_required |
+| 收盘折溢价 | 用户截图明确三只IF ETF为−20.0/−19.8/−18.2 bp，日期10-28 | 大字空白是盘中折溢价，不能用收盘NAV填成IOPV |
 
-当前/历史简单去分红年化为100*(F-S+D)/S*365/T；各历史日用当时D，不回写。明确0优先，缺D仅向当时已知前序到期合约继承。当前定价日排除，T<5单列，真实缺价/映射/D不跳过；价格参考日/T/D和30秒/3秒规则不变。主HTTP三秒，成分一分钟。
+正确源仍为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。本次drive_y.json实际记录DisplayRoot为 `\\192.168.91.230\FTPServer`，这是现场证据，未猜拼、改源或重新映射。匹配指数基差情况_*.xlsx，业务日以Sheet1!B1为准。旧默认运行时迁移、自定义/空白保留及SourceDirectory/InputFile语义继续。
 
-研究32项/A02继续暂停且源码、原独立App及Excel保留；只补概览日线，不恢复研究分钟全库。默认Overview离线，自动Wind低频，手动行情分析仅选定窗口。实时VPN手动；DDB仅实际缺口按原授权准备，不因HTTP失败切DDB。自有只读SDK/SMB可取消，正式写入者排空，不强杀、不删锁。
+## 本轮修正
 
-原行情/分红/缓存/配置/凭据/Excel、其他工作区及四份旧提示词保持；验证产物只在忽略的local_artifacts/validation。发布不用全量stage、reset/clean或强推。
+1. 关闭等待有一个已复现的耗时点：成分存储逐股写Parquet、逐文件提交目录。新增App专用EquityObservationStore，最多4个文件写入者并行、每64个已完成文件批量提交SQLite目录；共享RealtimeStore默认行为/格式不改。关闭等待全部文件写入者结束，原始响应与已提交SQLite完整保留，异常留下未登记文件可从SQLite重放，不强杀、不删锁。
+2. 增加成分状态/归档进度、关闭等待阶段和秒数；所有工作排空、model.close结束后写phase=closed与shutdown.complete/elapsed_seconds。原历史closing文件不再是新运行最终状态的唯一证据。
+3. 诊断完整名单与权重有效性分开：本次四组名单已知，不再因缺权重将股票缺口总数误报未知。历史慢读前冻结成分快照；若快照晚于检查起点，质量明确未知，不误报全体陈旧。30秒/3秒质量门槛不放宽。
+4. UI把大字空项标成“盘中折溢价”，收盘折溢价仍独立显示真实日期和数值。默认离线Overview新增逐ETF实际NAV/同日收盘/溢价、页面引擎ETF预览及安全关闭/归档证据；计算逻辑不把NAV冒作IOPV。
+5. 公司步骤默认Runtime复测，只需更新、正常开窗Overview、正常关闭、关闭后Overview和安全JSON ZIP；Full模式保留原完整数据阶段。ZIP核对同一运行记录的开窗与最终排空，不额外重跑已通过的Y/Wind阶段。
 
-## 历史索引
+98项受影响回归通过（20.927秒，无跳过，ResourceWarning作为错误）。同机1800标的隔离归档从8.884秒降至2.489秒，保持1800个原格式Parquet；这是合成数据本机结果，不能承诺公司耗时或认定逐股归档是唯一现场原因。实际公司关闭等待阶段由下一包确认。1580/860宽窄ETF页已离屏查看，未改用户截图。
 
-七份旧说明与原十项规格统一见 [2026-10-29归档](../docs/archive/2026-10-29/README.md) 及MANIFEST。旧“尚未实施/仅分析/固定分红情景/不得真实测试”等阶段描述不再用于当前操作。下一对话先读本页与 [新提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)，先审查新报告和最新Git，不从旧版本重新实现。
+## 下一步公司复测
+
+执行 [APP_COMPANY_TEST](APP_COMPANY_TEST.md) 第1、4、5节，默认runtime。保留Wind登录、实时VPN手动：
+
+1. 正常关闭旧看板、等后台退出，再git pull --ff-only，创建新时间目录并记录新HEAD。
+2. 正常开窗运行，核对收盘与盘中两种溢价标签、行业缺项说明；保持窗口开着导出Overview。
+3. 正常关闭，观察归档/等待进度，等窗口自行退出，再执行一次离线Overview取得最终关闭报告。
+4. 只回传白名单JSON ZIP。打包脚本核对同一App报告路径出现开窗和shutdown.complete，缺失照实记录，不补造通过。分红/Wind阶段按需选择full；当前Y读入/NAV成功不必反复测试。
+
+若公司可提供正式Wind代码生成器/源说明，后续再核验缺失权重和IOPV/份额/PCF字段及单位。当前没有可靠定义，不能猜字段或拿成交量/规模变化替代。历史D须真实旧表，当前年份目录的一份表不能恢复全部历史。
+
+## 路径与保护
+
+本机统一工作区P:/project/swhy/Delta1/company-apps-worktree；公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。入口仍dashboard/start_presentation.vbs、public主题。本机原配置P:/project/swhy/Delta1/project/dashboard/localsetting/native.json。
+
+保留逐日D、连续00/01/02/03的20/60、简单去分红年化100*(F-S+D)/S*365/T、当前定价日排除、T<5单列及非交易合法参考；缺价/映射/D不跳过，明确0优先、缺D仅向当时已知前序到期合约继承，新D不回写过去。研究32项/A02暂停保留，原独立App/Excel不动。
+
+主HTTP三秒、成分一分钟；默认Overview离线，自动Wind低频，实时VPN手动；DDB仅实际缺口按原授权准备，HTTP失败不切DDB。原数据/缓存/配置/凭据/Excel、其他worktree及四份提示词不动，不reset/clean、全量stage、强推。
+
+本次输入、逐JSON SHA/节点索引、冻结证据、原件保护、性能和测试日志仅在忽略的local_artifacts/validation/company_feedback_20261029。旧7份说明和MANIFEST不变，仍见 [唯一归档](../docs/archive/2026-10-29/README.md)；不再复制旧长文。此前f345174的55项及229/62/272项均属对应批次历史。
+
+新对话先读 [接续提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)、本页、AGENTS与APP_RELEASE，再核验最新Git/远端和新公司包，不从旧版本重新实现。

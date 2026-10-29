@@ -233,10 +233,13 @@ class PresentationWindow(QMainWindow):
             if hasattr(self,'pipeline'):self.pipeline.stop()
             if self.query_page is not None:self.query_page.stop()
         if hasattr(self,'pipeline'):
-            if not self.pipeline.drained():event.ignore();QTimer.singleShot(100,self.close);return
+            if not self.pipeline.drained():
+                self.status.setText(self.pipeline.shutdown_message());event.ignore();QTimer.singleShot(100,self.close);return
         if self.busy or self.collection.running() or getattr(self.query_page,'busy',False) or any(getattr(p,'busy',False) for p in self.research_pages.values()):event.ignore();QTimer.singleShot(100,self.close);return
         if hasattr(self,'pipeline'):self.pipeline.timer.stop()
-        self.model.close();event.accept()
+        self.model.close()
+        if hasattr(self,'pipeline'):self.pipeline.finish_shutdown()
+        event.accept()
 
 
 class DeveloperWindow(PresentationWindow):
