@@ -45,13 +45,13 @@ def stage_inputs(request):
             for path in Path(directory).iterdir():
                 if path.name.startswith(('~$', '.')) or not fnmatch.fnmatch(path.name, request['pattern']):
                     continue
-                dated = re.search(r'\d{4}-\d{2}-\d{2}', path.name)
-                if dated and not request['start'] <= dated[0] <= request['end']:
-                    continue
+                # Names can retain an old date. Only the validated Sheet1!B1
+                # business date may decide whether an input is in this window.
                 paths.append(path)
         except OSError as exc:
             result['errors'].append(dict(stage='share_listing', error_type=type(exc).__name__, winerror=getattr(exc, 'winerror', None)))
     result['matched'] = len(paths)
+    result['matched_names'] = sorted((p.name for p in paths),reverse=True)[:12]
     for path in sorted(paths, key=lambda p:p.name, reverse=True):
         if stop():
             raise InterruptedError()
@@ -63,7 +63,8 @@ def stage_inputs(request):
             key = str(path)
             token = [info.st_size, info.st_mtime_ns]
             previous = known.get(key, {})
-            if previous.get('token') == token and previous.get('sha256') in hashes:
+            outside = previous.get('business_dates') and all(not request['start'] <= day <= request['end'] for day in previous['business_dates'])
+            if previous.get('token') == token and (previous.get('sha256') in hashes or outside):
                 result['unchanged'] += 1
                 continue
             if not path.is_file() or not 0 < info.st_size <= 16*1024*1024:
@@ -78,6 +79,7 @@ def stage_inputs(request):
                 staged = root/sha/path.name
                 staged.parent.mkdir(exist_ok=True)
                 staged.write_bytes(raw)
+                hashes.add(sha)
             result['files'].append(dict(source=key, token=token, sha256=sha, path=str(staged) if staged else None))
         except (OSError, ValueError) as exc:
             result['errors'].append(dict(stage='share_read', error_type=type(exc).__name__, winerror=getattr(exc, 'winerror', None)))
@@ -89,8 +91,8 @@ def stage_inputs(request):
 
 
 def source_directories(config, start, end):
-    from .overview_dividends import DEFAULT_SOURCE
-    selected = config.get('overview_dividend_source_dir', DEFAULT_SOURCE)
+    from .overview_dividends import source_directory
+    selected = source_directory(config)
     if not selected:
         return []
     root = Path(selected)
@@ -108,15 +110,17 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
     root = directory(config, local_root)
     root.mkdir(parents=True, exist_ok=True)
     store = DividendStore(root)
-    state = dict(started_at=stamp(now), imported_files=0, inserted=0, unchanged=0, validated_files=0, business_dates=[], errors=[], network_requested=False)
+    state = dict(started_at=stamp(now), imported_files=0, inserted=0, unchanged=0, validated_files=0, outside_range_files=0, business_dates=[], errors=[], network_requested=False)
     stopped = lambda:bool(stop_file and Path(stop_file).exists())
-    def ingest(path):
+    def ingest(path, *, business_window=None):
         if stopped():
             raise InterruptedError()
-        value = store.import_file(path, now=now)
+        value = store.import_file(path, now=now, business_window=business_window)
         state['imported_files'] += value['status'] == 'imported'
         state['inserted'] += value['inserted']
         state['unchanged'] += value['status'] == 'unchanged'
+        state['outside_range_files'] += value['status'] == 'outside_range'
+        return value
     try:
         if publish:
             for path in local_sources(config):
@@ -129,9 +133,14 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
         day = now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
         start = (datetime.fromisoformat(prior_days(day)[0])-timedelta(days=35)).date().isoformat()
         directories = source_directories(config, start, day)
+        state.update(source_directories=directories,pattern=config.get('overview_dividend_pattern') or '指数基差情况_*.xlsx',
+            requested_start=start,requested_end=day)
         inventory = read_json(root/'inventory.json').get('files', {})
         records = store.read()
         hashes = sorted({r['file_sha256'] for r in records})
+        dates_by_hash = {}
+        for record in records:
+            dates_by_hash.setdefault(record['file_sha256'], set()).add(record['source_business_date'])
         with tempfile.TemporaryDirectory(prefix='reader-', dir=root) as tmp:
             request = dict(directories=directories, pattern=config.get('overview_dividend_pattern') or '指数基差情况_*.xlsx',
                 staging=tmp, inventory=inventory, known_hashes=hashes, start=start, end=day,
@@ -151,22 +160,30 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
                 except subprocess.TimeoutExpired:
                     fetched = read_json(Path(tmp)/'progress.json')
                     fetched.update(complete=False, errors=[*fetched.get('errors', []), dict(stage='share_reader', error_type='TimeoutExpired')])
-            state.update(source_files=fetched.get('matched', 0), unchanged=state['unchanged']+fetched.get('unchanged', 0))
+            state.update(source_files=fetched.get('matched', 0),matched_names=fetched.get('matched_names',[]),
+                unchanged=state['unchanged']+fetched.get('unchanged', 0))
             state['errors'].extend(fetched.get('errors', []))
             for item in fetched.get('files', []):
                 if stopped():
                     raise InterruptedError()
                 try:
+                    business_dates = sorted(dates_by_hash.get(item['sha256'], ()))
                     if item.get('path') and publish:
-                        ingest(item['path'])
+                        value=ingest(item['path'],business_window=(start,day))
+                        business_dates=value.get('business_dates',business_dates)
                     elif item.get('path'):
                         checked=records_from_file(item['path'],first_seen=now)
                         if any(r['file_sha256'] != item['sha256'] for r in checked):
                             raise ValueError('staging_hash_mismatch')
-                        state['validated_files']+=1
-                        state['business_dates']=sorted(set(state['business_dates'])|{r['source_business_date'] for r in checked})
+                        business_dates=sorted({r['source_business_date'] for r in checked})
+                        if any(start <= value <= day for value in business_dates):
+                            state['validated_files']+=1
+                        else:
+                            state['outside_range_files']+=1
+                    state['business_dates']=sorted(set(state['business_dates'])|{value for value in business_dates if start <= value <= day})
+                    dates_by_hash[item['sha256']]=set(business_dates)
                     if publish:
-                        inventory[item['source']] = {k:item[k] for k in ('token','sha256')}
+                        inventory[item['source']] = dict({k:item[k] for k in ('token','sha256')},business_dates=business_dates)
                 except Exception as exc:
                     state['errors'].append(dict(stage='share_import', error_type=type(exc).__name__))
             if publish and not stopped():

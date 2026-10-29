@@ -16,7 +16,15 @@ from .dividends import digest, read_snapshot
 
 TZ = ZoneInfo('Asia/Shanghai')
 PARSER_VERSION = 'contract-dividends-v2'
-DEFAULT_SOURCE = r'\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+DEFAULT_SOURCE = r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+LEGACY_DEFAULT_SOURCE = r'\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+
+
+def source_directory(config):
+    """Use the user-confirmed mapped drive; retain unrelated custom/empty paths."""
+    selected=config.get('overview_dividend_source_dir',DEFAULT_SOURCE)
+    if str(selected).replace('/','\\').rstrip('\\').casefold()==LEGACY_DEFAULT_SOURCE.casefold():return DEFAULT_SOURCE
+    return selected
 
 
 def stamp(value, *, daily_close=True):
@@ -86,7 +94,7 @@ class DividendStore:
         with closing(sqlite3.connect(self.path.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)) as con:
             return [json.loads(r[0]) for r in con.execute('SELECT payload FROM records ORDER BY effective_from, revision')]
 
-    def import_file(self, path, *, now=None):
+    def import_file(self, path, *, now=None, business_window=None):
         """Append valid input and archive bytes; never replace an older record."""
         import hashlib
         from .bars import _atomic_bytes
@@ -105,6 +113,9 @@ class DividendStore:
             records = records_from_file(path, first_seen=now)
             if any(r['file_sha256'] != sha for r in records):
                 raise ValueError('分红源文件读取期间发生变化，等待下次重试')
+            business_dates = sorted({r['source_business_date'] for r in records})
+            if business_window and not all(business_window[0] <= day <= business_window[1] for day in business_dates):
+                return dict(status='outside_range', sha256=sha, inserted=0, business_dates=business_dates)
             # Replacing a date-only file during that same business day is an
             # observation from now onward. Past ambiguous files retain the same
             # date key and are rejected at lookup, never arbitrarily ordered.
@@ -120,7 +131,7 @@ class DividendStore:
                 con.execute('INSERT OR IGNORE INTO records VALUES (?,?,?,?)',
                     (row['revision'], row['contract_id'], row['effective_from'], json.dumps(row, ensure_ascii=False)))
             con.execute('INSERT INTO files VALUES (?,?)', (sha, stamp(now)))
-        return dict(status='imported', sha256=sha, inserted=len(records))
+        return dict(status='imported', sha256=sha, inserted=len(records), business_dates=business_dates)
 
 
 class DatedDividendBook:

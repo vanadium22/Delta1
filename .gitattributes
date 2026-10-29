@@ -6,3 +6,12 @@
 *.txt text eol=lf
 *.toml text eol=lf
 *.cmd text eol=crlf
+
+# Keep the seven SHA-pinned archive payloads byte-for-byte on every checkout.
+docs/archive/2026-10-29/ROOT_AGENTS.md -text
+docs/archive/2026-10-29/DASHBOARD_AGENTS.md -text
+docs/archive/2026-10-29/DASHBOARD_PROJECT_HANDOFF.md -text
+docs/archive/2026-10-29/DASHBOARD_COMPANY_TEST.md -text
+docs/archive/2026-10-29/DASHBOARD_MARKET_OVERVIEW.md -text
+docs/archive/2026-10-29/DASHBOARD_VALIDATION.md -text
+docs/archive/2026-10-29/OVERVIEW_IMPLEMENTATION_SPEC.md -text

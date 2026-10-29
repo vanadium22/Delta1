@@ -1,23 +1,10 @@
 # 公司数据能力与行情分析验收
 
-2026-10-28。这些入口均已实现。默认 `-Overview` 仍离线；新ETF测试必须显式 `-Stage ETF` 才调用Wind，没有正式资料发布、订阅、VPN切换或配置改写。测试返回非空不等于字段业务含义、时点和单位已全部核验。
+2026-10-29。这些入口均已实现，当前完整公司命令以APP_COMPANY_TEST为准。默认 `-Overview` 仍离线；新ETF测试必须显式 `-Stage ETF` 才调用Wind，没有正式资料发布、订阅、VPN切换或配置改写。测试返回非空不等于字段业务含义、时点和单位已全部核验。
 
 ## 更新和分红
 
-在公司原Git根正常更新，保留原Wind终端登录，实时VPN仍由用户手动连接：
-
-```powershell
-Set-Location -LiteralPath 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
-git status --short --branch
-git pull --ff-only
-git log -1 --oneline
-$deltaLocalRoot = Join-Path (Get-Location) 'dashboard/localsetting/app'
-./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Share -NoPause
-./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Import -NoPause
-./dashboard/diagnose_dividends.cmd -LocalRoot $deltaLocalRoot -Stage Local -NoPause
-```
-
-Share只读公盘并临时验证；Import追加到新分红库，保留所有旧文件，Local复核16档历史D覆盖。公盘历史文件才可能补回旧日D，不能拿今日表回填过去；日期精度旧表不冒称有盘中发布时间。若目录不可达或历史归档确实缺失，报告保留真实缺项。标准价格已齐时不会为分红缺项重复下载价格。
+公司更新、确认Y源、Local/Share/Import、可选InputFile以及完整回传命令统一在 [APP_COMPANY_TEST](../APP_COMPANY_TEST.md)。源为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`，Y:映射192.168.91.230，完整UNC共享名未知，不猜拼或重新映射。年份目录、Sheet1!B1业务日、原配置/源文件保护和历史D缺项判断均按当前公司步骤执行。
 
 ## 指数行业
 
@@ -69,6 +56,6 @@ TWAP为有效等间隔分钟收盘均值近似；VWAP仅股票/ETF，成交量�
 
 ## 公司回传
 
-请回传Share/Import/Local的分红JSON、新 `capabilities.json`；指数/ETF阶段各配同次wind.json与diagnosis.json。保持正常看板开着10–15分钟后，再跑原 `-Overview` 回传同次overview.json和diagnosis.json，并注明当时是否开着窗口。关注16卡20/60、午休/收盘参考、成分覆盖、查询/取消和关闭耗时。
+按 [APP_COMPANY_TEST](../APP_COMPANY_TEST.md) 顺序进行只读阶段、正常任务发布、开窗10–15分钟、Nav/离线Overview及白名单JSON ZIP；回传return_manifest、同次HEAD/映射、分红、ETF能力与各诊断JSON，并注明取样时窗口/页面和关闭耗时。不要将本页局部能力示例当完整验收流程。
 
-本机公盘实际WinError53，真实ETF测试停在WindPy导入阶段，不能推断公司也如此；公司已安装WindPy是此前报告事实。所有本地假SDK/构造页面通过均不代表公司接口或实时页面验收。
+本机无Y映射；此前旧源WinError53和本机WindPy导入失败只属开发机证据，不推断公司也如此。公司此前报告已确认WindPy存在。本地假SDK/构造页面或只读阶段成功均不等于公司正式发布和持续页面验收。IOPV/份额/PCF定义未核验时继续明确缺项。

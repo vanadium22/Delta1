@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from dashboard.marketdata.dividends import digest
 from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
 from dashboard.marketdata.overview_dividend_sync import read_json
-from dashboard.marketdata.overview_dividends import directory
+from dashboard.marketdata.overview_dividends import directory,source_directory
 
 
 class DividendJob:
@@ -65,8 +65,8 @@ class DividendJob:
             self.scheduling = dict(status='waiting_am')
             return
         slot = slot or 'am'
-        profile = digest({k:config.get(k) for k in ('overview_dividend_source_dir','overview_dividend_pattern',
-            'overview_dividend_file','dividend_root','overview_dividend_check_am','overview_dividend_check_pm')})
+        profile = digest(dict(effective_source_directory=source_directory(config),**{k:config.get(k) for k in ('overview_dividend_source_dir','overview_dividend_pattern',
+            'overview_dividend_file','dividend_root','overview_dividend_check_am','overview_dividend_check_pm')}))
         same = saved.get('day') == now.date().isoformat() and saved.get('slot') == slot and saved.get('profile') == profile
         if same and not force:
             if saved.get('complete') or saved.get('attempts',0) >= 3:

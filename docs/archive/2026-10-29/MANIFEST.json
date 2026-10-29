@@ -1,0 +1,51 @@
+[
+  {
+    "source": "AGENTS.md",
+    "archive": "docs/archive/2026-10-29/ROOT_AGENTS.md",
+    "bytes": 13649,
+    "sha256": "907b75ee173fb55c71dbd8133263164ad7f8804c60f606758d94801aebe70a5c",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/AGENTS.md",
+    "archive": "docs/archive/2026-10-29/DASHBOARD_AGENTS.md",
+    "bytes": 11623,
+    "sha256": "eb32e007200579a8a2e52341a434892f2b960f2d711429a3be014b702e08fee3",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/PROJECT_HANDOFF.md",
+    "archive": "docs/archive/2026-10-29/DASHBOARD_PROJECT_HANDOFF.md",
+    "bytes": 60941,
+    "sha256": "0f021464909819b83a0107fae41070a6c6a119e628adac2ba451c93f2065cd38",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/APP_COMPANY_TEST.md",
+    "archive": "docs/archive/2026-10-29/DASHBOARD_COMPANY_TEST.md",
+    "bytes": 41334,
+    "sha256": "fd681e988de72ca3f4389b82699de049c7759ffb0fe0ceeda90d6ac0267d230b",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/APP_MARKET_OVERVIEW.md",
+    "archive": "docs/archive/2026-10-29/DASHBOARD_MARKET_OVERVIEW.md",
+    "bytes": 32792,
+    "sha256": "d7353ca1e1ab140dbdf5585db8a67f7b4f5580ec5cc6b0df408c5670b7c5a273",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/APP_VALIDATION.md",
+    "archive": "docs/archive/2026-10-29/DASHBOARD_VALIDATION.md",
+    "bytes": 59927,
+    "sha256": "118dda4e253d8bfc8bfadc4caff2def6be5a25a88ef05849427881c5d2ffbf72",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  },
+  {
+    "source": "dashboard/docs/NEXT_OVERVIEW_IMPLEMENTATION.md",
+    "archive": "docs/archive/2026-10-29/OVERVIEW_IMPLEMENTATION_SPEC.md",
+    "bytes": 23822,
+    "sha256": "ad450cc7c86efbb5004040f65e0373f0086717f8d8de372d95b85aa64abee0f3",
+    "base_commit": "69789a419391e627615c03b6ac284251da3a7ab5"
+  }
+]

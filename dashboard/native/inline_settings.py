@@ -28,9 +28,10 @@ class InlineSettings(QWidget):
             value=str(connection_path(config)) if key=='history_connection_file' else str(config.get(key) or '')
             if key in ('history_vpn_config','history_vpn_trust','history_vpn_powershell'):
                 value=str(vpn[{'history_vpn_config':'config','history_vpn_trust':'trust','history_vpn_powershell':'powershell'}[key]] or '')
-            from dashboard.marketdata.overview_dividends import DEFAULT_SOURCE
+            from dashboard.marketdata.overview_dividends import DEFAULT_SOURCE,source_directory
             defaults=dict(overview_dividend_source_dir=DEFAULT_SOURCE,overview_dividend_pattern='指数基差情况_*.xlsx',overview_dividend_check_am='09:00',overview_dividend_check_pm='15:30')
             if key in defaults and key not in config:value=defaults[key]
+            if key=='overview_dividend_source_dir':value=str(source_directory(config) or '')
             field=QLineEdit(value);self.fields[key]=field;form.addRow(title,field)
         save=QPushButton('保存路径（保留原库与其他设置）');form.addRow(save);save.clicked.connect(self.save_paths)
         self.notice=QLabel('已保存数据库与VPN凭据分别复用；有缺口时按需自动连接DDB VPN。实时VPN由你手动连接，盘中会提示。')

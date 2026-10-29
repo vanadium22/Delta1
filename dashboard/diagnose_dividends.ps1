@@ -1,6 +1,8 @@
 param(
     [string]$LocalRoot = '',
     [ValidateSet('Local','Share','Import')][string]$Stage = 'Local',
+    [string]$InputFile = '',
+    [string]$SourceDirectory = '',
     [string]$Output = '',
     [switch]$NoPause
 )
@@ -22,6 +24,8 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $LocalRoot 'native.json'))) { throw 'LocalRoot/native.json missing' }
     Set-Location -LiteralPath $repository
     $parameters = @('-B','-X','utf8','-m','dashboard.dividend_check','--local-root',$LocalRoot,'--stage',$Stage.ToLowerInvariant())
+    if (-not [string]::IsNullOrWhiteSpace($InputFile)) { $parameters += @('--input-file',$InputFile) }
+    if (-not [string]::IsNullOrWhiteSpace($SourceDirectory)) { $parameters += @('--source-directory',$SourceDirectory) }
     if (-not [string]::IsNullOrWhiteSpace($Output)) { $parameters += @('--output',$Output) }
     & $interpreter @parameters
     $exitCode = $LASTEXITCODE
