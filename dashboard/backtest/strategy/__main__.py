@@ -18,6 +18,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         job = load_job(args.config)
+        if "factor" in job:
+            from ..workflow import factor_stage, cta_stage
+            output = args.output or job.get("output_dir")
+            factors = factor_stage(job, output_dir=Path(output) / "factor" if output else None)
+            signals = cta_stage(factors, job, output_dir=Path(output) / "cta" if output else None)
+            print(json.dumps(dict(rows=len(signals.targets), output_paths=signals.output_paths), ensure_ascii=False, indent=2))
+            return 0
         factors = FactorConfig(**job.get("factors", {}))
         name = job.get("factor_name", "basis_percentile")
         cta = CTAConfig(**job["cta"]) if "cta" in job else None

@@ -1,9 +1,17 @@
 """Exact quantity-linked future/index legs; hedge weights are never sized separately."""
+import math
+
 from .models import BacktestError, DEFAULT_MULTIPLIERS, HedgeRule
 
 
 def index_hedges(symbols, multipliers=None):
+    symbols = tuple(symbols)
     multiples = {**DEFAULT_MULTIPLIERS, **(multipliers or {})}
+    for symbol in symbols:
+        if symbol.endswith(".CFE"):
+            value = multiples.get(symbol, multiples[symbol[:2]])
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0 or int(value) != value:
+                raise BacktestError("Index hedge multipliers must be positive exact integers")
     return tuple(HedgeRule(s, s[:2] + "_spot", -int(multiples.get(s, multiples[s[:2]])))
                  for s in symbols if s.endswith(".CFE"))
 

@@ -1,44 +1,92 @@
 {
   "data": {
-    "data_root": null,
-    "dashboard_config_path": null,
-    "reference_path": null,
-    "close_path": null,
-    "daily_close_path": null,
+    "data_root": "REPLACE_WITH_DATA_ROOT",
+    "dataset_id": "REPLACE_WITH_DATASET_ID",
+    "data_version": "v1",
+    "source_id": "REPLACE_WITH_TRACEABLE_SOURCE",
+    "daily_close_path": "daily_close.parquet",
     "minute_close_path": null,
+    "reference_path": "contracts.parquet",
     "days_to_expiry_path": null,
+    "multiplier_path": null,
+    "multipliers": {},
+    "margin_rate_path": null,
+    "margin_rates": {
+      "IF": 1,
+      "IH": 1,
+      "IC": 1,
+      "IM": 1
+    },
+    "daily_label_time": "15:00",
+    "dividend_mode": "ignore",
     "dividend_points_path": null,
-    "adjusted_close_path": null,
-    "allow_unverified_availability": true
-  },
-  "strategy_data": {
-    "dividend_store_root": null,
     "dividend_records_path": null,
-    "calendar_path": null
+    "calendar_path": null,
+    "history_roots": [],
+    "history_versions": {},
+    "allow_unverified_availability": false,
+    "trusted_pickle": false
   },
-  "factors": {
-    "roots": ["IC"],
-    "slots": [0, 1, 2, 3],
-    "window_days": 20,
-    "min_annual_days": 5,
-    "min_samples": 2,
+  "factor": {
+    "name": "basis_percentile",
+    "roots": [
+      "IF",
+      "IH",
+      "IC",
+      "IM"
+    ],
+    "slots": [
+      0,
+      1,
+      2,
+      3
+    ],
     "precision": "1d",
-    "workers": 0
+    "workers": 0,
+    "parameters": {
+      "window_days": 60,
+      "min_annual_days": 5,
+      "min_samples": 2
+    }
   },
-  "factor_name": "basis_percentile",
   "cta": {
-    "mode": "fixed",
-    "open_threshold": 0.7,
-    "close_threshold": 0.2,
-    "lookback_window": 20,
-    "z_open": 2.0,
-    "z_close": 0.4,
-    "position_weight": 0.2,
-    "direction": 1,
-    "transform": "center_percentile",
-    "missing": "flat"
+    "name": "expiry_index",
+    "input_factor": "basis_percentile",
+    "parameters": {
+      "threshold": 0.9,
+      "position_weight": 0.495,
+      "direction": -1,
+      "transform": "center_percentile",
+      "selection": "product_best",
+      "slots": [
+        0,
+        1,
+        2,
+        3
+      ]
+    }
   },
-  "start": null,
-  "end": null,
-  "output_dir": "../../../outputs/backtest/strategy_example"
+  "backtest": {
+    "initial_capital": 10000000,
+    "commission_rate": 0.0003,
+    "max_capital_usage": 0.99,
+    "minimum_margin_ratio": 0.0001,
+    "margin_call_basis": "equity",
+    "mode": "product",
+    "precision": "1d",
+    "workers": 0,
+    "weight_mode": "neutral_units",
+    "d0": 0,
+    "hedges": [],
+    "rebalance_on_change_only": true,
+    "start": null,
+    "end": null,
+    "timezone": "Asia/Shanghai",
+    "date_at": "15:00",
+    "timestamp_unit": null,
+    "nan_policy": "error",
+    "liquidate_at_end": false
+  },
+  "instructions_path": null,
+  "output_dir": "REPLACE_WITH_NEW_OUTPUT_DIRECTORY"
 }

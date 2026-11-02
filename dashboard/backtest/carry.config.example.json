@@ -15,7 +15,7 @@
     "window_days": 60,
     "thresholds": [0.9, 0.8],
     "initial_capital": 10000000,
-    "margin_rate": 0.15,
+    "margin_rate": 1.0,
     "commission_rate": 0.0003,
     "max_capital_usage": 0.99,
     "min_annual_days": 5,

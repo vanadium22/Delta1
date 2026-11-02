@@ -1,5 +1,7 @@
 # 因子 → CTA → 实际合约目标
 
+新入口为独立的 `compute_factors/generate_cta` 和 `workflow.factor_stage/cta_stage/backtest_stage`，以及 `FactorResult.save/load_factors`、`CTAResult.save/load_cta`。数据路径统一在 data，每个函数按名称声明内部参数，原始 p 不中心化；CTA 显式 `transform=center_percentile`。完整示例、函数参数表、零和手数对冲与 01−03 持有到期见 [WORKFLOW](../WORKFLOW.md)，数据契约见 [DATA_FORMAT](../DATA_FORMAT.md)。下列旧对象与组合 API 继续兼容。
+
 本模块先按每个交易日的挂牌/到期资料将实际合约映射为 `IC00.CFE`—`IC03.CFE` 等计算档位，再生成因子和 CTA 状态。最终 `factors`、`scores`、`targets` 的列全部是实际合约；00—03 只在 `panel`、`continuous_factors` 和映射审计中出现，不作为成交代码。
 
 ## 数据与参数接口
@@ -20,7 +22,7 @@
 
 要完整核对交易日缺口，应显式提供交易日历。已有行情中出现的缺数不会被跳过，显式日历缺整天会保留为缺失；仅凭观测日期不声称覆盖完整交易日历。日频默认使用实际日末观测；`FactorConfig.precision="auto"` 保留输入日内时刻，统计窗口仍使用之前交易日的最后观测。
 
-注册行情复用按日分片、SHA 核验和有界进程读取，默认日频仅读取所选品种的每日 close；没有日线时才读分钟取得当天最后实际观测。`FactorConfig.workers=0` 按规模自动选择最多 4 个，`1` 串行，桌面共用“计算进程”设置。自动精度读取所需分钟与日线。
+注册行情复用按日分片、SHA 核验和有界进程读取，默认日频仅读取所选品种的每日 close；没有日线时才读分钟取得当天最后实际观测。`FactorConfig.workers=0` 按规模自动选择最多 4 个，`1` 串行；桌面因子/执行进程独立配置。自动精度读取所需分钟与日线。
 
 合约参考必须包含实际 `instrument_id`、`listing_date`、`expiry_date`。每日每品种按到期排序形成四档；到期当天保留旧映射，下一挂牌日再切换。四档不完整时记录缺口，不将仅有的远月随意改成 00。映射依赖历史挂牌/到期资料，不声称其历史发布时间已经核验。
 
@@ -38,7 +40,7 @@ annual_basis = 100 × (F - S + D) / S × 365 / T
 
 单位是百分点；D 是到期前剩余分红点数、T 是剩余自然日。默认 `min_annual_days=5`，T<5 不生成有效年化，不用图表填充值交易。此参数与回测的强平 `d0=0` 独立。
 
-`basis_percentile` 取当前实际合约今天所在档位的过去 `window_days=20` 个交易日年化序列，排除今天。比如 `IC2703.CFE` 今天是 02，使用过去各日当时 02 对应合约的年化，不使用 IC2703 自身整段历史。
+`basis_percentile` 取当前实际合约今天所在档位的过去 `window_days` 个交易日年化序列，排除今天。新四段配置默认 60，旧 `FactorConfig` 兼容默认 20。比如 `IC2703.CFE` 今天是 02，使用过去各日当时 02 对应合约的年化，不使用 IC2703 自身整段历史。
 
 ```text
 p = (历史值小于当前值的数量 + 0.5 × 历史值等于当前值的数量) / 历史有效数量

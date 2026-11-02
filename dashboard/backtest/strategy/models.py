@@ -109,3 +109,34 @@ class StrategyResult:
         from .pipeline import save_strategy
         self.output_paths = save_strategy(self, directory)
         return self.output_paths
+
+
+@dataclass
+class FactorResult:
+    """Numerical research output plus dated mapping context; contains no CTA settings."""
+    factors: dict[str, pd.DataFrame]
+    continuous_factors: dict[str, pd.DataFrame]
+    panel: ContinuousPanel
+    contracts: dict
+    metadata: dict
+    output_paths: dict = field(default_factory=dict)
+    market_data: MarketData | None = None
+
+    def save(self, directory):
+        from .artifacts import save_factors
+        self.output_paths = save_factors(self, directory)
+        return self.output_paths
+
+
+@dataclass
+class CTAResult:
+    targets: pd.DataFrame
+    scores: pd.DataFrame
+    metadata: dict
+    decisions: pd.DataFrame | None = None
+    output_paths: dict = field(default_factory=dict)
+
+    def save(self, directory):
+        from .artifacts import save_cta
+        self.output_paths = save_cta(self, directory)
+        return self.output_paths

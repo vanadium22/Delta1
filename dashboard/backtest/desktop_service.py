@@ -8,6 +8,27 @@ from .models import check_cancelled, normalize_frame, time_bound
 from .timeline import effective_instructions
 
 
+def data_manifest_text(source):
+    coverage = [r for r in source.get("coverage", []) if r.get("rows")]
+    lines = []
+    if coverage:
+        lines.append(f"实际覆盖：{min(r['start'] for r in coverage)} 至 {max(r['end'] for r in coverage)}；{len(coverage)} 个标的")
+    lines.append(f"数据集：{source.get('dataset_id', '未标记')}；版本：{source.get('data_version', '见注册版本')}")
+    paths = source.get("paths", {})
+    labels = dict(close_path="原始 close", daily_close_path="日线", minute_close_path="分钟", reference_path="合约参考",
+                  margin_rate_path="保证金率", multiplier_path="乘数", dividend_points_path="分红点数",
+                  dividend_records_path="分红版本", calendar_path="交易日历")
+    files = dict(paths.get("files", {}))
+    if paths.get("reference_path"):
+        files["reference_path"] = paths["reference_path"]
+    for key, value in files.items():
+        lines.append(f"{labels.get(key, key)}：{value}")
+    for dataset in source.get("datasets", []):
+        lines.append(f"注册源：{dataset['root']}；版本 {dataset['version']}")
+    lines.extend(f"{r['symbol']}：{r['start']} 至 {r['end']}，{r['rows']} 条" for r in coverage)
+    return "\n".join(lines)
+
+
 def inspect_job(job, *, cancel_event=None, progress=None):
     check_cancelled(cancel_event)
     config, data = BacktestConfig(**job.get("backtest", {})), DataConfig(**job.get("data", {}))
@@ -73,11 +94,16 @@ def execute_job(job, *, cancel_event=None, progress=None):
     path = job.get("instructions_path")
     if not path:
         raise BacktestError("请先设置目标指令表路径")
-    result = run_backtest(instructions_path=path, config=BacktestConfig(**job.get("backtest", {})),
-                          data_config=DataConfig(**job.get("data", {})), output_dir=job.get("output_dir"),
-                          cancel_event=cancel_event, progress=progress)
+    stage_root = Path(path).resolve().parent
+    if (stage_root / "stage.json").is_file() and Path(path).name == "targets.parquet":
+        from .workflow import backtest_stage
+        result = backtest_stage(stage_root, job, output_dir=job.get("output_dir"), cancel_event=cancel_event, progress=progress)
+    else:
+        result = run_backtest(instructions_path=path, config=BacktestConfig(**job.get("backtest", {})),
+                              data_config=DataConfig(**job.get("data", {})), output_dir=job.get("output_dir"),
+                              cancel_event=cancel_event, progress=progress)
     if result.output_paths:
         write_json(Path(result.output_paths["output_dir"]) / "job.local.json", {
             **job, "backtest": result.metadata["config"],
-            "data": asdict(DataConfig(**job.get("data", {})))})
+            "data": result.metadata.get("data_config", asdict(DataConfig(**job.get("data", {}))))})
     return result

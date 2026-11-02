@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from pathlib import Path
 import re
+import warnings
 from typing import Any, Mapping
 
 import numpy as np
@@ -40,8 +41,12 @@ def check_source_paths(value):
     elif isinstance(value, (list, tuple)):
         for item in value:
             check_source_paths(item)
-    elif isinstance(value, (str, Path)) and re.match(r"(?i)^z:", str(value).strip()):
-        raise BacktestError("Z-drive sources are excluded; use an explicit Delta1/data source or a future DDB provider")
+    elif isinstance(value, (str, Path)):
+        path = str(value).strip().replace("\\", "/")
+        if re.match(r"(?i)^(?://[?.]/)?z:", path):
+            raise BacktestError("Z-drive sources are excluded; use an explicit Delta1/data source or a future DDB provider")
+        if any(part.lower() in {"backfilled_cn_index", "backfilled_cn_index_future", "excluded_mixed_source_run"} for part in path.split("/")):
+            raise BacktestError("Known Z-derived/mixed cache path is excluded; choose a traceable pure dataset")
 
 
 def check_market_source(value):
@@ -116,8 +121,10 @@ def normalize_frame(frame: pd.DataFrame, *, label="table", timezone="Asia/Shangh
         index = pd.to_datetime(index, unit=unit, utc=True)
     elif not isinstance(index, pd.DatetimeIndex):
         try:
-            index = pd.DatetimeIndex(pd.to_datetime(index, format="mixed"))
-        except (ValueError, TypeError):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", FutureWarning)
+                index = pd.DatetimeIndex(pd.to_datetime(index, format="mixed"))
+        except (ValueError, TypeError, FutureWarning):
             index = pd.DatetimeIndex([timestamp(t, timezone=timezone, date_at=date_at, unit=unit) for t in index])
     if index.hasnans:
         raise BacktestError(f"{label} timestamp cannot be NaT")
@@ -169,6 +176,7 @@ class BacktestConfig:
     d0: int | None = 0  # calendar days; None explicitly disables maturity liquidation
     hedges: tuple[HedgeRule, ...] = ()
     rebalance_on_change_only: bool = False
+    weight_mode: str = "capital"  # capital / neutral_units (equal contract-equivalent weights)
     start: Any = None
     end: Any = None
     timezone: str = "Asia/Shanghai"
@@ -193,9 +201,15 @@ class BacktestConfig:
             raise BacktestError("hedges must contain unique HedgeRule primary symbols")
         if rules and self.mode == "symbol":
             raise BacktestError("Use contract_pair for independent hedged contracts; symbol mode splits the hedge")
-        if self.mode == "contract_pair" and not rules:
+        if self.mode == "contract_pair" and not rules and self.weight_mode != "neutral_units":
             raise BacktestError("contract_pair mode requires explicit hedge rules")
         object.__setattr__(self, "hedges", rules)
+        if self.weight_mode not in {"capital", "neutral_units"}:
+            raise BacktestError("weight_mode must be capital or neutral_units")
+        if self.weight_mode == "neutral_units" and self.mode == "symbol":
+            raise BacktestError("neutral_units requires paired/product/portfolio accounts")
+        if {r.primary for r in rules} & {r.hedge for r in rules}:
+            raise BacktestError("Hedge chains/cycles are not supported; use independent pairs")
         if not isinstance(self.rebalance_on_change_only, bool):
             raise BacktestError("rebalance_on_change_only must be boolean")
         if self.precision not in {"1d", "auto"}:
@@ -237,15 +251,69 @@ class DataConfig:
     margin_rates: Mapping[str, float] = field(default_factory=dict)
     allow_unverified_availability: bool = False
     trusted_pickle: bool = False
+    dataset_id: str = "unversioned_local"
+    data_version: str = "unversioned"
+    source_id: str = "explicit_local"
+    history_versions: Mapping[str, str] = field(default_factory=dict)
+    daily_label_time: str = "15:00"
+    dividend_mode: str = "required"  # factor research: required / ignore (explicit D=0 assumption)
+    dividend_records_path: str | Path | None = None
+    dividend_store_root: str | Path | None = None
+    calendar_path: str | Path | None = None
 
     def __post_init__(self):
-        check_source_paths(vars(self))
+        check_market_source(vars(self))
+        base = Path(self.data_root).expanduser().resolve() if self.data_root else Path.cwd()
+        if self.data_root:
+            object.__setattr__(self, "data_root", str(base))
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if value and (name.endswith("_path") or name in {"dividend_root", "dividend_store_root"}):
+                object.__setattr__(self, name, str((base / Path(value).expanduser()).resolve()))
+        roots = tuple(str((base / Path(p).expanduser()).resolve()) for p in self.history_roots)
+        object.__setattr__(self, "history_roots", roots)
+        if not isinstance(self.history_versions, Mapping):
+            raise BacktestError("history_versions must be a directory-to-version object")
+        versions = {str((base / Path(p).expanduser()).resolve()): v for p, v in self.history_versions.items()}
+        object.__setattr__(self, "history_versions", versions)
+        if any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{32}", v) for v in versions.values()):
+            raise BacktestError("history_versions must contain exact 32-character registered version IDs")
+        if set(versions) - set(roots):
+            raise BacktestError("history_versions keys must name configured history_roots")
+        if self.dividend_mode not in {"required", "ignore"}:
+            raise BacktestError("dividend_mode must be required or explicitly ignore")
+        if any(not isinstance(getattr(self, k), str) or not getattr(self, k).strip() for k in ("dataset_id", "data_version", "source_id")):
+            raise BacktestError("dataset_id, data_version and source_id must be nonempty strings")
+        for name, values in (("margin_rates", self.margin_rates), ("multipliers", self.multipliers)):
+            for symbol, value in values.items():
+                if symbol not in DEFAULT_MULTIPLIERS:
+                    normalize_symbol(symbol)
+                if isinstance(value, bool) or not np.isfinite(value) or value <= 0 or (name == "margin_rates" and value > 1):
+                    raise BacktestError(f"Invalid fixed {name} for {symbol}")
+        time.fromisoformat(self.daily_label_time)
+        if self.close_path and (self.minute_close_path or self.daily_close_path):
+            raise BacktestError("Ambiguous price paths: use close_path OR daily_close_path/minute_close_path")
+        if roots and (self.close_path or self.minute_close_path or self.daily_close_path):
+            raise BacktestError("Conflicting price sources: choose history_roots OR wide price files")
+        if self.minute_close_path and self.daily_close_path and Path(self.minute_close_path) == Path(self.daily_close_path):
+            raise BacktestError("Daily and minute close must use distinct paths")
+        if self.dashboard_config_path and (roots or self.close_path or self.minute_close_path or self.daily_close_path):
+            raise BacktestError("dashboard_config_path is an explicit legacy adapter; do not mix it with other price sources")
+        if self.margin_rate_path and self.margin_rates:
+            raise BacktestError("Choose historical margin_rate_path OR explicit fixed margin_rates")
+        if self.multiplier_path and self.multipliers:
+            raise BacktestError("Choose multiplier_path OR fixed multiplier overrides")
+        if self.dividend_mode == "ignore" and (self.dividend_points_path or self.adjusted_close_path or self.dividend_records_path or self.dividend_store_root or self.dividend_policy != "none"):
+            raise BacktestError("dividend_mode=ignore conflicts with configured dividend inputs")
         if self.frequency not in {"1d", "1m", "1s"}:
             raise BacktestError("frequency must be 1d, 1m, or 1s")
         if self.dividend_policy not in {"none", "asof_snapshot", "fixed_scenario"}:
             raise BacktestError("Unknown dividend_policy")
         if self.adjusted_close_path and self.dividend_points_path:
             raise BacktestError("Choose adjusted_close_path or dividend_points_path, not both")
+        if (self.adjusted_close_path or self.dividend_points_path) and (self.dividend_records_path or self.dividend_store_root):
+            raise BacktestError("Choose dividend wide tables OR the dated dividend book, not both")
+        check_market_source(vars(self))
 
 
 @dataclass

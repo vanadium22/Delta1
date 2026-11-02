@@ -353,7 +353,21 @@
     "dashboard/backtest/test/fixtures.py",
     "dashboard/backtest/test/test_expiry.py",
     "dashboard/backtest/test/test_strategy.py",
-    "dashboard/backtest/test/validate_strategy_ui.py"
+    "dashboard/backtest/test/validate_strategy_ui.py",
+    "dashboard/backtest/CARRY_STUDY.md",
+    "dashboard/backtest/DATA_FORMAT.md",
+    "dashboard/backtest/WORKFLOW.md",
+    "dashboard/backtest/carry.config.example.json",
+    "dashboard/backtest/carry_study.py",
+    "dashboard/backtest/configuration.py",
+    "dashboard/backtest/hedging.py",
+    "dashboard/backtest/registered.config.example.json",
+    "dashboard/backtest/strategy/artifacts.py",
+    "dashboard/backtest/strategy/research_factors.py",
+    "dashboard/backtest/synthetic.py",
+    "dashboard/backtest/test/test_workflow.py",
+    "dashboard/backtest/test/validate_stages_ui.py",
+    "dashboard/backtest/workflow.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -433,7 +447,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_102_verified_exact_lot_hedging_and_carry_study_full_requested_history_pending",
+    "status": "local_125_verified_standard_inputs_independent_factor_cta_neutral_units_company_pending_ddb_paused",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -499,16 +513,26 @@
       "dashboard/backtest/test/test_hedging.py",
       "dashboard/backtest/test/validate_carry_ui.py",
       "dashboard/backtest/CARRY_STUDY.md",
-      "dashboard/backtest/carry.config.example.json"
+      "dashboard/backtest/carry.config.example.json",
+      "dashboard/backtest/DATA_FORMAT.md",
+      "dashboard/backtest/WORKFLOW.md",
+      "dashboard/backtest/configuration.py",
+      "dashboard/backtest/registered.config.example.json",
+      "dashboard/backtest/strategy/artifacts.py",
+      "dashboard/backtest/strategy/research_factors.py",
+      "dashboard/backtest/synthetic.py",
+      "dashboard/backtest/test/test_workflow.py",
+      "dashboard/backtest/test/validate_stages_ui.py",
+      "dashboard/backtest/workflow.py"
     ],
     "tests": {
-      "passed": 102,
+      "passed": 125,
       "desktop_offscreen": true,
       "resolutions": [
         "1920x1080",
         "3840x2160"
       ],
-      "seconds": 13.031,
+      "seconds": 15.835,
       "resource_warnings": "errors",
       "ruff": "passed",
       "desktop_factor_to_backtest": true,
@@ -517,7 +541,12 @@
       "desktop_hedged_accounts": [
         4,
         76
-      ]
+      ],
+      "independent_factor_cta_reuse": true,
+      "all_function_configuration_restore": true,
+      "stage_cli_checks": 11,
+      "desktop_stage_accounts": 4,
+      "desktop_stage_actual_orders": 32
     },
     "backend_commit": "46cb76a",
     "desktop_commit": "93e467f",
@@ -630,8 +659,11 @@
       "ddb_automatic_update": "deferred",
       "ddb_one_shot_daily": "explicit route-only readonly acquisition; no VPN action by command; bounded yearly queries and SHA/coverage snapshot",
       "ddb_source_output": "Delta1/data; new snapshot only",
-      "current_data_route": "unavailable; attempted VPN helper rejected by automatic approval before execution; user clarification pending",
-      "company_tests": "authorized_not_yet_run_on_company_machine"
+      "current_data_route": "user-paused acquisition; no route probes, VPN actions or acquisition in this framework change",
+      "company_tests": "authorized_not_yet_run_on_company_machine",
+      "implicit_native_discovery": false,
+      "input_contract": "dashboard/backtest/DATA_FORMAT.md",
+      "configured_default_margin_assumption": 1.0
     },
     "local_factor_validation": {
       "market_observation_days": 314,
@@ -719,6 +751,94 @@
         "trade lifecycle",
         "standard backtest results and reopenable job config"
       ]
+    },
+    "framework": {
+      "base_commit": "6777c4db38b174343046b2225cf40fe9bff5a475",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/CARRY_STUDY.md",
+        "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+        "dashboard/backtest/DATA_ASSESSMENT.md",
+        "dashboard/backtest/DATA_FORMAT.md",
+        "dashboard/backtest/NEXT_STRATEGY_PROMPT.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/WORKFLOW.md",
+        "dashboard/backtest/__main__.py",
+        "dashboard/backtest/api.py",
+        "dashboard/backtest/carry.config.example.json",
+        "dashboard/backtest/carry_study.py",
+        "dashboard/backtest/config.example.json",
+        "dashboard/backtest/configuration.py",
+        "dashboard/backtest/data.py",
+        "dashboard/backtest/data_events.py",
+        "dashboard/backtest/desktop.py",
+        "dashboard/backtest/desktop_service.py",
+        "dashboard/backtest/desktop_strategy.py",
+        "dashboard/backtest/engine.py",
+        "dashboard/backtest/hedging.py",
+        "dashboard/backtest/models.py",
+        "dashboard/backtest/registered.config.example.json",
+        "dashboard/backtest/strategy/README.md",
+        "dashboard/backtest/strategy/__init__.py",
+        "dashboard/backtest/strategy/__main__.py",
+        "dashboard/backtest/strategy/artifacts.py",
+        "dashboard/backtest/strategy/config.example.json",
+        "dashboard/backtest/strategy/models.py",
+        "dashboard/backtest/strategy/pipeline.py",
+        "dashboard/backtest/strategy/research_factors.py",
+        "dashboard/backtest/synthetic.py",
+        "dashboard/backtest/test/test_desktop.py",
+        "dashboard/backtest/test/test_workflow.py",
+        "dashboard/backtest/test/validate_stages_ui.py",
+        "dashboard/backtest/workflow.py"
+      ],
+      "configuration_sections": [
+        "data",
+        "factor",
+        "cta",
+        "backtest"
+      ],
+      "independent_functions": [
+        "compute_factors",
+        "generate_cta",
+        "factor_stage",
+        "cta_stage",
+        "backtest_stage"
+      ],
+      "factor_functions": [
+        "annual_basis",
+        "basis_percentile",
+        "price_basis_percentile",
+        "close_percentile",
+        "calendar_spread_percentile"
+      ],
+      "cta_functions": [
+        "fixed",
+        "zscore",
+        "expiry_index",
+        "expiry_spread"
+      ],
+      "artifact_format": "Parquet plus versioned relative manifest and SHA256; independent save/load; CTA has no market loader",
+      "data_config": "single DataConfig; explicit root/files/adapters/versions; duplicate and source conflicts rejected",
+      "factor_scope": "raw numerical values only; no execution margin/multiplier file reads; p remains [0,1]",
+      "centering": "explicit CTA transform 2*p-1",
+      "hedging": "neutral_units: zero summed contract-equivalent weights; exact integer linked index units or opposite spread lots; both leg costs and fees",
+      "holding": "lock actual contracts across slot changes; close both calendar legs on first maturity; d0 and accounting in engine",
+      "desktop_pages": [
+        "data",
+        "factor",
+        "cta",
+        "execution"
+      ],
+      "workflow": "dashboard/backtest/WORKFLOW.md",
+      "template": "dashboard/backtest/config.example.json",
+      "registered_template": "dashboard/backtest/registered.config.example.json",
+      "synthetic_generator": "python -m dashboard.backtest.synthetic --output NEW_DIRECTORY",
+      "local_evidence": "local_artifacts/validation/2026-11-02/framework/",
+      "company_acceptance": "pending_actual_company_run"
     }
   }
 }

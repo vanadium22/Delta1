@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+import json
 from pathlib import Path
 import threading
 import uuid
@@ -24,7 +25,8 @@ from ..native.branding import app_icon, configure_windows_identity
 from ..native.theme import ACCENT, BACKGROUND, BORDER, DOWN, MUTED, PANEL, STYLE, TEXT, UP
 from . import BacktestCancelled, BacktestConfig, DataConfig, load_result
 from .__main__ import load_job
-from .desktop_service import execute_job, inspect_job
+from .configuration import data_declaration, relative_data_path
+from .desktop_service import data_manifest_text, execute_job, inspect_job
 from .desktop_widgets import InlinePicker, ResultCharts, dataframe_view
 from .io import write_json
 
@@ -172,6 +174,9 @@ class BacktestWindow(QMainWindow):
         self._data_page()
         from .desktop_strategy import build_strategy_page
         build_strategy_page(self)
+        self.forms.tabBar().moveTab(1, 0)
+        self.forms.tabBar().moveTab(2, 1)
+        self.forms.tabBar().moveTab(3, 2)
         left.addWidget(self.picker)
         self.risk_note = label("", "risk")
         self.risk_note.setWordWrap(True)
@@ -316,10 +321,13 @@ class BacktestWindow(QMainWindow):
         return edit
 
     def _parameter_page(self):
-        form = self.page("策略与资金")
+        form = self.page("回测执行参数")
         self.path_row(form, "目标指令表", "instructions_path", placeholder="时间 × 合约的目标比例表")
         self.mode = combo(MODES)
         form.addRow("账户分组", self.mode)
+        self.weight_mode = combo([("目标资金占用比例 · 兼容旧输入", "capital"),
+                                  ("合约等价手数权重 · 每品种和为零", "neutral_units")])
+        form.addRow("权重与对冲模式", self.weight_mode)
         self.precision = combo([("日频 · 收盘检查爆仓", "1d"), ("自动 · 对齐输入，逐时点风控", "auto")])
         form.addRow("回测精度 · 权益统一每日收盘输出", self.precision)
         self.workers = QSpinBox()
@@ -366,21 +374,28 @@ class BacktestWindow(QMainWindow):
         self.fields["output_root"].setText(str(REPOSITORY / "outputs/backtest"))
 
     def _data_page(self):
-        form = self.page("行情与参数")
+        form = self.page("数据配置")
         self.source = combo([("已有看板数据 / 共享 data", "history"), ("自己的 close 大表", "wide")])
         form.addRow("行情来源", self.source)
-        self.path_row(form, "共享 data 根目录 · 可留空复用配置", "data_root", directory=True)
-        self.path_row(form, "已有看板配置 · 可选", "dashboard_config_path")
-        for name in ("native.json", "app/native.json", "numeric_excel/native.json"):
-            candidate = REPOSITORY / "dashboard/localsetting" / name
-            if candidate.is_file():
-                self.fields["dashboard_config_path"].setText(str(candidate))
-                break
+        self.path_row(form, "数据根目录 · 相对文件位置以此为基准", "data_root", directory=True)
+        self.path_row(form, "显式旧看板配置适配 · 不自动发现", "dashboard_config_path")
+        self.data_controls = {}
+        for key, title, default in (("dataset_id", "数据集标识", "unversioned_local"),
+                                    ("data_version", "数据版本", "unversioned"), ("source_id", "来源标识", "explicit_local"),
+                                    ("daily_label_time", "日线日期标签时刻 · 上海时间", "15:00")):
+            self.data_controls[key] = QLineEdit(default)
+            form.addRow(title, self.data_controls[key])
+        self.data_manifest_view = QPlainTextEdit()
+        self.data_manifest_view.setReadOnly(True)
+        self.data_manifest_view.setMaximumHeight(180)
+        self.data_manifest_view.setPlaceholderText("检查或运行后显示最终绝对路径、版本和覆盖区间")
+        form.addRow("本轮实际数据清单", self.data_manifest_view)
         self.path_row(form, "原始 close 大表", "close_path")
         self.path_row(form, "分钟 close 大表 · 可选", "minute_close_path")
         self.path_row(form, "日线 close 大表 · 分钟缺失时回退", "daily_close_path")
         self.path_row(form, "剩余自然日大表 · 可选，优先校验合约参考", "days_to_expiry_path")
         self.margin_source = combo([("历史保证金率表", "history"), ("固定比例假设", "fixed")])
+        self.margin_source.setCurrentIndex(1)
         form.addRow("保证金来源", self.margin_source)
         self.path_row(form, "历史保证金率大表 · 小数比例", "margin_rate_path")
         fixed = QWidget()
@@ -388,7 +403,7 @@ class BacktestWindow(QMainWindow):
         grid.setContentsMargins(0, 0, 0, 0)
         self.rates = {}
         for i, root in enumerate(("IF", "IH", "IC", "IM")):
-            item = spin(0, maximum=100)
+            item = spin(100, maximum=100)
             item.setSpecialValueText("未设置")
             item.setSuffix(" %")
             grid.addWidget(label(root), 2 * (i // 2), i % 2)
@@ -397,6 +412,11 @@ class BacktestWindow(QMainWindow):
         form.addRow("固定比例 · 仅选择假设时使用", fixed)
         self.path_row(form, "分红调整价大表 · 可选", "adjusted_close_path")
         self.path_row(form, "分红点数大表 · 与调整价二选一", "dividend_points_path")
+        self.dividend_mode = combo([("需要明确分红输入 · 缺失保留缺失", "required"), ("研究显式忽略分红 · D=0", "ignore")])
+        form.addRow("因子分红假设", self.dividend_mode)
+        self.path_row(form, "逐日分红版本 JSON", "dividend_records_path")
+        self.path_row(form, "逐日分红缓存 · 旧适配器", "dividend_store_root", directory=True)
+        self.path_row(form, "交易日历 CSV/JSON", "calendar_path")
         self.path_row(form, "合约挂牌 / 到期参考 · 临期强平需要", "reference_path")
         self.path_row(form, "乘数大表 · 默认使用品种标准", "multiplier_path")
         self.dividend_policy = combo([("不使用单日快照", "none"), ("快照日后的分红参考", "asof_snapshot"),
@@ -407,6 +427,9 @@ class BacktestWindow(QMainWindow):
         self.history_roots.setPlaceholderText("需要直接指定注册行情数据集时，每行一个目录")
         self.history_roots.setMaximumHeight(85)
         form.addRow("直接指定行情集 · 可选", self.history_roots)
+        self.history_versions = QPlainTextEdit("{}")
+        self.history_versions.setMaximumHeight(85)
+        form.addRow("注册集版本 · JSON {目录:版本}，空对象冻结当前", self.history_versions)
         self.revised = QCheckBox("允许使用历史发布时间未知的修订历史")
         self.revised.setChecked(True)
         form.addRow(self.revised)
@@ -427,7 +450,8 @@ class BacktestWindow(QMainWindow):
     def job(self):
         data = {**self._base_data}
         for key in ("data_root", "dashboard_config_path", "close_path", "minute_close_path", "daily_close_path", "days_to_expiry_path", "margin_rate_path", "reference_path",
-                    "multiplier_path", "adjusted_close_path", "dividend_points_path", "dividend_root"):
+                    "multiplier_path", "adjusted_close_path", "dividend_points_path", "dividend_root", "dividend_records_path",
+                    "dividend_store_root", "calendar_path"):
             data[key] = self.fields[key].text().strip() or None
         if self.source.currentData() != "wide":
             data["close_path"] = None
@@ -436,6 +460,9 @@ class BacktestWindow(QMainWindow):
         elif not any(data[k] for k in ("close_path", "minute_close_path", "daily_close_path")):
             raise ValueError("请选择原始 close、分钟或日线大表")
         data["history_roots"] = tuple(s.strip() for s in self.history_roots.toPlainText().splitlines() if s.strip())
+        data["history_versions"] = json.loads(self.history_versions.toPlainText() or "{}")
+        data.update({key: widget.text().strip() for key, widget in self.data_controls.items()})
+        data["dividend_mode"] = self.dividend_mode.currentData()
         if self.margin_source.currentData() == "fixed":
             rates = {k: v for k, v in data.get("margin_rates", {}).items() if k not in self.rates}
             rates.update({k: s.value() / 100 for k, s in self.rates.items() if s.value() > 0})
@@ -445,6 +472,7 @@ class BacktestWindow(QMainWindow):
         data.update(dividend_policy=self.dividend_policy.currentData(),
                     allow_unverified_availability=self.revised.isChecked(), trusted_pickle=self.trusted.isChecked())
         config = {**self._base_config, "initial_capital": self.capital.value(), "mode": self.mode.currentData(),
+                  "weight_mode": self.weight_mode.currentData(),
                   "precision": self.precision.currentData(), "workers": self.workers.value(),
                   "d0": self.d0.value() if self.expiry_enabled.isChecked() else None,
                   "rebalance_on_change_only": self.on_change.isChecked(),
@@ -460,7 +488,7 @@ class BacktestWindow(QMainWindow):
         identifier = pd.Timestamp.now(tz="Asia/Shanghai").strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
         from .desktop_strategy import strategy_settings
         return dict(instructions_path=self.fields["instructions_path"].text().strip() or None,
-                    data=asdict(data), backtest=asdict(config),
+                    data=data_declaration(data), backtest=asdict(config),
                     output_dir=str(Path(output_root).expanduser().resolve() / ("run_" + identifier)),
                     ui=dict(output_root=str(Path(output_root).expanduser().resolve())), **strategy_settings(self))
 
@@ -476,12 +504,14 @@ class BacktestWindow(QMainWindow):
             self._base_data, self._base_config = asdict(data), asdict(config)
             for key, field in self.fields.items():
                 if key not in {"instructions_path", "output_root"}:
-                    field.setText(str(getattr(data, key) or ""))
+                    value = getattr(data, key)
+                    field.setText(str((relative_data_path(value, data.data_root) if key != "data_root" else value) or ""))
             self.fields["instructions_path"].setText(str(job.get("instructions_path") or ""))
             ui_root = job.get("ui", {}).get("output_root")
             output = ui_root or (str(Path(job["output_dir"]).parent) if job.get("output_dir") else str(REPOSITORY / "outputs/backtest"))
             self.fields["output_root"].setText(str((Path(path).resolve().parent / Path(output).expanduser()).resolve()))
             for widget, value in ((self.mode, config.mode), (self.precision, config.precision),
+                                  (self.weight_mode, config.weight_mode), (self.dividend_mode, data.dividend_mode),
                                   (self.basis, config.margin_call_basis), (self.dividend_policy, data.dividend_policy),
                                   (self.epoch, config.timestamp_unit), (self.nan_policy, config.nan_policy),
                                   (self.source, "wide" if data.close_path or data.minute_close_path or data.daily_close_path else "history"),
@@ -501,11 +531,16 @@ class BacktestWindow(QMainWindow):
             self.start.setText(str(config.start or ""))
             self.end.setText(str(config.end or ""))
             self.date_at.setText(config.date_at)
-            self.history_roots.setPlainText("\n".join(map(str, data.history_roots)))
+            declarations = data_declaration(data)
+            self.history_roots.setPlainText("\n".join(declarations["history_roots"]))
+            self.history_versions.setPlainText(json.dumps(declarations["history_versions"], ensure_ascii=False, indent=2))
+            for key, widget in self.data_controls.items():
+                widget.setText(str(getattr(data, key)))
             from .desktop_strategy import apply_strategy_settings
             apply_strategy_settings(self, job)
             for root, field in self.rates.items():
                 field.setValue(data.margin_rates.get(root, 0) * 100)
+            self.factor_result = None
             self._config_path = Path(path).resolve()
             self.show_status(f"已读取配置：{self._config_path}")
         except (ValueError, TypeError, OSError) as exc:
@@ -617,6 +652,7 @@ class BacktestWindow(QMainWindow):
     def display_inspection(self, payload):
         self.inspection = payload
         report = payload["report"]
+        self.data_manifest_view.setPlainText(data_manifest_text(report))
         instruction = report["instructions"]
         missing = report["required_missing"]
         message = (f"指令 {instruction['rows']:,} 行 / {len(instruction['symbols'])} 个标的；"
@@ -645,6 +681,7 @@ class BacktestWindow(QMainWindow):
         self.output_path.setToolTip(self.output_path.text())
         self.result_note.setText(f"{len(result.accounts)} 个账户  ·  {len(result.actual_orders):,} 条开平仓记录")
         source = result.metadata.get("market_data", {})
+        self.data_manifest_view.setPlainText(data_manifest_text(source))
         rates = source.get("margin_source")
         description = []
         if isinstance(rates, dict) and rates:

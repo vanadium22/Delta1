@@ -16,7 +16,7 @@ from ..models import (BacktestConfig, BacktestError, DataConfig, check_cancelled
 from .cta import cta_targets
 from .factors import annual_basis, basis_percentile
 from .mapping import slot_mapping, to_actual
-from .models import ContinuousPanel, CTAConfig, FactorConfig, StrategyDataConfig, StrategyResult
+from .models import ContinuousPanel, CTAConfig, CTAResult, FactorConfig, FactorResult, StrategyDataConfig, StrategyResult
 
 
 def _load_market(data, factors, cancel_event, progress):
@@ -38,7 +38,10 @@ def _load_market(data, factors, cancel_event, progress):
     # minute/daily configuration independently when consuming these targets.
     selected = replace(data, close_path=chosen, minute_close_path=None, daily_close_path=None,
                        frequency="1d" if factors.precision == "1d" else data.frequency)
-    return load_market_data(selected, cancel_event=cancel_event, progress=progress)
+    market = load_market_data(selected, cancel_event=cancel_event, progress=progress)
+    if chosen == data.daily_close_path and market.close.index.normalize().duplicated().any():
+        raise BacktestError("daily_close_path must contain at most one close timestamp per day")
+    return market
 
 
 def _calendar(path, timezone):
@@ -139,24 +142,38 @@ def prepare_panel(market, config, sources, *, dividend_book=None, dividend_point
     return ContinuousPanel(future, spot, dividends, days, mapping, extras, metadata, revisions)
 
 
-def generate_strategy(*, market_data=None, data_config=None, source_config=None, factor_config=None,
-                      cta_config=None, factor_name="basis_percentile", data_loader=None,
+def compute_factors(*, market_data=None, data_config=None, source_config=None, factor_config=None,
+                      factor_name="basis_percentile", data_loader=None,
                       dividend_book=None, dividend_points=None, extra_data=None, factor_definitions=(),
-                      factor_parameters=None, include_examples=True, calendar=None, start=None, end=None, output_dir=None,
+                      factor_parameters=None, include_examples=True, requested_only=False, load_execution_parameters=False,
+                      calendar=None, output_dir=None,
                       cancel_event=None, progress=None):
     """Custom data_loader(DataConfig)->MarketData; custom factors declare their inputs."""
-    data, source = data_config or DataConfig(), source_config or StrategyDataConfig()
+    data = data_config or DataConfig()
+    source = source_config or StrategyDataConfig(dividend_store_root=data.dividend_store_root,
+        dividend_records_path=data.dividend_records_path, calendar_path=data.calendar_path)
     factors = factor_config or FactorConfig()
-    cta = cta_config or CTAConfig(transform="center_percentile" if factor_name == "basis_percentile" else "identity")
     check_cancelled(cancel_event)
+    reading = data if load_execution_parameters else replace(data, margin_rate_path=None, margin_rates={}, multiplier_path=None, multipliers={})
     market = market_data if market_data is not None else (
-        data_loader(data) if data_loader is not None else _load_market(data, factors, cancel_event, progress))
+        data_loader(reading) if data_loader is not None else _load_market(reading, factors, cancel_event, progress))
+    if data.dividend_mode == "ignore":
+        if dividend_book is not None or dividend_points is not None or source.dividend_store_root or source.dividend_records_path:
+            raise BacktestError("Explicit ignore-dividend assumption conflicts with supplied research dividends")
+        dividend_points = pd.DataFrame(0.0, index=market.close.index, columns=market.close.columns)
     panel = prepare_panel(market, factors, source, dividend_book=dividend_book, dividend_points=dividend_points,
-                          extra_data=extra_data, calendar=calendar, cancel_event=cancel_event, require_dividends=include_examples)
+                          extra_data=extra_data, calendar=calendar, cancel_event=cancel_event,
+                          require_dividends=include_examples and factor_name in {"annual_basis", "basis_percentile"})
     values = {}
     if include_examples:
-        annual = annual_basis(panel, factors)
-        values.update(annual_basis=annual, basis_percentile=basis_percentile(panel, annual, factors, cancel_event=cancel_event))
+        if factor_name not in {"close_percentile", "price_basis_percentile", "calendar_spread_percentile"}:
+            annual = annual_basis(panel, factors)
+            values["annual_basis"] = annual
+            if not requested_only or factor_name != "annual_basis":
+                values["basis_percentile"] = basis_percentile(panel, annual, factors, cancel_event=cancel_event)
+        else:
+            from .research_factors import research_factor
+            values[factor_name] = research_factor(factor_name, panel, factors, cancel_event=cancel_event)
     definitions = []
     for definition in factor_definitions:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", definition.name) or definition.name in values:
@@ -175,39 +192,75 @@ def generate_strategy(*, market_data=None, data_config=None, source_config=None,
         definitions.append(dict(name=definition.name, data=definition.required_data, parameters=definition.required_parameters))
     if factor_name not in values:
         raise BacktestError(f"Unknown factor {factor_name!r}")
-    weights, scores = cta_targets(values[factor_name], cta, cancel_event=cancel_event)
     actual = {name: to_actual(frame, panel.mapping) for name, frame in values.items()}
-    targets = to_actual(weights, panel.mapping, fill=0.0)
-    actual_scores = to_actual(scores, panel.mapping)
-    left, right = time_bound(start), time_bound(end, end=True)
-    selected = np.ones(len(targets), dtype=bool)
-    if left is not None:
-        selected &= targets.index >= left
-    if right is not None:
-        selected &= targets.index <= right
-    targets, actual_scores = targets.loc[selected], actual_scores.loc[selected]
-    actual = {name: frame.loc[selected] for name, frame in actual.items()}
-    if targets.empty:
-        raise BacktestError("No mapped target rows remain in the selected strategy interval")
     quality = {name: dict(valid_cells=int(frame.notna().sum().sum()), total_cells=int(frame.size))
                for name, frame in actual.items()}
     warnings = []
-    if include_examples and quality["basis_percentile"]["valid_cells"] == 0:
+    if "basis_percentile" in quality and quality["basis_percentile"]["valid_cells"] == 0:
         warnings.append("无完整历史分位窗口；检查历史价格、逐日分红、T、映射和窗口长度，不缩短窗口或填零")
-    if include_examples and quality["annual_basis"]["valid_cells"] == 0:
+    if "annual_basis" in quality and quality["annual_basis"]["valid_cells"] == 0:
         warnings.append("无有效年化基差；检查 F/S/D/T 及最小剩余天数")
+    if quality[factor_name]["valid_cells"] == 0 and factor_name not in {"annual_basis", "basis_percentile"}:
+        warnings.append("所选因子无有效单元格；检查完整历史窗口、价格和连续映射，不填零或缩短窗口")
     if panel.metadata["mapping_gaps"]:
         warnings.append("部分日期缺完整四档映射；详见 panel.mapping_gaps")
-    metadata = dict(factor_config=asdict(factors), cta_config=asdict(cta), factor_name=factor_name,
+    metadata = dict(factor_config=asdict(factors), factor_name=factor_name,
                     factor_units={"annual_basis": "percentage_points", "basis_percentile": "0_to_1"},
                     percentile="previous window_days daily slots; current date excluded; ties half weight; known T<min_annual_days excluded; other missing days invalidate window",
-                    cta="abs(score)>open enters with sign; abs(score)<close exits; otherwise holds; strong opposite score reverses",
-                    zscore="previous lookback_window daily closes only; ddof=0; no current-day or future values",
                     output_columns="concrete_contracts_only", custom_factors=definitions, panel=panel.metadata,
-                    market=market.metadata, quality=quality, warnings=warnings, target_fingerprint=frame_fingerprint(targets))
-    result = StrategyResult(actual, values, targets, actual_scores, panel, metadata, market_data=market)
+                    market=market.metadata, quality=quality, warnings=warnings, dividend_mode=data.dividend_mode,
+                    factor_fingerprints={k: frame_fingerprint(v) for k, v in values.items()})
+    result = FactorResult(actual, values, panel, market.contracts, metadata, market_data=market)
     if output_dir is not None:
         check_cancelled(cancel_event)
+        result.save(output_dir)
+    return result
+
+
+def generate_cta(factors, *, factor_name=None, cta_config=None, start=None, end=None,
+                 output_dir=None, cancel_event=None):
+    """Only numerical factor results + dated mapping; no market loader or recomputation."""
+    name = factor_name or factors.metadata["factor_name"]
+    if name not in factors.continuous_factors:
+        raise BacktestError(f"Input factor artifact does not contain {name}")
+    config = cta_config or CTAConfig()
+    weights, scores = cta_targets(factors.continuous_factors[name], config, cancel_event=cancel_event)
+    targets = to_actual(weights, factors.panel.mapping, fill=0.0)
+    scores = to_actual(scores, factors.panel.mapping)
+    selected = _interval(targets.index, start, end)
+    targets, scores = targets.loc[selected], scores.loc[selected]
+    if targets.empty:
+        raise BacktestError("No mapped target rows remain in the selected strategy interval")
+    result = CTAResult(targets, scores, dict(cta_config=asdict(config), input_factor=name,
+                       factor_fingerprint=frame_fingerprint(factors.continuous_factors[name]),
+                       target_fingerprint=frame_fingerprint(targets)))
+    if output_dir is not None:
+        check_cancelled(cancel_event)
+        result.save(output_dir)
+    return result
+
+
+def _interval(index, start, end):
+    left, right = time_bound(start), time_bound(end, end=True)
+    return ((index >= left) if left is not None else np.ones(len(index), dtype=bool)) & (
+        (index <= right) if right is not None else True)
+
+
+def generate_strategy(*, cta_config=None, start=None, end=None, output_dir=None, **kwargs):
+    """Compatibility composition of the two independently callable stages."""
+    kwargs.setdefault("load_execution_parameters", True)
+    factors = compute_factors(**kwargs)
+    if cta_config is None:
+        cta_config = CTAConfig(transform="center_percentile" if factors.metadata["factor_name"] == "basis_percentile" else "identity")
+    signals = generate_cta(factors, factor_name=kwargs.get("factor_name"), cta_config=cta_config,
+                           start=start, end=end, cancel_event=kwargs.get("cancel_event"))
+    selected = _interval(factors.panel.mapping.index, start, end)
+    metadata = dict(factors.metadata, cta_config=signals.metadata["cta_config"],
+                    target_fingerprint=signals.metadata["target_fingerprint"])
+    result = StrategyResult({k: v.loc[selected] for k, v in factors.factors.items()}, factors.continuous_factors,
+                            signals.targets, signals.scores, factors.panel, metadata, market_data=factors.market_data)
+    if output_dir is not None:
+        check_cancelled(kwargs.get("cancel_event"))
         result.save(output_dir)
     return result
 

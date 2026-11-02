@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ def read_frame(path, *, trusted_pickle=False) -> pd.DataFrame:
     from .models import check_source_paths
     check_source_paths(path)
     path = Path(path).expanduser().resolve()
+    check_source_paths(path)
     if not path.is_file():
         raise BacktestError(f"Input does not exist: {path}")
     suffix = path.suffix.lower()
@@ -48,26 +50,27 @@ def read_frame(path, *, trusted_pickle=False) -> pd.DataFrame:
 
 def resolve_paths(config: DataConfig) -> dict:
     """Select existing paths without modifying native.json or inheriting credentials."""
-    native_path = Path(config.dashboard_config_path or DASHBOARD_ROOT / "localsetting/native.json").resolve()
+    native_path = Path(config.dashboard_config_path).resolve() if config.dashboard_config_path else None
     native = {}
     supplied = config.close_path or config.minute_close_path or config.daily_close_path
-    if not config.data_root and not config.history_roots and not supplied and native_path.is_file():
+    if native_path is not None:
+        if not native_path.is_file():
+            raise BacktestError(f"Configured legacy dashboard configuration does not exist: {native_path}")
         raw = json.loads(native_path.read_text(encoding="utf-8-sig"))
         native = {k: raw.get(k) for k in ("history_roots", "reference_file", "dividend_root")}
     roots = list(config.history_roots or native.get("history_roots") or [])
     if not roots and not supplied:
-        base = Path(config.data_root).expanduser().resolve() if config.data_root else DASHBOARD_ROOT.parent / "data"
+        if not config.data_root:
+            raise BacktestError("No data source configured: set data_root, history_roots or wide price paths; implicit native discovery is disabled")
+        base = Path(config.data_root).expanduser().resolve()
         normalized = base / "market/index_futures/dashboard/normalized"
         for kind in ("cn_index", "cn_index_future"):
-            candidates = [normalized / ("backfilled_" + kind), normalized / kind]
+            candidates = [normalized / kind]
             selected = None
             for candidate in candidates:
                 if not (candidate / "current.json").is_file():
                     continue
-                try:
-                    check_market_source(_store(candidate).descriptor)
-                except BacktestError:
-                    continue
+                check_market_source(_store(candidate).descriptor)
                 selected = candidate
                 break
             if selected:
@@ -75,16 +78,57 @@ def resolve_paths(config: DataConfig) -> dict:
     def resolve(value):
         if not value:
             return None
-        return str(Path(value).expanduser().resolve())
+        base = native_path.parent if native_path else Path(config.data_root or Path.cwd())
+        return str((base / Path(value).expanduser()).resolve())
     dividend = config.dividend_root or native.get("dividend_root")
     if not dividend and config.data_root:
         dividend = Path(config.data_root) / "dividends/index_futures/inputs"
     from .models import check_source_paths
     check_source_paths([roots, config.reference_path or native.get("reference_file"), dividend])
-    return dict(history_roots=[resolve(p) for p in roots],
+    resolved_roots = [resolve(p) for p in roots]
+    if len({Path(p) for p in resolved_roots}) != len(resolved_roots):
+        raise BacktestError("Duplicate history_roots paths")
+    files = {name: str(Path(getattr(config, name)).resolve()) for name in config.__dataclass_fields__
+             if name.endswith("_path") and getattr(config, name)}
+    return dict(history_roots=resolved_roots,
                 reference_path=resolve(config.reference_path or native.get("reference_file")),
                 dividend_root=resolve(dividend),
-                dashboard_config_path=str(native_path) if native else None)
+                dashboard_config_path=str(native_path) if native else None, files=files,
+                dataset_id=config.dataset_id, data_version=config.data_version, source_id=config.source_id,
+                history_versions=dict(config.history_versions))
+
+
+def frozen_snapshot(store, config):
+    snapshot = store.snapshot(config.history_versions.get(str(store.root.resolve())))
+    check_market_source(snapshot.get("descriptor", store.descriptor))
+    return snapshot
+
+
+def input_manifest(config, paths, close):
+    """Small reproducibility manifest; no market values or credential-bearing config."""
+    files = {}
+    declared = dict(paths.get("files", {}))
+    if paths.get("reference_path"):
+        declared["reference_path"] = paths["reference_path"]
+    for name, value in declared.items():
+        if name == "dashboard_config_path":
+            files[name] = dict(path=value)
+            continue
+        path = Path(value)
+        if not path.is_file():
+            raise BacktestError(f"Configured input does not exist: {path}")
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        files[name] = dict(path=value, bytes=path.stat().st_size, sha256=digest.hexdigest())
+    coverage = []
+    for symbol in close:
+        valid = close[symbol].dropna()
+        coverage.append(dict(symbol=symbol, rows=len(valid), start=str(valid.index.min()), end=str(valid.index.max())))
+    return dict(dataset_id=config.dataset_id, data_version=config.data_version, source_id=config.source_id,
+                paths=paths, files=files, coverage=coverage, dividend_mode=config.dividend_mode,
+                daily_label_time=config.daily_label_time, timezone="Asia/Shanghai")
 
 
 def _store(root):
@@ -96,13 +140,36 @@ def _store(root):
 def _reference(path):
     if not path:
         return {}
-    raw = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    path = Path(path)
+    if path.suffix.lower() == ".json":
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        rows = raw.get("contracts", []) if isinstance(raw, dict) else raw
+    elif path.suffix.lower() in {".parquet", ".csv", ".tsv"}:
+        rows = (pd.read_parquet(path) if path.suffix.lower() == ".parquet" else
+                pd.read_csv(path, sep="\t" if path.suffix.lower() == ".tsv" else ",")).to_dict("records")
+        required = {"instrument_id", "root", "listing_date", "expiry_date"}
+        if not rows or any(required - set(row) or any(pd.isna(row[k]) for k in required) for row in rows):
+            raise BacktestError("Standard reference requires instrument_id, root, listing_date and expiry_date in every row")
+    else:
+        raise BacktestError("Contract reference must use parquet, csv, tsv or legacy JSON")
     contracts = {}
-    for row in sorted(raw.get("contracts", []), key=lambda r: r.get("known_at", "")):
-        symbol = row["instrument_id"]
+    for original in sorted(rows, key=lambda r: str(r.get("known_at", ""))):
+        row = {k: v for k, v in original.items() if pd.notna(v)}
+        symbol = normalize_symbol(row.get("instrument_id", row.get("symbol", "")))
+        if not symbol.endswith(".CFE"):
+            raise BacktestError("Contract reference requires actual futures codes")
+        row["instrument_id"] = symbol
+        if row.get("root", symbol[:2]) != symbol[:2]:
+            raise BacktestError(f"Contract root conflicts with actual symbol: {symbol}")
+        row["root"] = symbol[:2]
+        for key in ("listing_date", "expiry_date"):
+            if row.get(key):
+                row[key] = str(pd.Timestamp(row[key]).date())
+        if row.get("listing_date") and row.get("expiry_date") and row["listing_date"] > row["expiry_date"]:
+            raise BacktestError(f"Invalid listing/expiry interval: {symbol}")
         previous = contracts.get(symbol)
         if previous and previous.get("known_at") == row.get("known_at") and any(
-            previous.get(k) != row.get(k) for k in ("listing_date", "expiry_date")
+            previous.get(k) != row.get(k) for k in ("listing_date", "expiry_date", "root", "multiplier")
         ):
             raise BacktestError(f"Conflicting reference versions for {symbol} in {path}")
         contracts[symbol] = row
@@ -133,8 +200,16 @@ def parameter_frame(value, close: pd.DataFrame, *, kind: str, timezone="Asia/Sha
 
 
 def _wide(path, config, *, label, timezone, date_at="15:00"):
-    return normalize_frame(read_frame(path, trusted_pickle=config.trusted_pickle), label=label,
-                           timezone=timezone, date_at=date_at)
+    raw = read_frame(path, trusted_pickle=config.trusted_pickle)
+    if date_at == "15:00":
+        date_at = config.daily_label_time
+    frame = normalize_frame(raw, label=label, timezone=timezone, date_at=date_at)
+    if date_at is not None:
+        clock = pd.Timedelta(date_at + (":00" if len(date_at) == 5 else ""))
+        frame.index = frame.index.where(frame.index != frame.index.normalize(), frame.index + clock)
+    if frame.index.duplicated().any():
+        raise BacktestError(f"{label} has duplicate timestamps after date label conversion")
+    return frame.sort_index()
 
 
 def align_dividend_points(points, close):
@@ -161,9 +236,14 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
     left, right = time_bound(start, timezone=timezone), time_bound(end, end=True, timezone=timezone)
     metadata = dict(source="wide_files" if config.close_path else "dashboard_registered_history",
                     paths=paths, datasets=[], warnings=[], price_forward_fill=False)
-    if config.close_path:
-        close = _wide(config.close_path, config, label="close", timezone=timezone)
-        metadata["close_path"] = str(Path(config.close_path).resolve())
+    price_path = config.close_path or (config.daily_close_path if config.frequency == "1d" else config.minute_close_path)
+    price_path = price_path or config.minute_close_path or config.daily_close_path
+    if price_path:
+        close = _wide(price_path, config, label="close", timezone=timezone,
+                      date_at=None if price_path == config.minute_close_path else config.daily_label_time)
+        if price_path == config.daily_close_path and close.index.normalize().duplicated().any():
+            raise BacktestError("daily_close_path must contain at most one close timestamp per day")
+        metadata["close_path"] = str(Path(price_path).resolve())
     else:
         if not paths["history_roots"]:
             raise BacktestError("No history found; set data_root, history_roots, or close_path")
@@ -173,7 +253,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             if progress:
                 progress(dict(stage="loading", message="正在读取本地行情", source=root))
             store = _store(root)
-            snapshot = store.snapshot()
+            snapshot = frozen_snapshot(store, config)
             descriptor = snapshot.get("descriptor", store.descriptor)
             check_market_source(descriptor)
             if descriptor.get("price_adjustment") != "none" or descriptor.get("series_kind") != "concrete":
@@ -217,12 +297,11 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
         if invalid.any():
             raise BacktestError(f"Non-positive close for {symbol} at {close.index[invalid][0]}")
     contracts = _reference(paths["reference_path"])
-    multiplier = (_wide(config.multiplier_path, config, label="multiplier", timezone=timezone, date_at="00:00")
-                  if config.multiplier_path else {**DEFAULT_MULTIPLIERS, **config.multipliers})
+    multiplier = load_multipliers(config, contracts, timezone=timezone)
     margin = (_wide(config.margin_rate_path, config, label="margin_rate", timezone=timezone, date_at="00:00")
               if config.margin_rate_path else dict(config.margin_rates))
     metadata["margin_source"] = str(Path(config.margin_rate_path).resolve()) if config.margin_rate_path else dict(config.margin_rates)
-    metadata["multiplier_source"] = str(Path(config.multiplier_path).resolve()) if config.multiplier_path else multiplier
+    metadata["multiplier_source"] = multiplier_source(config)
     adjusted = None
     if config.adjusted_close_path:
         adjusted = _wide(config.adjusted_close_path, config, label="adjusted_close", timezone=timezone).reindex_like(close)
@@ -261,7 +340,23 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
     check_cancelled(cancel_event)
     remaining = (_wide(config.days_to_expiry_path, config, label="days_to_expiry", timezone=timezone, date_at="00:00")
                  if config.days_to_expiry_path else None)
+    metadata.update(input_manifest(config, paths, close))
     return MarketData(close, multiplier, margin, adjusted, contracts, metadata, days_to_expiry=remaining)
+
+
+def load_multipliers(config, contracts, *, timezone="Asia/Shanghai"):
+    if config.multiplier_path:
+        return _wide(config.multiplier_path, config, label="multiplier", timezone=timezone, date_at="00:00")
+    reference = {s: float(r["multiplier"]) for s, r in contracts.items() if r.get("multiplier") is not None}
+    for symbol in reference:
+        if symbol[:2] in config.multipliers:
+            reference[symbol] = float(config.multipliers[symbol[:2]])
+    return {**DEFAULT_MULTIPLIERS, **reference, **config.multipliers}
+
+
+def multiplier_source(config):
+    return dict(path=config.multiplier_path, policy="table exclusive; otherwise explicit symbol > explicit root > reference symbol > built-in root",
+                builtin=dict(DEFAULT_MULTIPLIERS), overrides=dict(config.multipliers))
 
 
 def audit_data(config: DataConfig | None = None) -> dict:
@@ -269,13 +364,15 @@ def audit_data(config: DataConfig | None = None) -> dict:
     config = config or DataConfig()
     paths = resolve_paths(config)
     report = dict(paths=paths, frequency=config.frequency, coverage=[], datasets=[],
+                  dataset_id=config.dataset_id, data_version=config.data_version, dividend_mode=config.dividend_mode,
                   spot_mapping={v: k for k, v in INDEX_SYMBOLS.items()},
                   margin_rate_path=str(config.margin_rate_path) if config.margin_rate_path else None,
                   configured_margin_rates=dict(config.margin_rates), multipliers={**DEFAULT_MULTIPLIERS, **config.multipliers},
                   missing=[], notes=[])
     table_paths = list(dict.fromkeys(str(p) for p in (config.minute_close_path, config.close_path, config.daily_close_path) if p))
     if table_paths:
-        frames = [_wide(p, config, label="close", timezone="Asia/Shanghai") for p in table_paths]
+        frames = [_wide(p, config, label="close", timezone="Asia/Shanghai",
+                        date_at=None if p == config.minute_close_path else config.daily_label_time) for p in table_paths]
         frame = frames[0]
         for extra in frames[1:]:
             frame = frame.combine_first(extra)
@@ -285,7 +382,7 @@ def audit_data(config: DataConfig | None = None) -> dict:
     for root in paths["history_roots"] if not table_paths else []:
         store = _store(root)
         check_market_source(store.descriptor)
-        snapshot = store.snapshot()
+        snapshot = frozen_snapshot(store, config)
         grouped = defaultdict(list)
         for part in snapshot["parts"]:
             if part["frequency"] == config.frequency:
@@ -301,7 +398,9 @@ def audit_data(config: DataConfig | None = None) -> dict:
     report["reference_fields"] = sorted(set().union(*(r.keys() for r in reference.values()))) if reference else []
     if not config.margin_rate_path and not config.margin_rates:
         report["missing"].append("Historical margin rates: supply margin_rate_path or explicitly assumed margin_rates")
-    if config.adjusted_close_path or config.dividend_points_path:
+    if config.dividend_mode == "ignore":
+        report["notes"].append("Explicit research assumption: D=0; missing observations have not been filled")
+    elif config.adjusted_close_path or config.dividend_points_path:
         dividend_path = Path(config.adjusted_close_path or config.dividend_points_path).resolve()
         report["dividend_input"] = dict(path=str(dividend_path), exists=dividend_path.is_file())
         if not dividend_path.is_file():

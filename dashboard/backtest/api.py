@@ -51,6 +51,22 @@ def run_backtest(instructions: pd.DataFrame | None = None, *,
         contracts = market_data.contracts if market_data is not None else _reference(resolve_paths(data_config)["reference_path"])
         targets, _ = expand_slot_targets(normalized.fillna(0) if config.nan_policy == "zero" else normalized,
                                          contracts, timezone=config.timezone, date_at=config.date_at)
+    if config.weight_mode == "neutral_units" and not config.hedges and any(s.endswith("_spot") for s in targets):
+        from .data import load_multipliers
+        from .hedging import index_hedges
+        references = market_data.contracts if market_data is not None else _reference(resolve_paths(data_config)["reference_path"])
+        multiples = market_data.multiplier if market_data is not None else load_multipliers(data_config, references)
+        if isinstance(multiples, pd.DataFrame):
+            chosen = {}
+            for symbol in targets:
+                if not symbol.endswith(".CFE"):
+                    continue
+                values = multiples[symbol].dropna().unique() if symbol in multiples else []
+                if len(values) != 1:
+                    raise BacktestError("Neutral index hedge requires one explicit constant multiplier per contract")
+                chosen[symbol] = float(values[0])
+            multiples = chosen
+        parameters = replace(parameters, hedges=index_hedges(targets.columns, multiples))
     if market_data is None:
         market_data = load_event_market_data(data_config, targets.fillna(0) if config.nan_policy == "zero" else targets,
                                             parameters, cancel_event=cancel_event, progress=progress)

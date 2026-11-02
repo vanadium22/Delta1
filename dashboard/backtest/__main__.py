@@ -19,18 +19,29 @@ def load_job(path):
     data = job.setdefault("data", {})
     def resolve(value):
         return str((path.parent / Path(value).expanduser()).resolve()) if value else value
+    if data.get("data_root"):
+        data["data_root"] = resolve(data["data_root"])
+    data_base = Path(data["data_root"]) if data.get("data_root") else path.parent
+    def data_path(value):
+        return str((data_base / Path(value).expanduser()).resolve()) if value else value
     for key in (f.name for f in fields(DataConfig)):
-        if key.endswith("_path") or key in {"data_root", "dividend_root"}:
+        if key.endswith("_path") or key in {"data_root", "dividend_root", "dividend_store_root"}:
             if key in data:
-                data[key] = resolve(data[key])
+                data[key] = data_path(data[key])
     if data.get("history_roots"):
-        data["history_roots"] = [resolve(p) for p in data["history_roots"]]
-    for key in ("instructions_path", "output_dir"):
+        data["history_roots"] = [data_path(p) for p in data["history_roots"]]
+    if data.get("history_versions"):
+        data["history_versions"] = {data_path(p): v for p, v in data["history_versions"].items()}
+    for key in ("instructions_path", "output_dir", "factor_input"):
         if key in job:
             job[key] = resolve(job[key])
     for key, value in job.get("strategy_data", {}).items():
         if key.endswith("_path") or key.endswith("_root"):
             job["strategy_data"][key] = resolve(value)
+            if data.get(key) and data[key] != job["strategy_data"][key]:
+                raise BacktestError(f"Conflicting data and legacy strategy_data paths: {key}")
+            if value:
+                data[key] = job["strategy_data"][key]
     return job
 
 

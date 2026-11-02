@@ -13,7 +13,7 @@ from .calendar import verified_days
 from .hedging import index_hedges
 from .io import write_json
 from .models import BacktestConfig, BacktestError, DataConfig, check_cancelled, check_market_source, normalize_frame
-from .strategy import FactorConfig, generate_strategy, hold_to_expiry_targets
+from .strategy import FactorConfig, compute_factors, hold_to_expiry_targets
 from .strategy.factors import previous_windows
 from .strategy.pipeline import _load_market
 
@@ -26,7 +26,7 @@ class CarryStudyConfig:
     window_days: int = 60
     thresholds: tuple[float, ...] = (.9, .8)
     initial_capital: float = 10_000_000
-    margin_rate: float = .15
+    margin_rate: float = 1.0
     commission_rate: float = .0003
     max_capital_usage: float = .99
     min_annual_days: int = 5
@@ -143,7 +143,7 @@ def run_carry_study(*, data_config=None, market_data=None, config=None, output_d
     market = replace(market, close=daily, daily_close=daily, daily_fallback=None, adjusted_close=None,
                      margin_rate={r:config.margin_rate for r in ("IF", "IH", "IC", "IM")})
     zeros = pd.DataFrame(0.0, index=daily.index.normalize(), columns=daily.columns)
-    factors = generate_strategy(market_data=market, dividend_points=zeros, factor_config=factor_config,
+    factors = compute_factors(market_data=market, dividend_points=zeros, factor_config=factor_config,
                                  calendar=verified_days(calendar_begin, actual_end), output_dir=root / "factors",
                                  cancel_event=cancel_event, progress=progress)
     factor_table = _factor_table(factors, config)

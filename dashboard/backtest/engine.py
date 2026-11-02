@@ -30,7 +30,7 @@ def _require(values, needed, symbols, now, field, *, upper=None):
         raise BacktestError(f"Missing or invalid {field} for {names} at {now}; no price filling or silent order skipping")
 
 
-def _targets(weights, equity, prices, multipliers, rates, current, config, locked=None, pairs=()):
+def _targets(weights, equity, prices, multipliers, rates, current, config, locked=None, pairs=(), symbols=()):
     """Preserve literal margin weights; cap only excess gross exposure and fees."""
     gross = float(np.abs(weights).sum())
     if not np.isfinite(gross):
@@ -48,8 +48,25 @@ def _targets(weights, equity, prices, multipliers, rates, current, config, locke
     raw_lots = np.zeros(len(current))
     sizing_margin = unit_margin.copy()
     for primary, hedge, ratio in pairs:
+        if config.weight_mode == "neutral_units" and nonzero[primary] and multipliers[primary] + ratio * multipliers[hedge] != 0:
+            raise BacktestError("Index quantity ratio must exactly offset the futures multiplier")
         sizing_margin[primary] += abs(ratio) * unit_margin[hedge]
     raw_lots[nonzero] = equity * effective[nonzero] / sizing_margin[nonzero]
+    if config.weight_mode == "neutral_units":
+        # Non-index pairs share an integer lot count. Their equal weights are
+        # quantity proportions; budget still uses both actual margin costs.
+        linked = {p for p, _, _ in pairs} | {h for _, h, _ in pairs}
+        # Equal nonzero magnitudes can be sized together without prices changing
+        # their relative lots. Index-linked weights were collapsed by run_engine.
+        unlinked = np.array([j not in linked for j in range(len(current))]) & nonzero
+        for root in {s[:2] for s in symbols}:
+            group = unlinked & np.array([s.startswith(root) for s in symbols])
+            if group.any():
+                if not np.allclose(multipliers[group], multipliers[group][0], rtol=0, atol=0):
+                    raise BacktestError("Neutral calendar-spread futures must have identical multipliers")
+                budget = float(np.abs(effective[group]).sum()) * equity
+                cost = float(unit_margin[group].sum())
+                raw_lots[group] = np.sign(effective[group]) * budget / cost
     if not np.isfinite(raw_lots).all() or np.abs(raw_lots).max(initial=0) > 2**53:
         raise BacktestError("Target size exceeds supported exact integer range")
     target[:] = np.trunc(raw_lots).astype(np.int64)
@@ -57,6 +74,17 @@ def _targets(weights, equity, prices, multipliers, rates, current, config, locke
     target = link_quantities(target, pairs)
     effective[locked] = current[locked] * unit_margin[locked] / equity
     def response(candidate):
+        if config.weight_mode == "neutral_units":
+            for primary, _, _ in pairs:
+                effective[primary] = candidate[primary] * sizing_margin[primary] / equity / 2
+            for hedge in {h for _, h, _ in pairs}:
+                effective[hedge] = -sum(effective[p] for p, h, _ in pairs if h == hedge)
+            linked = {p for p, _, _ in pairs} | {h for _, h, _ in pairs}
+            for root in {s[:2] for s in symbols}:
+                group = np.array([j not in linked and s.startswith(root) for j, s in enumerate(symbols)])
+                allocation = float((np.abs(candidate[group]) * unit_margin[group]).sum()) / equity / 2
+                effective[group] = np.sign(candidate[group]) * allocation
+            return candidate, effective, weight_scale
         if pairs:
             for j in {j for p, h, _ in pairs for j in (p, h)}:
                 effective[j] = candidate[j] * unit_margin[j] / equity
@@ -251,6 +279,12 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
         last_price[held], last_multiple[held] = price[held], multiple[held]
         if pairs and not np.array_equal(positions, link_quantities(positions, pairs)):
             raise BacktestError("Quantity-linked hedge invariant failed after execution")
+        if config.weight_mode == "neutral_units":
+            for root in {s[:2] for s in symbols}:
+                group = np.array([s.startswith(root) for s in symbols])
+                held_group = group & (positions != 0)
+                if not np.isclose((positions[held_group] * multiple[held_group]).sum(), 0, atol=1e-9, rtol=0):
+                    raise BacktestError("Neutral contract-equivalent quantities do not sum to zero")
 
     def liquidate(now, price, multiple, rate, source):
         nonlocal status, blown_at, trigger_margin, trigger_available, trigger_time
@@ -347,6 +381,9 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 break
             if config.d0 is not None:
                 due = ~spot & maturity.loc[now.normalize()].le(config.d0).to_numpy()
+                if config.weight_mode == "neutral_units":
+                    for root in {symbols[j][:2] for j in np.flatnonzero(due & (positions != 0))} - {symbols[p][:2] for p, _, _ in pairs}:
+                        due |= np.array([s.startswith(root) for s in symbols])
                 if (due & (positions != 0)).any():
                     target = positions.copy()
                     target[due] = 0
@@ -400,6 +437,9 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 days = maturity.loc[now.normalize()].to_numpy()
                 require_days(days, needed & ~spot, symbols, now)
                 blocked = ~spot & (days <= config.d0)
+                if config.weight_mode == "neutral_units":
+                    for root in {symbols[j][:2] for j in np.flatnonzero(blocked & ((weights != 0) | (positions != 0)))} - {symbols[p][:2] for p, _, _ in pairs}:
+                        blocked |= np.array([s.startswith(root) for s in symbols])
                 locked = blocked & (weights != 0) & (positions != 0)
                 for p, h, _ in pairs:
                     if locked[p]:
@@ -423,7 +463,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 if not np.any(weights) and not locked.any():
                     target, effective = np.zeros_like(positions), weights
                 else:
-                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked, pairs)
+                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked, pairs, symbols)
                 execute(target, now, price, multiple, rate, signal_time, "target_rebalance", fallback[loc])
                 schedule[record]["status"] = "expiry_blocked" if blocked_requested and not np.any(target) and not np.any(weights) else "executed"
                 target_rows.append(effective)
@@ -508,6 +548,32 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
         raise BacktestError("No instructions or prices remain in the requested interval")
     input_rows = len(targets)
     targets, resolved = effective_instructions(targets, config.precision)
+    targets = targets.copy()
+    if config.weight_mode == "neutral_units":
+        for root in sorted({s[:2] for s in targets}):
+            cols = [s for s in targets if s.startswith(root)]
+            if not np.allclose(targets[cols].sum(axis=1), 0, atol=1e-12, rtol=0):
+                raise BacktestError(f"neutral_units requires zero summed contract-equivalent weights for {root}")
+        for root in sorted({s[:2] for s in targets}):
+            rules = [r for r in config.hedges if r.primary[:2] == root and r.primary in targets]
+            if rules:
+                hedge = root + "_spot"
+                if any(r.hedge != hedge for r in rules):
+                    raise BacktestError("neutral_units explicit rules must link futures to their own index")
+                primaries = [r.primary for r in rules]
+                if hedge not in targets or not np.allclose(targets[hedge], -targets[primaries].sum(axis=1), atol=1e-12, rtol=0):
+                    raise BacktestError("Index hedge weight must equal minus summed primary weights")
+                # Each primary now budgets both equal contract-weight legs.
+                targets[primaries] *= 2
+                targets[hedge] = 0.0
+            else:
+                cols = [s for s in targets if s.startswith(root)]
+                if any(s.endswith("_spot") for s in cols):
+                    raise BacktestError("neutral_units index targets require index hedge rules")
+                for _, row in targets[cols].iterrows():
+                    active_row = row[row.ne(0)]
+                    if len(active_row) not in {0, 2}:
+                        raise BacktestError("neutral_units calendar spread requires exactly two opposite futures per product")
     for rule in config.hedges:
         if rule.primary not in targets:
             continue
@@ -571,7 +637,8 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
                                         performance=dict(account_processes=parallel, input_quote_rows=len(close),
                                                          evaluated_events=sum(a.summary["evaluated_events"] for a in results)),
                                         execution="first jointly valid quote strictly after signal; minute then actual daily-close fallback",
-                                        sizing="literal signed equity fractions as gross margin; integer truncation",
+                                        sizing=("equal contract-equivalent weights, zero sum by product; gross pair margin budget; exact paired integer lots"
+                                                if config.weight_mode == "neutral_units" else "literal signed equity fractions as gross margin; integer truncation"),
                                         spot_model="fully funded synthetic index units; multiplier=1, margin=1; shorts allowed",
                                         hedging="primary weight budgets both legs; linked index quantity from integer future lots; paired maturity close",
                                         pnl="futures variation plus spot market value minus notional commissions; daily close output",

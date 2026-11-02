@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .data import _reference, _store, _wide, align_dividend_points, resolve_paths
+from .data import (_reference, _store, _wide, align_dividend_points, resolve_paths, frozen_snapshot,
+                   input_manifest, load_multipliers, multiplier_source)
 from .expiry import remaining_days
 from .models import BacktestError, check_cancelled, check_market_source, normalize_symbol, time_bound
 from .parallel import process_map, worker_cancel_event
@@ -128,7 +129,7 @@ def _plans(targets, calendar, precision, available_by_day=None, maturity=None, d
 
 def _wide_inputs(config, targets, run_config, left, right, contracts, remaining):
     generic = _wide(config.close_path, config, label="close", timezone=run_config.timezone) if config.close_path else None
-    minute = (_wide(config.minute_close_path, config, label="minute close", timezone=run_config.timezone)
+    minute = (_wide(config.minute_close_path, config, label="minute close", timezone=run_config.timezone, date_at=None)
               if config.minute_close_path else None)
     daily = (_wide(config.daily_close_path, config, label="daily close", timezone=run_config.timezone)
              if config.daily_close_path else None)
@@ -200,7 +201,7 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         owners = {}
         for root in paths["history_roots"]:
             store = _store(root)
-            snapshot = store.snapshot()
+            snapshot = frozen_snapshot(store, config)
             descriptor = snapshot.get("descriptor", store.descriptor)
             check_market_source(descriptor)
             if descriptor.get("price_adjustment") != "none" or descriptor.get("series_kind") != "concrete":
@@ -279,12 +280,11 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
     # Reuse reference, multiplier, margin and dividend readers on the small
     # daily matrix. Do not re-read the raw market history or alter its paths.
     auxiliary = replace(config, close_path=None, minute_close_path=None, daily_close_path=None,
-                        history_roots=(), data_root=None, dashboard_config_path=None,
+                        history_roots=(), history_versions={}, data_root=None, dashboard_config_path=None,
                         reference_path=paths["reference_path"], dividend_root=paths["dividend_root"])
     from .data import _wide as read_wide
-    from .models import DEFAULT_MULTIPLIERS, MarketData
-    multiplier = (read_wide(auxiliary.multiplier_path, auxiliary, label="multiplier", timezone=run_config.timezone, date_at="00:00")
-                  if auxiliary.multiplier_path else {**DEFAULT_MULTIPLIERS, **auxiliary.multipliers})
+    from .models import MarketData
+    multiplier = load_multipliers(auxiliary, contracts, timezone=run_config.timezone)
     margin = (read_wide(auxiliary.margin_rate_path, auxiliary, label="margin_rate", timezone=run_config.timezone, date_at="00:00")
               if auxiliary.margin_rate_path else dict(auxiliary.margin_rates))
     metadata = dict(source=stats["source"], paths=paths, datasets=frozen, warnings=[], price_forward_fill=False,
@@ -315,4 +315,6 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         metadata["warnings"].append("No dividend-adjusted prices loaded; PnL uses raw close")
     if close.empty or daily.empty:
         raise BacktestError("No prices remain in the requested interval")
+    metadata.update(input_manifest(config, paths, daily))
+    metadata["multiplier_source"] = multiplier_source(config)
     return MarketData(close, multiplier, margin, adjusted, contracts, metadata, daily, fallback, remaining)
