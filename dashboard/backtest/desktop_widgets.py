@@ -22,11 +22,14 @@ LABELS = {"timestamp": "时间", "account": "账户", "symbol": "标的", "actio
           "fees": "当期费用", "pnl": "当期盈亏", "status": "状态", "weight_scale": "目标缩放比例",
           "trigger_margin": "强平前保证金", "trigger_available_equity": "强平前保证金后余额",
           "rows": "观测数量", "days": "交易日数", "start": "起始时间", "end": "结束时间"}
+LABELS.update(price_source="成交价来源", execution_precision="实际成交精度", trigger_time="实际爆仓时刻")
 VALUES = {"open_long": "开多", "close_long": "平多", "open_short": "开空", "close_short": "平空",
           "buy": "买入", "sell": "卖出", "target_rebalance": "目标调仓", "margin_call": "爆仓强平",
           "end_of_backtest": "期末平仓", "executed": "已执行", "superseded": "被后续信号覆盖",
           "no_next_bar": "无下一行情", "stopped_by_margin_call": "爆仓后停止", "active": "运行中",
           "completed": "已完成", "blown_up": "已爆仓"}
+VALUES.update(minute_close="分钟 close", daily_fallback="日线 close 回退", daily_close="日线 close",
+              insufficient_equity="权益不足，未增加持仓")
 
 
 class DataFrameModel(QAbstractTableModel):
@@ -210,13 +213,23 @@ class ObservationAxis(pg.AxisItem):
         self.index = index.tz_convert("Asia/Shanghai")
         self.setTicks(None)
 
+    def tickValues(self, minVal, maxVal, size):
+        left = max(0, int(np.ceil(minVal)))
+        right = min(len(self.index) - 1, int(np.floor(maxVal)))
+        if right < left:
+            return []
+        slots = max(2, int(size / 110))
+        step = max(1, int(np.ceil((right - left) / (slots - 1))))
+        first = int(np.ceil(left / step)) * step
+        return [(step, list(range(first, right + 1, step)))]
+
     def tickStrings(self, values, scale, spacing):
         output = []
         intraday = len(self.index) > 1 and (self.index[1] - self.index[0]) < pd.Timedelta(days=1)
         for value in values:
             pos = int(round(value))
             output.append(self.index[pos].strftime("%m-%d\n%H:%M" if intraday else "%Y-%m-%d")
-                          if 0 <= pos < len(self.index) else "")
+                          if abs(value - pos) < 1e-6 and 0 <= pos < len(self.index) else "")
         return output
 
 
@@ -242,6 +255,7 @@ class ResultCharts(QWidget):
 
     def plot(self, title):
         widget = pg.PlotWidget(axisItems={"bottom": ObservationAxis(orientation="bottom")}, background=PANEL)
+        widget.getViewBox().setDefaultPadding(0.10)
         widget.setTitle(title, color=TEXT, size="12pt")
         widget.showGrid(x=True, y=True, alpha=0.13)
         widget.setMinimumSize(230, 180)

@@ -16,7 +16,7 @@ from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
                                QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
                                QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSplitter,
-                               QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
+                               QSpinBox, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 import pandas as pd
 import pyqtgraph as pg
 
@@ -130,7 +130,7 @@ class BacktestWindow(QMainWindow):
         heading.addWidget(label("Δ  DELTA1  /  大表回测", "title"))
         heading.addWidget(label("股指期货与现货 · 从目标比例到实际开平仓", "muted"))
         header.addLayout(heading, 1)
-        self.execution_badge = label("下一时间戳  ·  close 成交", "badge")
+        self.execution_badge = label("次时点成交  ·  日结权益", "badge")
         header.addWidget(self.execution_badge)
         header.addWidget(button("打开配置", lambda: self.show_location("load_config")))
         header.addWidget(button("保存配置", lambda: self.show_location("save_config")))
@@ -317,8 +317,12 @@ class BacktestWindow(QMainWindow):
         self.path_row(form, "目标指令表", "instructions_path", placeholder="时间 × 合约的目标比例表")
         self.mode = combo(MODES)
         form.addRow("账户分组", self.mode)
-        self.frequency = combo([("日线 · 1d", "1d"), ("分钟线 · 1m", "1m"), ("秒线 · 1s", "1s")])
-        form.addRow("行情频率", self.frequency)
+        self.precision = combo([("日频 · 收盘检查爆仓", "1d"), ("自动 · 对齐输入，逐时点风控", "auto")])
+        form.addRow("回测精度 · 权益统一每日收盘输出", self.precision)
+        self.workers = QSpinBox()
+        self.workers.setRange(0, 64)
+        self.workers.setSpecialValueText("自动 · 最多 4 进程")
+        form.addRow("计算进程 · 1 为串行", self.workers)
         dates = QWidget()
         row = QHBoxLayout(dates)
         row.setContentsMargins(0, 0, 0, 0)
@@ -361,6 +365,8 @@ class BacktestWindow(QMainWindow):
                 self.fields["dashboard_config_path"].setText(str(candidate))
                 break
         self.path_row(form, "原始 close 大表", "close_path")
+        self.path_row(form, "分钟 close 大表 · 可选", "minute_close_path")
+        self.path_row(form, "日线 close 大表 · 分钟缺失时回退", "daily_close_path")
         self.margin_source = combo([("历史保证金率表", "history"), ("固定比例假设", "fixed")])
         form.addRow("保证金来源", self.margin_source)
         self.path_row(form, "历史保证金率大表 · 小数比例", "margin_rate_path")
@@ -407,13 +413,15 @@ class BacktestWindow(QMainWindow):
 
     def job(self):
         data = {**self._base_data}
-        for key in ("data_root", "dashboard_config_path", "close_path", "margin_rate_path", "reference_path",
+        for key in ("data_root", "dashboard_config_path", "close_path", "minute_close_path", "daily_close_path", "margin_rate_path", "reference_path",
                     "multiplier_path", "adjusted_close_path", "dividend_points_path", "dividend_root"):
             data[key] = self.fields[key].text().strip() or None
         if self.source.currentData() != "wide":
             data["close_path"] = None
-        elif not data["close_path"]:
-            raise ValueError("请选择原始 close 大表")
+            data["minute_close_path"] = None
+            data["daily_close_path"] = None
+        elif not any(data[k] for k in ("close_path", "minute_close_path", "daily_close_path")):
+            raise ValueError("请选择原始 close、分钟或日线大表")
         data["history_roots"] = tuple(s.strip() for s in self.history_roots.toPlainText().splitlines() if s.strip())
         if self.margin_source.currentData() == "fixed":
             rates = {k: v for k, v in data.get("margin_rates", {}).items() if k not in self.rates}
@@ -421,9 +429,10 @@ class BacktestWindow(QMainWindow):
             data.update(margin_rates=rates, margin_rate_path=None)
         else:
             data["margin_rates"] = {}
-        data.update(frequency=self.frequency.currentData(), dividend_policy=self.dividend_policy.currentData(),
+        data.update(dividend_policy=self.dividend_policy.currentData(),
                     allow_unverified_availability=self.revised.isChecked(), trusted_pickle=self.trusted.isChecked())
         config = {**self._base_config, "initial_capital": self.capital.value(), "mode": self.mode.currentData(),
+                  "precision": self.precision.currentData(), "workers": self.workers.value(),
                   "start": self.start.text().strip() or None, "end": self.end.text().strip() or None,
                   "commission_rate": self.fee.value() / 10000, "max_capital_usage": self.usage.value() / 100,
                   "minimum_margin_ratio": self.minimum.value() / 10000, "margin_call_basis": self.basis.currentData(),
@@ -451,13 +460,14 @@ class BacktestWindow(QMainWindow):
             ui_root = job.get("ui", {}).get("output_root")
             output = ui_root or (str(Path(job["output_dir"]).parent) if job.get("output_dir") else str(REPOSITORY / "outputs/backtest"))
             self.fields["output_root"].setText(str((Path(path).resolve().parent / Path(output).expanduser()).resolve()))
-            for widget, value in ((self.mode, config.mode), (self.frequency, data.frequency),
+            for widget, value in ((self.mode, config.mode), (self.precision, config.precision),
                                   (self.basis, config.margin_call_basis), (self.dividend_policy, data.dividend_policy),
                                   (self.epoch, config.timestamp_unit), (self.nan_policy, config.nan_policy),
-                                  (self.source, "wide" if data.close_path else "history"),
+                                  (self.source, "wide" if data.close_path or data.minute_close_path or data.daily_close_path else "history"),
                                   (self.margin_source, "fixed" if data.margin_rates and not data.margin_rate_path else "history")):
                 widget.setCurrentIndex(widget.findData(value))
             self.capital.setValue(config.initial_capital)
+            self.workers.setValue(config.workers)
             self.fee.setValue(config.commission_rate * 10000)
             self.usage.setValue(config.max_capital_usage * 100)
             self.minimum.setValue(config.minimum_margin_ratio * 10000)
@@ -537,7 +547,13 @@ class BacktestWindow(QMainWindow):
             QTimer.singleShot(0, self.close)
 
     def on_progress(self, info):
-        if info.get("stage") == "simulating":
+        if info.get("stage") in {"loading_parallel", "simulating_parallel"}:
+            value = info["done"] / max(info["total"], 1)
+            self.progress.setRange(0, 100)
+            self.progress.setValue(int(value * 100))
+            stage = "读取日/分钟行情" if info["stage"] == "loading_parallel" else "计算独立账户"
+            self.show_status(f"正在{stage} · {info['workers']} 进程 · {info['done']}/{info['total']}")
+        elif info.get("stage") == "simulating":
             total = info["total"] or 1
             value = (info["account_index"] + info["done"] / total) / info["accounts"]
             self.progress.setRange(0, 100)
@@ -614,11 +630,20 @@ class BacktestWindow(QMainWindow):
         settings = result.metadata.get("config", {})
         basis = "总权益" if settings.get("margin_call_basis", "equity") == "equity" else "保证金后余额"
         description.append(f"本轮爆仓：{basis} < 保证金 × {settings.get('minimum_margin_ratio', 0.0001):g}")
+        precision = result.metadata.get("precision")
+        if precision:
+            description.append("日频收盘风控" if precision["requested"] == "1d" else "自动对齐输入 · 逐时点风控")
         self.source_note.setText("  ｜  ".join(description) or "本轮参数和数据版本已记录在结果目录。")
         self.select_account()
         self.tables.setCurrentIndex(0)
         self.refresh_table()
-        self.show_status("回测结果已就绪；可切换账户、查看明细或复制实际成交表位置。")
+        performance = result.metadata.get("performance", {})
+        if "engine_seconds" in performance:
+            days = max(len(account.equity) for account in result.accounts.values())
+            self.show_status(f"完成 {days} 天日结 · 核算 {performance['engine_seconds']:.3f} 秒 · "
+                             f"账户估值 {performance['evaluated_events']:,} 次；可查看明细并复制成交表位置。")
+        else:
+            self.show_status("回测结果已就绪；可切换账户、查看明细或复制实际成交表位置。")
         self.completed.emit(result)
 
     def select_account(self):
@@ -712,7 +737,7 @@ class BacktestWindow(QMainWindow):
                 QLabel#muted {{color:{MUTED};}}
                 QLabel#badge {{background:#dcecf7;color:{ACCENT};padding:9px 14px;border-radius:8px;}}
                 QLabel#risk {{background:#edf4fa;color:{ACCENT};padding:10px;border-radius:6px;}}
-                QLineEdit, QDoubleSpinBox, QComboBox {{min-height:{34 if large else 27}px;background:{PANEL};
+                QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{min-height:{34 if large else 27}px;background:{PANEL};
                     border:1px solid {BORDER};padding:5px 8px;border-radius:5px;}}
                 QComboBox::down-arrow {{image:url("{(REPOSITORY / 'dashboard/native/assets/chevron_down.svg').as_posix()}");width:13px;height:13px;}}
                 QPlainTextEdit {{background:{PANEL};border:1px solid {BORDER};}}

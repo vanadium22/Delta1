@@ -1,10 +1,11 @@
 """UI-independent desktop operations; all inputs and results remain local."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from . import BacktestConfig, BacktestError, DataConfig, audit_data, read_frame, run_backtest
 from .io import write_json
 from .models import check_cancelled, normalize_frame, time_bound
+from .timeline import effective_instructions
 
 
 def inspect_job(job, *, cancel_event=None, progress=None):
@@ -29,9 +30,16 @@ def inspect_job(job, *, cancel_event=None, progress=None):
         raise BacktestError("所选区间没有目标指令")
     check_cancelled(cancel_event)
     report = audit_data(data)
+    if not (data.close_path or data.minute_close_path or data.daily_close_path):
+        secondary = audit_data(replace(data, frequency="1m" if data.frequency == "1d" else "1d"))
+        known = {r["symbol"] for r in report["coverage"]}
+        report["coverage"].extend(r for r in secondary["coverage"] if r["symbol"] not in known)
+        report["additional_frequency_coverage"] = secondary["coverage"]
     report["instructions"] = dict(path=str(Path(path).resolve()), rows=len(targets), symbols=list(targets.columns),
                                    start=str(targets.index.min()), end=str(targets.index.max()))
-    required = {s for s in targets if (targets[s].abs() > 0).any()}
+    effective, resolved = effective_instructions(targets, config.precision)
+    report["precision"] = dict(requested=config.precision, resolved=resolved, effective_instruction_rows=len(effective))
+    required = {s for s in effective if (effective[s].abs() > 0).any()}
     present = {r["symbol"] for r in report["coverage"]}
     report["missing_instruction_symbols"] = sorted(required - present)
     missing = []

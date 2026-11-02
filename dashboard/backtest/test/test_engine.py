@@ -58,7 +58,7 @@ class EngineTests(unittest.TestCase):
         r = self.run_case(weights, market=market).accounts["portfolio"]
         self.assertEqual(r.positions.iloc[1].tolist(), [49, -49])
         self.assertLessEqual(r.equity.required_margin.iloc[1], r.equity.equity.iloc[1] * 0.99)
-        self.assertAlmostEqual(r.target_weights.iloc[1].abs().sum(), 0.99)
+        self.assertAlmostEqual(r.target_weights.iloc[0].abs().sum(), 0.99)
 
     def test_commission_reserve_limits_leveraged_targets(self):
         market = self.market([100] * 5)
@@ -130,11 +130,13 @@ class EngineTests(unittest.TestCase):
         self.assertGreater(trigger.trigger_available_equity, 0)
         self.assertLess(trigger.trigger_available_equity, trigger.trigger_margin * 0.2)
 
-    def test_missing_prices_are_neither_filled_nor_skipped(self):
+    def test_next_valid_entry_is_delayed_and_missing_held_close_errors(self):
         weights = pd.DataFrame({"IC2612.CFE": [0.2]}, index=[self.dates[0]])
-        for prices in ([100, np.nan, 100, 100, 100], [100, 100, np.nan, 100, 100]):
-            with self.subTest(prices=prices), self.assertRaisesRegex(BacktestError, "close"):
-                self.run_case(weights, market=self.market(prices))
+        delayed = self.run_case(weights, market=self.market([100, np.nan, 100, 100, 100])).accounts["portfolio"]
+        self.assertEqual(delayed.actual_orders.execution_time.iloc[0].date(), self.dates[2].date())
+        self.assertEqual(delayed.positions.iloc[1, 0], 0)
+        with self.assertRaisesRegex(BacktestError, "close"):
+            self.run_case(weights, market=self.market([100, 100, np.nan, 100, 100]))
 
     def test_missing_margin_is_explicit(self):
         market = self.market()
@@ -173,7 +175,7 @@ class EngineTests(unittest.TestCase):
         times = pd.to_datetime(["2026-09-21 09:31", "2026-09-21 09:32", "2026-09-21 09:33"])
         market = MarketData(pd.DataFrame({"IC2612.CFE": [100] * 3}, index=times), {"IC": 10}, {"IC": 0.1})
         weights = pd.DataFrame({"IC2612.CFE": [0.1, 0.2]}, index=pd.to_datetime(["2026-09-21 09:31:10", "2026-09-21 09:31:20"]))
-        r = self.run_case(weights, market=market).accounts["portfolio"]
+        r = self.run_case(weights, market=market, precision="auto").accounts["portfolio"]
         self.assertEqual(r.schedule.status.tolist(), ["superseded", "executed"])
         self.assertEqual(r.positions.iloc[0, 0], 20)
 

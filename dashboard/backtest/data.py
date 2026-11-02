@@ -48,11 +48,12 @@ def resolve_paths(config: DataConfig) -> dict:
     """Select existing paths without modifying native.json or inheriting credentials."""
     native_path = Path(config.dashboard_config_path or DASHBOARD_ROOT / "localsetting/native.json").resolve()
     native = {}
-    if not config.data_root and not config.history_roots and not config.close_path and native_path.is_file():
+    supplied = config.close_path or config.minute_close_path or config.daily_close_path
+    if not config.data_root and not config.history_roots and not supplied and native_path.is_file():
         raw = json.loads(native_path.read_text(encoding="utf-8-sig"))
         native = {k: raw.get(k) for k in ("history_roots", "reference_file", "dividend_root")}
     roots = list(config.history_roots or native.get("history_roots") or [])
-    if not roots and not config.close_path:
+    if not roots and not supplied:
         base = Path(config.data_root).expanduser().resolve() if config.data_root else DASHBOARD_ROOT.parent / "data"
         normalized = base / "market/index_futures/dashboard/normalized"
         for kind in ("cn_index", "cn_index_future"):
@@ -247,12 +248,16 @@ def audit_data(config: DataConfig | None = None) -> dict:
                   margin_rate_path=str(config.margin_rate_path) if config.margin_rate_path else None,
                   configured_margin_rates=dict(config.margin_rates), multipliers={**DEFAULT_MULTIPLIERS, **config.multipliers},
                   missing=[], notes=[])
-    if config.close_path:
-        frame = _wide(config.close_path, config, label="close", timezone="Asia/Shanghai")
+    table_paths = list(dict.fromkeys(str(p) for p in (config.minute_close_path, config.close_path, config.daily_close_path) if p))
+    if table_paths:
+        frames = [_wide(p, config, label="close", timezone="Asia/Shanghai") for p in table_paths]
+        frame = frames[0]
+        for extra in frames[1:]:
+            frame = frame.combine_first(extra)
         for symbol in frame:
             valid = frame[symbol].dropna()
             report["coverage"].append(dict(symbol=symbol, rows=len(valid), start=str(valid.index.min()), end=str(valid.index.max())))
-    for root in paths["history_roots"]:
+    for root in paths["history_roots"] if not table_paths else []:
         store = _store(root)
         snapshot = store.snapshot()
         grouped = defaultdict(list)

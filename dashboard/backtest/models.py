@@ -55,8 +55,8 @@ def timestamp(value, *, timezone="Asia/Shanghai", date_at="15:00", unit=None) ->
             raise BacktestError("Timestamp cannot be NaT")
         if stamp.tzinfo is None:
             if stamp == stamp.normalize() and date_at is not None:
-                hours, minutes = map(int, date_at.split(":"))
-                stamp += pd.Timedelta(hours=hours, minutes=minutes)
+                clock = time.fromisoformat(date_at)
+                stamp += pd.Timedelta(hours=clock.hour, minutes=clock.minute, seconds=clock.second, microseconds=clock.microsecond)
             stamp = stamp.tz_localize(timezone, ambiguous="raise", nonexistent="raise")
     if pd.isna(stamp):
         raise BacktestError("Timestamp cannot be NaT")
@@ -79,17 +79,35 @@ def normalize_frame(frame: pd.DataFrame, *, label="table", timezone="Asia/Shangh
                     date_at="15:00", unit=None) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         raise BacktestError(f"{label} must be a non-empty DataFrame")
-    result = frame.copy()
+    result = frame.copy(deep=False)
     result.columns = [normalize_symbol(c) for c in result.columns]
     if result.columns.duplicated().any():
         raise BacktestError(f"{label} has duplicate symbols after spot mapping")
-    result.index = pd.DatetimeIndex([
-        timestamp(t, timezone=timezone, date_at=date_at, unit=unit) for t in result.index
-    ], name="timestamp")
+    index = result.index
+    if pd.api.types.is_numeric_dtype(index.dtype):
+        if unit is None:
+            raise BacktestError("Numeric timestamps require an explicit timestamp_unit (s/ms/us/ns)")
+        index = pd.to_datetime(index, unit=unit, utc=True)
+    elif not isinstance(index, pd.DatetimeIndex):
+        try:
+            index = pd.DatetimeIndex(pd.to_datetime(index, format="mixed"))
+        except (ValueError, TypeError):
+            index = pd.DatetimeIndex([timestamp(t, timezone=timezone, date_at=date_at, unit=unit) for t in index])
+    if index.hasnans:
+        raise BacktestError(f"{label} timestamp cannot be NaT")
+    if index.tz is None:
+        if date_at is not None:
+            clock = time.fromisoformat(date_at)
+            offset = pd.Timedelta(hours=clock.hour, minutes=clock.minute, seconds=clock.second, microseconds=clock.microsecond)
+            index = index.where(index != index.normalize(), index + offset)
+        index = index.tz_localize(timezone, ambiguous="raise", nonexistent="raise")
+    result.index = index.tz_convert(timezone).rename("timestamp")
     if result.index.duplicated().any():
         raise BacktestError(f"{label} has duplicate timestamps after normalization")
     try:
-        result = result.apply(pd.to_numeric, errors="raise").astype(float)
+        if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in result.dtypes):
+            result = result.apply(pd.to_numeric, errors="raise")
+        result = result.astype(float, copy=False)
     except (TypeError, ValueError) as exc:
         raise BacktestError(f"{label} contains non-numeric values: {exc}") from exc
     if np.isinf(result.to_numpy()).any():
@@ -105,6 +123,8 @@ class BacktestConfig:
     minimum_margin_ratio: float = 0.0001
     margin_call_basis: str = "equity"
     mode: str = "portfolio"  # symbol / product / portfolio
+    precision: str = "1d"  # 1d: day-end signals/risk; auto: input precision and quote-by-quote risk
+    workers: int = 0  # 0: bounded automatic process count; 1: serial
     start: Any = None
     end: Any = None
     timezone: str = "Asia/Shanghai"
@@ -124,6 +144,10 @@ class BacktestConfig:
             raise BacktestError("Commission and minimum margin ratios cannot be negative")
         if self.mode not in {"symbol", "product", "portfolio"}:
             raise BacktestError("mode must be symbol, product, or portfolio")
+        if self.precision not in {"1d", "auto"}:
+            raise BacktestError("precision must be 1d or auto")
+        if isinstance(self.workers, bool) or not isinstance(self.workers, (int, np.integer)) or self.workers < 0:
+            raise BacktestError("workers must be a non-negative integer; 0 selects a bounded automatic count")
         if self.margin_call_basis not in {"available_equity", "equity"}:
             raise BacktestError("margin_call_basis must be available_equity or equity")
         if self.nan_policy not in {"error", "zero"}:
@@ -144,6 +168,8 @@ class DataConfig:
     reference_path: str | Path | None = None
     frequency: str = "1d"
     close_path: str | Path | None = None
+    minute_close_path: str | Path | None = None
+    daily_close_path: str | Path | None = None
     multiplier_path: str | Path | None = None
     margin_rate_path: str | Path | None = None
     adjusted_close_path: str | Path | None = None
@@ -172,6 +198,8 @@ class MarketData:
     adjusted_close: pd.DataFrame | None = None
     contracts: dict[str, dict] = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+    daily_close: pd.DataFrame | None = None
+    daily_fallback: pd.DataFrame | None = None
 
 
 @dataclass

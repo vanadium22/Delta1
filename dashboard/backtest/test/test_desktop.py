@@ -45,6 +45,8 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(job["backtest"]["minimum_margin_ratio"], 0.0001)
         self.assertEqual(job["backtest"]["max_capital_usage"], 0.99)
         self.assertEqual(job["backtest"]["margin_call_basis"], "equity")
+        self.assertEqual(job["backtest"]["precision"], "1d")
+        self.assertEqual(job["backtest"]["workers"], 0)
 
     def test_background_run_tables_search_and_result_reopen(self):
         from dashboard.backtest.io import write_json
@@ -79,6 +81,8 @@ class DesktopTests(unittest.TestCase):
         with local_temp() as root:
             self.window.capital.setValue(23_000_000)
             self.window.fee.setValue(2.5)
+            self.window.precision.setCurrentIndex(self.window.precision.findData("auto"))
+            self.window.workers.setValue(2)
             self.window.show_location("save_config")
             destination = root / "job.local.json"
             self.window.location_path.setText(str(destination))
@@ -88,6 +92,8 @@ class DesktopTests(unittest.TestCase):
             self.window.load_config(destination)
             self.assertEqual(self.window.capital.value(), 23_000_000)
             self.assertEqual(self.window.job()["backtest"]["commission_rate"], 0.00025)
+            self.assertEqual(self.window.job()["backtest"]["precision"], "auto")
+            self.assertEqual(self.window.job()["backtest"]["workers"], 2)
 
     def test_cancel_is_responsive_and_closing_waits_for_worker(self):
         started = []

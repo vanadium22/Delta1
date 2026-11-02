@@ -9,7 +9,7 @@ function ConvertTo-BacktestArgument {
     param([AllowEmptyString()][string]$Value)
     '"' + (($Value -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
 }
-$arguments=@('-B','-s','-X','utf8','-m','dashboard.backtest.desktop')
+$arguments=@('-B','-s','-X','utf8','-m','dashboard.backtest.desktop_run')
 if ($null -ne $AppArguments) { $arguments+=$AppArguments }
 $info=New-Object System.Diagnostics.ProcessStartInfo
 $info.FileName=$interpreter
