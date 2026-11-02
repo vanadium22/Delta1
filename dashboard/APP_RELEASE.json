@@ -433,7 +433,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_83_verified_strategy_and_maturity_company_use_pending",
+    "status": "local_102_verified_exact_lot_hedging_and_carry_study_full_requested_history_pending",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -486,19 +486,38 @@
       "dashboard/backtest/test/fixtures.py",
       "dashboard/backtest/test/test_expiry.py",
       "dashboard/backtest/test/test_strategy.py",
-      "dashboard/backtest/test/validate_strategy_ui.py"
+      "dashboard/backtest/test/validate_strategy_ui.py",
+      "dashboard/backtest/acquire_daily.py",
+      "dashboard/backtest/analytics.py",
+      "dashboard/backtest/calendar.py",
+      "dashboard/backtest/carry_report.py",
+      "dashboard/backtest/carry_study.py",
+      "dashboard/backtest/hedging.py",
+      "dashboard/backtest/strategy/expiry_carry.py",
+      "dashboard/backtest/test/test_carry_study.py",
+      "dashboard/backtest/test/test_expiry_carry.py",
+      "dashboard/backtest/test/test_hedging.py",
+      "dashboard/backtest/test/validate_carry_ui.py",
+      "dashboard/backtest/CARRY_STUDY.md",
+      "dashboard/backtest/carry.config.example.json"
     ],
     "tests": {
-      "passed": 83,
+      "passed": 102,
       "desktop_offscreen": true,
       "resolutions": [
         "1920x1080",
         "3840x2160"
       ],
-      "seconds": 8.938,
+      "seconds": 13.031,
       "resource_warnings": "errors",
       "ruff": "passed",
-      "desktop_factor_to_backtest": true
+      "desktop_factor_to_backtest": true,
+      "future_warnings": "errors",
+      "desktop_hedged_result_reopen": true,
+      "desktop_hedged_accounts": [
+        4,
+        76
+      ]
     },
     "backend_commit": "46cb76a",
     "desktop_commit": "93e467f",
@@ -549,7 +568,8 @@
       "daily_orders": 5,
       "daily_equity_rows": 2,
       "automatic_trades_and_daily_equity_match_previous": true,
-      "margin_assumption": "explicit_fixed_rates_not_historical_account_margins"
+      "margin_assumption": "explicit_fixed_rates_not_historical_account_margins",
+      "current_evidence_status": "historical_pre_lineage_guard_not_used_as_current_source_evidence"
     },
     "strategy_base_commit": "3eaa765",
     "maturity": {
@@ -604,10 +624,13 @@
       "registered_data_read": "selected_products_daily_partitions_with_bounded_workers_no_execution_minutes_for_daily_factors"
     },
     "data_policy": {
-      "z_drive_used": false,
-      "z_drive_dependency": "rejected",
-      "ddb_automatic_update": "deferred_by_latest_user_request",
-      "future_ddb_output": "Delta1/data",
+      "z_drive_dependency": "rejected; known mixed-source lineage rejected before price read/factor generation",
+      "eligible_study_z_source_used": false,
+      "earlier_mixed_cache_trial": "invalidated and quarantined; excluded from evidence and deliverables",
+      "ddb_automatic_update": "deferred",
+      "ddb_one_shot_daily": "explicit route-only readonly acquisition; no VPN action by command; bounded yearly queries and SHA/coverage snapshot",
+      "ddb_source_output": "Delta1/data; new snapshot only",
+      "current_data_route": "unavailable; attempted VPN helper rejected by automatic approval before execution; user clarification pending",
       "company_tests": "authorized_not_yet_run_on_company_machine"
     },
     "local_factor_validation": {
@@ -621,7 +644,8 @@
       "limitation": "existing_dividend_snapshot_records_do_not_cover_full_20_day_historical_D_window",
       "network_used": false,
       "daily_rows_read": 1570,
-      "minute_rows_read": 0
+      "minute_rows_read": 0,
+      "current_evidence_status": "historical_mixed_cache_validation_excluded_from_current_study"
     },
     "local_strategy_ui": {
       "synthetic_rows": 35,
@@ -640,6 +664,61 @@
       "retained_latest_runs": 2,
       "original_data_modified": false,
       "zip_and_sha_verified_before_removal": true
+    },
+    "hedging": {
+      "rules": "explicit concrete future to product_spot quantity ratio",
+      "IF_IH_index_units_per_future": 300,
+      "IC_IM_index_units_per_future": 200,
+      "index_multiplier": 1,
+      "sizing": "primary weight budgets combined futures margin, full index funding and both fees",
+      "expiry": "release only due futures and their linked index units",
+      "independent_accounts": "contract_pair mode; one initial capital per concrete future and hedge",
+      "holding": "rebalance_on_change_only; per-account duplicate target suppression"
+    },
+    "carry_study": {
+      "base_commit": "20f526f",
+      "entry": "python -m dashboard.backtest.carry_study",
+      "readme": "dashboard/backtest/CARRY_STUDY.md",
+      "template": "dashboard/backtest/carry.config.example.json",
+      "window_days": 60,
+      "thresholds": [
+        0.9,
+        0.8
+      ],
+      "score": "2*p-1",
+      "selection": "greatest absolute score across four slots when flat; reverse; hold actual lots until expiry close",
+      "dividend_policy": "explicit D=0 requested for this study only",
+      "groups": [
+        "product_best",
+        "contract_independent"
+      ],
+      "attribution": "actual quantities; per-leg commissions; leg sum and trade sum reconcile to equity",
+      "requested_period": [
+        "2024-01-01",
+        "2026-11-02"
+      ],
+      "requested_period_complete": false,
+      "eligible_local_daily_period": [
+        "2025-07-01",
+        "2026-10-14"
+      ],
+      "available_data_only": "explicit partial run; warmup within available period; not a full requested-period strategy result",
+      "local_accounts_per_threshold": {
+        "product_best": 4,
+        "contract_independent": 76
+      },
+      "assumptions": "configurable account capital, fixed margin scenario, no dividends/borrow/ETF tracking",
+      "outputs": [
+        "pnl",
+        "drawdown",
+        "independent contracts",
+        "leg attribution",
+        "offline factor inspector",
+        "factor values",
+        "decisions",
+        "trade lifecycle",
+        "standard backtest results and reopenable job config"
+      ]
     }
   }
 }

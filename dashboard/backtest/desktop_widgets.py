@@ -28,7 +28,7 @@ VALUES = {"open_long": "开多", "close_long": "平多", "open_short": "开空",
           "end_of_backtest": "期末平仓", "executed": "已执行", "superseded": "被后续信号覆盖",
           "no_next_bar": "无下一行情", "stopped_by_margin_call": "爆仓后停止", "active": "运行中",
           "completed": "已完成", "blown_up": "已爆仓"}
-LABELS.update(days_to_expiry="剩余自然日", expiry_blocked_symbols="临期禁止开仓合约")
+LABELS.update(days_to_expiry="剩余自然日", expiry_blocked_symbols="临期禁止开仓合约", hedge_primary="对应期货合约")
 VALUES.update(expiry_d0="临期收盘强平", expiry_blocked="临期未开仓",
               minute_close="分钟 close", daily_fallback="日线 close 回退", daily_close="日线 close",
               insufficient_equity="权益不足，未增加持仓")

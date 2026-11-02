@@ -52,7 +52,7 @@ def main(argv=None):
         sub.add_argument("--output", type=Path)
         if command == "run":
             sub.add_argument("--instructions", type=Path)
-            sub.add_argument("--mode", choices=("symbol", "product", "portfolio"))
+            sub.add_argument("--mode", choices=("symbol", "product", "portfolio", "contract_pair"))
             sub.add_argument("--precision", choices=("1d", "auto"), help="默认日频；自动对齐输入并逐时点检查爆仓")
             sub.add_argument("--workers", type=int, help="0 自动选择最多4进程，1串行，可指定正整数")
             sub.add_argument("--d0", type=int, help="剩余自然日 <= d0 当天 close 强平；默认 0")

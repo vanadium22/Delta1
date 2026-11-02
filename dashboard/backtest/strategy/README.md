@@ -119,3 +119,9 @@ result = generate_strategy(
 计算函数必须返回与 `panel.close` 完全同形、同索引的连续档位表，缺数据保留 NaN。通过 `required_data`、`required_parameters` 声明所需输入；额外实际合约大表传 `extra_data={"field": df}`，在函数中读取 `panel.extras["field"]`。只做自定义因子可设置 `include_examples=False`，不会强制要求两个示例所需的分红输入。
 
 输出目录不覆盖已有运行。`targets.parquet/csv`、`scores.parquet`、`factors/` 为实际合约表；`continuous_factors/`、`continuous_*`、`slot_mapping.parquet` 和分红版本用于检查计算过程。全部位置通过 `result.output_paths` 返回。
+
+## 四档择优并持有到期
+
+`hold_to_expiry_targets(percentiles, mapping, contracts, ...)` 接收实际合约分位表、逐日连续映射和挂牌/到期参考，使用 score=2p−1，空仓时选四档绝对值最大者，默认反向，开仓后保持至真实到期。`selection="contract_independent"` 为每个实际合约分别生成状态，不与其他期限竞争。输出实际合约完整目标变化表和逐日决策，不直接生成连续代码订单。
+
+执行时需设置 `d0=0`、`rebalance_on_change_only=True` 和 `index_hedges(targets.columns)`；实际指数数量由整数期货手数决定，避免单独按资金取整导致错配。0.9/0.8、60 日、不考虑分红的专项运行、全部独立账户和 PnL/回撤/因子图见 [CARRY_STUDY](../CARRY_STUDY.md)。普通固定/Z CTA 继续使用原有接口。

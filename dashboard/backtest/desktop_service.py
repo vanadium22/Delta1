@@ -45,6 +45,7 @@ def inspect_job(job, *, cancel_event=None, progress=None):
     effective, resolved = effective_instructions(targets, config.precision)
     report["precision"] = dict(requested=config.precision, resolved=resolved, effective_instruction_rows=len(effective))
     required = {s for s in effective if (effective[s].abs() > 0).any()}
+    required.update(r.hedge for r in config.hedges if r.primary in required)
     present = {r["symbol"] for r in report["coverage"]}
     report["missing_instruction_symbols"] = sorted(required - present)
     missing = []

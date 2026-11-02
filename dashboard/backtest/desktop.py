@@ -30,7 +30,8 @@ from .io import write_json
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-MODES = [("全市场共用资金", "portfolio"), ("同品种共用资金", "product"), ("单标的独立账户", "symbol")]
+MODES = [("全市场共用资金", "portfolio"), ("同品种共用资金", "product"), ("单标的独立账户", "symbol"),
+         ("每合约与对冲腿独立账户", "contract_pair")]
 
 
 def label(text, name=None):
@@ -332,6 +333,8 @@ class BacktestWindow(QMainWindow):
         self.expiry_enabled = QCheckBox("启用临期强平 · 默认到期日（d0=0）")
         self.expiry_enabled.setChecked(True)
         form.addRow(self.expiry_enabled)
+        self.on_change = QCheckBox("仅目标变化时调仓 · 中途保持实际手数")
+        form.addRow(self.on_change)
         dates = QWidget()
         row = QHBoxLayout(dates)
         row.setContentsMargins(0, 0, 0, 0)
@@ -444,6 +447,7 @@ class BacktestWindow(QMainWindow):
         config = {**self._base_config, "initial_capital": self.capital.value(), "mode": self.mode.currentData(),
                   "precision": self.precision.currentData(), "workers": self.workers.value(),
                   "d0": self.d0.value() if self.expiry_enabled.isChecked() else None,
+                  "rebalance_on_change_only": self.on_change.isChecked(),
                   "start": self.start.text().strip() or None, "end": self.end.text().strip() or None,
                   "commission_rate": self.fee.value() / 10000, "max_capital_usage": self.usage.value() / 100,
                   "minimum_margin_ratio": self.minimum.value() / 10000, "margin_call_basis": self.basis.currentData(),
@@ -487,6 +491,7 @@ class BacktestWindow(QMainWindow):
             self.workers.setValue(config.workers)
             self.expiry_enabled.setChecked(config.d0 is not None)
             self.d0.setValue(config.d0 or 0)
+            self.on_change.setChecked(config.rebalance_on_change_only)
             self.fee.setValue(config.commission_rate * 10000)
             self.usage.setValue(config.max_capital_usage * 100)
             self.minimum.setValue(config.minimum_margin_ratio * 10000)
@@ -649,6 +654,9 @@ class BacktestWindow(QMainWindow):
         if source.get("warnings"):
             description.append("数据限制详见本轮 metadata.json")
         settings = result.metadata.get("config", {})
+        if settings.get("hedges"):
+            ratios = sorted({f"{r['primary'][:2]} {abs(r['quantity_ratio'])}" for r in settings["hedges"]})
+            description.append("每手期货反向指数单位：" + " · ".join(ratios))
         basis = "总权益" if settings.get("margin_call_basis", "equity") == "equity" else "保证金后余额"
         description.append(f"本轮爆仓：{basis} < 保证金 × {settings.get('minimum_margin_ratio', 0.0001):g}")
         if settings.get("d0") is not None:
@@ -694,8 +702,9 @@ class BacktestWindow(QMainWindow):
         elif self.result and self.account.currentText() in self.result.accounts:
             account = self.result.accounts[self.account.currentText()]
             if key == "instructions":
-                frame = (self.result.input_instructions.loc[:, account.positions.columns]
-                         if self.result.input_instructions is not None else account.target_weights)
+                source = self.result.input_instructions
+                columns = source.columns.intersection(account.positions.columns, sort=False) if source is not None else []
+                frame = source.loc[:, columns] if source is not None and len(columns) else source if source is not None else account.target_weights
             elif key != "coverage":
                 frame = getattr(account, key)
         if key == "actual_orders" and not frame.empty:

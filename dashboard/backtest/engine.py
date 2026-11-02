@@ -9,15 +9,16 @@ import numpy as np
 import pandas as pd
 
 from .models import (AccountResult, BacktestConfig, BacktestError, BacktestResult,
-                     MarketData, check_cancelled, normalize_frame, time_bound)
+                     MarketData, check_cancelled, check_market_source, normalize_frame, time_bound)
 from .parallel import process_map, worker_cancel_event, worker_count
 from .expiry import remaining_days, require_days
+from .hedging import expand_needed, link_quantities, pairs_for
 from .timeline import daily_marks, effective_instructions, input_precision, next_joint_quote, quote_timeline
 
 
 ORDER_COLUMNS = ["signal_time", "execution_time", "symbol", "action", "side", "quantity",
                  "signed_quantity", "price", "multiplier", "margin_rate", "notional", "fee",
-                 "position_before", "position_after", "reason", "price_source", "execution_precision", "days_to_expiry"]
+                 "position_before", "position_after", "reason", "price_source", "execution_precision", "days_to_expiry", "hedge_primary"]
 
 
 def _require(values, needed, symbols, now, field, *, upper=None):
@@ -29,7 +30,7 @@ def _require(values, needed, symbols, now, field, *, upper=None):
         raise BacktestError(f"Missing or invalid {field} for {names} at {now}; no price filling or silent order skipping")
 
 
-def _targets(weights, equity, prices, multipliers, rates, current, config, locked=None):
+def _targets(weights, equity, prices, multipliers, rates, current, config, locked=None, pairs=()):
     """Preserve literal margin weights; cap only excess gross exposure and fees."""
     gross = float(np.abs(weights).sum())
     if not np.isfinite(gross):
@@ -41,16 +42,25 @@ def _targets(weights, equity, prices, multipliers, rates, current, config, locke
     target = np.zeros_like(current)
     unit_margin = np.zeros(len(current))
     unit_notional = np.zeros(len(current))
-    needed = nonzero | (current != 0)
+    needed = expand_needed(nonzero | (current != 0), pairs)
     unit_notional[needed] = prices[needed] * multipliers[needed]
     unit_margin[needed] = unit_notional[needed] * rates[needed]
     raw_lots = np.zeros(len(current))
-    raw_lots[nonzero] = equity * effective[nonzero] / unit_margin[nonzero]
+    sizing_margin = unit_margin.copy()
+    for primary, hedge, ratio in pairs:
+        sizing_margin[primary] += abs(ratio) * unit_margin[hedge]
+    raw_lots[nonzero] = equity * effective[nonzero] / sizing_margin[nonzero]
     if not np.isfinite(raw_lots).all() or np.abs(raw_lots).max(initial=0) > 2**53:
         raise BacktestError("Target size exceeds supported exact integer range")
     target[:] = np.trunc(raw_lots).astype(np.int64)
     target[locked] = current[locked]
+    target = link_quantities(target, pairs)
     effective[locked] = current[locked] * unit_margin[locked] / equity
+    def response(candidate):
+        if pairs:
+            for j in {j for p, h, _ in pairs for j in (p, h)}:
+                effective[j] = candidate[j] * unit_margin[j] / equity
+        return candidate, effective, weight_scale
 
     def fits(candidate):
         fee = float((np.abs(candidate - current) * unit_notional).sum() * config.commission_rate)
@@ -61,21 +71,23 @@ def _targets(weights, equity, prices, multipliers, rates, current, config, locke
     if not fits(target):
         flat = np.zeros_like(target)
         flat[locked] = current[locked]
+        flat = link_quantities(flat, pairs)
         if not fits(flat):
             if locked.any() and (np.abs(flat - current) * unit_notional).sum() * config.commission_rate < equity:
-                return flat, effective, weight_scale
+                return response(flat)
             raise BacktestError("Insufficient equity to pay the fees needed to flatten this account")
         left, right = 0.0, 1.0
         best = flat
         for _ in range(60):
             middle = (left + right) / 2
             candidate = flat + np.trunc((target - flat) * middle).astype(np.int64)
+            candidate = link_quantities(candidate, pairs)
             if fits(candidate):
                 left, best = middle, candidate
             else:
                 right = middle
         target = best
-    return target, effective, weight_scale
+    return response(target)
 
 
 def _legs(current, target):
@@ -146,6 +158,9 @@ def _schedule(instructions, times, *, daily_only=False):
 
 def _run_account(name, instructions, market, config, *, cancel_event=None, progress=None):
     symbols = list(instructions.columns)
+    pairs = pairs_for(symbols, config.hedges)
+    if config.rebalance_on_change_only:
+        instructions = instructions.loc[instructions.ne(instructions.shift()).any(axis=1)]
     daily = daily_marks(market.close, market.daily_close).reindex(columns=symbols)
     close, fallback = quote_timeline(market.close.reindex(columns=symbols), daily, market.daily_fallback)
     if market.daily_fallback is None and not market.close.index.normalize().duplicated().any():
@@ -211,6 +226,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
 
     def execute(target, now, price, multiple, rate, signal_time, reason, source):
         nonlocal cash, fees_today, total_fees
+        before_all = positions.copy()
         for j, signed, action in _legs(positions.copy(), target):
             signed = int(signed)
             quantity = abs(signed)
@@ -222,16 +238,19 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
             before = int(positions[j])
             positions[j] += signed
             kind = source if isinstance(source, str) else "daily_fallback" if source[j] else "minute_close"
+            linked = [symbols[p] for p, h, _ in pairs if (j == p or j == h) and (before_all[p] != 0 or target[p] != 0)]
             ledger.append(dict(signal_time=signal_time, execution_time=now, symbol=symbols[j], action=action,
                                side="buy" if signed > 0 else "sell", quantity=quantity, signed_quantity=signed,
                                price=float(price[j]), multiplier=float(multiple[j]), margin_rate=float(rate[j]),
                                notional=notional, fee=fee, position_before=before, position_after=int(positions[j]),
                                reason=reason, price_source=kind, execution_precision="1m" if kind == "minute_close" else "1d",
-                               days_to_expiry=float(maturity.at[now.normalize(), symbols[j]])))
+                               days_to_expiry=float(maturity.at[now.normalize(), symbols[j]]), hedge_primary=",".join(linked) or None))
             fees_today += fee
             total_fees += fee
         held = positions != 0
         last_price[held], last_multiple[held] = price[held], multiple[held]
+        if pairs and not np.array_equal(positions, link_quantities(positions, pairs)):
+            raise BacktestError("Quantity-linked hedge invariant failed after execution")
 
     def liquidate(now, price, multiple, rate, source):
         nonlocal status, blown_at, trigger_margin, trigger_available, trigger_time
@@ -331,6 +350,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 if (due & (positions != 0)).any():
                     target = positions.copy()
                     target[due] = 0
+                    target = link_quantities(target, pairs)
                     execute(target, now, day_price, day_multiple, day_rate, pd.NaT, "expiry_d0", "daily_close")
                     closing_values = values(day_price, day_multiple, day_rate)
                     if failed(*closing_values[:3]):
@@ -350,7 +370,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                     days = maturity.loc[now.normalize()].to_numpy()
                     require_days(days, ((positions != 0) | wanted) & ~spot, symbols, now)
                     wanted = wanted & (spot | (days > config.d0))
-                needed = (positions != 0) | wanted
+                needed = expand_needed((positions != 0) | wanted, pairs)
                 future_loc = loc if valid[loc, needed].all() else next_joint_quote(valid, loc, needed, joint_cache)
                 if future_loc is None:
                     raise BacktestError(f"No next valid execution close for {[s for s, n in zip(symbols, needed) if n]} after {signal_time}")
@@ -381,12 +401,15 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 require_days(days, needed & ~spot, symbols, now)
                 blocked = ~spot & (days <= config.d0)
                 locked = blocked & (weights != 0) & (positions != 0)
+                for p, h, _ in pairs:
+                    if locked[p]:
+                        locked[h] = True
                 if (blocked & (weights != 0)).any():
                     blocked_requested = True
                     schedule[record]["expiry_blocked_symbols"] = ",".join(s for s, b, w in zip(symbols, blocked, weights) if b and w)
                     weights = weights.copy()
                     weights[blocked] = 0
-            needed = (positions != 0) | (weights != 0)
+            needed = expand_needed((positions != 0) | (weights != 0), pairs)
             _require(multiple, needed, symbols, now, "multiplier")
             _require(rate, needed, symbols, now, "margin_rate", upper=1)
             for j in np.flatnonzero(weights != 0):
@@ -400,7 +423,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 if not np.any(weights) and not locked.any():
                     target, effective = np.zeros_like(positions), weights
                 else:
-                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked)
+                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked, pairs)
                 execute(target, now, price, multiple, rate, signal_time, "target_rebalance", fallback[loc])
                 schedule[record]["status"] = "expiry_blocked" if blocked_requested and not np.any(target) and not np.any(weights) else "executed"
                 target_rows.append(effective)
@@ -442,6 +465,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                    evaluated_events=evaluated, quote_rows=len(times), risk_checks=checks, risk_quote_gaps=gaps,
                    daily_fallback_orders=sum(r["price_source"] == "daily_fallback" for r in ledger), worker_pid=os.getpid())
     summary["expiry_closes"] = sum(r["reason"] == "expiry_d0" for r in ledger)
+    summary["processed_instructions"] = len(instructions)
     return AccountResult(curve, pd.DataFrame(holding_rows, index=curve.index, columns=symbols),
                          pd.DataFrame(ledger, columns=ORDER_COLUMNS),
                          pd.DataFrame(target_rows, index=pd.DatetimeIndex(target_times, name="timestamp"), columns=symbols),
@@ -461,6 +485,7 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
                config: BacktestConfig | None = None, *, cancel_event=None, progress=None) -> BacktestResult:
     config = config or BacktestConfig()
     check_cancelled(cancel_event)
+    check_market_source(market.metadata)
     targets = normalize_frame(instructions, label="instructions", timezone=config.timezone,
                               date_at=config.date_at, unit=config.timestamp_unit)
     if targets.isna().any().any():
@@ -483,7 +508,14 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
         raise BacktestError("No instructions or prices remain in the requested interval")
     input_rows = len(targets)
     targets, resolved = effective_instructions(targets, config.precision)
+    for rule in config.hedges:
+        if rule.primary not in targets:
+            continue
+        if rule.hedge in targets and targets[rule.hedge].ne(0).any():
+            raise BacktestError("HedgeRule quantities are generated from primary lots; enter zero hedge weights")
+        targets[rule.hedge] = 0.0
     active = set(targets.columns[targets.abs().gt(0).any(axis=0)])
+    active.update(r.hedge for r in config.hedges if r.primary in active)
     missing = sorted(active - set(close.columns))
     if missing:
         raise BacktestError(f"Instruction symbols missing from close data: {missing}")
@@ -495,6 +527,14 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
         groups = {s: [s] for s in targets.columns}
     elif config.mode == "product":
         groups = {root: [s for s in targets.columns if s.startswith(root)] for root in sorted({s[:2] for s in targets.columns})}
+    elif config.mode == "contract_pair":
+        rules = {r.primary: r for r in config.hedges}
+        futures = [s for s in targets if s.endswith(".CFE")]
+        if not futures:
+            raise BacktestError("contract_pair requires futures primary target columns")
+        if any(s not in rules for s in futures):
+            raise BacktestError("Every contract_pair futures column needs its own hedge rule")
+        groups = {s: [s, rules[s].hedge] for s in futures}
     jobs = []
     for name, symbols in groups.items():
         partial = MarketData(close.loc[:, symbols], _subset(market.multiplier, symbols), _subset(market.margin_rate, symbols),
@@ -533,6 +573,7 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
                                         execution="first jointly valid quote strictly after signal; minute then actual daily-close fallback",
                                         sizing="literal signed equity fractions as gross margin; integer truncation",
                                         spot_model="fully funded synthetic index units; multiplier=1, margin=1; shorts allowed",
+                                        hedging="primary weight budgets both legs; linked index quantity from integer future lots; paired maturity close",
                                         pnl="futures variation plus spot market value minus notional commissions; daily close output",
                                         maturity=dict(d0=config.d0, unit="calendar_days", close="daily_close", reason="expiry_d0",
                                                       blocked_entries="T <= d0; existing nonzero targets retained until close, zero targets may exit earlier"),

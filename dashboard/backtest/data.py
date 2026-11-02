@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .models import (BacktestError, DataConfig, MarketData, DEFAULT_MULTIPLIERS,
-                     INDEX_SYMBOLS, check_cancelled, normalize_frame, normalize_symbol, time_bound)
+                     INDEX_SYMBOLS, check_cancelled, check_market_source, normalize_frame, normalize_symbol, time_bound)
 
 
 DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +60,16 @@ def resolve_paths(config: DataConfig) -> dict:
         normalized = base / "market/index_futures/dashboard/normalized"
         for kind in ("cn_index", "cn_index_future"):
             candidates = [normalized / ("backfilled_" + kind), normalized / kind]
-            selected = next((p for p in candidates if (p / "current.json").is_file()), None)
+            selected = None
+            for candidate in candidates:
+                if not (candidate / "current.json").is_file():
+                    continue
+                try:
+                    check_market_source(_store(candidate).descriptor)
+                except BacktestError:
+                    continue
+                selected = candidate
+                break
             if selected:
                 roots.append(selected)
     def resolve(value):
@@ -166,6 +175,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             store = _store(root)
             snapshot = store.snapshot()
             descriptor = snapshot.get("descriptor", store.descriptor)
+            check_market_source(descriptor)
             if descriptor.get("price_adjustment") != "none" or descriptor.get("series_kind") != "concrete":
                 raise BacktestError(f"Executable close requires unadjusted concrete series: {root}")
             available = descriptor["instruments"]
@@ -183,7 +193,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             if not frame.empty:
                 chunks.append(frame[["event_time", "instrument_id", "close"]])
             metadata["datasets"].append(dict(root=str(store.root), version=snapshot["version"],
-                                             availability_policy=descriptor.get("availability_policy"), rows=len(frame)))
+                                             availability_policy=descriptor.get("availability_policy"), source_id=descriptor.get("source_id"), rows=len(frame)))
             if unverified:
                 metadata["warnings"].append("Revised research history; historical publication time is unknown, not a PIT replay")
         if not chunks:
@@ -274,6 +284,7 @@ def audit_data(config: DataConfig | None = None) -> dict:
             report["coverage"].append(dict(symbol=symbol, rows=len(valid), start=str(valid.index.min()), end=str(valid.index.max())))
     for root in paths["history_roots"] if not table_paths else []:
         store = _store(root)
+        check_market_source(store.descriptor)
         snapshot = store.snapshot()
         grouped = defaultdict(list)
         for part in snapshot["parts"]:

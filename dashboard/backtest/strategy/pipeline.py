@@ -11,7 +11,8 @@ from ..data import _reference, load_market_data, resolve_paths
 from ..data_events import load_event_market_data
 from ..expiry import remaining_days
 from ..io import frame_fingerprint, write_json
-from ..models import BacktestConfig, BacktestError, DataConfig, check_cancelled, normalize_frame, time_bound, timestamp
+from ..models import (BacktestConfig, BacktestError, DataConfig, check_cancelled, check_market_source,
+                      normalize_frame, time_bound, timestamp)
 from .cta import cta_targets
 from .factors import annual_basis, basis_percentile
 from .mapping import slot_mapping, to_actual
@@ -61,6 +62,7 @@ def _calendar(path, timezone):
 
 def prepare_panel(market, config, sources, *, dividend_book=None, dividend_points=None,
                   extra_data=None, calendar=None, timezone="Asia/Shanghai", cancel_event=None, require_dividends=True):
+    check_market_source(market.metadata)
     raw = market.daily_close if config.precision == "1d" and market.daily_close is not None else market.close
     close = normalize_frame(raw, label="factor close", timezone=timezone)
     if config.precision == "1d":

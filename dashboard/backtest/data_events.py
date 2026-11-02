@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 
 from .data import _reference, _store, _wide, align_dividend_points, resolve_paths
 from .expiry import remaining_days
-from .models import BacktestError, check_cancelled, normalize_symbol, time_bound
+from .models import BacktestError, check_cancelled, check_market_source, normalize_symbol, time_bound
 from .parallel import process_map, worker_cancel_event
 from .timeline import daily_marks, effective_instructions, quote_timeline
 
@@ -77,7 +77,7 @@ def _read_day(task):
     return daily, minute, daily_rows, minute_rows
 
 
-def _plans(targets, calendar, precision, available_by_day=None, maturity=None, d0=None):
+def _plans(targets, calendar, precision, available_by_day=None, maturity=None, d0=None, hedges=()):
     effective, _ = effective_instructions(targets, precision)
     days = pd.DatetimeIndex(calendar).normalize().unique().sort_values()
     minute_days, needed = set(), defaultdict(set)
@@ -97,6 +97,7 @@ def _plans(targets, calendar, precision, available_by_day=None, maturity=None, d
             while next_day < len(days):
                 key = str(days[next_day].date())
                 required = eligible(previous, days[max(0, next_day - 1)]) | eligible(active, days[next_day])
+                required |= {r.hedge for r in hedges if r.primary in required}
                 if available_by_day is None or required <= available_by_day.get(key, set()):
                     break
                 next_day += 1
@@ -162,7 +163,7 @@ def _wide_inputs(config, targets, run_config, left, right, contracts, remaining)
             present = group.gt(0) & group.notna()
             available[str(day.date())].update(group.columns[present.any(axis=0)])
     maturity = remaining_days(daily.index.normalize(), list(targets.columns), contracts, remaining, timezone=run_config.timezone)
-    minute_days, needed = _plans(targets, daily.index, run_config.precision, available, maturity, run_config.d0)
+    minute_days, needed = _plans(targets, daily.index, run_config.precision, available, maturity, run_config.d0, run_config.hedges)
     retained = []
     loaded_rows = len(minute)
     for day, group in minute.groupby(minute.index.normalize(), sort=True):
@@ -201,12 +202,13 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
             store = _store(root)
             snapshot = store.snapshot()
             descriptor = snapshot.get("descriptor", store.descriptor)
+            check_market_source(descriptor)
             if descriptor.get("price_adjustment") != "none" or descriptor.get("series_kind") != "concrete":
                 raise BacktestError(f"Execution requires raw concrete prices: {root}")
             if descriptor.get("availability_policy") == "unknown" and not config.allow_unverified_availability:
                 raise BacktestError("Set allow_unverified_availability=True to explicitly use revised research history")
             frozen.append(dict(root=str(store.root), version=snapshot["version"],
-                               availability_policy=descriptor.get("availability_policy")))
+                               availability_policy=descriptor.get("availability_policy"), source_id=descriptor.get("source_id")))
             for part in snapshot["parts"]:
                 symbol = normalize_symbol(part["instrument_id"])
                 if symbol not in selected or part["frequency"] not in {"1d", "1m"}:
@@ -230,7 +232,7 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         if daily_marks_only:
             minute_days, needed = set(), defaultdict(set)
         else:
-            minute_days, needed = _plans(targets, calendar, run_config.precision, available, maturity, run_config.d0)
+            minute_days, needed = _plans(targets, calendar, run_config.precision, available, maturity, run_config.d0, run_config.hedges)
         jobs, units = [], 0
         for day in calendar_days:
             # If a day has no official daily table, read minutes to obtain that

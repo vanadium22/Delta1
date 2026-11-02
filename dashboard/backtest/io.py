@@ -70,9 +70,10 @@ def save_result(result, output_dir):
 
 def load_result(output_dir):
     """Read a completed local run, also after its directory has moved."""
-    from .models import AccountResult, BacktestError, BacktestResult
+    from .models import AccountResult, BacktestError, BacktestResult, check_market_source
     root = Path(output_dir).expanduser().resolve()
     metadata = json.loads((root / "metadata.json").read_text(encoding="utf-8-sig"))
+    check_market_source(metadata.get("market_data", {}))
     definitions = metadata.get("output_paths", {}).get("accounts", {})
     if not definitions:
         raise BacktestError(f"No completed account results found in {root}")

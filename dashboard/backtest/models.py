@@ -44,6 +44,18 @@ def check_source_paths(value):
         raise BacktestError("Z-drive sources are excluded; use an explicit Delta1/data source or a future DDB provider")
 
 
+def check_market_source(value):
+    check_source_paths(value)
+    if isinstance(value, Mapping):
+        for item in value.values():
+            check_market_source(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            check_market_source(item)
+    elif isinstance(value, str) and any(token in value.lower() for token in ("readonly_z", "z_derived", "z-derived", "z_drive_source")):
+        raise BacktestError("Z-derived/mixed market sources are excluded even when cached on another drive; select a pure DDB dataset")
+
+
 def normalize_symbol(value: str, *, allow_continuous=False) -> str:
     symbol = str(value).strip().upper()
     if symbol in SPOT_SYMBOLS:
@@ -130,6 +142,21 @@ def normalize_frame(frame: pd.DataFrame, *, label="table", timezone="Asia/Shangh
 
 
 @dataclass(frozen=True)
+class HedgeRule:
+    primary: str
+    hedge: str
+    quantity_ratio: int
+
+    def __post_init__(self):
+        object.__setattr__(self, "primary", normalize_symbol(self.primary))
+        object.__setattr__(self, "hedge", normalize_symbol(self.hedge))
+        if not self.primary.endswith(".CFE") or self.hedge != self.primary[:2] + "_spot":
+            raise BacktestError("An index hedge must pair a concrete future with its own product_spot")
+        if isinstance(self.quantity_ratio, bool) or not isinstance(self.quantity_ratio, (int, np.integer)) or self.quantity_ratio >= 0:
+            raise BacktestError("quantity_ratio must be a negative integer number of index units per futures lot")
+
+
+@dataclass(frozen=True)
 class BacktestConfig:
     initial_capital: float = 1_000_000.0
     commission_rate: float = 0.0003
@@ -140,6 +167,8 @@ class BacktestConfig:
     precision: str = "1d"  # 1d: day-end signals/risk; auto: input precision and quote-by-quote risk
     workers: int = 0  # 0: bounded automatic process count; 1: serial
     d0: int | None = 0  # calendar days; None explicitly disables maturity liquidation
+    hedges: tuple[HedgeRule, ...] = ()
+    rebalance_on_change_only: bool = False
     start: Any = None
     end: Any = None
     timezone: str = "Asia/Shanghai"
@@ -157,8 +186,18 @@ class BacktestConfig:
             raise BacktestError("initial_capital must be positive; max_capital_usage must be in (0, 1]")
         if self.commission_rate < 0 or self.minimum_margin_ratio < 0:
             raise BacktestError("Commission and minimum margin ratios cannot be negative")
-        if self.mode not in {"symbol", "product", "portfolio"}:
-            raise BacktestError("mode must be symbol, product, or portfolio")
+        if self.mode not in {"symbol", "product", "portfolio", "contract_pair"}:
+            raise BacktestError("mode must be symbol, product, portfolio, or contract_pair")
+        rules = tuple(HedgeRule(**r) if isinstance(r, Mapping) else r for r in self.hedges)
+        if any(not isinstance(r, HedgeRule) for r in rules) or len({r.primary for r in rules}) != len(rules):
+            raise BacktestError("hedges must contain unique HedgeRule primary symbols")
+        if rules and self.mode == "symbol":
+            raise BacktestError("Use contract_pair for independent hedged contracts; symbol mode splits the hedge")
+        if self.mode == "contract_pair" and not rules:
+            raise BacktestError("contract_pair mode requires explicit hedge rules")
+        object.__setattr__(self, "hedges", rules)
+        if not isinstance(self.rebalance_on_change_only, bool):
+            raise BacktestError("rebalance_on_change_only must be boolean")
         if self.precision not in {"1d", "auto"}:
             raise BacktestError("precision must be 1d or auto")
         if isinstance(self.workers, bool) or not isinstance(self.workers, (int, np.integer)) or self.workers < 0:
@@ -243,7 +282,12 @@ class BacktestResult:
 
     @property
     def actual_orders(self) -> pd.DataFrame:
-        return pd.concat([r.actual_orders.assign(account=name) for name, r in self.accounts.items()], ignore_index=True)
+        frames = [r.actual_orders.assign(account=name) for name, r in self.accounts.items() if len(r.actual_orders)]
+        if frames:
+            return pd.concat(frames, ignore_index=True)
+        if self.accounts:
+            return next(iter(self.accounts.values())).actual_orders.iloc[:0].assign(account=pd.Series(dtype=object))
+        return pd.DataFrame()
 
     @property
     def summary(self) -> pd.DataFrame:

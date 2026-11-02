@@ -32,6 +32,8 @@
     "precision": "1d",
     "workers": 0,
     "d0": 0,
+    "hedges": [],
+    "rebalance_on_change_only": false,
     "start": null,
     "end": null,
     "timezone": "Asia/Shanghai",
