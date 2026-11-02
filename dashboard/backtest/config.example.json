@@ -1,0 +1,37 @@
+{
+  "instructions_path": "inputs/target_weights.parquet",
+  "output_dir": "../outputs/backtest/example_run",
+  "data": {
+    "data_root": null,
+    "dashboard_config_path": null,
+    "history_roots": [],
+    "reference_path": null,
+    "frequency": "1d",
+    "close_path": null,
+    "multiplier_path": null,
+    "margin_rate_path": null,
+    "adjusted_close_path": null,
+    "dividend_points_path": null,
+    "dividend_root": null,
+    "dividend_policy": "none",
+    "multipliers": {},
+    "margin_rates": {},
+    "allow_unverified_availability": true,
+    "trusted_pickle": false
+  },
+  "backtest": {
+    "initial_capital": 10000000,
+    "commission_rate": 0.0003,
+    "max_capital_usage": 0.99,
+    "minimum_margin_ratio": 0.0001,
+    "margin_call_basis": "equity",
+    "mode": "portfolio",
+    "start": null,
+    "end": null,
+    "timezone": "Asia/Shanghai",
+    "date_at": "15:00",
+    "timestamp_unit": null,
+    "nan_policy": "error",
+    "liquidate_at_end": false
+  }
+}

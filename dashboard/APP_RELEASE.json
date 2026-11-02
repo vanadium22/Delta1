@@ -301,7 +301,25 @@
     "tools/README.md",
     "tools/__init__.py",
     "tools/build_dashboard_icon.py",
-    "tools/workspace_cleanup.py"
+    "tools/workspace_cleanup.py",
+    "dashboard/backtest/.gitignore",
+    "dashboard/backtest/AGENTS.md",
+    "dashboard/backtest/DATA_ASSESSMENT.md",
+    "dashboard/backtest/PROJECT_HANDOFF.md",
+    "dashboard/backtest/README.md",
+    "dashboard/backtest/__init__.py",
+    "dashboard/backtest/__main__.py",
+    "dashboard/backtest/api.py",
+    "dashboard/backtest/config.example.json",
+    "dashboard/backtest/data.py",
+    "dashboard/backtest/engine.py",
+    "dashboard/backtest/io.py",
+    "dashboard/backtest/models.py",
+    "dashboard/backtest/requirements.txt",
+    "dashboard/backtest/run.py",
+    "dashboard/backtest/test/__init__.py",
+    "dashboard/backtest/test/test_data.py",
+    "dashboard/backtest/test/test_engine.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -376,5 +394,30 @@
       "same-run open and completed shutdown reports absent"
     ],
     "acceptance": "No new company shutdown timing or actual live F/S/D/T can be inferred; earlier Y/NAV acceptance retained."
+  },
+  "backtest": {
+    "branch": "codex/company-apps",
+    "entry": "dashboard/backtest/run.py",
+    "status": "backend_verified_desktop_next",
+    "files": [
+      "dashboard/backtest/.gitignore",
+      "dashboard/backtest/AGENTS.md",
+      "dashboard/backtest/DATA_ASSESSMENT.md",
+      "dashboard/backtest/PROJECT_HANDOFF.md",
+      "dashboard/backtest/README.md",
+      "dashboard/backtest/__init__.py",
+      "dashboard/backtest/__main__.py",
+      "dashboard/backtest/api.py",
+      "dashboard/backtest/config.example.json",
+      "dashboard/backtest/data.py",
+      "dashboard/backtest/engine.py",
+      "dashboard/backtest/io.py",
+      "dashboard/backtest/models.py",
+      "dashboard/backtest/requirements.txt",
+      "dashboard/backtest/run.py",
+      "dashboard/backtest/test/__init__.py",
+      "dashboard/backtest/test/test_data.py",
+      "dashboard/backtest/test/test_engine.py"
+    ]
   }
 }
