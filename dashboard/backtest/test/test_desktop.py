@@ -207,6 +207,32 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(data["daily_close_path"], "daily_close.parquet")
             self.assertEqual(DataConfig(**data).daily_close_path, str(second / "daily_close.parquet"))
 
+    def test_quantile_regression_and_annual_calendar_parameters_and_execution_restore(self):
+        from dataclasses import asdict
+        import json
+        from dashboard.backtest.configuration import CTASpec, FactorSpec
+        from dashboard.backtest.io import write_json
+        cases=[(FactorSpec(name="term_structure_percentile",parameters=dict(window_days=7,min_training_samples=15,
+                        degree=2,quantiles=(.1,.5,.9))),CTASpec(name="expiry_index_structure",input_factor="term_structure_percentile")),
+               (FactorSpec(name="annual_calendar_spread_percentile",parameters=dict(window_days=8,min_gap_days=2,price_base="spot")),
+                CTASpec(name="expiry_spread",input_factor="annual_calendar_spread_percentile"))]
+        with local_temp() as root:
+            for factor,cta in cases:
+                path=root/"structure.local.json"
+                write_json(path,dict(factor=asdict(factor),cta=asdict(cta),backtest=dict(weight_mode="neutral_units",preserve_pair_lots=True)))
+                self.window.load_config(path)
+                self.window.show_location("save_config")
+                self.window.location_path.setText(str(path))
+                self.window.apply_location()
+                self.window.load_config(path)
+                restored=self.window.job()
+                def normalize(obj):
+                    return json.loads(json.dumps(obj))
+                self.assertEqual(normalize(restored["factor"]),normalize(asdict(factor)))
+                self.assertEqual(normalize(restored["cta"]),normalize(asdict(cta)))
+                self.assertTrue(restored["backtest"]["preserve_pair_lots"])
+
+
     def test_cancel_is_responsive_and_closing_waits_for_worker(self):
         started = []
         def read(cancel, progress):

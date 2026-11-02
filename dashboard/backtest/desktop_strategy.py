@@ -17,6 +17,10 @@ def build_strategy_page(window):
     c["factor_name"] = combo([("去分红年化基差 · 百分点", "annual_basis"),
         ("年化基差历史分位 · 原始 p", "basis_percentile"), ("F−指数价差历史分位 · 原始 p", "price_basis_percentile"),
         ("01−03 跨期价差历史分位 · 原始 p", "calendar_spread_percentile"), ("连续合约 close 历史分位 · 原始 p", "close_percentile")])
+    for title, name in (("01−03 年化跨期价差", "annual_calendar_spread"),
+                         ("01−03 年化跨期历史分位", "annual_calendar_spread_percentile"),
+                         ("年化期现期限结构 · 条件分位回归", "term_structure_percentile")):
+        c["factor_name"].addItem(title, name)
     c["factor_name"].setCurrentIndex(1)
     factor_form.addRow("因子函数", c["factor_name"])
     c["roots"], c["slots"] = QLineEdit("IC"), QLineEdit("00,01,02,03")
@@ -29,6 +33,16 @@ def build_strategy_page(window):
         item.setValue(default)
         c[key] = item
         factor_form.addRow(title, item)
+    for key, title, default, low, high in (("min_gap_days", "跨期最小到期日差 · 自然日", 1, 1, 3650),
+        ("min_training_samples", "回归最少历史合约观测数", 120, 3, 20000), ("degree", "期限回归多项式阶数", 1, 1, 2)):
+        c[key] = QSpinBox()
+        c[key].setRange(low, high)
+        c[key].setValue(default)
+        factor_form.addRow(title, c[key])
+    c["price_base"] = combo([("近腿原始价格", "near"), ("对应指数价格", "spot")])
+    c["quantiles"] = QLineEdit("0.05,0.10,0.25,0.50,0.75,0.90,0.95")
+    factor_form.addRow("跨期归一化价格", c["price_base"])
+    factor_form.addRow("条件分位网格 · 概率，逗号分隔", c["quantiles"])
     c["factor_precision"] = combo([("日线", "1d"), ("原始观测时点", "auto")])
     c["factor_workers"] = QSpinBox()
     c["factor_workers"].setRange(0, 64)
@@ -41,6 +55,7 @@ def build_strategy_page(window):
 
     c["cta_name"] = combo([("固定阈值", "fixed"), ("Z 阈值", "zscore"),
         ("指数对冲 · 择优/独立持有到期", "expiry_index"), ("01−03 跨期 · 到期双平", "expiry_spread")])
+    c["cta_name"].addItem("品种共享资金 · 各实际合约独立pair", "expiry_index_structure")
     c["mode"] = c["cta_name"]
     cta_form.addRow("CTA 函数", c["cta_name"])
     c["input_factor"] = combo([(name, name) for name in FACTOR_SCHEMAS])
@@ -79,7 +94,7 @@ def build_strategy_page(window):
         name = c["factor_name"].currentData()
         c["input_factor"].setCurrentIndex(c["input_factor"].findData(name))
         c["transform"].setCurrentIndex(1 if name.endswith("percentile") else 0)
-        for key in ("window_days", "min_annual_days", "min_samples"):
+        for key in ("window_days", "min_annual_days", "min_samples", "min_gap_days", "price_base", "min_training_samples", "degree", "quantiles"):
             factor_form.setRowVisible(c[key], key in FACTOR_SCHEMAS[name]["parameters"])
     c["factor_name"].currentIndexChanged.connect(changed)
 
@@ -88,12 +103,12 @@ def build_strategy_page(window):
         active = CTA_SCHEMAS[name]["parameters"]
         for key in ("open_threshold", "close_threshold", "lookback_window", "z_open", "z_close", "threshold", "selection", "hedge", "missing"):
             cta_form.setRowVisible(c[key], key in active)
-        cta_form.setRowVisible(c["candidate_slots"], name == "expiry_index")
+        cta_form.setRowVisible(c["candidate_slots"], name in {"expiry_index", "expiry_index_structure"})
         c["transform"].setEnabled(not name.startswith("expiry"))
         if name.startswith("expiry"):
             c["direction"].setCurrentIndex(1)
             c["transform"].setCurrentIndex(1)
-            c["weight"].setValue(49.5)
+            c["weight"].setValue(12.375 if name == "expiry_index_structure" else 49.5)
     c["cta_name"].currentIndexChanged.connect(cta_changed)
     changed()
     cta_changed()
@@ -102,7 +117,11 @@ def build_strategy_page(window):
 def strategy_settings(window):
     c = window.strategy_controls
     name = c["factor_name"].currentData()
-    factor = FactorSpec(name=name, parameters={k: c[k].value() for k in FACTOR_SCHEMAS[name]["parameters"]},
+    params = {}
+    for key in FACTOR_SCHEMAS[name]["parameters"]:
+        params[key] = tuple(float(v.strip()) for v in c[key].text().split(",") if v.strip()) if key == "quantiles" else (
+            c[key].currentData() if hasattr(c[key], "currentData") else c[key].value())
+    factor = FactorSpec(name=name, parameters=params,
         roots=tuple(s.strip().upper() for s in c["roots"].text().split(",") if s.strip()),
         slots=tuple(int(s.strip()) for s in c["slots"].text().split(",") if s.strip()),
         precision=c["factor_precision"].currentData(), workers=c["factor_workers"].value())
@@ -131,7 +150,12 @@ def apply_strategy_settings(window, job):
     c["factor_precision"].setCurrentIndex(c["factor_precision"].findData(factor.precision))
     c["factor_workers"].setValue(factor.workers)
     for key, value in factor.parameters.items():
-        c[key].setValue(value)
+        if key == "quantiles":
+            c[key].setText(",".join(map(str, value)))
+        elif hasattr(c[key], "findData"):
+            c[key].setCurrentIndex(c[key].findData(value))
+        else:
+            c[key].setValue(value)
     for key, value in cta.parameters.items():
         if key == "position_weight":
             c["weight"].setValue(value * 100)
@@ -152,6 +176,10 @@ def _set_signals(window, signals):
         window.weight_mode.setCurrentIndex(window.weight_mode.findData(required["weight_mode"]))
     if required.get("rebalance_on_change_only"):
         window.on_change.setChecked(True)
+    if required.get("preserve_pair_lots"):
+        window.preserve_pair_lots.setChecked(True)
+    if required.get("mode"):
+        window.mode.setCurrentIndex(window.mode.findData(required["mode"]))
     if "d0" in required:
         window.expiry_enabled.setChecked(True)
         window.d0.setValue(required["d0"])

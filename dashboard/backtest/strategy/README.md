@@ -4,6 +4,8 @@
 
 本模块先按每个交易日的挂牌/到期资料将实际合约映射为 `IC00.CFE`—`IC03.CFE` 等计算档位，再生成因子和 CTA 状态。最终 `factors`、`scores`、`targets` 的列全部是实际合约；00—03 只在 `panel`、`continuous_factors` 和映射审计中出现，不作为成交代码。
 
+年化跨期按 `T03-T01` 计算；期限结构条件分位回归、逐实际合约 pair 及同品种共享资金见 [TERM_STRUCTURE](../TERM_STRUCTURE.md)。条件 p/q、β和训练区间随 FactorResult 单独保存，CTA 只读取因子及映射上下文。新增 `expiry_index_structure` 不按档位变更已有合约，执行显式要求 `preserve_pair_lots=true`，原 fixed/Z 和择优/独立账户模式仍兼容。
+
 ## 数据与参数接口
 
 | 接口 | 内容 |

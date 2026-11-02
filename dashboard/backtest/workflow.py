@@ -17,6 +17,7 @@ def factor_stage(job, *, market_data=None, output_dir=None, cancel_event=None, p
     spec = factor_spec(job)
     result = compute_factors(data_config=DataConfig(**job.get("data", {})), market_data=market_data,
                               factor_config=spec.runtime(), factor_name=spec.name, requested_only=True,
+                              factor_parameters={spec.name:spec.parameters},
                               cancel_event=cancel_event, progress=progress)
     # This declaration contains only factor parameters and calculation context.
     result.metadata["factor"] = asdict(spec)
@@ -38,8 +39,8 @@ def _index_weights(targets):
 
 def _spread_expiry(factors, spec, start, end, cancel_event):
     p = factors.continuous_factors[spec.input_factor]
-    if spec.input_factor != "calendar_spread_percentile":
-        raise BacktestError("expiry_spread requires calendar_spread_percentile")
+    if spec.input_factor not in {"calendar_spread_percentile", "annual_calendar_spread_percentile"}:
+        raise BacktestError("expiry_spread requires a calendar-spread percentile factor")
     index = p.index
     left, right = time_bound(start), time_bound(end, end=True)
     selected = np.ones(len(index), dtype=bool)
@@ -110,13 +111,14 @@ def cta_stage(factors, job, *, output_dir=None, cancel_event=None):
         values = factors.continuous_factors[spec.input_factor]
         if ((values < 0) | (values > 1)).any().any():
             raise BacktestError("Expiry CTA requires raw p in [0,1]")
-        if spec.name == "expiry_index":
+        if spec.name in {"expiry_index", "expiry_index_structure"}:
             requested = {f"{root}0{slot}.CFE" for root in {s[:2] for s in factors.panel.mapping} for slot in spec.parameters["slots"]}
             if requested - set(factors.panel.mapping):
                 raise BacktestError("CTA candidate slots are absent from the saved factor calculation context")
             mapping = factors.panel.mapping.loc[:, [s for s in factors.panel.mapping if int(s[2:4]) in spec.parameters["slots"]]]
             signals = hold_to_expiry_targets(factors.factors[spec.input_factor], mapping, factors.contracts,
-                start=start, end=end, threshold=spec.parameters["threshold"], selection=spec.parameters["selection"],
+                start=start, end=end, threshold=spec.parameters["threshold"],
+                selection=spec.parameters.get("selection", "contract_independent"),
                 weight=spec.parameters["position_weight"], direction=spec.parameters["direction"],
                 roots=tuple(sorted({s[:2] for s in mapping})), cancel_event=cancel_event)
             targets, decisions = _index_weights(signals.targets), signals.decisions
@@ -124,9 +126,13 @@ def cta_stage(factors, job, *, output_dir=None, cancel_event=None):
             targets, decisions = _spread_expiry(factors, spec, start, end, cancel_event)
         result = CTAResult(targets, 2 * factors.factors[spec.input_factor] - 1, {}, decisions)
         result.metadata["required_backtest_options"] = dict(weight_mode="neutral_units", d0=0, rebalance_on_change_only=True)
+        if spec.name == "expiry_index_structure":
+            result.metadata["required_backtest_options"].update(mode="product", preserve_pair_lots=True)
+            result.metadata["pair_allocation"] = "each actual future is a separate pair; dedicated fixed per-leg weights; one capital account per product"
     result.metadata.update(cta=asdict(spec), factor_fingerprint=frame_fingerprint(factors.continuous_factors[spec.input_factor]),
                            target_fingerprint=frame_fingerprint(result.targets), input_factor=spec.input_factor,
-                           input_factor_declaration=factors.metadata.get("factor", factors.metadata.get("factor_config")),
+                           input_factor_declaration=factors.metadata.get("factor_declarations",{}).get(spec.input_factor,
+                               factors.metadata.get("factor", factors.metadata.get("factor_config"))),
                            input_factor_artifact=factors.output_paths.get("output_dir"),
                            data_context={k: factors.metadata.get("market", {}).get(k) for k in ("datasets", "files", "dataset_id", "data_version")})
     if output_dir is not None:

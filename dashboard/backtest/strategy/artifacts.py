@@ -43,6 +43,7 @@ def save_factors(result, directory):
     frames.update({f"continuous/{name}": value for name, value in result.continuous_factors.items()})
     frames.update({f"panel/{name}": getattr(result.panel, name) for name in PANEL_FIELDS})
     frames.update({f"extras/{name}": value for name, value in result.panel.extras.items()})
+    frames.update({f"diagnostics/{name}": value for name, value in result.diagnostics.items()})
     metadata = dict(result.metadata, contracts=result.contracts, panel_metadata=result.panel.metadata)
     return _save_frames(root, frames, metadata, "factor")
 
@@ -78,7 +79,8 @@ def load_factors(directory, *, cancel_event=None):
     def grouped(prefix):
         return {k.split("/", 1)[1]: v for k, v in frames.items() if k.startswith(prefix + "/")}
     panel = ContinuousPanel(**grouped("panel"), extras=grouped("extras"), metadata=metadata.pop("panel_metadata"))
-    result = FactorResult(grouped("factors"), grouped("continuous"), panel, metadata.pop("contracts"), metadata, paths)
+    result = FactorResult(grouped("factors"), grouped("continuous"), panel, metadata.pop("contracts"), metadata, paths,
+                          diagnostics=grouped("diagnostics"))
     if not result.continuous_factors or any(not v.index.equals(panel.mapping.index) for v in result.continuous_factors.values()):
         raise BacktestError("Factor artifact has inconsistent timestamp/mapping context")
     return result

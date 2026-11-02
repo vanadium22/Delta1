@@ -121,6 +121,7 @@ class FactorResult:
     metadata: dict
     output_paths: dict = field(default_factory=dict)
     market_data: MarketData | None = None
+    diagnostics: dict[str, pd.DataFrame] = field(default_factory=dict)
 
     def save(self, directory):
         from .artifacts import save_factors

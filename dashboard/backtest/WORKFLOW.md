@@ -42,6 +42,9 @@ python -m dashboard.backtest.workflow run --config local_artifacts/validation/20
 | close_percentile | 连续档原始 close；`window_days=60/min_samples=2` | 原始价格分位 p |
 | price_basis_percentile | 连续档 F−S，指数点；同上窗口/样本 | 原始价差分位 p |
 | calendar_spread_percentile | 仅计算 01−03 的原始价格差，指数点；同上窗口/样本 | 原始分位放在 01 列，其他档缺失；两腿映射另存 |
+| annual_calendar_spread | 01/03 的 F/D/T；min_gap_days=1 自然日，price_base=near/spot | 100*(F01-F03+D01-D03)/base*365/(T03-T01)，百分点 |
+| annual_calendar_spread_percentile | 年化跨期，另加 window_days=60/min_samples=2 | 原始 p，年化依赖另存 |
+| term_structure_percentile | 年化基差；window_days=60/min_training_samples=120/degree=1/quantiles=.05,.1,.25,.5,.75,.9,.95/min_annual_days=5 | 前序日期的条件期限分位 p，另存 q 曲线及模型诊断；详见 TERM_STRUCTURE |
 
 分位统计采用前 N 个交易日，排除当日，等值计半权；分钟因子也不会将当天后续 close 放进历史。原始因子没有方向、阈值、择约或仓位状态。CTA 参数改变不影响因子文件和逐单元值。
 
@@ -51,6 +54,7 @@ python -m dashboard.backtest.workflow run --config local_artifacts/validation/20
 | zscore | `lookback_window=20`，整数≥2；`z_open=2/z_close=.4`；其余同 fixed | 前 N 日均值/总体标准差，当前日排除；零标准差为缺失 |
 | expiry_index | `threshold=.9`，(0,1)；`position_weight=.495` 每腿，(0,.5]；`direction=-1`；`transform=center_percentile`；`selection=product_best` 或 `contract_independent`；`slots=[0,1,2,3]` 唯一档位 | 最大 abs(2p−1) 严格越界开反向仓；同绝对值按较低档/实际代码择优；实际代码锁定至到期 |
 | expiry_spread | 与 expiry_index 的 threshold/weight/direction/transform 相同，固定使用 01−03 | 同时锁定当日实际近腿和远腿；任一到期时双平，之后再找越界 |
+| expiry_index_structure | threshold=.9/position_weight=.12375 每腿/direction=-1/transform=center_percentile/slots=四档 | 同品种共享资金，每个实际合约独立 pair 并持有至到期；要求 product 和 preserve_pair_lots=true |
 
 `transform=center_percentile` 显式执行 `2p−1`，要求原始值在 [0,1]。fixed/zscore 的 `missing=flat/hold/error`；expiry CTA 在持仓期忽略中途因子变化/缺失。`hedge=index` 为 fixed/Z 增加反向指数目标；expiry_index 固定产生该对冲。`direction=-1` 为反转。
 

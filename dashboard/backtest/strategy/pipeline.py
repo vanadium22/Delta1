@@ -163,10 +163,28 @@ def compute_factors(*, market_data=None, data_config=None, source_config=None, f
         dividend_points = pd.DataFrame(0.0, index=market.close.index, columns=market.close.columns)
     panel = prepare_panel(market, factors, source, dividend_book=dividend_book, dividend_points=dividend_points,
                           extra_data=extra_data, calendar=calendar, cancel_event=cancel_event,
-                          require_dividends=include_examples and factor_name in {"annual_basis", "basis_percentile"})
+                          require_dividends=include_examples and factor_name in {"annual_basis", "basis_percentile", "term_structure_percentile",
+                              "annual_calendar_spread", "annual_calendar_spread_percentile"})
     values = {}
+    diagnostics, method = {}, {}
     if include_examples:
-        if factor_name not in {"close_percentile", "price_basis_percentile", "calendar_spread_percentile"}:
+        if factor_name.startswith("annual_calendar"):
+            from .annual_calendar import annual_calendar_percentile, annual_calendar_spread
+            params = {"min_gap_days":1, "price_base":"near", **(factor_parameters or {}).get(factor_name, {})}
+            if factor_name == "annual_calendar_spread":
+                values[factor_name], _ = annual_calendar_spread(panel, **params)
+            else:
+                annual, percentile = annual_calendar_percentile(panel, factors, params, cancel_event=cancel_event)
+                values.update(annual_calendar_spread=annual, annual_calendar_spread_percentile=percentile)
+            method = dict(formula="100*(F01-F03+D01-D03)/price_base*365/(T03-T01)",
+                          expiry_unit="true natural days; far minus near", price_base=params["price_base"])
+        elif factor_name == "term_structure_percentile":
+            from .term_structure import term_structure_percentile
+            annual = annual_basis(panel, factors)
+            calculated, diagnostics, method = term_structure_percentile(panel, annual, factors,
+                (factor_parameters or {}).get(factor_name, {}), cancel_event=cancel_event, progress=progress)
+            values.update(annual_basis=annual, **calculated)
+        elif factor_name not in {"close_percentile", "price_basis_percentile", "calendar_spread_percentile"}:
             annual = annual_basis(panel, factors)
             values["annual_basis"] = annual
             if not requested_only or factor_name != "annual_basis":
@@ -204,13 +222,17 @@ def compute_factors(*, market_data=None, data_config=None, source_config=None, f
         warnings.append("所选因子无有效单元格；检查完整历史窗口、价格和连续映射，不填零或缩短窗口")
     if panel.metadata["mapping_gaps"]:
         warnings.append("部分日期缺完整四档映射；详见 panel.mapping_gaps")
+    units = {"annual_basis":"percentage_points", "basis_percentile":"0_to_1", "annual_calendar_spread":"percentage_points",
+             "annual_calendar_spread_percentile":"0_to_1", "term_structure_percentile":"0_to_1"}
+    units.update({name:"percentage_points" for name in values if name.startswith("term_structure_q")})
     metadata = dict(factor_config=asdict(factors), factor_name=factor_name,
-                    factor_units={"annual_basis": "percentage_points", "basis_percentile": "0_to_1"},
+                    factor_units=units,
                     percentile="previous window_days daily slots; current date excluded; ties half weight; known T<min_annual_days excluded; other missing days invalidate window",
                     output_columns="concrete_contracts_only", custom_factors=definitions, panel=panel.metadata,
                     market=market.metadata, quality=quality, warnings=warnings, dividend_mode=data.dividend_mode,
+                    method=method,
                     factor_fingerprints={k: frame_fingerprint(v) for k, v in values.items()})
-    result = FactorResult(actual, values, panel, market.contracts, metadata, market_data=market)
+    result = FactorResult(actual, values, panel, market.contracts, metadata, market_data=market, diagnostics=diagnostics)
     if output_dir is not None:
         check_cancelled(cancel_event)
         result.save(output_dir)

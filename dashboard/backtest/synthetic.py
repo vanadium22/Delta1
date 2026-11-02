@@ -46,6 +46,12 @@ def write_inputs(directory):
               "cta": dict(name="expiry_spread", input_factor="calendar_spread_percentile", parameters=dict(threshold=.9,
                           position_weight=.495, direction=-1, transform="center_percentile"))}
     write_json(root / "spread.local.json", spread)
+    structure = {**base, "factor": {**base["factor"], "name": "term_structure_percentile",
+        "parameters": dict(window_days=3,min_training_samples=8,min_annual_days=5,degree=1,quantiles=[.1,.5,.9])},
+        "cta": dict(name="expiry_index_structure",input_factor="term_structure_percentile",
+            parameters=dict(threshold=.9,position_weight=.12375,direction=-1,transform="center_percentile",slots=[0,1,2,3])),
+        "backtest": {**base["backtest"],"initial_capital":40_000_000,"preserve_pair_lots":True}}
+    write_json(root / "structure.local.json", structure)
     write_json(root / "README.local.json", dict(source="All prices, calendars and references are synthetic fixtures, not observed markets",
         coverage=dict(start=str(close.index[0]), end=str(close.index[-1])), roots=list(DEFAULT_MULTIPLIERS),
         margin_assumption="100% per futures leg and synthetic index; commissions charged per leg"))

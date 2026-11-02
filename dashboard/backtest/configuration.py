@@ -23,6 +23,9 @@ class Parameter:
         elif self.kind == "slots":
             if not isinstance(value, (list, tuple)) or not value or any(type(v) is not int or v not in range(4) for v in value) or len(set(value)) != len(value):
                 raise BacktestError(f"{name} must contain unique slot integers 0..3")
+        elif self.kind == "quantiles":
+            from .strategy.term_structure import TermStructureConfig
+            TermStructureConfig(quantiles=value)
         else:
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
                 raise BacktestError(f"{name} must be a finite {self.kind}")
@@ -35,6 +38,8 @@ class Parameter:
 WINDOW = dict(window_days=Parameter(60, "previous trading days", "integer", 2),
               min_samples=Parameter(2, "valid prior observations", "integer", 1))
 ANNUAL = dict(min_annual_days=Parameter(5, "remaining calendar days", "integer", 1))
+CALENDAR = dict(min_gap_days=Parameter(1, "far-minus-near calendar days", "integer", 1),
+                price_base=Parameter("near", "normalizing price", choices=("near", "spot")))
 COMMON_CTA = dict(position_weight=Parameter(.2, "signed equity budget per leg", minimum=0.000001, maximum=1),
                   direction=Parameter(1, "sign", choices=(-1, 1)),
                   transform=Parameter("identity", "factor transform", choices=("identity", "center_percentile")),
@@ -46,6 +51,13 @@ FACTOR_SCHEMAS = {
     "price_basis_percentile": dict(inputs=("close", "spot"), unit="p in [0,1] of F-S (index points)", parameters=WINDOW),
     "close_percentile": dict(inputs=("close",), unit="p in [0,1] of continuous raw close (index points)", parameters=WINDOW),
     "calendar_spread_percentile": dict(inputs=("close slots 01 and 03",), unit="p in [0,1] of F01-F03 (index points)", parameters=WINDOW),
+    "annual_calendar_spread": dict(inputs=("close, dividends and expiry days for 01/03",), unit="annual percentage points", parameters=CALENDAR),
+    "annual_calendar_spread_percentile": dict(inputs=("annualized 01-minus-03 carry",), unit="p in [0,1]", parameters={**WINDOW, **CALENDAR}),
+    "term_structure_percentile": dict(inputs=("annual basis across dated maturities", "prior dates only", "remaining natural days"),
+        unit="conditional p in [0,1]", parameters={**ANNUAL, "window_days":WINDOW["window_days"],
+        "min_training_samples":Parameter(120, "pooled previous date x contract observations", "integer", 3),
+        "degree":Parameter(1, "polynomial degree in T/365", "integer", choices=(1, 2)),
+        "quantiles":Parameter((.05,.10,.25,.50,.75,.90,.95), "conditional quantile grid", "quantiles")}),
 }
 EXPIRY = dict(threshold=Parameter(.9, "absolute centered score; strict >", minimum=0, maximum=1),
               position_weight=Parameter(.495, "budget per equal-weight leg", minimum=0.000001, maximum=.5),
@@ -62,6 +74,9 @@ CTA_SCHEMAS = {
                          "selection": Parameter("product_best", "selection scope", choices=("product_best", "contract_independent")),
                          "slots": Parameter((0, 1, 2, 3), "candidate slots", "slots")}),
     "expiry_spread": dict(inputs=("01-minus-03 raw percentile", "dated mapping", "expiry reference"), parameters=EXPIRY),
+    "expiry_index_structure": dict(inputs=("per-contract raw percentile", "dated actual mapping", "expiry reference"),
+        parameters={**EXPIRY, "position_weight":Parameter(.12375, "per leg; 4 dedicated pair budgets per product", minimum=.000001, maximum=.125),
+                    "slots":Parameter((0,1,2,3), "candidate maturity slots", "slots")}),
 }
 
 
@@ -88,11 +103,18 @@ class FactorSpec:
 
     def __post_init__(self):
         object.__setattr__(self, "parameters", parameters(FACTOR_SCHEMAS, self.name, self.parameters))
+        if self.name == "term_structure_percentile":
+            from .strategy.term_structure import TermStructureConfig
+            TermStructureConfig(**{k: self.parameters[k] for k in ("window_days","min_training_samples","degree","quantiles")})
+            if self.precision != "1d" or self.parameters["min_training_samples"] > self.parameters["window_days"] * len(self.slots):
+                raise BacktestError("Term-structure regression needs daily data and enough configured maturity observations")
+        if self.name.startswith("annual_calendar") and not {1,3} <= set(self.slots):
+            raise BacktestError("Annual calendar factors require slots 01 and 03")
         self.runtime()
 
     def runtime(self):
         return FactorConfig(roots=tuple(self.roots), slots=tuple(self.slots), precision=self.precision,
-                            workers=self.workers, **self.parameters)
+                            workers=self.workers, **{k:v for k,v in self.parameters.items() if k in FactorConfig.__dataclass_fields__})
 
 
 @dataclass(frozen=True)

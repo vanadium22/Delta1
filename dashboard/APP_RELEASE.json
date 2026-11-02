@@ -367,7 +367,18 @@
     "dashboard/backtest/synthetic.py",
     "dashboard/backtest/test/test_workflow.py",
     "dashboard/backtest/test/validate_stages_ui.py",
-    "dashboard/backtest/workflow.py"
+    "dashboard/backtest/workflow.py",
+    "dashboard/backtest/TERM_STRUCTURE.md",
+    "dashboard/backtest/analytics.py",
+    "dashboard/backtest/pair_analytics.py",
+    "dashboard/backtest/strategy/annual_calendar.py",
+    "dashboard/backtest/strategy/term_structure.py",
+    "dashboard/backtest/structure.config.example.json",
+    "dashboard/backtest/structure_report.py",
+    "dashboard/backtest/structure_study.py",
+    "dashboard/backtest/test/test_structure_study.py",
+    "dashboard/backtest/test/test_term_structure.py",
+    "dashboard/backtest/test/validate_structure_ui.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -447,7 +458,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_125_verified_standard_inputs_independent_factor_cta_neutral_units_company_pending_ddb_paused",
+    "status": "local_138_verified_annualized_structure_quantile_pairs_company_pending_ddb_paused",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -523,30 +534,24 @@
       "dashboard/backtest/synthetic.py",
       "dashboard/backtest/test/test_workflow.py",
       "dashboard/backtest/test/validate_stages_ui.py",
-      "dashboard/backtest/workflow.py"
+      "dashboard/backtest/workflow.py",
+      "dashboard/backtest/TERM_STRUCTURE.md",
+      "dashboard/backtest/pair_analytics.py",
+      "dashboard/backtest/strategy/annual_calendar.py",
+      "dashboard/backtest/strategy/term_structure.py",
+      "dashboard/backtest/structure.config.example.json",
+      "dashboard/backtest/structure_report.py",
+      "dashboard/backtest/structure_study.py",
+      "dashboard/backtest/test/test_structure_study.py",
+      "dashboard/backtest/test/test_term_structure.py",
+      "dashboard/backtest/test/validate_structure_ui.py"
     ],
     "tests": {
-      "passed": 125,
-      "desktop_offscreen": true,
-      "resolutions": [
-        "1920x1080",
-        "3840x2160"
-      ],
-      "seconds": 15.835,
+      "passed": 138,
+      "seconds": 32.006,
       "resource_warnings": "errors",
-      "ruff": "passed",
-      "desktop_factor_to_backtest": true,
       "future_warnings": "errors",
-      "desktop_hedged_result_reopen": true,
-      "desktop_hedged_accounts": [
-        4,
-        76
-      ],
-      "independent_factor_cta_reuse": true,
-      "all_function_configuration_restore": true,
-      "stage_cli_checks": 11,
-      "desktop_stage_accounts": 4,
-      "desktop_stage_actual_orders": 32
+      "ruff": "passed"
     },
     "backend_commit": "46cb76a",
     "desktop_commit": "93e467f",
@@ -838,6 +843,76 @@
       "registered_template": "dashboard/backtest/registered.config.example.json",
       "synthetic_generator": "python -m dashboard.backtest.synthetic --output NEW_DIRECTORY",
       "local_evidence": "local_artifacts/validation/2026-11-02/framework/",
+      "company_acceptance": "pending_actual_company_run"
+    },
+    "structure_study": {
+      "base_commit": "c736eb80a491c6c763287ef390c761be298a28dc",
+      "date": "2026-11-03",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/DATA_FORMAT.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/TERM_STRUCTURE.md",
+        "dashboard/backtest/WORKFLOW.md",
+        "dashboard/backtest/analytics.py",
+        "dashboard/backtest/configuration.py",
+        "dashboard/backtest/desktop.py",
+        "dashboard/backtest/desktop_strategy.py",
+        "dashboard/backtest/engine.py",
+        "dashboard/backtest/models.py",
+        "dashboard/backtest/pair_analytics.py",
+        "dashboard/backtest/requirements.txt",
+        "dashboard/backtest/strategy/README.md",
+        "dashboard/backtest/strategy/annual_calendar.py",
+        "dashboard/backtest/strategy/artifacts.py",
+        "dashboard/backtest/strategy/models.py",
+        "dashboard/backtest/strategy/pipeline.py",
+        "dashboard/backtest/strategy/term_structure.py",
+        "dashboard/backtest/structure.config.example.json",
+        "dashboard/backtest/structure_report.py",
+        "dashboard/backtest/structure_study.py",
+        "dashboard/backtest/synthetic.py",
+        "dashboard/backtest/test/test_desktop.py",
+        "dashboard/backtest/test/test_structure_study.py",
+        "dashboard/backtest/test/test_term_structure.py",
+        "dashboard/backtest/test/validate_structure_ui.py",
+        "dashboard/backtest/workflow.py"
+      ],
+      "readme": "dashboard/backtest/TERM_STRUCTURE.md",
+      "template": "dashboard/backtest/structure.config.example.json",
+      "entry": "python -m dashboard.backtest.structure_study",
+      "saved_report_entry": "python -m dashboard.backtest.structure_report",
+      "annual_spot": "100*(F-S+D)/S*365/T",
+      "annual_calendar": "100*(F01-F03+D01-D03)/F01*365/(T03-T01)",
+      "performance_annualization": "compound CAGR using 365 / actual elapsed calendar days",
+      "quantile_model": "separate root; previous 60 dates x valid maturities; annual basis response; standardized remaining days predictor; check-loss LP; current date excluded; monotone rearrangement; independent p/q/models artifact",
+      "cta": "each actual future independently reverses conditional or historical percentile and holds actual contract to maturity; shared product capital",
+      "execution": "neutral_units; preserve_pair_lots=true for structure; physical index netting and actual fees only",
+      "pair_audit": "daily PnL, fees, margin and zero summed futures-multiplier plus index units reconcile",
+      "capital": "same 40000000 per product comparison; explicit 10000000 per product sensitivity",
+      "local_real_validation": {
+        "cases": 12,
+        "product_accounts": 48,
+        "factor_cells_unchanged": true,
+        "saved_factors_reproduce_weights": true,
+        "full_2024_to_present": false
+      },
+      "ui": {
+        "resolutions": [
+          "1920x1080",
+          "3840x2160"
+        ],
+        "pages": 4,
+        "browser_combinations": 144,
+        "js_errors": 0,
+        "web_network_requests": 0
+      },
+      "local_evidence": "local_artifacts/validation/2026-11-03/structure/",
+      "ddb": "paused",
+      "vpn": "untouched",
       "company_acceptance": "pending_actual_company_run"
     }
   }

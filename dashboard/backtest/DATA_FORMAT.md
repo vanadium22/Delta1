@@ -68,3 +68,5 @@
 旧 `adjusted_close_path` 适配器从显式 F+D 与 raw F 的差计算 D；旧单快照 `asof_snapshot/fixed_scenario` 保留并标明局限。它们不成为交易价格，也不能代替完整历史 D。
 
 最小可运行输入通过 `python -m dashboard.backtest.synthetic --output <不存在的新目录>` 创建；四品种日线、少量分钟、合约 Parquet 和本机配置全部是合成夹具。分阶段调用见 [WORKFLOW](WORKFLOW.md)。
+
+年化跨期额外要求真实 `T03-T01>0`，公式和可选价格分母见 [TERM_STRUCTURE](TERM_STRUCTURE.md)。期限结构分位回归沿用同一 F/S/D/T 契约；不增设另一份行情目录，历史合约每个日期使用该时点的实际价格和期限。模型 β/样本范围/拟合状态随因子独立保存，CTA 不重读这些原价计算回归。

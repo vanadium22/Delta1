@@ -204,6 +204,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
     maturity = remaining_days(times.normalize().unique(), symbols, market.contracts,
                               market.days_to_expiry, timezone=config.timezone)
     positions = np.zeros(len(symbols), dtype=np.int64)
+    previous_requested = np.full(len(symbols), np.nan)
     last_price = np.full(len(symbols), np.nan)
     last_multiple = np.full(len(symbols), np.nan)
     cash = float(config.initial_capital)
@@ -397,6 +398,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
         candidate = pending.pop(loc, None)
         if candidate is not None:
             signal_time, weights, record = candidate
+            requested = weights.copy()
             if latest_signal is not None and signal_time < latest_signal:
                 schedule[record]["status"] = "superseded"
                 candidate = None
@@ -449,6 +451,9 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                     schedule[record]["expiry_blocked_symbols"] = ",".join(s for s, b, w in zip(symbols, blocked, weights) if b and w)
                     weights = weights.copy()
                     weights[blocked] = 0
+            if config.preserve_pair_lots:
+                unchanged = (requested == previous_requested) & (requested != 0) & (positions != 0) & ~spot
+                locked |= unchanged
             needed = expand_needed((positions != 0) | (weights != 0), pairs)
             _require(multiple, needed, symbols, now, "multiplier")
             _require(rate, needed, symbols, now, "margin_rate", upper=1)
@@ -465,6 +470,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 else:
                     target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked, pairs, symbols)
                 execute(target, now, price, multiple, rate, signal_time, "target_rebalance", fallback[loc])
+                previous_requested[:] = requested
                 schedule[record]["status"] = "expiry_blocked" if blocked_requested and not np.any(target) and not np.any(weights) else "executed"
                 target_rows.append(effective)
                 target_times.append(now)

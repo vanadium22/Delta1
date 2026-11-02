@@ -7,6 +7,23 @@ from .models import BacktestError, normalize_frame
 from .timeline import daily_marks
 
 
+def performance_metrics(equity, initial_capital):
+    """Actual calendar-time CAGR; interval PnL/return and realized path drawdown."""
+    if equity.empty or not equity.index.is_monotonic_increasing or initial_capital <= 0:
+        raise BacktestError("Performance metrics require ordered equity and positive initial capital")
+    values = equity.to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise BacktestError("Performance metrics cannot fill missing equity")
+    elapsed = (equity.index[-1] - equity.index[0]).total_seconds() / 86400
+    ratio = float(values[-1] / initial_capital)
+    annual = float(np.expm1(np.log(ratio) * 365 / elapsed)) if ratio > 0 and elapsed > 0 else (-1. if ratio == 0 and elapsed > 0 else None)
+    peaks = np.maximum.accumulate(np.r_[initial_capital, values])[1:]
+    return dict(initial_capital=float(initial_capital), final_equity=float(values[-1]), net_pnl=float(values[-1]-initial_capital),
+                total_return=ratio-1, annualized_return=annual, elapsed_calendar_days=float(elapsed),
+                annualization="compound 365 / actual elapsed calendar days", max_drawdown=float((values/peaks-1).min()),
+                max_drawdown_cny=float((values-peaks).min()))
+
+
 def attribute_legs(account, market, *, initial_capital, timezone="Asia/Shanghai"):
     index, symbols = account.equity.index, list(account.positions.columns)
     source = market.daily_close if market.daily_close is not None else market.close

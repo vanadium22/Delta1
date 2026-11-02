@@ -2,6 +2,8 @@
 
 独立的本地研究模块：数据读取/标准化 → 因子 → CTA 目标权重 → 实际手数、成交和账户权益。三个计算阶段可以分别调用、保存和重新读取。仅使用明确配置的本地数据，不启动行情采集或网络连接。新规范见 [数据格式](DATA_FORMAT.md) 和 [分阶段调用及最小示例](WORKFLOW.md)。
 
+年化期现、按两到期日差年化的 01−03、各实际合约独立对冲指数及期限结构条件分位回归见 [结构研究](TERM_STRUCTURE.md) 与 [配置模板](structure.config.example.json)。`structure_study` 保存因子后复用两阈值、逐 pair 对账并生成 PnL/收益/具体持仓图和离线交互报告；`structure_report` 可只重读产物画图，不重新计算因子。
+
 ## 桌面窗口
 
 双击仓库内 `dashboard/start_backtest.vbs` 启动蓝白风格的独立桌面窗口；需要命令行入口时用同目录 `start_backtest.cmd`。复用已有看板的 Python 选择规则、PySide6 和 pyqtgraph，不启动看板采集或更改 Wind 环境。依赖清单为 `requirements-desktop.txt`，已有环境可直接复用。

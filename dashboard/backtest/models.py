@@ -176,6 +176,7 @@ class BacktestConfig:
     d0: int | None = 0  # calendar days; None explicitly disables maturity liquidation
     hedges: tuple[HedgeRule, ...] = ()
     rebalance_on_change_only: bool = False
+    preserve_pair_lots: bool = False  # unchanged primary targets keep their executed lots
     weight_mode: str = "capital"  # capital / neutral_units (equal contract-equivalent weights)
     start: Any = None
     end: Any = None
@@ -212,6 +213,8 @@ class BacktestConfig:
             raise BacktestError("Hedge chains/cycles are not supported; use independent pairs")
         if not isinstance(self.rebalance_on_change_only, bool):
             raise BacktestError("rebalance_on_change_only must be boolean")
+        if not isinstance(self.preserve_pair_lots, bool) or (self.preserve_pair_lots and self.weight_mode != "neutral_units"):
+            raise BacktestError("preserve_pair_lots requires boolean and neutral_units weights")
         if self.precision not in {"1d", "auto"}:
             raise BacktestError("precision must be 1d or auto")
         if isinstance(self.workers, bool) or not isinstance(self.workers, (int, np.integer)) or self.workers < 0:

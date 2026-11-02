@@ -343,6 +343,8 @@ class BacktestWindow(QMainWindow):
         form.addRow(self.expiry_enabled)
         self.on_change = QCheckBox("仅目标变化时调仓 · 中途保持实际手数")
         form.addRow(self.on_change)
+        self.preserve_pair_lots = QCheckBox("同品种其他pair开平时，保持未变pair的手数")
+        form.addRow(self.preserve_pair_lots)
         dates = QWidget()
         row = QHBoxLayout(dates)
         row.setContentsMargins(0, 0, 0, 0)
@@ -476,6 +478,7 @@ class BacktestWindow(QMainWindow):
                   "precision": self.precision.currentData(), "workers": self.workers.value(),
                   "d0": self.d0.value() if self.expiry_enabled.isChecked() else None,
                   "rebalance_on_change_only": self.on_change.isChecked(),
+                  "preserve_pair_lots": self.preserve_pair_lots.isChecked(),
                   "start": self.start.text().strip() or None, "end": self.end.text().strip() or None,
                   "commission_rate": self.fee.value() / 10000, "max_capital_usage": self.usage.value() / 100,
                   "minimum_margin_ratio": self.minimum.value() / 10000, "margin_call_basis": self.basis.currentData(),
@@ -522,6 +525,7 @@ class BacktestWindow(QMainWindow):
             self.expiry_enabled.setChecked(config.d0 is not None)
             self.d0.setValue(config.d0 or 0)
             self.on_change.setChecked(config.rebalance_on_change_only)
+            self.preserve_pair_lots.setChecked(config.preserve_pair_lots)
             self.fee.setValue(config.commission_rate * 10000)
             self.usage.setValue(config.max_capital_usage * 100)
             self.minimum.setValue(config.minimum_margin_ratio * 10000)

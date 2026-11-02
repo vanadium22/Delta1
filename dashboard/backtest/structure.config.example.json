@@ -1,0 +1,74 @@
+{
+  "data": {
+    "data_root": "REPLACE_WITH_DATA_ROOT",
+    "dataset_id": "REPLACE_WITH_DATASET_ID",
+    "data_version": "v1",
+    "source_id": "REPLACE_WITH_TRACEABLE_SOURCE",
+    "daily_close_path": "daily_close.parquet",
+    "reference_path": "contracts.parquet",
+    "minute_close_path": null,
+    "days_to_expiry_path": null,
+    "multiplier_path": null,
+    "multipliers": {},
+    "margin_rate_path": null,
+    "margin_rates": {"IF": 1, "IH": 1, "IC": 1, "IM": 1},
+    "daily_label_time": "15:00",
+    "dividend_mode": "ignore",
+    "dividend_points_path": null,
+    "dividend_records_path": null,
+    "calendar_path": null,
+    "history_roots": [],
+    "history_versions": {},
+    "allow_unverified_availability": false,
+    "trusted_pickle": false
+  },
+  "factor": {
+    "name": "term_structure_percentile",
+    "roots": ["IF", "IH", "IC", "IM"],
+    "slots": [0, 1, 2, 3],
+    "precision": "1d",
+    "workers": 0,
+    "parameters": {
+      "window_days": 60,
+      "min_annual_days": 5,
+      "min_training_samples": 120,
+      "degree": 1,
+      "quantiles": [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+    }
+  },
+  "cta": {
+    "name": "expiry_index_structure",
+    "input_factor": "term_structure_percentile",
+    "parameters": {
+      "threshold": 0.9,
+      "position_weight": 0.12375,
+      "direction": -1,
+      "transform": "center_percentile",
+      "slots": [0, 1, 2, 3]
+    }
+  },
+  "backtest": {
+    "initial_capital": 40000000,
+    "commission_rate": 0.0003,
+    "max_capital_usage": 0.99,
+    "minimum_margin_ratio": 0.0001,
+    "margin_call_basis": "equity",
+    "mode": "product",
+    "precision": "1d",
+    "workers": 0,
+    "weight_mode": "neutral_units",
+    "preserve_pair_lots": true,
+    "rebalance_on_change_only": true,
+    "d0": 0,
+    "hedges": [],
+    "start": null,
+    "end": null,
+    "timezone": "Asia/Shanghai",
+    "date_at": "15:00",
+    "timestamp_unit": null,
+    "nan_policy": "error",
+    "liquidate_at_end": false
+  },
+  "instructions_path": null,
+  "output_dir": "REPLACE_WITH_NEW_OUTPUT_DIRECTORY"
+}
