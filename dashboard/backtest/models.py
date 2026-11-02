@@ -23,6 +23,15 @@ class BacktestError(ValueError):
     """Invalid instructions, parameters, or unavailable required market data."""
 
 
+class BacktestCancelled(BacktestError):
+    """A read/computation was cooperatively cancelled before publication."""
+
+
+def check_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise BacktestCancelled("Backtest cancelled")
+
+
 def normalize_symbol(value: str) -> str:
     symbol = str(value).strip().upper()
     if symbol in SPOT_SYMBOLS:
@@ -180,6 +189,7 @@ class BacktestResult:
     accounts: dict[str, AccountResult]
     metadata: dict
     output_paths: dict = field(default_factory=dict)
+    input_instructions: pd.DataFrame | None = None
 
     @property
     def actual_orders(self) -> pd.DataFrame:

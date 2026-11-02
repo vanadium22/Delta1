@@ -2,6 +2,20 @@
 
 独立的本地研究模块：目标比例大表输入，下一行情时间戳默认足额成交，输出账户、实际整数持仓和可直接读取的开平仓指令。仅使用本地数据，运行不启动行情采集或网络连接。
 
+## 桌面窗口
+
+双击仓库内 `dashboard/start_backtest.vbs` 启动蓝白风格的独立桌面窗口；需要命令行入口时用同目录 `start_backtest.cmd`。复用已有看板的 Python 选择规则、PySide6 和 pyqtgraph，不启动看板采集或更改 Wind 环境。依赖清单为 `requirements-desktop.txt`，已有环境可直接复用。
+
+1. 在“策略与资金”选择目标指令文件、账户分组、频率、区间、初始资金及费用。资金比例和爆仓默认值与引擎一致。
+2. 在“行情与参数”选择已有看板数据/共享根目录或自有 close 表，填历史保证金率表，或明确选择固定比例假设。分红调整、参考、乘数和历史发布时间选项也在此处。
+3. “检查数据”读取指令及本地覆盖，区分必要缺项和可选分红缺项；“开始回测”在后台核算。读取和计算可以取消，保存阶段等待完整写出，关闭窗口也安全等待任务结束。
+4. 右侧查看净值、保证金占比、收益/回撤/费用、实际开平仓/持仓/账户明细。按账户切换，表格可搜索及排序，鼠标悬停曲线可查看时点数值。图表按实际观测序列压缩非交易间隔，标签仍是对应上海时间。
+5. 每轮在结果根目录下生成独立 `run_*` 子目录，包含实际成交表、输入指令快照和本机 `job.local.json`。可复制成交表绝对路径，或“打开历史结果”重新读取完整运行目录；整个目录移动后仍可重新打开。
+
+“打开配置”/“保存配置”和文件选择均在窗口内显示。配置文件使用 `.local.json`，默认保存位置为 `dashboard/localsetting/backtest/job.local.json`；保存过该默认配置后，下次启动自动读取。配置中的 Python/API 相对路径口径保持一致，结果根目录可在桌面单独设置。界面适配 1920×1080 和 3840×2160，窄窗使用滚动及上下排列图表。
+
+直接调用也可使用 `python -m dashboard.backtest.desktop --config <本机配置>`、`--result <既有结果目录>`，或 `python <仓库>/dashboard/backtest/desktop_run.py ...`。桌面入口仅本地，不访问外部网络，不弹出模态向导或自动打开 Excel。
+
 ## 交易与资金口径
 
 - 列为具体合约，如 `IC2612.CFE`、`IF2703.CFE`，或 `IC_spot`；行是时间戳。正负数表示多空，零表示平仓。每一行是完整目标，没有新指令时保持实际手数。
@@ -59,6 +73,8 @@ actual_orders_df = pd.read_parquet(actual_orders_path)
 从 dashboard 或任何目录可调用 `python <仓库>/dashboard/backtest/run.py audit|run`。复制 `config.example.json` 为本机 `job.local.json`，填好指令及行情/保证金位置，运行 `python <仓库>/dashboard/backtest/run.py run --config <配置文件>`。配置中相对路径按配置文件所在目录解释。输出每次使用新目录，不覆盖旧结果。
 
 `output_dir` 保存全账户 `actual_orders.parquet`、可读的 `actual_orders.csv`、`summary.csv`、`metadata.json`，以及每账户的权益、实际持仓、有效目标、信号执行计划。所有输出位置通过 `result.output_paths` 返回绝对路径。成交表包括信号/成交时间、具体合约、开平动作、方向、手数、价格、乘数、保证金率、费用和前后持仓；元数据记录参数、信号指纹和行情版本。
+
+`result.input_instructions` / `instructions.parquet` 保留本轮输入指令快照；`load_result(目录)` 可重新读取结果。原有内存及文件读取接口兼容，新增可选 `cancel_event` 和 `progress` 回调便于接入其他前端。
 
 ## 验证与交付
 

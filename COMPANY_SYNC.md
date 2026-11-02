@@ -7,7 +7,7 @@
 | 模块 | 职责 | 交接 |
 |---|---|---|
 | dashboard | 蓝白市场概览、数据编排；研究页暂停，32项源码及Excel保留 | [看板交接](dashboard/PROJECT_HANDOFF.md) |
-| dashboard/backtest | 独立股指期货/合成现货大表回测、实际开平仓读取接口 | [回测交接](dashboard/backtest/PROJECT_HANDOFF.md) |
+| dashboard/backtest | 独立股指期货/合成现货大表回测桌面、实际开平仓读取接口 | [回测交接](dashboard/backtest/PROJECT_HANDOFF.md) |
 | securities_lending | 券源下载、查询、行业与金额筛选 | [券源交接](securities_lending/PROJECT_HANDOFF.md) |
 | script_making | 交易前日报查询、人工簿记和日报管理；兼容既有统计自动任务 | [日报交接](script_making/PROJECT_HANDOFF.md) |
 | statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
@@ -17,7 +17,7 @@
 
 ## 最近发布
 
-- 2026-11-02 回测框架接入统一分支：三种账户分组、下一行情 close 足额成交、整手和费用预算、默认总权益万一爆仓阈值、数据与成交表位置接口。35 项隔离回归通过；真实行情、指令和本机报告不随源码发布。桌面前端接续实现，见[回测交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+- 2026-11-02 回测桌面完成：`dashboard/start_backtest.vbs` 独立启动，配置/数据检查/后台运行与取消、账户选择、净值/保证金、实际成交和历史结果重开。保留三种分组、下一行情 close、手续费万三和默认总权益万一爆仓阈值；46 项回归及 1080p/4K 离屏、真实分钟线输入验证通过。后端先行提交 `46cb76a`；公司现场待验收，真实数据和本机产物不发布，见[回测交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-10-29接续75d9da0，批次 `2026-10-29-company-resilience-and-excel-reconciliation`：下午包只有3个JSON、缺Overview，现场年化/新关闭仍待验收。读取可选资料、单股坏时间和历史I/O错误按范围隔离；年化显示F/S/D/T和D来源，公式不改。两份Excel32行同输入复算一致、15合约D不同。诊断直接进入本轮目录，统一白名单打包按时间/HEAD/配置及同一运行核对，Complete/MissingReports不冒报。210项回归通过；[公司步骤](dashboard/APP_COMPANY_TEST.md)、[证据/待办](dashboard/PROJECT_HANDOFF.md)。
 

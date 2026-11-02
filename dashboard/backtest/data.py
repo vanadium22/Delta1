@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .models import (BacktestError, DataConfig, MarketData, DEFAULT_MULTIPLIERS,
-                     INDEX_SYMBOLS, normalize_frame, normalize_symbol, time_bound)
+                     INDEX_SYMBOLS, check_cancelled, normalize_frame, normalize_symbol, time_bound)
 
 
 DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
@@ -124,8 +124,9 @@ def _wide(path, config, *, label, timezone, date_at="15:00"):
 
 
 def load_market_data(config: DataConfig | None = None, *, symbols=None, start=None, end=None,
-                     timezone="Asia/Shanghai") -> MarketData:
+                     timezone="Asia/Shanghai", cancel_event=None, progress=None) -> MarketData:
     config = config or DataConfig()
+    check_cancelled(cancel_event)
     paths = resolve_paths(config)
     selected = set(normalize_symbol(s) for s in symbols) if symbols is not None else None
     if selected is not None:
@@ -141,6 +142,9 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             raise BacktestError("No history found; set data_root, history_roots, or close_path")
         chunks = []
         for root in paths["history_roots"]:
+            check_cancelled(cancel_event)
+            if progress:
+                progress(dict(stage="loading", message="正在读取本地行情", source=root))
             store = _store(root)
             snapshot = store.snapshot()
             descriptor = snapshot.get("descriptor", store.descriptor)
@@ -157,6 +161,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             frame = store.read_bars(source_symbols, config.frequency, start=left, end=right,
                                     fields=["close"], version=snapshot["version"],
                                     allow_unverified_availability=config.allow_unverified_availability)
+            check_cancelled(cancel_event)
             if not frame.empty:
                 chunks.append(frame[["event_time", "instrument_id", "close"]])
             metadata["datasets"].append(dict(root=str(store.root), version=snapshot["version"],
@@ -229,6 +234,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
             if symbol.endswith("_spot"):
                 adjusted[symbol] = close[symbol]
     metadata["warnings"] = list(dict.fromkeys(metadata["warnings"]))
+    check_cancelled(cancel_event)
     return MarketData(close, multiplier, margin, adjusted, contracts, metadata)
 
 

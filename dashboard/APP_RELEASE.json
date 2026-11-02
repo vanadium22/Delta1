@@ -319,7 +319,17 @@
     "dashboard/backtest/run.py",
     "dashboard/backtest/test/__init__.py",
     "dashboard/backtest/test/test_data.py",
-    "dashboard/backtest/test/test_engine.py"
+    "dashboard/backtest/test/test_engine.py",
+    "dashboard/backtest/desktop.py",
+    "dashboard/backtest/desktop_run.py",
+    "dashboard/backtest/desktop_service.py",
+    "dashboard/backtest/desktop_widgets.py",
+    "dashboard/backtest/requirements-desktop.txt",
+    "dashboard/backtest/test/test_desktop.py",
+    "dashboard/backtest/test/test_desktop_service.py",
+    "dashboard/start_backtest.cmd",
+    "dashboard/start_backtest.ps1",
+    "dashboard/start_backtest.vbs"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -397,8 +407,9 @@
   },
   "backtest": {
     "branch": "codex/company-apps",
-    "entry": "dashboard/backtest/run.py",
-    "status": "backend_verified_desktop_next",
+    "entry": "dashboard/start_backtest.vbs",
+    "cli_entry": "dashboard/backtest/run.py",
+    "status": "local_46_verified_company_use_pending",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -410,14 +421,33 @@
       "dashboard/backtest/api.py",
       "dashboard/backtest/config.example.json",
       "dashboard/backtest/data.py",
+      "dashboard/backtest/desktop.py",
+      "dashboard/backtest/desktop_run.py",
+      "dashboard/backtest/desktop_service.py",
+      "dashboard/backtest/desktop_widgets.py",
       "dashboard/backtest/engine.py",
       "dashboard/backtest/io.py",
       "dashboard/backtest/models.py",
+      "dashboard/backtest/requirements-desktop.txt",
       "dashboard/backtest/requirements.txt",
       "dashboard/backtest/run.py",
       "dashboard/backtest/test/__init__.py",
       "dashboard/backtest/test/test_data.py",
-      "dashboard/backtest/test/test_engine.py"
-    ]
+      "dashboard/backtest/test/test_desktop.py",
+      "dashboard/backtest/test/test_desktop_service.py",
+      "dashboard/backtest/test/test_engine.py",
+      "dashboard/start_backtest.cmd",
+      "dashboard/start_backtest.ps1",
+      "dashboard/start_backtest.vbs"
+    ],
+    "tests": {
+      "passed": 46,
+      "desktop_offscreen": true,
+      "resolutions": [
+        "1920x1080",
+        "3840x2160"
+      ]
+    },
+    "backend_commit": "46cb76a"
   }
 }

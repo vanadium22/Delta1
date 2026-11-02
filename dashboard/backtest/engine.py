@@ -8,7 +8,7 @@ import pandas as pd
 
 from .data import parameter_frame
 from .models import (AccountResult, BacktestConfig, BacktestError, BacktestResult,
-                     MarketData, normalize_frame, time_bound)
+                     MarketData, check_cancelled, normalize_frame, time_bound)
 
 
 ORDER_COLUMNS = ["signal_time", "execution_time", "symbol", "action", "side", "quantity",
@@ -100,7 +100,7 @@ def _schedule(instructions, times):
     return pending, rows
 
 
-def _run_account(name, instructions, close, multiplier, margin, contracts, config):
+def _run_account(name, instructions, close, multiplier, margin, contracts, config, *, cancel_event=None, progress=None):
     symbols = list(instructions.columns)
     times = close.index
     prices = close.loc[:, symbols].to_numpy(dtype=float)
@@ -152,6 +152,9 @@ def _run_account(name, instructions, close, multiplier, margin, contracts, confi
         return equity <= 0 or (required > 0 and base < required * config.minimum_margin_ratio)
 
     for i, now in enumerate(times):
+        check_cancelled(cancel_event)
+        if progress and (i % 256 == 0 or i == len(times) - 1):
+            progress(dict(stage="simulating", account=name, done=i, total=len(times), timestamp=str(now)))
         price, multiple, rate = prices[i], multipliers[i], rates[i]
         held = positions != 0
         _require(price, held, symbols, now, "close")
@@ -228,8 +231,9 @@ def _run_account(name, instructions, close, multiplier, margin, contracts, confi
 
 
 def run_engine(instructions: pd.DataFrame, market: MarketData,
-               config: BacktestConfig | None = None) -> BacktestResult:
+               config: BacktestConfig | None = None, *, cancel_event=None, progress=None) -> BacktestResult:
     config = config or BacktestConfig()
+    check_cancelled(cancel_event)
     targets = normalize_frame(instructions, label="instructions", timezone=config.timezone,
                               date_at=config.date_at, unit=config.timestamp_unit)
     if targets.isna().any().any():
@@ -255,8 +259,13 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
         groups = {s: [s] for s in targets.columns}
     elif config.mode == "product":
         groups = {root: [s for s in targets.columns if s.startswith(root)] for root in sorted({s[:2] for s in targets.columns})}
-    accounts = {name: _run_account(name, targets.loc[:, symbols], close, multiplier, margin,
-                                    market.contracts, config) for name, symbols in groups.items()}
+    accounts = {}
+    for group_index, (name, symbols) in enumerate(groups.items()):
+        def report(payload, index=group_index):
+            if progress:
+                progress({**payload, "account_index": index, "accounts": len(groups)})
+        accounts[name] = _run_account(name, targets.loc[:, symbols], close, multiplier, margin,
+                                     market.contracts, config, cancel_event=cancel_event, progress=report)
     return BacktestResult(accounts, dict(config=asdict(config), market_data=market.metadata,
                                         execution="first market timestamp strictly after signal; raw close; full fills",
                                         sizing="literal signed equity fractions reserved as gross margin; integer truncation",

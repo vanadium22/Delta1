@@ -11,7 +11,7 @@ from .data import load_market_data, read_frame
 from .engine import run_engine
 from .io import frame_fingerprint
 from .models import (BacktestConfig, BacktestError, DataConfig, MarketData,
-                     normalize_frame)
+                     check_cancelled, normalize_frame)
 
 
 def run_backtest(instructions: pd.DataFrame | None = None, *,
@@ -20,9 +20,12 @@ def run_backtest(instructions: pd.DataFrame | None = None, *,
                  market_data: MarketData | None = None,
                  data_config: DataConfig | None = None,
                  config: BacktestConfig | None = None,
-                 output_dir: str | Path | None = None):
+                 output_dir: str | Path | None = None, cancel_event=None, progress=None):
     """Each row is a complete target; zero closes. No rows means no rebalancing."""
     config, data_config = config or BacktestConfig(), data_config or DataConfig()
+    check_cancelled(cancel_event)
+    if progress:
+        progress(dict(stage="instructions", message="正在读取目标指令表"))
     if instructions is not None and instructions_path is not None:
         raise BacktestError("Supply instructions or instructions_path, not both")
     if instructions is None:
@@ -36,13 +39,18 @@ def run_backtest(instructions: pd.DataFrame | None = None, *,
     if market_data is None:
         market_data = load_market_data(data_config, symbols=list(normalized.columns),
                                        start=config.start or normalized.index.min(), end=config.end,
-                                       timezone=config.timezone)
+                                       timezone=config.timezone, cancel_event=cancel_event, progress=progress)
     # Epoch conversion applies only to the original input, which is normalized above.
-    result = run_engine(normalized, market_data, replace(config, timestamp_unit=None))
+    result = run_engine(normalized, market_data, replace(config, timestamp_unit=None),
+                        cancel_event=cancel_event, progress=progress)
     result.metadata["config"]["timestamp_unit"] = config.timestamp_unit
     result.metadata["instructions"] = dict(path=str(Path(instructions_path).resolve()) if instructions_path else None,
                                           rows=len(normalized), columns=list(normalized.columns),
                                           fingerprint=frame_fingerprint(normalized))
+    result.input_instructions = normalized
     if output_dir is not None:
+        check_cancelled(cancel_event)
+        if progress:
+            progress(dict(stage="saving", message="正在完整保存结果，请等待写出结束"))
         result.save(output_dir)
     return result

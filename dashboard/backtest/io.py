@@ -51,8 +51,48 @@ def save_result(result, output_dir):
     result.actual_orders.to_parquet(root / "actual_orders.parquet", index=False)
     result.actual_orders.to_csv(root / "actual_orders.csv", index=False, encoding="utf-8-sig")
     result.summary.to_csv(root / "summary.csv", encoding="utf-8-sig")
+    if result.input_instructions is not None:
+        result.input_instructions.to_parquet(root / "instructions.parquet")
+        paths["instructions"] = str(root / "instructions.parquet")
     paths.update(actual_orders=str(root / "actual_orders.parquet"),
                  actual_orders_csv=str(root / "actual_orders.csv"), summary=str(root / "summary.csv"),
                  metadata=str(root / "metadata.json"))
-    write_json(root / "metadata.json", dict(**result.metadata, output_paths=paths))
+    write_json(root / "metadata.json", {**result.metadata, "output_paths": paths,
+                                        "account_summaries": {k: a.summary for k, a in result.accounts.items()}})
     return paths
+
+
+def load_result(output_dir):
+    """Read a completed local run, also after its directory has moved."""
+    from .models import AccountResult, BacktestError, BacktestResult
+    root = Path(output_dir).expanduser().resolve()
+    metadata = json.loads((root / "metadata.json").read_text(encoding="utf-8-sig"))
+    definitions = metadata.get("output_paths", {}).get("accounts", {})
+    if not definitions:
+        raise BacktestError(f"No completed account results found in {root}")
+    summaries = metadata.get("account_summaries")
+    if summaries is None:
+        old = pd.read_csv(root / "summary.csv", index_col=0).astype(object)
+        summaries = old.where(pd.notna(old), None).to_dict(orient="index")
+    accounts, paths = {}, {"output_dir": str(root), "accounts": {}}
+    for name in definitions:
+        directory = (root / name).resolve()
+        if directory == root or not directory.is_relative_to(root):
+            raise BacktestError(f"Invalid account directory {name!r}")
+        frames, account_paths = {}, {}
+        for field in ("equity", "positions", "actual_orders", "target_weights", "schedule"):
+            file = directory / (field + ".parquet")
+            frames[field] = pd.read_parquet(file)
+            account_paths[field] = str(file)
+        account_paths["actual_orders_csv"] = str(directory / "actual_orders.csv")
+        accounts[name] = AccountResult(**frames, summary=summaries[name])
+        paths["accounts"][name] = account_paths
+    paths.update(actual_orders=str(root / "actual_orders.parquet"), actual_orders_csv=str(root / "actual_orders.csv"),
+                 summary=str(root / "summary.csv"), metadata=str(root / "metadata.json"))
+    metadata.pop("output_paths", None)
+    metadata.pop("account_summaries", None)
+    instructions_path = root / "instructions.parquet"
+    instructions = pd.read_parquet(instructions_path) if instructions_path.is_file() else None
+    if instructions is not None:
+        paths["instructions"] = str(instructions_path)
+    return BacktestResult(accounts, metadata, paths, instructions)
