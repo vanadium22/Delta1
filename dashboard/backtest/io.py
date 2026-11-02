@@ -54,6 +54,12 @@ def save_result(result, output_dir):
     if result.input_instructions is not None:
         result.input_instructions.to_parquet(root / "instructions.parquet")
         paths["instructions"] = str(root / "instructions.parquet")
+    for name in ("days_to_expiry", "execution_instructions"):
+        frame = getattr(result, name)
+        if frame is not None:
+            target = root / (name + ".parquet")
+            frame.to_parquet(target)
+            paths[name] = str(target)
     paths.update(actual_orders=str(root / "actual_orders.parquet"),
                  actual_orders_csv=str(root / "actual_orders.csv"), summary=str(root / "summary.csv"),
                  metadata=str(root / "metadata.json"))
@@ -95,4 +101,10 @@ def load_result(output_dir):
     instructions = pd.read_parquet(instructions_path) if instructions_path.is_file() else None
     if instructions is not None:
         paths["instructions"] = str(instructions_path)
-    return BacktestResult(accounts, metadata, paths, instructions)
+    optional = {}
+    for name in ("days_to_expiry", "execution_instructions"):
+        file = root / (name + ".parquet")
+        optional[name] = pd.read_parquet(file) if file.is_file() else None
+        if file.is_file():
+            paths[name] = str(file)
+    return BacktestResult(accounts, metadata, paths, instructions, **optional)

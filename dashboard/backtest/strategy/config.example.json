@@ -1,0 +1,44 @@
+{
+  "data": {
+    "data_root": null,
+    "dashboard_config_path": null,
+    "reference_path": null,
+    "close_path": null,
+    "daily_close_path": null,
+    "minute_close_path": null,
+    "days_to_expiry_path": null,
+    "dividend_points_path": null,
+    "adjusted_close_path": null,
+    "allow_unverified_availability": true
+  },
+  "strategy_data": {
+    "dividend_store_root": null,
+    "dividend_records_path": null,
+    "calendar_path": null
+  },
+  "factors": {
+    "roots": ["IC"],
+    "slots": [0, 1, 2, 3],
+    "window_days": 20,
+    "min_annual_days": 5,
+    "min_samples": 2,
+    "precision": "1d",
+    "workers": 0
+  },
+  "factor_name": "basis_percentile",
+  "cta": {
+    "mode": "fixed",
+    "open_threshold": 0.7,
+    "close_threshold": 0.2,
+    "lookback_window": 20,
+    "z_open": 2.0,
+    "z_close": 0.4,
+    "position_weight": 0.2,
+    "direction": 1,
+    "transform": "center_percentile",
+    "missing": "flat"
+  },
+  "start": null,
+  "end": null,
+  "output_dir": "../../../outputs/backtest/strategy_example"
+}

@@ -7,11 +7,12 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from dashboard.backtest import BacktestCancelled, BacktestConfig, BacktestError, DataConfig, MarketData, run_backtest
+from dashboard.backtest import BacktestCancelled, BacktestConfig, BacktestError, DataConfig, run_backtest
 from dashboard.backtest.data_events import load_event_market_data
 from dashboard.backtest.parallel import process_map, worker_cancel_event
 from dashboard.backtest.test import test_data as data_fixtures
 from dashboard.backtest.test.test_data import local_temp
+from dashboard.backtest.test.fixtures import synthetic_market as MarketData, write_reference
 
 
 def slow_task(value):
@@ -104,7 +105,7 @@ class PerformanceTests(unittest.TestCase):
             market.close["IF2703.CFE"] = market.close["IC2612.CFE"] + 1
             market.close.to_parquet(root / "minute.parquet")
             market.daily_close.to_parquet(root / "daily.parquet")
-            data = DataConfig(minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
+            data = DataConfig(reference_path=write_reference(root), minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
                               multipliers={"IC": 10, "IF": 10}, margin_rates={"IC": .1, "IF": .1})
             targets = pd.DataFrame({"IC2612.CFE": [.1], "IF2703.CFE": [.1]}, index=["2026-09-21"])
             result = run_backtest(targets, data_config=data)
@@ -129,7 +130,7 @@ class PerformanceTests(unittest.TestCase):
             daily = example_market().daily_close
             minute.to_parquet(root / "minute.parquet")
             daily.to_parquet(root / "daily.parquet")
-            data = DataConfig(minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
+            data = DataConfig(reference_path=write_reference(root), minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
                               multipliers={"IC": 10}, margin_rates={"IC": 0.1})
             result = run_backtest(pd.DataFrame({"IC2612.CFE": [0.3]}, index=["2026-09-21"]), data_config=data,
                                   config=BacktestConfig(initial_capital=10_000))
@@ -145,7 +146,7 @@ class PerformanceTests(unittest.TestCase):
                 frame.loc[frame.index.date == pd.Timestamp("2026-09-22").date(), "IC2612.CFE"] = np.nan
             market.close.to_parquet(root / "minute.parquet")
             market.daily_close.to_parquet(root / "daily.parquet")
-            data = DataConfig(minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
+            data = DataConfig(reference_path=write_reference(root), minute_close_path=root / "minute.parquet", daily_close_path=root / "daily.parquet",
                               multipliers={"IC": 10}, margin_rates={"IC": .1})
             result = run_backtest(pd.DataFrame({"IC2612.CFE": [.3]}, index=["2026-09-21"]), data_config=data)
             self.assertEqual(result.actual_orders.execution_time.iloc[0], pd.Timestamp("2026-09-23 09:31", tz="Asia/Shanghai"))
@@ -162,7 +163,7 @@ class PerformanceTests(unittest.TestCase):
                         rows.append(dict(instrument_id=symbol, frequency="1m", event_time=stamp, trade_date=day,
                                          close=100, is_final=True, revision=0, available_at=stamp, recorded_at=stamp, quality_flags=0))
             store.commit(rows)
-            data = DataConfig(history_roots=(store.root,), margin_rates={"IC": .1})
+            data = DataConfig(reference_path=write_reference(root), history_roots=(store.root,), margin_rates={"IC": .1})
             targets = pd.DataFrame({"IC2612.CFE": [.3]}, index=pd.DatetimeIndex(["2026-09-21 15:00"], tz="Asia/Shanghai"))
             market = load_event_market_data(data, targets, BacktestConfig())
             self.assertEqual(market.metadata["load_statistics"]["minute_rows_retained"], 1)

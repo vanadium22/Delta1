@@ -335,7 +335,25 @@
     "dashboard/backtest/timeline.py",
     "dashboard/backtest/test/benchmark_performance.py",
     "dashboard/backtest/test/test_performance.py",
-    "dashboard/backtest/test/validate_performance_ui.py"
+    "dashboard/backtest/test/validate_performance_ui.py",
+    "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+    "dashboard/backtest/NEXT_STRATEGY_PROMPT.md",
+    "dashboard/backtest/desktop_strategy.py",
+    "dashboard/backtest/expiry.py",
+    "dashboard/backtest/strategy/README.md",
+    "dashboard/backtest/strategy/__init__.py",
+    "dashboard/backtest/strategy/__main__.py",
+    "dashboard/backtest/strategy/config.example.json",
+    "dashboard/backtest/strategy/cta.py",
+    "dashboard/backtest/strategy/examples.py",
+    "dashboard/backtest/strategy/factors.py",
+    "dashboard/backtest/strategy/mapping.py",
+    "dashboard/backtest/strategy/models.py",
+    "dashboard/backtest/strategy/pipeline.py",
+    "dashboard/backtest/test/fixtures.py",
+    "dashboard/backtest/test/test_expiry.py",
+    "dashboard/backtest/test/test_strategy.py",
+    "dashboard/backtest/test/validate_strategy_ui.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -415,7 +433,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_62_verified_company_use_pending",
+    "status": "local_83_verified_strategy_and_maturity_company_use_pending",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -450,18 +468,37 @@
       "dashboard/backtest/timeline.py",
       "dashboard/backtest/test/benchmark_performance.py",
       "dashboard/backtest/test/test_performance.py",
-      "dashboard/backtest/test/validate_performance_ui.py"
+      "dashboard/backtest/test/validate_performance_ui.py",
+      "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+      "dashboard/backtest/NEXT_STRATEGY_PROMPT.md",
+      "dashboard/backtest/desktop_strategy.py",
+      "dashboard/backtest/expiry.py",
+      "dashboard/backtest/strategy/README.md",
+      "dashboard/backtest/strategy/__init__.py",
+      "dashboard/backtest/strategy/__main__.py",
+      "dashboard/backtest/strategy/config.example.json",
+      "dashboard/backtest/strategy/cta.py",
+      "dashboard/backtest/strategy/examples.py",
+      "dashboard/backtest/strategy/factors.py",
+      "dashboard/backtest/strategy/mapping.py",
+      "dashboard/backtest/strategy/models.py",
+      "dashboard/backtest/strategy/pipeline.py",
+      "dashboard/backtest/test/fixtures.py",
+      "dashboard/backtest/test/test_expiry.py",
+      "dashboard/backtest/test/test_strategy.py",
+      "dashboard/backtest/test/validate_strategy_ui.py"
     ],
     "tests": {
-      "passed": 62,
+      "passed": 83,
       "desktop_offscreen": true,
       "resolutions": [
         "1920x1080",
         "3840x2160"
       ],
-      "seconds": 5.27,
+      "seconds": 8.938,
       "resource_warnings": "errors",
-      "ruff": "passed"
+      "ruff": "passed",
+      "desktop_factor_to_backtest": true
     },
     "backend_commit": "46cb76a",
     "desktop_commit": "93e467f",
@@ -484,24 +521,27 @@
     "synthetic_benchmark": {
       "date": "2026-11-02",
       "scope": "single_local_synthetic_timing_not_guaranteed_speedup",
+      "maturity": "explicit_d0_None_to_isolate_compute_overhead",
       "sparse": {
         "quote_rows": 60480,
-        "symbols": 16,
-        "signals": 51,
-        "old_seconds": 2.0702924,
-        "new_seconds": 0.0773324,
-        "evaluated_events": 303,
         "daily_rows": 252,
-        "trades_and_daily_equity_match": true
+        "signals": 51,
+        "evaluated_events": 303,
+        "old_seconds": 2.084857699999702,
+        "new_seconds": 0.10448529999848688,
+        "speedup": 19.95359825764863,
+        "trades_and_daily_equity_match": true,
+        "symbols": 16
       },
       "independent_accounts": {
-        "accounts": 4,
         "quote_rows": 5760,
         "signal_rows": 5759,
-        "serial_seconds": 2.9473632,
-        "four_process_seconds": 1.8199284,
-        "includes_process_startup": true,
-        "results_match": true
+        "accounts": 4,
+        "serial_seconds": 3.180947199998627,
+        "parallel_seconds": 1.759205499998643,
+        "speedup": 1.8081726097383624,
+        "results_match": true,
+        "workers": 4
       }
     },
     "local_replay": {
@@ -510,6 +550,96 @@
       "daily_equity_rows": 2,
       "automatic_trades_and_daily_equity_match_previous": true,
       "margin_assumption": "explicit_fixed_rates_not_historical_account_margins"
+    },
+    "strategy_base_commit": "3eaa765",
+    "maturity": {
+      "d0_default": 0,
+      "unit": "calendar_days",
+      "condition": "T <= d0",
+      "execution": "same_day_actual_close",
+      "order_reason": "expiry_d0",
+      "new_entries": "blocked_when_due",
+      "existing_nonzero_target": "retain_lots_until_close",
+      "explicit_zero_target": "ordinary_earlier_exit_allowed",
+      "missing_or_conflicting_T": "error",
+      "source": "expiry_date_reference_or_explicit_daily_days_to_expiry",
+      "export": "days_to_expiry.parquet"
+    },
+    "strategy": {
+      "entry": "python -m dashboard.backtest.strategy",
+      "desktop_tab": "因子与CTA",
+      "readme": "dashboard/backtest/strategy/README.md",
+      "prompt": "dashboard/backtest/NEXT_STRATEGY_PROMPT.md",
+      "company_test": "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+      "examples": [
+        "annual_basis",
+        "basis_percentile"
+      ],
+      "annual_formula": "100*(F-S+D)/S*365/T",
+      "annual_unit": "percentage_points",
+      "min_annual_days_default": 5,
+      "percentile": "previous_window_days_current_slot_history_excluding_current_date_ties_half_weight",
+      "intermediate_columns": "dated_00_01_02_03",
+      "factor_target_order_columns": "concrete_contracts_only",
+      "cta_fixed": [
+        0.7,
+        0.2
+      ],
+      "cta_zscore": [
+        2.0,
+        0.4
+      ],
+      "z_history": "previous_lookback_window_daily_closes_ddof0",
+      "default_direction": "positive_long_negative_short_configurable_reverse",
+      "percentile_score": "2*p-1",
+      "interfaces": [
+        "MarketData",
+        "DataConfig",
+        "data_loader",
+        "FactorDefinition",
+        "extra_data",
+        "factor_parameters"
+      ],
+      "missing_factor_default": "flat_with_quality_and_warnings",
+      "registered_data_read": "selected_products_daily_partitions_with_bounded_workers_no_execution_minutes_for_daily_factors"
+    },
+    "data_policy": {
+      "z_drive_used": false,
+      "z_drive_dependency": "rejected",
+      "ddb_automatic_update": "deferred_by_latest_user_request",
+      "future_ddb_output": "Delta1/data",
+      "company_tests": "authorized_not_yet_run_on_company_machine"
+    },
+    "local_factor_validation": {
+      "market_observation_days": 314,
+      "reference_contracts": 84,
+      "missing_expiry_or_listing": 0,
+      "dividend_records": 16,
+      "annual_valid_cells": 54,
+      "percentile_valid_cells": 0,
+      "mapping_gaps": 0,
+      "limitation": "existing_dividend_snapshot_records_do_not_cover_full_20_day_historical_D_window",
+      "network_used": false,
+      "daily_rows_read": 1570,
+      "minute_rows_read": 0
+    },
+    "local_strategy_ui": {
+      "synthetic_rows": 35,
+      "actual_orders": 46,
+      "desktop_offscreen": true,
+      "resolutions": [
+        "1920x1080",
+        "3840x2160"
+      ]
+    },
+    "cleanup": {
+      "old_validation_runs": 6,
+      "removed_files": 106,
+      "bytecode_files": 34,
+      "removed_bytes": 831888,
+      "retained_latest_runs": 2,
+      "original_data_modified": false,
+      "zip_and_sha_verified_before_removal": true
     }
   }
 }

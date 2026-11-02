@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .data import _store, _wide, resolve_paths
+from .data import _reference, _store, _wide, align_dividend_points, resolve_paths
+from .expiry import remaining_days
 from .models import BacktestError, check_cancelled, normalize_symbol, time_bound
 from .parallel import process_map, worker_cancel_event
 from .timeline import daily_marks, effective_instructions, quote_timeline
@@ -76,21 +77,27 @@ def _read_day(task):
     return daily, minute, daily_rows, minute_rows
 
 
-def _plans(targets, calendar, precision, available_by_day=None):
+def _plans(targets, calendar, precision, available_by_day=None, maturity=None, d0=None):
     effective, _ = effective_instructions(targets, precision)
     days = pd.DatetimeIndex(calendar).normalize().unique().sort_values()
     minute_days, needed = set(), defaultdict(set)
     previous = set()
+    def eligible(symbols, day):
+        if maturity is None or d0 is None:
+            return symbols
+        row = maturity.loc[day]
+        return {s for s in symbols if s.endswith("_spot") or pd.isna(row[s]) or row[s] > d0}
     for stamp, row in effective.iterrows():
         active = {s for s, value in row.items() if pd.notna(value) and value != 0}
         if precision == "1d":
             next_day = days.searchsorted(stamp.normalize(), side="right")
-            required = previous | active
+            required = set()
             # A calendar day supplied only by another contract/index cannot
             # consume a delayed entry's first-minute lookup.
-            while available_by_day is not None and next_day < len(days):
+            while next_day < len(days):
                 key = str(days[next_day].date())
-                if required <= available_by_day.get(key, set()):
+                required = eligible(previous, days[max(0, next_day - 1)]) | eligible(active, days[next_day])
+                if available_by_day is None or required <= available_by_day.get(key, set()):
                     break
                 next_day += 1
             if required and next_day < len(days):
@@ -107,13 +114,18 @@ def _plans(targets, calendar, precision, available_by_day=None):
         # Also scan quote days while a nonzero target is carried. Completely
         # flat days with no instructions need only their daily balance row.
         closes = days + pd.Timedelta(hours=15)
-        carried = effective.reindex(closes, method="ffill").abs().gt(0).any(axis=1).to_numpy()
+        carried_targets = effective.reindex(closes, method="ffill").abs().gt(0)
+        if maturity is not None and d0 is not None:
+            allowed = maturity.gt(d0) | maturity.isna()
+            allowed.index = closes
+            carried_targets &= allowed.reindex(columns=carried_targets.columns)
+        carried = carried_targets.any(axis=1).to_numpy()
         active = carried | np.r_[False, carried[:-1]]
         minute_days.update(str(day.date()) for day in days[active])
     return minute_days, needed
 
 
-def _wide_inputs(config, targets, run_config, left, right):
+def _wide_inputs(config, targets, run_config, left, right, contracts, remaining):
     generic = _wide(config.close_path, config, label="close", timezone=run_config.timezone) if config.close_path else None
     minute = (_wide(config.minute_close_path, config, label="minute close", timezone=run_config.timezone)
               if config.minute_close_path else None)
@@ -149,7 +161,8 @@ def _wide_inputs(config, targets, run_config, left, right):
         for day, group in frame.groupby(frame.index.normalize(), sort=False):
             present = group.gt(0) & group.notna()
             available[str(day.date())].update(group.columns[present.any(axis=0)])
-    minute_days, needed = _plans(targets, daily.index, run_config.precision, available)
+    maturity = remaining_days(daily.index.normalize(), list(targets.columns), contracts, remaining, timezone=run_config.timezone)
+    minute_days, needed = _plans(targets, daily.index, run_config.precision, available, maturity, run_config.d0)
     retained = []
     loaded_rows = len(minute)
     for day, group in minute.groupby(minute.index.normalize(), sort=True):
@@ -164,10 +177,13 @@ def _wide_inputs(config, targets, run_config, left, right):
                                 minute_rows_retained=len(intraday), workers=1, daily_only_input=bool(daily_only))
 
 
-def load_event_market_data(config, targets, run_config, *, cancel_event=None, progress=None):
+def load_event_market_data(config, targets, run_config, *, cancel_event=None, progress=None, daily_marks_only=False):
     """Daily mode retains opening fills plus closes; auto retains risk quotes."""
     check_cancelled(cancel_event)
     paths = resolve_paths(config)
+    contracts = _reference(paths["reference_path"])
+    remaining = (_wide(config.days_to_expiry_path, config, label="days_to_expiry", timezone=run_config.timezone, date_at="00:00")
+                 if config.days_to_expiry_path else None)
     left = time_bound(run_config.start, timezone=run_config.timezone)
     if left is None:
         left = targets.index.min()
@@ -175,7 +191,7 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
     data_files = config.close_path or config.minute_close_path or config.daily_close_path
     frozen = []
     if data_files:
-        daily, minute, stats = _wide_inputs(config, targets, run_config, left, right)
+        daily, minute, stats = _wide_inputs(config, targets, run_config, left, right, contracts, remaining)
     else:
         effective, _ = effective_instructions(targets, run_config.precision)
         selected = set(effective.columns[effective.abs().gt(0).any(axis=0)]) | {s[:2] + "_spot" for s in targets}
@@ -210,7 +226,11 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         calendar = pd.DatetimeIndex(calendar_days).tz_localize(run_config.timezone)
         available = {day: {normalize_symbol(p["instrument_id"]) for _, p in daily_parts[day] + minute_parts[day]}
                      for day in calendar_days}
-        minute_days, needed = _plans(targets, calendar, run_config.precision, available)
+        maturity = remaining_days(calendar, list(targets.columns), contracts, remaining, timezone=run_config.timezone)
+        if daily_marks_only:
+            minute_days, needed = set(), defaultdict(set)
+        else:
+            minute_days, needed = _plans(targets, calendar, run_config.precision, available, maturity, run_config.d0)
         jobs, units = [], 0
         for day in calendar_days:
             # If a day has no official daily table, read minutes to obtain that
@@ -259,7 +279,7 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
     auxiliary = replace(config, close_path=None, minute_close_path=None, daily_close_path=None,
                         history_roots=(), data_root=None, dashboard_config_path=None,
                         reference_path=paths["reference_path"], dividend_root=paths["dividend_root"])
-    from .data import _reference, _wide as read_wide
+    from .data import _wide as read_wide
     from .models import DEFAULT_MULTIPLIERS, MarketData
     multiplier = (read_wide(auxiliary.multiplier_path, auxiliary, label="multiplier", timezone=run_config.timezone, date_at="00:00")
                   if auxiliary.multiplier_path else {**DEFAULT_MULTIPLIERS, **auxiliary.multipliers})
@@ -274,11 +294,7 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         adjusted = read_wide(config.adjusted_close_path, config, label="adjusted_close", timezone=run_config.timezone).reindex_like(close)
     elif config.dividend_points_path:
         points = read_wide(config.dividend_points_path, config, label="dividend_points", timezone=run_config.timezone)
-        if (points.index == points.index.normalize() + pd.Timedelta(hours=15)).all():
-            points.index = points.index.normalize()
-            points = points.reindex(close.index.normalize())
-            points.index = close.index
-        adjusted = close + points.reindex_like(close)
+        adjusted = close + align_dividend_points(points, close)
     elif config.dividend_policy != "none":
         from ..marketdata.dividends import read_snapshot
         if not paths["dividend_root"]:
@@ -297,4 +313,4 @@ def load_event_market_data(config, targets, run_config, *, cancel_event=None, pr
         metadata["warnings"].append("No dividend-adjusted prices loaded; PnL uses raw close")
     if close.empty or daily.empty:
         raise BacktestError("No prices remain in the requested interval")
-    return MarketData(close, multiplier, margin, adjusted, _reference(paths["reference_path"]), metadata, daily, fallback)
+    return MarketData(close, multiplier, margin, adjusted, contracts, metadata, daily, fallback, remaining)

@@ -17,6 +17,8 @@ DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
 
 def read_frame(path, *, trusted_pickle=False) -> pd.DataFrame:
     """An explicit timestamp/date column or a stored datetime index is required."""
+    from .models import check_source_paths
+    check_source_paths(path)
     path = Path(path).expanduser().resolve()
     if not path.is_file():
         raise BacktestError(f"Input does not exist: {path}")
@@ -68,6 +70,8 @@ def resolve_paths(config: DataConfig) -> dict:
     dividend = config.dividend_root or native.get("dividend_root")
     if not dividend and config.data_root:
         dividend = Path(config.data_root) / "dividends/index_futures/inputs"
+    from .models import check_source_paths
+    check_source_paths([roots, config.reference_path or native.get("reference_file"), dividend])
     return dict(history_roots=[resolve(p) for p in roots],
                 reference_path=resolve(config.reference_path or native.get("reference_file")),
                 dividend_root=resolve(dividend),
@@ -122,6 +126,19 @@ def parameter_frame(value, close: pd.DataFrame, *, kind: str, timezone="Asia/Sha
 def _wide(path, config, *, label, timezone, date_at="15:00"):
     return normalize_frame(read_frame(path, trusted_pickle=config.trusted_pickle), label=label,
                            timezone=timezone, date_at=date_at)
+
+
+def align_dividend_points(points, close):
+    days = points.index.normalize()
+    daily = (points.index == days) | (points.index == days + pd.Timedelta(hours=15))
+    if daily.all():
+        if days.duplicated().any():
+            raise BacktestError("Daily dividend points must contain one row per date")
+        points = points.copy(deep=False)
+        points.index = days
+        points = points.reindex(close.index.normalize())
+        points.index = close.index
+    return points.reindex_like(close)
 
 
 def load_market_data(config: DataConfig | None = None, *, symbols=None, start=None, end=None,
@@ -203,11 +220,7 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
     elif config.dividend_points_path:
         points = _wide(config.dividend_points_path, config, label="dividend_points", timezone=timezone)
         # Daily values apply on that date only, without filling an unobserved day.
-        if all(t == t.normalize() + pd.Timedelta(hours=15) for t in points.index):
-            points.index = points.index.normalize()
-            points = points.reindex(close.index.normalize())
-            points.index = close.index
-        adjusted = close + points.reindex_like(close)
+        adjusted = close + align_dividend_points(points, close)
         metadata["dividend_source"] = str(Path(config.dividend_points_path).resolve())
     elif config.dividend_policy != "none":
         from ..marketdata.dividends import read_snapshot
@@ -236,7 +249,9 @@ def load_market_data(config: DataConfig | None = None, *, symbols=None, start=No
                 adjusted[symbol] = close[symbol]
     metadata["warnings"] = list(dict.fromkeys(metadata["warnings"]))
     check_cancelled(cancel_event)
-    return MarketData(close, multiplier, margin, adjusted, contracts, metadata)
+    remaining = (_wide(config.days_to_expiry_path, config, label="days_to_expiry", timezone=timezone, date_at="00:00")
+                 if config.days_to_expiry_path else None)
+    return MarketData(close, multiplier, margin, adjusted, contracts, metadata, days_to_expiry=remaining)
 
 
 def audit_data(config: DataConfig | None = None) -> dict:

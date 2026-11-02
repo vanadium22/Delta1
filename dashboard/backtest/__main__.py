@@ -28,6 +28,9 @@ def load_job(path):
     for key in ("instructions_path", "output_dir"):
         if key in job:
             job[key] = resolve(job[key])
+    for key, value in job.get("strategy_data", {}).items():
+        if key.endswith("_path") or key.endswith("_root"):
+            job["strategy_data"][key] = resolve(value)
     return job
 
 
@@ -42,6 +45,7 @@ def main(argv=None):
         sub.add_argument("--close-path", type=Path)
         sub.add_argument("--minute-close-path", type=Path)
         sub.add_argument("--daily-close-path", type=Path)
+        sub.add_argument("--days-to-expiry-path", type=Path)
         sub.add_argument("--margin-rate-path", type=Path)
         sub.add_argument("--margin-rate", action="append", metavar="ROOT=RATE", default=[])
         sub.add_argument("--allow-unverified-history", action="store_true", default=None)
@@ -51,6 +55,7 @@ def main(argv=None):
             sub.add_argument("--mode", choices=("symbol", "product", "portfolio"))
             sub.add_argument("--precision", choices=("1d", "auto"), help="默认日频；自动对齐输入并逐时点检查爆仓")
             sub.add_argument("--workers", type=int, help="0 自动选择最多4进程，1串行，可指定正整数")
+            sub.add_argument("--d0", type=int, help="剩余自然日 <= d0 当天 close 强平；默认 0")
             sub.add_argument("--start")
             sub.add_argument("--end")
             sub.add_argument("--initial-capital", type=float)
@@ -63,7 +68,7 @@ def main(argv=None):
     try:
         job = load_job(args.config)
         data = dict(job.get("data", {}))
-        for key in ("data_root", "frequency", "close_path", "minute_close_path", "daily_close_path", "margin_rate_path"):
+        for key in ("data_root", "frequency", "close_path", "minute_close_path", "daily_close_path", "days_to_expiry_path", "margin_rate_path"):
             if getattr(args, key) is not None:
                 data[key] = getattr(args, key)
         if args.data_root or args.close_path or args.minute_close_path or args.daily_close_path:

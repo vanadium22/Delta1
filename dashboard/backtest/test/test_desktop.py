@@ -47,6 +47,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(job["backtest"]["margin_call_basis"], "equity")
         self.assertEqual(job["backtest"]["precision"], "1d")
         self.assertEqual(job["backtest"]["workers"], 0)
+        self.assertEqual(job["backtest"]["d0"], 0)
 
     def test_background_run_tables_search_and_result_reopen(self):
         from dashboard.backtest.io import write_json
@@ -83,6 +84,10 @@ class DesktopTests(unittest.TestCase):
             self.window.fee.setValue(2.5)
             self.window.precision.setCurrentIndex(self.window.precision.findData("auto"))
             self.window.workers.setValue(2)
+            self.window.d0.setValue(3)
+            self.window.strategy_controls["min_samples"].setValue(3)
+            self.window.strategy_controls["missing"].setCurrentIndex(1)
+            self.window.strategy_controls["transform"].setCurrentIndex(0)
             self.window.show_location("save_config")
             destination = root / "job.local.json"
             self.window.location_path.setText(str(destination))
@@ -94,6 +99,29 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(self.window.job()["backtest"]["commission_rate"], 0.00025)
             self.assertEqual(self.window.job()["backtest"]["precision"], "auto")
             self.assertEqual(self.window.job()["backtest"]["workers"], 2)
+            self.assertEqual(self.window.job()["backtest"]["d0"], 3)
+            self.assertEqual(self.window.job()["factors"]["min_samples"], 3)
+            self.assertEqual(self.window.job()["cta"]["missing"], "hold")
+            self.assertEqual(self.window.job()["cta"]["transform"], "identity")
+
+    def test_generate_factor_targets_then_backtest_inside_desktop(self):
+        from dashboard.backtest.desktop_strategy import generate_targets
+        from dashboard.backtest.io import write_json
+        from dashboard.backtest.test.test_strategy import strategy_job
+        with local_temp() as root:
+            job = strategy_job(root)
+            job["ui"] = {"output_root": str(root / "runs")}
+            path = root / "strategy.local.json"
+            write_json(path, job)
+            self.window.load_config(path)
+            generate_targets(self.window)
+            self.wait_idle()
+            self.assertTrue(hasattr(self.window, "strategy_result"), self.window.status.text())
+            self.assertTrue(self.window.fields["instructions_path"].text().endswith("targets.parquet"))
+            self.window.run_backtest()
+            self.wait_idle()
+            self.assertIsNotNone(self.window.result, self.window.status.text())
+            self.assertGreater(len(self.window.result.actual_orders), 0)
 
     def test_cancel_is_responsive_and_closing_waits_for_worker(self):
         started = []

@@ -32,12 +32,26 @@ def check_cancelled(cancel_event):
         raise BacktestCancelled("Backtest cancelled")
 
 
-def normalize_symbol(value: str) -> str:
+def check_source_paths(value):
+    """The user excludes Z-drive dependencies from this project."""
+    if isinstance(value, Mapping):
+        for item in value.values():
+            check_source_paths(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            check_source_paths(item)
+    elif isinstance(value, (str, Path)) and re.match(r"(?i)^z:", str(value).strip()):
+        raise BacktestError("Z-drive sources are excluded; use an explicit Delta1/data source or a future DDB provider")
+
+
+def normalize_symbol(value: str, *, allow_continuous=False) -> str:
     symbol = str(value).strip().upper()
     if symbol in SPOT_SYMBOLS:
         return SPOT_SYMBOLS[symbol]
     if re.fullmatch(r"(?:IF|IH|IC|IM)_SPOT", symbol):
         return symbol[:2] + "_spot"
+    if allow_continuous and re.fullmatch(r"(?:IF|IH|IC|IM)0[0-3]\.CFE", symbol):
+        return symbol
     if re.fullmatch(r"(?:IF|IH|IC|IM)\d{4}\.CFE", symbol) and 1 <= int(symbol[4:6]) <= 12:
         return symbol
     raise BacktestError(f"Unsupported symbol {value!r}; use a concrete CFE contract or IF/IH/IC/IM_spot")
@@ -76,11 +90,11 @@ def time_bound(value, *, end=False, timezone="Asia/Shanghai"):
 
 
 def normalize_frame(frame: pd.DataFrame, *, label="table", timezone="Asia/Shanghai",
-                    date_at="15:00", unit=None) -> pd.DataFrame:
+                    date_at="15:00", unit=None, allow_continuous=False) -> pd.DataFrame:
     if not isinstance(frame, pd.DataFrame) or frame.empty:
         raise BacktestError(f"{label} must be a non-empty DataFrame")
     result = frame.copy(deep=False)
-    result.columns = [normalize_symbol(c) for c in result.columns]
+    result.columns = [normalize_symbol(c, allow_continuous=allow_continuous) for c in result.columns]
     if result.columns.duplicated().any():
         raise BacktestError(f"{label} has duplicate symbols after spot mapping")
     index = result.index
@@ -125,6 +139,7 @@ class BacktestConfig:
     mode: str = "portfolio"  # symbol / product / portfolio
     precision: str = "1d"  # 1d: day-end signals/risk; auto: input precision and quote-by-quote risk
     workers: int = 0  # 0: bounded automatic process count; 1: serial
+    d0: int | None = 0  # calendar days; None explicitly disables maturity liquidation
     start: Any = None
     end: Any = None
     timezone: str = "Asia/Shanghai"
@@ -148,6 +163,8 @@ class BacktestConfig:
             raise BacktestError("precision must be 1d or auto")
         if isinstance(self.workers, bool) or not isinstance(self.workers, (int, np.integer)) or self.workers < 0:
             raise BacktestError("workers must be a non-negative integer; 0 selects a bounded automatic count")
+        if self.d0 is not None and (isinstance(self.d0, bool) or not isinstance(self.d0, (int, np.integer)) or self.d0 < 0):
+            raise BacktestError("d0 must be a non-negative integer or None")
         if self.margin_call_basis not in {"available_equity", "equity"}:
             raise BacktestError("margin_call_basis must be available_equity or equity")
         if self.nan_policy not in {"error", "zero"}:
@@ -170,6 +187,7 @@ class DataConfig:
     close_path: str | Path | None = None
     minute_close_path: str | Path | None = None
     daily_close_path: str | Path | None = None
+    days_to_expiry_path: str | Path | None = None
     multiplier_path: str | Path | None = None
     margin_rate_path: str | Path | None = None
     adjusted_close_path: str | Path | None = None
@@ -182,6 +200,7 @@ class DataConfig:
     trusted_pickle: bool = False
 
     def __post_init__(self):
+        check_source_paths(vars(self))
         if self.frequency not in {"1d", "1m", "1s"}:
             raise BacktestError("frequency must be 1d, 1m, or 1s")
         if self.dividend_policy not in {"none", "asof_snapshot", "fixed_scenario"}:
@@ -200,6 +219,7 @@ class MarketData:
     metadata: dict = field(default_factory=dict)
     daily_close: pd.DataFrame | None = None
     daily_fallback: pd.DataFrame | None = None
+    days_to_expiry: pd.DataFrame | None = None
 
 
 @dataclass
@@ -218,6 +238,8 @@ class BacktestResult:
     metadata: dict
     output_paths: dict = field(default_factory=dict)
     input_instructions: pd.DataFrame | None = None
+    days_to_expiry: pd.DataFrame | None = None
+    execution_instructions: pd.DataFrame | None = None
 
     @property
     def actual_orders(self) -> pd.DataFrame:

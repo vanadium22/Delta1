@@ -11,12 +11,13 @@ import pandas as pd
 from .models import (AccountResult, BacktestConfig, BacktestError, BacktestResult,
                      MarketData, check_cancelled, normalize_frame, time_bound)
 from .parallel import process_map, worker_cancel_event, worker_count
+from .expiry import remaining_days, require_days
 from .timeline import daily_marks, effective_instructions, input_precision, next_joint_quote, quote_timeline
 
 
 ORDER_COLUMNS = ["signal_time", "execution_time", "symbol", "action", "side", "quantity",
                  "signed_quantity", "price", "multiplier", "margin_rate", "notional", "fee",
-                 "position_before", "position_after", "reason", "price_source", "execution_precision"]
+                 "position_before", "position_after", "reason", "price_source", "execution_precision", "days_to_expiry"]
 
 
 def _require(values, needed, symbols, now, field, *, upper=None):
@@ -28,13 +29,14 @@ def _require(values, needed, symbols, now, field, *, upper=None):
         raise BacktestError(f"Missing or invalid {field} for {names} at {now}; no price filling or silent order skipping")
 
 
-def _targets(weights, equity, prices, multipliers, rates, current, config):
+def _targets(weights, equity, prices, multipliers, rates, current, config, locked=None):
     """Preserve literal margin weights; cap only excess gross exposure and fees."""
     gross = float(np.abs(weights).sum())
     if not np.isfinite(gross):
         raise BacktestError("Gross target weight is not finite")
     weight_scale = min(1.0, config.max_capital_usage / gross) if gross else 1.0
     effective = weights * weight_scale
+    locked = np.zeros(len(current), dtype=bool) if locked is None else locked
     nonzero = effective != 0
     target = np.zeros_like(current)
     unit_margin = np.zeros(len(current))
@@ -47,6 +49,8 @@ def _targets(weights, equity, prices, multipliers, rates, current, config):
     if not np.isfinite(raw_lots).all() or np.abs(raw_lots).max(initial=0) > 2**53:
         raise BacktestError("Target size exceeds supported exact integer range")
     target[:] = np.trunc(raw_lots).astype(np.int64)
+    target[locked] = current[locked]
+    effective[locked] = current[locked] * unit_margin[locked] / equity
 
     def fits(candidate):
         fee = float((np.abs(candidate - current) * unit_notional).sum() * config.commission_rate)
@@ -56,13 +60,16 @@ def _targets(weights, equity, prices, multipliers, rates, current, config):
     # Reserve fees against the post-trade equity, rather than spending the cash buffer.
     if not fits(target):
         flat = np.zeros_like(target)
+        flat[locked] = current[locked]
         if not fits(flat):
+            if locked.any() and (np.abs(flat - current) * unit_notional).sum() * config.commission_rate < equity:
+                return flat, effective, weight_scale
             raise BacktestError("Insufficient equity to pay the fees needed to flatten this account")
         left, right = 0.0, 1.0
         best = flat
         for _ in range(60):
             middle = (left + right) / 2
-            candidate = np.trunc(target * middle).astype(np.int64)
+            candidate = flat + np.trunc((target - flat) * middle).astype(np.int64)
             if fits(candidate):
                 left, best = middle, candidate
             else:
@@ -151,6 +158,8 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
     multiple_book = ParameterBook(market.multiplier, symbols, config.timezone)
     rate_book = ParameterBook(market.margin_rate, symbols, config.timezone)
     spot = np.array([s.endswith("_spot") for s in symbols])
+    maturity = remaining_days(times.normalize().unique(), symbols, market.contracts,
+                              market.days_to_expiry, timezone=config.timezone)
     positions = np.zeros(len(symbols), dtype=np.int64)
     last_price = np.full(len(symbols), np.nan)
     last_multiple = np.full(len(symbols), np.nan)
@@ -183,6 +192,8 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
     def mark(price, multiple, rate, now):
         nonlocal cash, evaluated
         held = positions != 0
+        if config.d0 is not None:
+            require_days(maturity.loc[now.normalize()].to_numpy(), held & ~spot, symbols, now)
         _require(price, held, symbols, now, "close")
         _require(multiple, held, symbols, now, "multiplier")
         _require(rate, held, symbols, now, "margin_rate", upper=1)
@@ -215,7 +226,8 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                                side="buy" if signed > 0 else "sell", quantity=quantity, signed_quantity=signed,
                                price=float(price[j]), multiplier=float(multiple[j]), margin_rate=float(rate[j]),
                                notional=notional, fee=fee, position_before=before, position_after=int(positions[j]),
-                               reason=reason, price_source=kind, execution_precision="1m" if kind == "minute_close" else "1d"))
+                               reason=reason, price_source=kind, execution_precision="1m" if kind == "minute_close" else "1d",
+                               days_to_expiry=float(maturity.at[now.normalize(), symbols[j]])))
             fees_today += fee
             total_fees += fee
         held = positions != 0
@@ -305,15 +317,26 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 append_failure_day()
                 break
         closing_values = None
-        if loc in day_rows and config.precision == "1d":
+        if loc in day_rows:
             day_price = daily.iloc[day_rows[loc]].to_numpy(dtype=float)
             day_multiple, day_rate = multiple_book.at(now), rate_book.at(now)
             closing_values = mark(day_price, day_multiple, day_rate, now)
-            checks += 1
+            checks += int(config.precision == "1d")
             if failed(*closing_values[:3]):
                 liquidate(now, day_price, day_multiple, day_rate, "daily_close")
                 append_day(now, day_price, day_multiple, day_rate)
                 break
+            if config.d0 is not None:
+                due = ~spot & maturity.loc[now.normalize()].le(config.d0).to_numpy()
+                if (due & (positions != 0)).any():
+                    target = positions.copy()
+                    target[due] = 0
+                    execute(target, now, day_price, day_multiple, day_rate, pd.NaT, "expiry_d0", "daily_close")
+                    closing_values = values(day_price, day_multiple, day_rate)
+                    if failed(*closing_values[:3]):
+                        liquidate(now, day_price, day_multiple, day_rate, "daily_close")
+                        append_day(now, day_price, day_multiple, day_rate)
+                        break
         candidate = pending.pop(loc, None)
         if candidate is not None:
             signal_time, weights, record = candidate
@@ -322,7 +345,12 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 candidate = None
             else:
                 latest_signal = signal_time
-                needed = (positions != 0) | (weights != 0)
+                wanted = weights != 0
+                if config.d0 is not None:
+                    days = maturity.loc[now.normalize()].to_numpy()
+                    require_days(days, ((positions != 0) | wanted) & ~spot, symbols, now)
+                    wanted = wanted & (spot | (days > config.d0))
+                needed = (positions != 0) | wanted
                 future_loc = loc if valid[loc, needed].all() else next_joint_quote(valid, loc, needed, joint_cache)
                 if future_loc is None:
                     raise BacktestError(f"No next valid execution close for {[s for s, n in zip(symbols, needed) if n]} after {signal_time}")
@@ -345,6 +373,20 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
             multiple, rate = multiple_book.at(now), rate_book.at(now)
             equity, required, available, _ = mark(price, multiple, rate, now)
             needed = (positions != 0) | (weights != 0)
+            locked = np.zeros(len(symbols), dtype=bool)
+            blocked = np.zeros(len(symbols), dtype=bool)
+            blocked_requested = False
+            if config.d0 is not None:
+                days = maturity.loc[now.normalize()].to_numpy()
+                require_days(days, needed & ~spot, symbols, now)
+                blocked = ~spot & (days <= config.d0)
+                locked = blocked & (weights != 0) & (positions != 0)
+                if (blocked & (weights != 0)).any():
+                    blocked_requested = True
+                    schedule[record]["expiry_blocked_symbols"] = ",".join(s for s, b, w in zip(symbols, blocked, weights) if b and w)
+                    weights = weights.copy()
+                    weights[blocked] = 0
+            needed = (positions != 0) | (weights != 0)
             _require(multiple, needed, symbols, now, "multiplier")
             _require(rate, needed, symbols, now, "margin_rate", upper=1)
             for j in np.flatnonzero(weights != 0):
@@ -352,15 +394,15 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                 if ((ref.get("listing_date") and str(now.date()) < ref["listing_date"]) or
                         (ref.get("expiry_date") and str(now.date()) > ref["expiry_date"])):
                     raise BacktestError(f"Order outside {symbols[j]} listing/expiry interval at {now}")
-            if equity <= 0 and np.any(weights != 0):
+            if equity <= 0 and (np.any(weights != 0) or locked.any()):
                 schedule[record]["status"] = "insufficient_equity"
             else:
-                if not np.any(weights):
+                if not np.any(weights) and not locked.any():
                     target, effective = np.zeros_like(positions), weights
                 else:
-                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config)
+                    target, effective, _ = _targets(weights, equity, price, multiple, rate, positions, config, locked)
                 execute(target, now, price, multiple, rate, signal_time, "target_rebalance", fallback[loc])
-                schedule[record]["status"] = "executed"
+                schedule[record]["status"] = "expiry_blocked" if blocked_requested and not np.any(target) and not np.any(weights) else "executed"
                 target_rows.append(effective)
                 target_times.append(now)
                 equity, required, available, _ = values(price, multiple, rate)
@@ -399,6 +441,7 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                    unexecuted_signals=sum(r["status"] != "executed" for r in schedule),
                    evaluated_events=evaluated, quote_rows=len(times), risk_checks=checks, risk_quote_gaps=gaps,
                    daily_fallback_orders=sum(r["price_source"] == "daily_fallback" for r in ledger), worker_pid=os.getpid())
+    summary["expiry_closes"] = sum(r["reason"] == "expiry_d0" for r in ledger)
     return AccountResult(curve, pd.DataFrame(holding_rows, index=curve.index, columns=symbols),
                          pd.DataFrame(ledger, columns=ORDER_COLUMNS),
                          pd.DataFrame(target_rows, index=pd.DatetimeIndex(target_times, name="timestamp"), columns=symbols),
@@ -456,7 +499,8 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
     for name, symbols in groups.items():
         partial = MarketData(close.loc[:, symbols], _subset(market.multiplier, symbols), _subset(market.margin_rate, symbols),
                              contracts=market.contracts, daily_close=_subset(supplied_daily, symbols) if supplied_daily is not None else None,
-                             daily_fallback=_subset(market.daily_fallback, symbols) if market.daily_fallback is not None else None)
+                             daily_fallback=_subset(market.daily_fallback, symbols) if market.daily_fallback is not None else None,
+                             days_to_expiry=_subset(market.days_to_expiry, symbols) if market.days_to_expiry is not None else None)
         jobs.append((name, targets.loc[:, symbols], partial, config))
     # A vectorized risk scan is much cheaper than a target rebalance. Account
     # workers are selected by effective signal work, rather than raw row count.
@@ -478,6 +522,8 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
     gaps = sum(a.summary["risk_quote_gaps"] for a in results)
     if gaps:
         market_info["warnings"].append(f"{gaps} held-position quote gaps; automatic risk falls back to the next real quote/daily close")
+    remaining = remaining_days(daily_marks(close, supplied_daily).index, list(targets.columns), market.contracts,
+                               market.days_to_expiry, timezone=config.timezone)
     return BacktestResult(accounts, dict(config=asdict(config), market_data=market_info,
                                         precision=dict(requested=config.precision, resolved=resolved, equity_output="daily_close",
                                                        input_rows=input_rows, effective_signal_rows=len(targets),
@@ -488,5 +534,7 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
                                         sizing="literal signed equity fractions as gross margin; integer truncation",
                                         spot_model="fully funded synthetic index units; multiplier=1, margin=1; shorts allowed",
                                         pnl="futures variation plus spot market value minus notional commissions; daily close output",
+                                        maturity=dict(d0=config.d0, unit="calendar_days", close="daily_close", reason="expiry_d0",
+                                                      blocked_entries="T <= d0; existing nonzero targets retained until close, zero targets may exit earlier"),
                                         margin_call="equity < required_margin * minimum_margin_ratio" if config.margin_call_basis == "equity" else
-                                        "(equity - required_margin) < required_margin * minimum_margin_ratio"))
+                                        "(equity - required_margin) < required_margin * minimum_margin_ratio"), days_to_expiry=remaining)

@@ -6,10 +6,11 @@ import unittest
 
 import pandas as pd
 
-from dashboard.backtest import BacktestCancelled, BacktestConfig, MarketData, load_result, run_backtest
+from dashboard.backtest import BacktestCancelled, BacktestConfig, load_result, run_backtest
 from dashboard.backtest.desktop_service import execute_job, inspect_job
 from dashboard.backtest.io import write_json
 from dashboard.backtest.test.test_data import local_temp
+from dashboard.backtest.test.fixtures import synthetic_market as MarketData, write_reference
 
 
 def make_job(root, *, spot=False):
@@ -18,7 +19,7 @@ def make_job(root, *, spot=False):
     pd.DataFrame({symbol: [100, 110, 120, 130]}, index=dates).to_parquet(root / "close.parquet")
     pd.DataFrame({symbol: [0.3, 0]}, index=dates[[0, 2]]).to_parquet(root / "targets.parquet")
     return dict(instructions_path=str(root / "targets.parquet"), output_dir=str(root / "run"),
-                data=dict(close_path=str(root / "close.parquet"), multipliers={"IC": 10},
+                data=dict(reference_path=str(write_reference(root)), close_path=str(root / "close.parquet"), multipliers={"IC": 10},
                           margin_rates={} if spot else {"IC": 0.1}),
                 backtest=asdict(BacktestConfig(initial_capital=100_000)))
 

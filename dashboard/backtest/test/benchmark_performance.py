@@ -53,7 +53,7 @@ def main():
     spec = importlib.util.spec_from_file_location("dashboard.backtest._reference_engine", args.baseline)
     old = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(old)
-    config = BacktestConfig(initial_capital=10_000_000, precision="auto", workers=1)
+    config = BacktestConfig(initial_capital=10_000_000, precision="auto", workers=1, d0=None)
     targets, market = fixture(args.days)
     print("Comparing old per-quote loop with daily-output event engine...", flush=True)
     baseline, old_seconds = timed(lambda: old.run_engine(targets, market, config))

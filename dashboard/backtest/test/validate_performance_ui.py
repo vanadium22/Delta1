@@ -55,7 +55,7 @@ def main():
                 app.processEvents()
                 app.processEvents()
                 assert window.grab().save(str(args.output / f"desktop_{precision}_{width}.png"))
-                for tab in (0, 1):
+                for tab in range(window.forms.count()):
                     window.forms.setCurrentIndex(tab)
                     app.processEvents()
                     assert window.forms.currentWidget().horizontalScrollBar().maximum() == 0

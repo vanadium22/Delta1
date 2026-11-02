@@ -6,7 +6,10 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from dashboard.backtest import BacktestConfig, BacktestError, MarketData, run_backtest
+from dashboard.backtest import BacktestConfig, BacktestError, run_backtest
+
+
+from dashboard.backtest.test.fixtures import synthetic_market as MarketData
 
 
 class EngineTests(unittest.TestCase):
@@ -225,7 +228,7 @@ class EngineTests(unittest.TestCase):
         market = self.market([100] * 5)
         market.contracts = {"IC2612.CFE": {"expiry_date": "2026-09-23"}}
         with self.assertRaisesRegex(BacktestError, "after expiry"):
-            self.run_case(pd.DataFrame({"IC2612.CFE": [0.2]}, index=[self.dates[0]]), market=market)
+            self.run_case(pd.DataFrame({"IC2612.CFE": [0.2]}, index=[self.dates[0]]), market=market, d0=None)
 
     def test_adjusted_price_does_not_become_execution_price(self):
         market = self.market([100] * 5)

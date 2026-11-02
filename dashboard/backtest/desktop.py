@@ -169,6 +169,8 @@ class BacktestWindow(QMainWindow):
         self.picker.setMaximumHeight(300)
         self._parameter_page()
         self._data_page()
+        from .desktop_strategy import build_strategy_page
+        build_strategy_page(self)
         left.addWidget(self.picker)
         self.risk_note = label("", "risk")
         self.risk_note.setWordWrap(True)
@@ -323,6 +325,13 @@ class BacktestWindow(QMainWindow):
         self.workers.setRange(0, 64)
         self.workers.setSpecialValueText("自动 · 最多 4 进程")
         form.addRow("计算进程 · 1 为串行", self.workers)
+        self.d0 = QSpinBox()
+        self.d0.setRange(0, 3650)
+        self.d0.setSuffix(" 天")
+        form.addRow("临期强平 · T≤d0 当天收盘", self.d0)
+        self.expiry_enabled = QCheckBox("启用临期强平 · 默认到期日（d0=0）")
+        self.expiry_enabled.setChecked(True)
+        form.addRow(self.expiry_enabled)
         dates = QWidget()
         row = QHBoxLayout(dates)
         row.setContentsMargins(0, 0, 0, 0)
@@ -367,6 +376,7 @@ class BacktestWindow(QMainWindow):
         self.path_row(form, "原始 close 大表", "close_path")
         self.path_row(form, "分钟 close 大表 · 可选", "minute_close_path")
         self.path_row(form, "日线 close 大表 · 分钟缺失时回退", "daily_close_path")
+        self.path_row(form, "剩余自然日大表 · 可选，优先校验合约参考", "days_to_expiry_path")
         self.margin_source = combo([("历史保证金率表", "history"), ("固定比例假设", "fixed")])
         form.addRow("保证金来源", self.margin_source)
         self.path_row(form, "历史保证金率大表 · 小数比例", "margin_rate_path")
@@ -384,7 +394,7 @@ class BacktestWindow(QMainWindow):
         form.addRow("固定比例 · 仅选择假设时使用", fixed)
         self.path_row(form, "分红调整价大表 · 可选", "adjusted_close_path")
         self.path_row(form, "分红点数大表 · 与调整价二选一", "dividend_points_path")
-        self.path_row(form, "合约挂牌 / 到期参考 · 可选", "reference_path")
+        self.path_row(form, "合约挂牌 / 到期参考 · 临期强平需要", "reference_path")
         self.path_row(form, "乘数大表 · 默认使用品种标准", "multiplier_path")
         self.dividend_policy = combo([("不使用单日快照", "none"), ("快照日后的分红参考", "asof_snapshot"),
                                       ("固定分红情景", "fixed_scenario")])
@@ -413,7 +423,7 @@ class BacktestWindow(QMainWindow):
 
     def job(self):
         data = {**self._base_data}
-        for key in ("data_root", "dashboard_config_path", "close_path", "minute_close_path", "daily_close_path", "margin_rate_path", "reference_path",
+        for key in ("data_root", "dashboard_config_path", "close_path", "minute_close_path", "daily_close_path", "days_to_expiry_path", "margin_rate_path", "reference_path",
                     "multiplier_path", "adjusted_close_path", "dividend_points_path", "dividend_root"):
             data[key] = self.fields[key].text().strip() or None
         if self.source.currentData() != "wide":
@@ -433,6 +443,7 @@ class BacktestWindow(QMainWindow):
                     allow_unverified_availability=self.revised.isChecked(), trusted_pickle=self.trusted.isChecked())
         config = {**self._base_config, "initial_capital": self.capital.value(), "mode": self.mode.currentData(),
                   "precision": self.precision.currentData(), "workers": self.workers.value(),
+                  "d0": self.d0.value() if self.expiry_enabled.isChecked() else None,
                   "start": self.start.text().strip() or None, "end": self.end.text().strip() or None,
                   "commission_rate": self.fee.value() / 10000, "max_capital_usage": self.usage.value() / 100,
                   "minimum_margin_ratio": self.minimum.value() / 10000, "margin_call_basis": self.basis.currentData(),
@@ -443,15 +454,21 @@ class BacktestWindow(QMainWindow):
         if not output_root:
             raise ValueError("请设置结果根目录")
         identifier = pd.Timestamp.now(tz="Asia/Shanghai").strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+        from .desktop_strategy import strategy_settings
         return dict(instructions_path=self.fields["instructions_path"].text().strip() or None,
                     data=asdict(data), backtest=asdict(config),
                     output_dir=str(Path(output_root).expanduser().resolve() / ("run_" + identifier)),
-                    ui=dict(output_root=str(Path(output_root).expanduser().resolve())))
+                    ui=dict(output_root=str(Path(output_root).expanduser().resolve())), **strategy_settings(self))
 
     def load_config(self, path):
         try:
             job = load_job(path)
-            data, config = DataConfig(**job.get("data", {})), BacktestConfig(**job.get("backtest", {}))
+            options = dict(job.get("backtest", {}))
+            if "precision" not in options and "precision" in job.get("factors", {}):
+                options["precision"] = job["factors"]["precision"]
+            if "workers" not in options and "workers" in job.get("factors", {}):
+                options["workers"] = job["factors"]["workers"]
+            data, config = DataConfig(**job.get("data", {})), BacktestConfig(**options)
             self._base_data, self._base_config = asdict(data), asdict(config)
             for key, field in self.fields.items():
                 if key not in {"instructions_path", "output_root"}:
@@ -468,6 +485,8 @@ class BacktestWindow(QMainWindow):
                 widget.setCurrentIndex(widget.findData(value))
             self.capital.setValue(config.initial_capital)
             self.workers.setValue(config.workers)
+            self.expiry_enabled.setChecked(config.d0 is not None)
+            self.d0.setValue(config.d0 or 0)
             self.fee.setValue(config.commission_rate * 10000)
             self.usage.setValue(config.max_capital_usage * 100)
             self.minimum.setValue(config.minimum_margin_ratio * 10000)
@@ -478,6 +497,8 @@ class BacktestWindow(QMainWindow):
             self.end.setText(str(config.end or ""))
             self.date_at.setText(config.date_at)
             self.history_roots.setPlainText("\n".join(map(str, data.history_roots)))
+            from .desktop_strategy import apply_strategy_settings
+            apply_strategy_settings(self, job)
             for root, field in self.rates.items():
                 field.setValue(data.margin_rates.get(root, 0) * 100)
             self._config_path = Path(path).resolve()
@@ -630,6 +651,8 @@ class BacktestWindow(QMainWindow):
         settings = result.metadata.get("config", {})
         basis = "总权益" if settings.get("margin_call_basis", "equity") == "equity" else "保证金后余额"
         description.append(f"本轮爆仓：{basis} < 保证金 × {settings.get('minimum_margin_ratio', 0.0001):g}")
+        if settings.get("d0") is not None:
+            description.append(f"临期收盘强平 T≤{settings['d0']} 天")
         precision = result.metadata.get("precision")
         if precision:
             description.append("日频收盘风控" if precision["requested"] == "1d" else "自动对齐输入 · 逐时点风控")

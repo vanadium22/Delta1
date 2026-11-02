@@ -17,7 +17,12 @@ def inspect_job(job, *, cancel_event=None, progress=None):
     if progress:
         progress(dict(stage="inspecting", message="正在检查指令表与本地数据覆盖"))
     targets = normalize_frame(read_frame(path, trusted_pickle=data.trusted_pickle), label="instructions",
-                              timezone=config.timezone, date_at=config.date_at, unit=config.timestamp_unit)
+                              timezone=config.timezone, date_at=config.date_at, unit=config.timestamp_unit, allow_continuous=True)
+    from .strategy.mapping import expand_slot_targets
+    from .data import _reference, resolve_paths
+    targets, _ = expand_slot_targets(targets.fillna(0) if config.nan_policy == "zero" else targets,
+                                     _reference(resolve_paths(data)["reference_path"]),
+                                     timezone=config.timezone, date_at=config.date_at)
     if config.nan_policy == "error" and targets.isna().any().any():
         raise BacktestError("目标指令表有空值，请补齐零目标或明确选择空值按平仓处理")
     left = time_bound(config.start, timezone=config.timezone)
@@ -50,6 +55,11 @@ def inspect_job(job, *, cancel_event=None, progress=None):
                                not data.margin_rates.get(s, data.margin_rates.get(s[:2])))
         if rates_missing:
             missing.append("缺少保证金率：" + ", ".join(rates_missing))
+    if config.d0 is not None and not data.days_to_expiry_path:
+        references = _reference(resolve_paths(data)["reference_path"])
+        absent = sorted(s for s in required if not s.endswith("_spot") and not references.get(s, {}).get("expiry_date"))
+        if absent:
+            missing.append("缺少到期日/剩余自然日：" + ", ".join(absent) + "；可单独从 DDB 补齐参考资料")
     if not data.allow_unverified_availability and any(d.get("availability_policy") == "unknown" for d in report["datasets"]):
         missing.append("当前行情历史发布时间未知，请明确选择是否允许修订历史研究")
     report["required_missing"] = missing

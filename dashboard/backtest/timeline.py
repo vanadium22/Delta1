@@ -39,10 +39,6 @@ def quote_timeline(close, daily, supplied_fallback=None):
     return merged, fallback
 
 
-def close_positions(times, daily):
-    return times.get_indexer(daily.index)
-
-
 def next_joint_quote(valid, start, needed, cache):
     key = tuple(np.flatnonzero(needed))
     if not key:
