@@ -1,0 +1,48 @@
+{
+  "data": {
+    "data_root": "PATH_TO_AUDITED_LOCAL_SNAPSHOT",
+    "dataset_id": "YOUR_LOCAL_DATASET",
+    "data_version": "YOUR_FROZEN_VERSION",
+    "source_id": "YOUR_AUDITED_SOURCE",
+    "daily_close_path": "daily_close.parquet",
+    "reference_path": "contracts.parquet",
+    "days_to_expiry_path": "days_to_expiry.parquet",
+    "calendar_path": "calendar.csv",
+    "dividend_mode": "ignore",
+    "margin_rates": {"IF": 0.2, "IH": 0.2, "IC": 0.2, "IM": 0.2},
+    "daily_label_time": "15:00"
+  },
+  "factor": {
+    "name": "calendar_pair_percentile",
+    "roots": ["IF", "IH", "IC", "IM"],
+    "slots": [0, 1, 2, 3],
+    "precision": "1d",
+    "workers": 1,
+    "parameters": {"window_days": 60}
+  },
+  "cta": {
+    "name": "calendar_reversal",
+    "input_factor": "calendar_pair_percentile",
+    "parameters": {
+      "channel": "01-03", "root": "all", "q_open": 0.8,
+      "exit_mode": "threshold", "q_close": 0.6, "position_weight": 0.495
+    }
+  },
+  "backtest": {
+    "initial_capital": 10000000, "commission_rate": 0.0003,
+    "max_capital_usage": 0.99, "minimum_margin_ratio": 0.0001,
+    "margin_call_basis": "equity", "mode": "product", "precision": "1d", "workers": 1,
+    "weight_mode": "neutral_units", "d0": 0,
+    "rebalance_on_change_only": true, "preserve_pair_lots": true, "liquidate_at_end": false,
+    "start": "2024-01-01", "end": null
+  },
+  "factor_input": null,
+  "tuning": {
+    "grid": {
+      "cta.parameters.channel": ["01-03", "02-03"],
+      "cta.parameters.q_open": [0.8, 0.9],
+      "cta.parameters.q_close": [0.6, 0.4]
+    },
+    "max_runs": 8
+  }
+}

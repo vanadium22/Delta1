@@ -61,6 +61,9 @@ FACTOR_SCHEMAS = {
     "calendar_spread_percentile": dict(inputs=("close slots 01 and 03",), unit="p in [0,1] of F01-F03 (index points)", parameters=WINDOW),
     "annual_calendar_spread": dict(inputs=("close, dividends and expiry days for 01/03",), unit="annual percentage points", parameters=CALENDAR),
     "annual_calendar_spread_percentile": dict(inputs=("annualized 01-minus-03 carry",), unit="p in [0,1]", parameters={**WINDOW, **CALENDAR}),
+    "calendar_pair_percentile": dict(inputs=("raw futures close", "true expiry days", "dated 00..03 mapping"),
+        unit="raw p in [0,1]; actual held pairs versus prior entry-channel history",
+        parameters={"window_days": WINDOW["window_days"]}),
     "term_structure_percentile": dict(inputs=("annual basis across dated maturities", "prior dates only", "remaining natural days"),
         unit="conditional p in [0,1]", parameters={**ANNUAL, "window_days":WINDOW["window_days"],
         "min_training_samples":Parameter(120, "pooled previous date x contract observations", "integer", 3),
@@ -84,6 +87,13 @@ CTA_SCHEMAS = {
                          "selection": Parameter("product_best", "selection scope", choices=("product_best", "contract_independent")),
                          "slots": Parameter((0, 1, 2, 3), "candidate slots", "slots")}),
     "expiry_spread": dict(inputs=("01-minus-03 raw percentile", "dated mapping", "expiry reference"), parameters=EXPIRY),
+    "calendar_reversal": dict(inputs=("saved continuous p", "saved actual-pair p and quote availability", "expiry reference"),
+        parameters=dict(channel=Parameter("01-03", "fixed entry channel", choices=("01-03", "02-03")),
+            root=Parameter("all", "independent product account", choices=("all", "IF", "IH", "IC", "IM")),
+            q_open=Parameter(.8, "raw upper-tail p; strict >; lower tail p<1-q_open", minimum=.5, maximum=1),
+            exit_mode=Parameter("expiry", "exit rule", choices=("expiry", "threshold")),
+            q_close=Parameter(.6, "short exit p<=q_close; long exit p>=1-q_close", minimum=0, maximum=1),
+            position_weight=Parameter(.495, "equal leg budget; engine sizes integer lots", minimum=.000001, maximum=.5))),
     "expiry_index_structure": dict(inputs=("per-contract raw percentile", "dated actual mapping", "expiry reference"),
         parameters={**EXPIRY, "position_weight":Parameter(.12375, "per leg; 4 dedicated pair budgets per product", minimum=.000001, maximum=.125),
                     "allowed_future_side":FUTURE_SIDE,
@@ -121,6 +131,8 @@ class FactorSpec:
                 raise BacktestError("Term-structure regression needs daily data and enough configured maturity observations")
         if self.name.startswith("annual_calendar") and not {1,3} <= set(self.slots):
             raise BacktestError("Annual calendar factors require slots 01 and 03")
+        if self.name == "calendar_pair_percentile" and (set(self.slots) != {0,1,2,3} or self.precision != "1d"):
+            raise BacktestError("Calendar pair factors require daily data and all four slots for held-pair observation")
         self.runtime()
 
     def runtime(self):
@@ -138,6 +150,11 @@ class CTASpec:
         object.__setattr__(self, "parameters", parameters(CTA_SCHEMAS, self.name, self.parameters))
         if self.name in {"fixed", "zscore"}:
             CTAConfig(mode=self.name, **{k: v for k, v in self.parameters.items() if k != "hedge"})
+        elif self.name == "calendar_reversal":
+            if not .5 < self.parameters["q_open"] < 1:
+                raise BacktestError("Calendar q_open must lie strictly in (.5,1)")
+            if self.parameters["exit_mode"] == "threshold" and self.parameters["q_close"] >= self.parameters["q_open"]:
+                raise BacktestError("Calendar q_close must be below q_open")
         elif not 0 < self.parameters["threshold"] < 1:
             raise BacktestError("Expiry threshold must be strictly in (0,1)")
 

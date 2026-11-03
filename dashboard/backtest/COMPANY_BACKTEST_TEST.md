@@ -2,7 +2,19 @@
 
 用户已授权公司电脑的必要测试；以下入口使用明确配置，不要求再次申请测试许可。开发机通过不能代替公司实际运行，结果分别记录。统一分支 `codex/company-apps`，在原公司 Git 根正常 `git pull --ff-only` 后重开回测。
 
-## 当前研究：公司获取数据并调参
+## 48方案跨期专项：公司调用补充（2026-11-03）
+
+使用统一分支 `codex/company-apps` 和公司现有Git根。本次六页跨期专项说明、无数据配置模板及全部可复制命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。这组原始q_open=.8/.9对应p>.8/.9和p<.2/.1，与前轮中心化阈值不同；保证金明确为双腿各20%。此前期现研究和42页PDF保持原位，本次跨期总结单独限6页。
+
+公司只需复用已审计的本地快照（已有公司转移包包含同SHA快照），无需访问Z、DDB或VPN。复制 `calendar_reversal.config.example.json` 到 `dashboard/localsetting/backtest/calendar_reversal.local.json`，按说明设置data_root、真实来源/version及授权清单；运行时核验SHA。每次指定新输出目录：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_reversal_company01
+```
+
+默认48方案并验证48个单独重跑；HTML/PNG/CSV在该输出目录，原生回测文件在cases下，可由既有桌面重开。首次计算一次新跨期因子；之后只改CTA用原factors，改变window_days必须重算。PDF由 `python -m dashboard.backtest.calendar_pdf outputs/backtest/calendar_reversal_company01` 从保存结果生成；依赖reportlab/Pillow/pypdf与Windows微软雅黑。公司缺报告依赖时仍可先查看离线HTML/PNG和CSV，不影响原回测执行。现场有效参数、覆盖末日、48/48及对账结果需单独回传，不能用开发机通过代替公司验收。
+
+## 前轮期现研究：公司获取数据并调参
 
 2026-11-03的仅多期货/空指数研究见 [固定组说明](FIXED_SLOT_STUDY.md) 和 [调参说明](PARAMETER_TUNING.md)。**Git pull只获取源码、说明和无真实数据模板，不包含行情、因子、PDF或真实回测结果。** 本轮PDF及离线数据传输ZIP通过聊天文件交付，留在本机，不提交Git。
 

@@ -390,7 +390,15 @@
     "dashboard/backtest/test/test_tuning.py",
     "dashboard/backtest/tuning.calendar.config.example.json",
     "dashboard/backtest/tuning.config.example.json",
-    "dashboard/backtest/tuning.py"
+    "dashboard/backtest/tuning.py",
+    "dashboard/backtest/CALENDAR_REVERSAL.md",
+    "dashboard/backtest/calendar_reversal.config.example.json",
+    "dashboard/backtest/calendar_analytics.py",
+    "dashboard/backtest/calendar_study.py",
+    "dashboard/backtest/calendar_report.py",
+    "dashboard/backtest/calendar_pdf.py",
+    "dashboard/backtest/strategy/calendar_pairs.py",
+    "dashboard/backtest/test/test_calendar_study.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -568,7 +576,15 @@
       "dashboard/backtest/test/test_tuning.py",
       "dashboard/backtest/tuning.calendar.config.example.json",
       "dashboard/backtest/tuning.config.example.json",
-      "dashboard/backtest/tuning.py"
+      "dashboard/backtest/tuning.py",
+      "dashboard/backtest/CALENDAR_REVERSAL.md",
+      "dashboard/backtest/calendar_reversal.config.example.json",
+      "dashboard/backtest/calendar_analytics.py",
+      "dashboard/backtest/calendar_study.py",
+      "dashboard/backtest/calendar_report.py",
+      "dashboard/backtest/calendar_pdf.py",
+      "dashboard/backtest/strategy/calendar_pairs.py",
+      "dashboard/backtest/test/test_calendar_study.py"
     ],
     "tests": {
       "passed": 148,
@@ -1161,7 +1177,12 @@
         "full_actual_pair_rows": 396,
         "rendering": "Poppler page images and text/layout checks",
         "package": "CRC and per-file SHA verified",
-        "config_plans": {"study": 1, "cta_tuning": 16, "factor_tuning": 32, "calendar_tuning": 4},
+        "config_plans": {
+          "study": 1,
+          "cta_tuning": 16,
+          "factor_tuning": 32,
+          "calendar_tuning": 4
+        },
         "snapshot_days": 795,
         "contracts": 172,
         "original_input_factor_sha_unchanged": 40,
@@ -1173,6 +1194,43 @@
       "vpn": "untouched",
       "Z_source_operation": "none; frozen local snapshot copied only for authorized company transfer",
       "company_acceptance": "pending_actual_company_run"
+    },
+    "calendar_reversal_study": {
+      "base_commit": "212d95f",
+      "entry": "python -m dashboard.backtest.calendar_study",
+      "readme": "dashboard/backtest/CALENDAR_REVERSAL.md",
+      "template": "dashboard/backtest/calendar_reversal.config.example.json",
+      "report_entry": "python -m dashboard.backtest.calendar_report",
+      "pdf_entry": "python -m dashboard.backtest.calendar_pdf",
+      "matrix": "2 entry channels x 4 roots x 2 raw-p opens x 3 exits; 48 independent accounts",
+      "capital_per_account": 10000000,
+      "margin_rate_each_leg": 0.2,
+      "commission_rate_each_side": 0.0003,
+      "thresholds": "raw p: .8/.9; lower tails .2/.1; inclusive close .6/.4; expiry always active",
+      "factor_exit_benchmark": "actual held pair versus prior 60-session rolling continuous entry-channel annual spread; saved in factor diagnostics",
+      "execution": "unchanged original engine; neutral_units, preserved integer lots, next valid observation; same-day expiry close",
+      "validation": "150 prior regressions plus 10 calendar tests; 48 real standalone reruns equal; prefix/reload/ledger/plot checks",
+      "report": "six-page summary with page-one 48-scheme heatmaps; CSV, offline HTML and 108 PNG external",
+      "data_policy": "existing audited local snapshot only; DDB/VPN paused; Z not accessed; real data/config/results excluded",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/CALENDAR_REVERSAL.md",
+        "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/calendar_reversal.config.example.json",
+        "dashboard/backtest/calendar_analytics.py",
+        "dashboard/backtest/calendar_study.py",
+        "dashboard/backtest/calendar_report.py",
+        "dashboard/backtest/calendar_pdf.py",
+        "dashboard/backtest/configuration.py",
+        "dashboard/backtest/strategy/calendar_pairs.py",
+        "dashboard/backtest/strategy/pipeline.py",
+        "dashboard/backtest/workflow.py",
+        "dashboard/backtest/test/test_calendar_study.py"
+      ]
     }
   }
 }

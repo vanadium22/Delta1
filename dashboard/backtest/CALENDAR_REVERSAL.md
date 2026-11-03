@@ -1,0 +1,84 @@
+# 跨期反转：48 个独立方案
+
+本研究复用 `workflow.factor_stage → cta_stage → backtest_stage` 和原执行引擎。01-03、02-03 × IF/IH/IC/IM × 原始 `q_open=.8/.9` × 到期/`q_close=.6/.4`，共48个独立账户。每账户默认1000万元，方案间无资金共享或净额。默认前60交易日，保留2023暖启动，从2024年首个交易日评估至八组期货pair共同有效覆盖末日。**本专项两腿固定保证金20%**；不改变其他研究的既有显式保证金情景。
+
+## 因子和交易规则
+
+`calendar_pair_percentile` 同时保存两个通道的年化值、原始p、逐日实际合约映射，以及所有此前已出现且尚未到期的实际pair观察表。公式为 `100*(F近-F远)/F近*365/(T远-T近)`，T使用真实剩余自然日，分红显式忽略。历史窗口严格取此前完整window_days交易日，排除当前整日；等值半权，缺项不填补、不缩短窗口。持有旧pair时，使用旧pair当日实际价差相对其**入场通道此前60日连续年化分布**的分位；不是当天新连续pair的p，也不是冻结入场日分布。
+
+CTA `calendar_reversal` 仅读取保存因子，不重读行情或计算分位。参数：
+
+| 参数 | 含义 |
+|---|---|
+| channel | `01-03` 或 `02-03` |
+| root | `all` 或单个IF/IH/IC/IM；all仍是四个独立账户 |
+| q_open | 原始p上尾严格越界；`.8`对应p>.8空价差/p<.2多价差，`.9`对应p>.9/p<.1 |
+| exit_mode | `expiry` 或 `threshold` |
+| q_close | threshold时空价差p≤q_close平、多价差p≥1-q_close平 |
+| position_weight | 默认每腿.495；由原引擎按双腿真实保证金和费用预算生成等整数手数 |
+
+多价差=多近/空远，空价差相反。原始q_open=.8/.9等价中心化绝对阈值.6/.8，不能混用旧研究的中心化.8/.9标签。
+
+开仓后锁定实际代码及手数。CTA通过已保存的逐日报价有效标志管理待开/待平状态，旧pair平仓的有效观测到达前不能寻找新开仓，平仓信号当日不重新开仓。原引擎负责下一有效观测成交、整数手数、全名义金额每腿每边万三费用、逐日结算和爆仓；任一腿到期当日close双平优先，未执行的零目标不重复计费。期末不强制平仓。真实行情仅有日线时使用下一交易日实际close，不伪造开盘价。
+
+## 配置与可复制命令
+
+在仓库根（本机 `P:/project/swhy/Delta1/company-apps-worktree`；公司使用现有统一Git根）运行。复制无真实数据的模板到忽略的本机配置目录：
+
+```powershell
+Copy-Item dashboard/backtest/calendar_reversal.config.example.json dashboard/localsetting/backtest/calendar_reversal.local.json
+```
+
+编辑该本机JSON的 `data.data_root` 为**已有审计快照**目录，所有文件名可保留相对路径。填写真实dataset_id/data_version/source_id。如果复用经授权只读Z导入的本地审计快照，必须显式设置 `data.source_id="local_ddb_plus_authorized_readonly_z_v2"`、`data.allow_readonly_z_import=true`、`data.source_manifest_path="import_manifest.local.json"`；原加载器核验清单及输入SHA。运行时不接受直接Z路径、旧未经审计backfilled缓存。无需重新导入，不连接DDB/VPN。
+
+完整矩阵（默认包括48个单独重跑、因子重读、3个前缀和逐笔对账）：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_reversal_run01
+```
+
+输出必须使用新目录。`--no-render`只跳过图表，仍完整计算验证；`--no-verify`是探索选项，不能作为最终验收。矩阵固定覆盖两通道、两开仓阈值和三退出方式；其他自定义组合用标准单阶段或tune。
+
+标准单方案/单品种（修改本机JSON的cta参数；root=IF只跑IF）：
+
+```powershell
+python -m dashboard.backtest.workflow factor --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_factor01
+python -m dashboard.backtest.workflow cta --config dashboard/localsetting/backtest/calendar_reversal.local.json --input outputs/backtest/calendar_factor01 --output outputs/backtest/calendar_cta01
+python -m dashboard.backtest.workflow run --config dashboard/localsetting/backtest/calendar_reversal.local.json --input outputs/backtest/calendar_cta01 --output outputs/backtest/calendar_account01
+```
+
+只改CTA阈值/退出/通道/品种、资金或费用，复用同一因子；改 `factor.parameters.window_days`（例如40或120）后重新运行factor。再次跑矩阵时可将顶层 `factor_input` 设为原run的 `factors` 绝对路径，声明和输入SHA不符会拒绝。原 `workflow tune` 兼容此因子与CTA；模板grid是8组阈值退出配置，不含到期组，不替代完整48方案：
+
+```powershell
+python -m dashboard.backtest.workflow tune --plan --config dashboard/localsetting/backtest/calendar_reversal.local.json
+python -m dashboard.backtest.workflow tune --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_tuning01
+```
+
+重读已有结果出图/出PDF（不读取行情、不重算）：
+
+```powershell
+python -m dashboard.backtest.calendar_report outputs/backtest/calendar_reversal_run01
+python -m dashboard.backtest.calendar_pdf outputs/backtest/calendar_reversal_run01
+```
+
+图表依赖pandas/pyarrow/numpy/matplotlib；PDF另需reportlab/Pillow/pypdf和Windows微软雅黑。PDF固定6页，首页全48方案总结，报告生成器要求完整验证已通过；可通过 `--output` 指定PDF文件。既有引擎依赖不改。
+
+## 外部详细交付与统计定义
+
+| 文件 | 内容 |
+|---|---|
+| report.html、figures/*.png | 离线选择全部48方案；收益/同轴百分比回撤、48幅横向分布、8组首笔实际pair示例 |
+| csv/account_metrics.csv | 48行账户CAGR/累计收益/回撤/费用，逐方案闭合交易数、盈亏/持平次数、净胜率、平均盈亏金额与收益率、金额及收益率盈亏比 |
+| csv/round_trips.csv、trade_legs.csv | 每次完整开仓至双腿退出、实际代码、信号与成交、方向手数、p/T、持有天数、两腿毛净PnL/费用；open单独标记 |
+| csv/trades_daily.csv、equity_drawdown.csv | 每笔逐日两腿归因和48账户逐日权益/收益/回撤 |
+| csv/drawdown_top3.csv、chart_drawdown_markers.csv | 各账户最大及前3个不重叠的前高至恢复区间；不足3个时如实保留；未恢复持续至期末；图中P/T/R逐点坐标 |
+| csv/distribution_bins.csv | 每方案分箱计数、样本量、均值、中位数，与闭合胜率样本一致 |
+| csv/factor_actual_pairs.csv | 实际pair当日价差/p、两腿实际价格/T、历史首末日/数量、报价有效标志 |
+| cases/*/cta、cases/*/backtest | 原标准产物，可重读权重、成交、权益、持仓、调度；各case四个独立品种账户 |
+| study.local.json、input_sha256.local.json、csv/verification.csv | 冻结有效参数、覆盖末日、因子/源文件SHA及每方案验证 |
+
+每笔收益率分母为入场双腿实际 `价格×乘数×绝对手数×20%` 之和，入场后冻结；净PnL扣两腿开平费。净收益率r=净PnL/入场保证金；年化金额为净PnL×365/自然持有天数（元/年）；年化收益率为 `(1+r)^(365/天数)-1`。天数0或r≤-1时两项年化均N/A，注明原因，不截断。账户CAGR以初始资金及实际首末自然日另算。若执行源有分钟，signal p来自信号日，无法对应同刻的执行p留空，绝不把稍后日线p当成交时可知信息。
+
+胜率=该方案净盈利闭合笔数/全部闭合笔数，持平单独列出。平均亏损为负数，盈亏比=平均盈利/平均亏损绝对值；没有盈利或亏损样本时N/A。未平仓净浮盈亏包含已付开仓费，不虚构平仓费，不纳入闭合胜率/年化。不同方案不混合统计胜率。
+
+验证通过只能说明算法前缀、阶段分离和账务一致。本研究是描述性历史参数比较，没有样本外/多重检验修正，参考元数据未包含完整历史发布时刻档案。公司现场运行状态须单独验收；真实数据、配置、CSV/图/PDF及运行结果保持忽略，不提交Git。

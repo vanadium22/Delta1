@@ -151,3 +151,6 @@ python -m dashboard.backtest.test.validate_performance_ui --config <本机配置
 前者只生成隔离合成价格；后者显式读取所选本机数据，离屏运行日频/自动和两个分辨率，所有报告及截图保持本机。
 
 源码和无真实数据的配置模板随统一分支发布。真实指令、数据、配置及产物仅本机保留，当前工作见 [交接](PROJECT_HANDOFF.md)。
+## 新增：独立跨期48方案研究
+
+原始p阈值、01-03/02-03、四品种、三类退出、双腿20%保证金及六页总结报告见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。入口 `python -m dashboard.backtest.calendar_study`，模板 `calendar_reversal.config.example.json`。复用原因子→CTA→执行阶段；真实数据/配置/结果不提交。

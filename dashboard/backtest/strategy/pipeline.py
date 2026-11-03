@@ -168,7 +168,13 @@ def compute_factors(*, market_data=None, data_config=None, source_config=None, f
     values = {}
     diagnostics, method = {}, {}
     if include_examples:
-        if factor_name.startswith("annual_calendar"):
+        if factor_name == "calendar_pair_percentile":
+            from .calendar_pairs import calendar_pair_factors
+            if data.dividend_mode != "ignore":
+                raise BacktestError("Calendar pair research requires explicit dividend_mode=ignore")
+            values, diagnostics, method = calendar_pair_factors(panel, market.contracts, factors.window_days,
+                                                               cancel_event=cancel_event)
+        elif factor_name.startswith("annual_calendar"):
             from .annual_calendar import annual_calendar_percentile, annual_calendar_spread
             params = {"min_gap_days":1, "price_base":"near", **(factor_parameters or {}).get(factor_name, {})}
             if factor_name == "annual_calendar_spread":
@@ -223,6 +229,7 @@ def compute_factors(*, market_data=None, data_config=None, source_config=None, f
     if panel.metadata["mapping_gaps"]:
         warnings.append("部分日期缺完整四档映射；详见 panel.mapping_gaps")
     units = {"annual_basis":"percentage_points", "basis_percentile":"0_to_1", "annual_calendar_spread":"percentage_points",
+             "calendar_pair_annual":"percentage_points", "calendar_pair_percentile":"0_to_1",
              "annual_calendar_spread_percentile":"0_to_1", "term_structure_percentile":"0_to_1"}
     units.update({name:"percentage_points" for name in values if name.startswith("term_structure_q")})
     metadata = dict(factor_config=asdict(factors), factor_name=factor_name,
