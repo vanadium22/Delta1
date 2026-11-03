@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-03研究报告/公司复现接续d63e670：本机42页PDF首页为总结图，含16组曲线、实际pair两腿、跨期及396行归因附录；公司数据ZIP带7份原SHA快照、离线报告、配置准备脚本及逐文件清单，真实产物不入Git。公司首次按同数据计算本机因子，后续CTA复用；四配置计划1/16/32/4及795日/172参考读取通过，原40个输入/因子SHA不变。PDF逐页渲染和包SHA核验通过，无引擎修改、无Z/DDB/VPN操作。[公司获取与调参步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)，公司现场仍待运行。
+
 - 2026-11-03仅多期货研究接续`b99094b`：新增期现CTA的allowed_future_side=long，仅低尾反转做多实际期货/空指数并持有到期；默认both保留旧双向组，跨期不变。slot_study复用已存合并因子0次计算，原始连续/实际因子不变；新报告/桌面曲线用收益率%，腿/pair按所属账户初始资金计算贡献。150项回归、Ruff、四页1080p/4K及216组交互通过，786个实际pair百分比纵轴及合计/两腿贡献线已核验。新18case/72账户全部完成，跨期权益/持仓/成交与旧组完全相同，40个输入/因子文件SHA未变。真实配置/结果仅本机，DDB/VPN暂停，Z源未操作；[规则和调用](dashboard/backtest/FIXED_SLOT_STUDY.md)、[模板](dashboard/backtest/long_future.config.example.json)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-03标准调参接续 `1fdcac5`：兼容目标明确为当前Delta1，workflow tune直接复用原因子→CTA→执行框架；四段配置增加可选grid/cases/max_runs，可预览、自动缓存因子/不变CTA，并保存每组有效配置及原生回测结果。桌面保留批次配置，因子参数变化后禁止误用旧因子跑CTA。148项回归及Ruff通过，连续/实际两份因子均核验不变；8合成配置仅2次因子/4份CTA，2024起冻结因子4组真实阈值/费用配置计算0次、16账户完成，未额外全量搜索。图例及蓝历史/紫条件回归区别、跨期阈值图说明见[调参说明](dashboard/backtest/PARAMETER_TUNING.md)；[期现模板](dashboard/backtest/tuning.config.example.json)、[跨期模板](dashboard/backtest/tuning.calendar.config.example.json)。数据/结果仅本机，DDB/VPN暂停，Z源未操作。

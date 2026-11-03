@@ -2,6 +2,59 @@
 
 用户已授权公司电脑的必要测试；以下入口使用明确配置，不要求再次申请测试许可。开发机通过不能代替公司实际运行，结果分别记录。统一分支 `codex/company-apps`，在原公司 Git 根正常 `git pull --ff-only` 后重开回测。
 
+## 当前研究：公司获取数据并调参
+
+2026-11-03的仅多期货/空指数研究见 [固定组说明](FIXED_SLOT_STUDY.md) 和 [调参说明](PARAMETER_TUNING.md)。**Git pull只获取源码、说明和无真实数据模板，不包含行情、因子、PDF或真实回测结果。** 本轮PDF及离线数据传输ZIP通过聊天文件交付，留在本机，不提交Git。
+
+推荐下载本轮 `Delta1_company_research_20261103.zip`，解压到公司仓库的 `local_artifacts/company_kit_20261103`。包中有7份已审计快照文件、PDF、离线HTML/图片/CSV、配置模板、`prepare_company.py` 和逐文件SHA；不含凭据或整套72账户执行目录。它使用已获授权的本地快照，准备和回测不访问Z/DDB/VPN。
+
+在公司现有仓库根运行，Python复用原环境，ZIP实际下载路径自行替换：
+
+```powershell
+Set-Location 'D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard'
+$repo = (git rev-parse --show-toplevel).Trim()
+$py = 'D:/conda/envs/swhy_delta1/python.exe'
+git branch --show-current
+git pull --ff-only
+$kit = Join-Path $repo 'local_artifacts/company_kit_20261103'
+Expand-Archive -LiteralPath 'C:/YOUR_DOWNLOAD/Delta1_company_research_20261103.zip' -DestinationPath $kit
+& $py "$kit/prepare_company.py" --repo $repo
+$cfg = 'dashboard/localsetting/backtest/company_20261103'
+& $py -m dashboard.backtest.slot_study --config "$cfg/study.local.json" `
+  --output 'outputs/backtest/company_long_future_base_20261103'
+```
+
+确认分支为codex/company-apps；保留已有改动，不强切/覆盖。脚本校验包SHA及导入清单，写仓库内data快照和新的本机配置；已有完全相同快照只读复用，不同则报错而不覆盖。配置及输出目录必须新建。脚本自身不计算因子或执行回测，可用 `--config-dir` / `--study-output` 指定仓库内新位置。
+
+快照覆盖2023-07-03—2026-10-14，795交易日、172实际合约参考。2023暖启动后从2024-01-02评估；不是截至今天。原Z现货仅到2026-07-08，既有纯行情补到10-14；原始成交价不跨日填充。data中保留allow_readonly_z_import=true及source_manifest_path，读入核验全部使用文件SHA。
+
+跨机器后，旧因子的数据声明仍绑定开发机绝对路径。公司首次study的factor_input为空，按同一快照计算一次；之后公司自己的factors目录用于重复CTA，不能仅改旧因子标签或数据路径来绕过声明校验。首次18case/72账户输出在上面的新目录，report.html为离线报告，factors/为合并原始因子。
+
+准备脚本生成四份配置：
+
+| 配置文件 | 用途 | 默认规模/复用 |
+|---|---|---|
+| study.local.json | 首次固定组完整比较 | 18case/72账户；三类原始因子一次生成 |
+| cta_tuning.local.json | 两方法×四档×阈值.9/.8 | 16配置/64账户；复用首次factors，因子计算0次 |
+| factor_tuning.local.json | 窗口40/60及两方法/档位/阈值 | 32配置；factor_input=null，按函数/窗口分别计算 |
+| calendar_tuning.local.json | 01—03跨期窗口40/60×阈值 | 4配置；跨期仍为双向反转 |
+
+```powershell
+& $py -m dashboard.backtest.workflow tune --config "$cfg/cta_tuning.local.json" --plan
+& $py -m dashboard.backtest.workflow tune --config "$cfg/cta_tuning.local.json" `
+  --output 'outputs/backtest/company_cta_tuning_20261103'
+& $py -m dashboard.backtest.workflow tune --config "$cfg/factor_tuning.local.json" `
+  --output 'outputs/backtest/company_factor_tuning_20261103'
+& $py -m dashboard.backtest.workflow tune --config "$cfg/calendar_tuning.local.json" `
+  --output 'outputs/backtest/company_calendar_tuning_20261103'
+```
+
+批次候选值在tuning.grid里修改，grid覆盖基础参数。window_days/回归模型属于factor；threshold、direction、allowed_future_side、position_weight和候选slots属于CTA；费用/资金属于backtest。只多期货空指数保持allowed_future_side="long"及direction=-1；.9/.8分别仅p<.05/.10入场并持有到期。若改变首轮输出位置，同步cta_tuning.factor_input。输出每次新命名，别覆盖旧实验。
+
+桌面单次仍双击dashboard/start_backtest.vbs，在四页配置中修改；相同因子用“仅运行CTA”，窗口/模型改变先重算。批次从workflow tune运行，保存每组summary及variants/vXXXX/job.local.json和原生backtest，可由桌面重开。
+
+本机已验证包内SHA、795日/172合约读入及1/16/32/4组配置计划，原40个输入/因子SHA不变。公司现场仍需实际运行；不把开发机验证当公司验收。若公司已有标准或注册行情，可直接按DATA_FORMAT配置；如需从Z重建，独立readonly_import只读导入新快照，见FIXED_SLOT_STUDY，**DDB获取和VPN继续暂停**。
+
 ## 离线检查
 
 复用公司既有 Python 和看板依赖，不重装 Wind、不启用 DDB/VPN、不打开 Excel。进入 `git rev-parse --show-toplevel` 对应的仓库根，使用已核验的 Python（公司原环境示例 `D:/conda/envs/swhy_delta1/python.exe`）：
@@ -18,7 +71,7 @@
 
 通过 `dashboard/start_backtest.vbs` 打开独立窗口：
 
-1. 指定公司 Delta1/data 行情、实际合约参考、历史保证金率或明确固定假设。T 来自挂牌/到期参考或 `days_to_expiry_path`；默认 d0=0。公司原配置与凭据保留，不使用 Z 盘。
+1. 指定公司 Delta1/data 行情、实际合约参考、历史保证金率或明确固定假设。T 来自挂牌/到期参考或 `days_to_expiry_path`；默认 d0=0。公司原配置与凭据保留；运行时不直接读Z，用户授权的Z数据仅经独立只读导入并审计后使用。
 2. 在“数据配置”核对版本及绝对路径、覆盖、固定 100% 或历史保证金假设、分红 required/ignore；在“因子参数”计算并保存原始因子。
 3. 在“CTA 参数”读取同一因子，分别生成 0.9/0.8，核对原始 p 不变；保存配置并重开四页全部设置。在“回测执行参数”核对零和手数权重模式、d0、费用及不变目标保持手数。没有完整 D 且未显式 ignore 时不能补零。
 4. “检查数据”后回测，分别核对日频/自动模式、末条信号顺延、分钟缺失的真实日线回退，以及 T<=d0 当日 close 的 `expiry_d0` 成交、手数、费用和其他合约仍保留。

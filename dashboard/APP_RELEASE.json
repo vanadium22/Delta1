@@ -1142,6 +1142,37 @@
       "vpn": "untouched",
       "Z_source_operation": "none this iteration; frozen local P inputs only",
       "company_acceptance": "pending_actual_company_run"
+    },
+    "research_report_delivery": {
+      "base_commit": "d63e670d2f93d17a623b95cb0bf448b5d7e4827e",
+      "date": "2026-11-03",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md"
+      ],
+      "guide": "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+      "pdf": "local ignored artifact only; 42 pages, first-page summary chart, 396 actual-pair comparison rows",
+      "company_transfer": "local ZIP delivered in chat; 28 files, 7 SHA-verified snapshot files, PDF/offline HTML/charts/CSV, templates and prepare_company.py; no credentials",
+      "relocation": "first company study recomputes factors with company-local source declarations; subsequent CTA tuning reuses those factors; never relabel developer factor metadata to bypass checks",
+      "validation": {
+        "pdf_pages": 42,
+        "full_actual_pair_rows": 396,
+        "rendering": "Poppler page images and text/layout checks",
+        "package": "CRC and per-file SHA verified",
+        "config_plans": {"study": 1, "cta_tuning": 16, "factor_tuning": 32, "calendar_tuning": 4},
+        "snapshot_days": 795,
+        "contracts": 172,
+        "original_input_factor_sha_unchanged": 40,
+        "engine_changes": false,
+        "previous_engine_regression_tests": 150
+      },
+      "evidence": "local_artifacts/validation/2026-11-03/pdf_report/",
+      "ddb": "paused",
+      "vpn": "untouched",
+      "Z_source_operation": "none; frozen local snapshot copied only for authorized company transfer",
+      "company_acceptance": "pending_actual_company_run"
     }
   }
 }

@@ -2,6 +2,16 @@
 
 2026-11-03，统一分支 `codex/company-apps`。当前仅多期货研究接续 `b99094b`，标准调参接续 `1fdcac5`，固定档位研究接续 `e778dff`；此前年化结构接续 `c736eb8`，标准输入框架从 `6777c4d` 接续。入口为 `dashboard/start_backtest.vbs`，备用 CMD、CLI 和绝对脚本入口保留。
 
+## 最新交付：PDF与公司离线数据复现
+
+接续计算源码d63e670，生成42页静态PDF：首页为四品种两方法/阈值的年化收益与回撤总结图，正文含16组曲线、实际pair持仓、两腿贡献、跨期及公司步骤，附录396行实际合约两腿对齐归因。PDF在本机忽略的 outputs/backtest/fixed_slot_long_future_20261103/output/pdf/Delta1_long_future_report_20261103.pdf；不提交真实报告。
+
+用户要求公司获取数据和调参，另准备本机ZIP：同study下company_transfer/Delta1_company_research_20261103.zip。含28文件、7份原SHA快照、PDF、离线HTML/图/CSV、逐文件清单及prepare_company.py；不含凭据/完整72账户执行目录。ZIP通过聊天交付，不随Git pull。公司步骤已更新 [COMPANY_BACKTEST_TEST](COMPANY_BACKTEST_TEST.md)。
+
+准备脚本只校验/复制仓库内快照并生成4份本机配置，不运行计算、不访问Z/DDB/VPN。跨机器的旧因子仍绑定开发机数据声明，公司首次factor_input=null，按同快照计算一次；之后CTA批次指向公司新factors。生成study、cta_tuning、factor_tuning、calendar_tuning，计划分别1/16/32/4配置；首轮study预设18case/72账户，CTA批次16配置/64账户复用0次计算。换首轮输出位置须同步CTA factor_input，改窗口/模型须重算。
+
+已用公司准备脚本核验包SHA，正常读取795日/172参考，四配置计划校验通过，原40个行情/因子SHA未变。PDF42页经Poppler渲染/逐页排版检查及文本/全部396行对账；离线包CRC/SHA核验通过。证据 local_artifacts/validation/2026-11-03/pdf_report/，未修改回测数值逻辑或重新搜索参数；既有150项引擎回归仍为前轮证据。公司现场实际运行仍待用户操作，DDB/VPN继续暂停。
+
 ## 最新追加：仅多期货、空指数及收益率图
 
 用户要求另加一组期现反转：`cta.parameters.allowed_future_side="long"`配合`direction=-1`，0.9/0.8分别仅在原始p<.05/.10开仓。先过滤允许方向再择优，已持有实际合约仍锁定到期，中途信号变化不平仓/反手/换月；两种分位方法约束相同。默认both保留旧双向CTA及其结果，跨期仍为原双向01−03，不接受此期现参数。桌面CTA参数新增限制选项，保存/重开恢复；原执行引擎未改。
