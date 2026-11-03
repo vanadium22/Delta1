@@ -241,8 +241,8 @@ class BacktestWindow(QMainWindow):
         empty.setObjectName("panel")
         empty_layout = QVBoxLayout(empty)
         empty_layout.addStretch()
-        empty_layout.addWidget(label("运行后查看净值与保证金", "emptyTitle"), alignment=Qt.AlignmentFlag.AlignHCenter)
-        empty_layout.addWidget(label("设置目标表  →  核对数据与保证金  →  查看净值和实际成交", "muted"),
+        empty_layout.addWidget(label("运行后查看收益率与保证金", "emptyTitle"), alignment=Qt.AlignmentFlag.AlignHCenter)
+        empty_layout.addWidget(label("设置目标表  →  核对数据与保证金  →  查看收益率和实际成交", "muted"),
                                alignment=Qt.AlignmentFlag.AlignHCenter)
         empty_layout.addStretch()
         self.chart_stack.addWidget(empty)

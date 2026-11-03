@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-03仅多期货研究接续`b99094b`：新增期现CTA的allowed_future_side=long，仅低尾反转做多实际期货/空指数并持有到期；默认both保留旧双向组，跨期不变。slot_study复用已存合并因子0次计算，原始连续/实际因子不变；新报告/桌面曲线用收益率%，腿/pair按所属账户初始资金计算贡献。150项回归、Ruff、四页1080p/4K及216组交互通过，786个实际pair百分比纵轴及合计/两腿贡献线已核验。新18case/72账户全部完成，跨期权益/持仓/成交与旧组完全相同，40个输入/因子文件SHA未变。真实配置/结果仅本机，DDB/VPN暂停，Z源未操作；[规则和调用](dashboard/backtest/FIXED_SLOT_STUDY.md)、[模板](dashboard/backtest/long_future.config.example.json)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-03标准调参接续 `1fdcac5`：兼容目标明确为当前Delta1，workflow tune直接复用原因子→CTA→执行框架；四段配置增加可选grid/cases/max_runs，可预览、自动缓存因子/不变CTA，并保存每组有效配置及原生回测结果。桌面保留批次配置，因子参数变化后禁止误用旧因子跑CTA。148项回归及Ruff通过，连续/实际两份因子均核验不变；8合成配置仅2次因子/4份CTA，2024起冻结因子4组真实阈值/费用配置计算0次、16账户完成，未额外全量搜索。图例及蓝历史/紫条件回归区别、跨期阈值图说明见[调参说明](dashboard/backtest/PARAMETER_TUNING.md)；[期现模板](dashboard/backtest/tuning.config.example.json)、[跨期模板](dashboard/backtest/tuning.calendar.config.example.json)。数据/结果仅本机，DDB/VPN暂停，Z源未操作。
 
 - 2026-11-03固定档位研究接续 `e778dff`：用户确认16组独立期现账户、4组跨期，不共享资金/指数净额，固定入场档位但锁定实际代码至到期；中心化0.9/0.8保留。新slot_study/slot_report复用因子，逐品种/档位/实际合约比较历史分位与条件回归及两腿毛/净PnL、费用。用户已授权Z只读导入本地data新快照，默认仍拒绝直接Z和旧混合缓存，显式标记＋SHA清单核验；DDB/VPN暂停。新快照含2023暖启动，评估2024-01-02—2026-10-14，18case/72独立账户全部对账；141项回归、Ruff、四页恢复/1080p/4K、216组离线交互通过。真实源和结果只留本机，公司待验收。[当前口径和调用](dashboard/backtest/FIXED_SLOT_STUDY.md)、[模板](dashboard/backtest/slot.config.example.json)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。

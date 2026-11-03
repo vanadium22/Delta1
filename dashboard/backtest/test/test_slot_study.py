@@ -93,6 +93,44 @@ class SlotStudyTests(unittest.TestCase):
                 np.testing.assert_allclose(pairs[method+"_future_gross_pnl"]+pairs[method+"_hedge_gross_pnl"]-
                     pairs[method+"_future_fees"]-pairs[method+"_hedge_fees"],pairs[method+"_net_pnl"],atol=1e-7)
             self.assertTrue(Path(rendered["report"]).is_file())
+            report=Path(rendered["report"]).read_text(encoding="utf-8")
+            self.assertIn("净收益贡献",report)
+            self.assertNotIn("p.pnl.map(v=>v/10000)",report)
+            self.assertFalse((out/"pnl_0_9.png").exists())
+
+            # Another side policy uses exactly the same saved factor bundle, with no fit.
+            fingerprints={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (out/"factors").rglob("*") if p.is_file()}
+            job["factor_input"]=str(out/"factors")
+            job["cta"]["parameters"]["allowed_future_side"]="long"
+            long_out=root/"long_study"
+            with patch("dashboard.backtest.slot_study.factor_stage",side_effect=AssertionError("Reuse must not compute")):
+                restricted=run_slot_study(job,long_out,thresholds=(.9,),render=False)
+            self.assertEqual(restricted["protocol"]["factor_computations"],0)
+            self.assertEqual(fingerprints,{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (out/"factors").rglob("*") if p.is_file()})
+            for case in restricted["protocol"]["cases"]:
+                result=load_result(long_out/case/"backtest")
+                for root_name,account in result.accounts.items():
+                    if case.startswith("calendar"):
+                        old=load_result(out/case/"backtest").accounts[root_name]
+                        pd.testing.assert_frame_equal(account.equity,old.equity)
+                        pd.testing.assert_frame_equal(account.actual_orders,old.actual_orders)
+                    else:
+                        self.assertTrue(account.positions.filter(regex=r"\.CFE$").ge(0).all().all())
+                        self.assertTrue(account.positions.filter(regex=r"_spot$").le(0).all().all())
+                        weights=load_cta(long_out/case/"cta").targets
+                        self.assertTrue(weights.filter(regex=r"\.CFE$").ge(0).all().all())
+            render_slot_report(long_out)
+            self.assertIn("本组期现限制：仅多期货、空指数",(long_out/"report.html").read_text(encoding="utf-8"))
+            job["factor"]["parameters"]["window_days"]=4
+            job["backtest"]["start"]="2026-01-12"
+            with self.assertRaisesRegex(BacktestError,"Saved factor declaration"):
+                run_slot_study(job,root/"mismatch",thresholds=(.9,),render=False)
+            job["factor"]["parameters"]["window_days"]=3
+            changed=pd.read_parquet(job["data"]["daily_close_path"])
+            changed.iloc[0,0]+=1
+            changed.to_parquet(job["data"]["daily_close_path"])
+            with self.assertRaisesRegex(BacktestError,"Saved factor source changed"):
+                run_slot_study(job,root/"changed_source",thresholds=(.9,),render=False)
 
 
 if __name__=="__main__":

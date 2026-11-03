@@ -70,9 +70,11 @@ def build_strategy_page(window):
     c["missing"] = combo([("输出零目标", "flat"), ("保持状态", "hold"), ("报错", "error")])
     c["hedge"] = combo([("单腿", "none"), ("等权反向指数腿 · 权重和=0", "index")])
     c["selection"] = combo([("四档绝对值择优", "product_best"), ("各实际合约独立", "contract_independent")])
+    c["allowed_future_side"] = combo([("期货多空均允许", "both"), ("仅多期货、空指数", "long")])
     c["candidate_slots"] = QLineEdit("00,01,02,03")
     for key, title in (("direction", "交易方向"), ("transform", "因子变换"), ("missing", "缺失分数"),
-                       ("hedge", "目标对冲"), ("selection", "持有到期择约"), ("candidate_slots", "择约候选档位")):
+                       ("hedge", "目标对冲"), ("selection", "持有到期择约"), ("allowed_future_side", "期现开仓限制"),
+                       ("candidate_slots", "择约候选档位")):
         cta_form.addRow(title, c[key])
     for key, title, default in (("open_threshold", "固定开仓绝对阈值", .7), ("close_threshold", "固定平仓绝对阈值", .2),
         ("z_open", "Z 开仓阈值", 2), ("z_close", "Z 平仓阈值", .4), ("threshold", "到期开仓阈值 · abs(2p−1)", .9),
@@ -101,7 +103,7 @@ def build_strategy_page(window):
     def cta_changed():
         name = c["cta_name"].currentData()
         active = CTA_SCHEMAS[name]["parameters"]
-        for key in ("open_threshold", "close_threshold", "lookback_window", "z_open", "z_close", "threshold", "selection", "hedge", "missing"):
+        for key in ("open_threshold", "close_threshold", "lookback_window", "z_open", "z_close", "threshold", "selection", "hedge", "missing", "allowed_future_side"):
             cta_form.setRowVisible(c[key], key in active)
         cta_form.setRowVisible(c["candidate_slots"], name in {"expiry_index", "expiry_index_structure"})
         c["transform"].setEnabled(not name.startswith("expiry"))

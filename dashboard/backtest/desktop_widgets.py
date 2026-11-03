@@ -240,12 +240,12 @@ class ResultCharts(QWidget):
         super().__init__(parent)
         self.layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.nav = self.plot("净值 · 初始 = 1")
+        self.nav = self.plot("累计净收益率 · %")
         self.margin = self.plot("保证金占总权益 · %")
         self.margin.setXLink(self.nav)
         self.layout.addWidget(self.nav, 3)
         self.layout.addWidget(self.margin, 2)
-        self.curve = self.nav.plot(pen=pg.mkPen(ACCENT, width=2.3), fillLevel=1,
+        self.curve = self.nav.plot(pen=pg.mkPen(ACCENT, width=2.3), fillLevel=0,
                                    brush=pg.mkBrush(QColor(ACCENT).red(), QColor(ACCENT).green(), QColor(ACCENT).blue(), 18))
         self.margin_curve = self.margin.plot(pen=pg.mkPen("#007ea9", width=2))
         self.cross = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(MUTED, style=Qt.PenStyle.DashLine))
@@ -278,14 +278,14 @@ class ResultCharts(QWidget):
         self.times = np.arange(len(self.data), dtype=float)
         self.nav.getAxis("bottom").set_index(self.data.index)
         self.margin.getAxis("bottom").set_index(self.data.index)
-        self.curve.setData(self.times, self.data.nav.to_numpy(), connect="finite")
+        self.curve.setData(self.times, (self.data.nav.to_numpy()-1)*100, connect="finite")
         self.margin_curve.setData(self.times, self.data.margin_usage.to_numpy() * 100, connect="finite")
         self.nav.enableAutoRange()
         self.margin.enableAutoRange()
         self.cross.hide()
 
     def set_scale(self, large):
-        for plot, title in ((self.nav, "净值 · 初始 = 1"), (self.margin, "保证金占总权益 · %")):
+        for plot, title in ((self.nav, "累计净收益率 · %"), (self.margin, "保证金占总权益 · %")):
             plot.setTitle(title, color=TEXT, size="16pt" if large else "12pt")
             for side in ("bottom", "left"):
                 plot.getAxis(side).setStyle(tickFont=QFont("Segoe UI", 12 if large else 9))
@@ -304,7 +304,7 @@ class ResultCharts(QWidget):
         self.cross.setPos(self.times[pos])
         self.cross.show()
         row = self.data.iloc[pos]
-        self.nav.setToolTip(f"{self.data.index[pos]:%Y-%m-%d %H:%M}\n净值 {row.nav:.6f}\n总权益 {row.equity:,.2f}\n保证金 {row.required_margin:,.2f}")
+        self.nav.setToolTip(f"{self.data.index[pos]:%Y-%m-%d %H:%M}\n累计净收益率 {(row.nav-1)*100:+.4f}%\n总权益 {row.equity:,.2f}\n保证金 {row.required_margin:,.2f}")
 
     def resizeEvent(self, event):
         direction = QBoxLayout.Direction.TopToBottom if self.width() < 760 else QBoxLayout.Direction.LeftToRight

@@ -71,6 +71,7 @@ EXPIRY = dict(threshold=Parameter(.9, "absolute centered score; strict >", minim
               position_weight=Parameter(.495, "budget per equal-weight leg", minimum=0.000001, maximum=.5),
               direction=Parameter(-1, "reversal sign", choices=(-1, 1)),
               transform=Parameter("center_percentile", "explicit 2*p-1", choices=("center_percentile",)))
+FUTURE_SIDE = Parameter("both", "permitted futures target side before selection", choices=("both", "long"))
 CTA_SCHEMAS = {
     "fixed": dict(inputs=("factor table", "dated actual mapping"), parameters={**COMMON_CTA,
                   "open_threshold": Parameter(.7, "absolute score", minimum=0), "close_threshold": Parameter(.2, "absolute score", minimum=0)}),
@@ -79,11 +80,13 @@ CTA_SCHEMAS = {
                    "z_open": Parameter(2., "population standard deviations", minimum=0),
                    "z_close": Parameter(.4, "population standard deviations", minimum=0)}),
     "expiry_index": dict(inputs=("raw percentile", "dated actual mapping", "expiry reference"), parameters={**EXPIRY,
+                         "allowed_future_side": FUTURE_SIDE,
                          "selection": Parameter("product_best", "selection scope", choices=("product_best", "contract_independent")),
                          "slots": Parameter((0, 1, 2, 3), "candidate slots", "slots")}),
     "expiry_spread": dict(inputs=("01-minus-03 raw percentile", "dated mapping", "expiry reference"), parameters=EXPIRY),
     "expiry_index_structure": dict(inputs=("per-contract raw percentile", "dated actual mapping", "expiry reference"),
         parameters={**EXPIRY, "position_weight":Parameter(.12375, "per leg; 4 dedicated pair budgets per product", minimum=.000001, maximum=.125),
+                    "allowed_future_side":FUTURE_SIDE,
                     "slots":Parameter((0,1,2,3), "candidate maturity slots", "slots")}),
 }
 

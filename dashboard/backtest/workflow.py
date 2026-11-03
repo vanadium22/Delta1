@@ -122,6 +122,7 @@ def cta_stage(factors, job, *, output_dir=None, cancel_event=None):
                 start=start, end=end, threshold=spec.parameters["threshold"],
                 selection=spec.parameters.get("selection", "contract_independent"),
                 weight=spec.parameters["position_weight"], direction=spec.parameters["direction"],
+                allowed_future_side=spec.parameters["allowed_future_side"],
                 roots=tuple(sorted({s[:2] for s in mapping})), cancel_event=cancel_event)
             targets, decisions = _index_weights(signals.targets), signals.decisions
         else:

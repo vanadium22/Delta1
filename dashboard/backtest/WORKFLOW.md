@@ -60,6 +60,8 @@ python -m dashboard.backtest.workflow run --config local_artifacts/validation/20
 
 `transform=center_percentile` 显式执行 `2p−1`，要求原始值在 [0,1]。fixed/zscore 的 `missing=flat/hold/error`；expiry CTA 在持仓期忽略中途因子变化/缺失。`hedge=index` 为 fixed/Z 增加反向指数目标；expiry_index 固定产生该对冲。`direction=-1` 为反转。
 
+`expiry_index/expiry_index_structure`另有`allowed_future_side=both/long`，默认both。long要求开仓期货目标为正、指数为负，先过滤再择优；反转时只用低尾p<.05/.10（阈值.9/.8），不改变原始p或持有到期规则。独立阶段/批次/桌面均支持，示例见[long_future.config.example.json](long_future.config.example.json)；跨期不接受该字段。`slot_study`的`factor_input`可直接复用已保存合并因子，校验声明与非执行输入SHA后计算0次。
+
 `factor.precision/workers` 与 `backtest.precision/workers` 分别管理。连续 00—03 只用于计算/映射审计；最终权重、订单全是实际代码。持有到期不按每天的新档位替换持仓实际合约。
 
 ## 零和手数权重和资金

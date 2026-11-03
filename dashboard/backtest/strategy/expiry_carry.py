@@ -16,12 +16,14 @@ class CarrySignals:
 
 def hold_to_expiry_targets(percentiles, mapping, contracts, *, start="2024-01-01", end=None,
                            threshold=.9, selection="product_best", weight=.99, direction=-1,
-                           roots=("IF", "IH", "IC", "IM"), cancel_event=None):
+                           roots=("IF", "IH", "IC", "IM"), allowed_future_side="both", cancel_event=None):
     """Only emits complete target changes; use rebalance_on_change_only=True."""
     if not 0 < threshold < 1 or not 0 < weight <= 1 or direction not in (-1, 1):
         raise BacktestError("Invalid carry threshold, weight or direction")
     if selection not in {"product_best", "contract_independent"}:
         raise BacktestError("selection must be product_best or contract_independent")
+    if allowed_future_side not in {"both", "long"}:
+        raise BacktestError("allowed_future_side must be both or long")
     if not percentiles.index.equals(mapping.index) or percentiles.index.normalize().duplicated().any():
         raise BacktestError("Expiry carry requires aligned daily percentile and mapping rows")
     if ((percentiles < 0) | (percentiles > 1)).any().any():
@@ -63,6 +65,9 @@ def hold_to_expiry_targets(percentiles, mapping, contracts, *, start="2024-01-01
             score = 2 * value - 1
             if not np.isfinite(score) or contracts[symbol]["expiry_date"] <= day:
                 continue
+            # Filter entry candidates before ranking; never alter an already held pair.
+            if allowed_future_side == "long" and direction * np.sign(score) <= 0:
+                continue
             key = symbol if selection == "contract_independent" else symbol[:2]
             choices.setdefault(key, []).append((abs(score), int(alias[2:4]), symbol, value, score, alias))
         keys = sorted(set(choices) | set(held) | (set(roots) if selection == "product_best" else set()))
@@ -91,7 +96,7 @@ def hold_to_expiry_targets(percentiles, mapping, contracts, *, start="2024-01-01
     targets = pd.DataFrame.from_dict(emitted, orient="index").reindex(columns=columns).fillna(0.0)
     targets.index = pd.DatetimeIndex(targets.index, name="timestamp")
     return CarrySignals(targets, pd.DataFrame(records), dict(window="prior continuous-slot daily percentiles",
-        threshold=threshold, score="2*p-1", direction=direction, selection=selection,
+        threshold=threshold, score="2*p-1", direction=direction, selection=selection, allowed_future_side=allowed_future_side,
         tie_break="greatest absolute score, then lowest slot, then actual symbol", weight=weight,
         exit="both legs at maturity close; ignore intermediate score changes", next_bar_execution=True,
         required_backtest_options=dict(d0=0, rebalance_on_change_only=True)))

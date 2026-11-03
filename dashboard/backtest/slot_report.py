@@ -60,7 +60,21 @@ def _plots(out,metrics,curves,protocol,details):
     images=[]
     for threshold in protocol["thresholds"]:
         tag=str(threshold).replace(".","_")
-        for kind in ("returns","pnl"):
+        fig,axes=plt.subplots(2,2,figsize=(13,8),layout="constrained")
+        for ax,root in zip(axes.ravel(),roots):
+            for method in METHODS:
+                equity=curves[method+"_"+tag].filter(regex="^"+root).sum(axis=1)
+                ax.plot(equity.index,100*(equity/(capital*4)-1),color=COLORS[method],label=METHODS[method])
+            ax.set_title(root+" · 四个独立档位汇总",loc="left")
+            ax.set_ylabel("累计净收益率（%）")
+            ax.axhline(0,color="#64748b",lw=.6)
+            ax.legend(fontsize=9)
+        side="仅多期货、空指数" if protocol.get("cta_parameters",{}).get("allowed_future_side")=="long" else "期货多空均允许"
+        fig.suptitle(f"{side} | 阈值 {threshold:g} | 各品种四组独立本金相加\n{protocol['evaluation_start']}—{protocol['evaluation_end']} | 每品种 {capital*4/10000:g} 万元 | 已扣费",fontsize=14)
+        file=f"product_returns_{tag}.png"
+        _finish(plt,fig,out/file)
+        images.append(file)
+        for kind in ("returns",):
             fig,axes=plt.subplots(len(roots),4,figsize=(17,3.1*len(roots)),squeeze=False,layout="constrained")
             for i,root in enumerate(roots):
                 for slot in range(4):
@@ -68,15 +82,15 @@ def _plots(out,metrics,curves,protocol,details):
                     group=f"{root}{slot:02d}"
                     for method in METHODS:
                         equity=curves[method+"_"+tag][group]
-                        y=100*(equity/capital-1) if kind=="returns" else (equity-capital)/10000
+                        y=100*(equity/capital-1)
                         ax.plot(equity.index,y,color=COLORS[method],label=METHODS[method],lw=1.2)
                     ax.set_title(group+" · 独立账户",loc="left",fontsize=11)
                     ax.axhline(0,color="#64748b",lw=.6)
                     ax.tick_params(axis="x",labelsize=7,rotation=20)
                     if slot==0:
-                        ax.set_ylabel("累计净收益（%）" if kind=="returns" else "累计净 PnL（万元）")
+                        ax.set_ylabel("累计净收益率（%）")
             axes[0,0].legend(fontsize=8)
-            fig.suptitle(f"16组固定档位期现策略 | 中心化阈值 {threshold:g}\n{protocol['evaluation_start']}—{protocol['evaluation_end']} | 每组独立 {capital/10000:g} 万元 | 100%保证金 | 各自收费，不跨组净额",fontsize=14)
+            fig.suptitle(f"16组固定档位期现策略 | {side} | 中心化阈值 {threshold:g}\n{protocol['evaluation_start']}—{protocol['evaluation_end']} | 每组独立 {capital/10000:g} 万元 | 100%保证金 | 各自收费，不跨组净额",fontsize=14)
             file=f"{kind}_{tag}.png"
             _finish(plt,fig,out/file)
             images.append(file)
@@ -89,15 +103,15 @@ def _plots(out,metrics,curves,protocol,details):
                 for method in METHODS:
                     for leg,title in (("future_pnl","期货"),("hedge_pnl","指数"),("net_pnl","合计")):
                         labels.append(("历史" if method=="history" else "回归")+title)
-                        values.append(rows.at[method,leg]/10000)
+                        values.append(100*rows.at[method,leg]/capital)
                         colors.append(COLORS[method] if leg!="net_pnl" else "#20834e")
                 ax.bar(range(6),values,color=colors)
                 ax.set_xticks(range(6),labels,rotation=55,fontsize=7)
                 ax.set_title(f"{root}{slot:02d}",loc="left",fontsize=11)
                 ax.axhline(0,color="#64748b",lw=.6)
                 if slot==0:
-                    ax.set_ylabel("各腿净 PnL（万元）")
-        fig.suptitle(f"两腿累计贡献 | 阈值 {threshold:g} | 每条腿已扣自身手续费，合计不重复扣费",fontsize=14)
+                    ax.set_ylabel("净收益贡献（% · 对账户初始资金）")
+        fig.suptitle(f"两腿累计净收益贡献 | 阈值 {threshold:g} | 各腿净PnL / 该组初始资金 | 每条腿已扣自身手续费",fontsize=14)
         file=f"legs_{tag}.png"
         _finish(plt,fig,out/file)
         images.append(file)
@@ -115,7 +129,7 @@ def _plots(out,metrics,curves,protocol,details):
     images.append("calendar_returns.png")
     threshold=protocol["thresholds"][0]
     detail=details["regression_"+str(threshold).replace(".","_")]
-    stamp=detail.timestamp.max()
+    stamp=curves["regression_"+str(threshold).replace(".","_")].index[-1]
     fig,axes=plt.subplots(len(roots),4,figsize=(17,2.7*len(roots)),squeeze=False,layout="constrained")
     for i,root in enumerate(roots):
         for slot in range(4):
@@ -157,19 +171,33 @@ def _report_html(out,protocol,metrics,product,groups,comparisons,curves,details,
         payload_curves[alias]=equity
         payload_details[alias]=details[key].rename(columns={"root":"product_root"}).assign(root=details[key].group_id)
     data=_payload(pd.DataFrame(records),payload_curves,payload_details,capital_label="每组")
+    for alias,frame in payload_details.items():
+        for (group,pair),rows in frame.groupby(["root","pair_id"]):
+            aligned=rows.set_index("timestamp").reindex(payload_curves[alias].index)
+            data["cases"][alias]["roots"][group]["pairs"][pair].update(
+                future_pnl=aligned.future_pnl.round(2).tolist(),hedge_pnl=aligned.hedge_pnl.round(2).tolist())
     data["pair_comparison"]=comparisons.to_dict(orient="records")
     payload=json.dumps(data,ensure_ascii=False,allow_nan=False,separators=(",",":")).replace("</","<\\/")
     calendar=metrics.loc[metrics.method.eq("calendar"),["root","threshold","annualized_return","max_drawdown","net_pnl","future_pnl","hedge_pnl"]].copy()
     for field in ("annualized_return","max_drawdown"):
         calendar[field]=calendar[field].map(lambda v:f"{v*100:+.3f}%")
     calendar=calendar.rename(columns={"root":"品种","threshold":"阈值","annualized_return":"年化净收益","max_drawdown":"最大回撤","net_pnl":"净PnL（元）","future_pnl":"近腿净PnL（元）","hedge_pnl":"远腿净PnL（元）"})
+    params=protocol.get("cta_parameters",{})
+    long_only=params.get("allowed_future_side")=="long"
+    side="仅多期货、空指数" if long_only else "期货多空均允许"
+    if long_only:
+        tail="低" if params.get("direction",-1)==-1 else "高"
+        entry_rule=f"仅{tail}尾部开多期货、空指数，另一侧尾部不新开仓；开仓后因子变化不会提前平仓或反手"
+    else:
+        entry_rule="高尾部空期货多指数，低尾部多期货空指数" if params.get("direction",-1)==-1 else "高尾部多期货空指数，低尾部空期货多指数"
     body=f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>2024起：16组独立期现与4组跨期</title>
 <style>body{{font:15px 'Microsoft YaHei',sans-serif;max-width:1400px;margin:28px auto;padding:0 20px;background:#f4f7fb;color:#203249}}section{{background:white;border-radius:12px;padding:22px;margin:20px 0}}p{{line-height:1.8}}h1,h2{{color:#183d65}}table{{border-collapse:collapse;font-size:13px;width:100%}}th,td{{padding:9px;text-align:right;border-bottom:1px solid #dde5ef}}th:first-child,td:first-child{{text-align:left}}img,svg{{width:100%;display:block}}svg{{background:#f8fafc;border-radius:8px}}select,input{{padding:7px;margin:4px}}.scroll{{overflow-x:auto}}a{{color:#2563ab}}</style>
 <h1>16组独立期现账户与4组跨期账户</h1><p>{protocol['evaluation_start']}—{protocol['evaluation_end']}，请求从2024年初起；2023年数据完成60交易日暖启动。
 每组独立初始资金 {capital/10000:g} 万元，保证金100%，两腿每边万三，分红显式 D=0。期末未强制平仓，已含浮盈亏。</p>
+<p><strong>本组期现限制：{side}。</strong>{entry_rule}。跨期保持原来的双向反转规则。全部业绩图纵轴为收益率（%）；两腿或单个实际pair的贡献统一除以所属账户的初始资金，不作为各腿独立CAGR。</p>
 <section><h2>IF / IH / IC / IM 分别比较</h2><p>此表仅把同品种四个独立账户的权益相加，初始资金为4组之和；原始成交、费用与指数腿仍逐组独立，没有跨档位净额或资金互用。</p>
 <div class="scroll">{_comparison_table(product,[("root","品种"),("threshold","阈值")])}</div>
-<h2>固定档位的16组 PnL</h2><p>IF02只在空仓时从当天02档找入场实际合约。成交后锁定实际代码直到到期，即使它后来成为01或00也不换月；到期后再从当时02档寻找下一组。四个品种、四个档位各自一组资金和指数持仓。</p>
+<h2>固定档位的16组收益</h2><p>IF02只在空仓时从当天02档找入场实际合约。成交后锁定实际代码直到到期，即使它后来成为01或00也不换月；到期后再从当时02档寻找下一组。四个品种、四个档位各自一组资金和指数持仓。</p>
 <div class="scroll">{_comparison_table(groups,[("group_id","独立组"),("threshold","阈值")])}</div></section>
 <section><h2>实际 pair、两腿 PnL 与账户收益</h2><div>方法和阈值 <select id="case"></select> 独立账户 <select id="root"></select></div>
 <div>日期 <input id="day" type="range" style="width:65%"><span id="date"></span></div><svg id="structure" viewBox="0 0 1000 230"></svg><p id="positionNote"></p>
@@ -180,7 +208,7 @@ def _report_html(out,protocol,metrics,product,groups,comparisons,curves,details,
     for filename in images:
         body+=f'<section><img src="{html.escape(filename)}" alt="{html.escape(filename)}"></section>'
     body+=f"""<section><h2>数据和计算口径</h2><p>普通历史分位比较今天所处档位此前60交易日的年化基差；分位回归按同品种前60交易日各期限的年化基差对剩余自然日拟合条件分位，当前日不入训练。
-回归使用其他期限的历史观察作因子估计，各组持仓及账户完全隔离。0.9/0.8作用于 |2p−1|，对应两侧5%/10%；高尾部空期货多指数，低尾部反向，下一交易日真实close成交。
+回归使用其他期限的历史观察作因子估计，各组持仓及账户完全隔离。0.9/0.8作用于 |2p−1|，每侧5%/10%；本组期现{entry_rule}，下一交易日真实close成交。
 IF/IH每手配反向300指数单位，IC/IM配200；每个独立账户自身两腿等价数量和为零。</p>
 <p>年化收益为 (期末权益/初始资金)^(365/实际经过自然日)−1。单个实际合约的PnL贡献不冒充一份独立本金的CAGR；各pair两腿净PnL合计必须等于对应组的权益变动。
 本地快照 {protocol['price_start']}—{protocol['price_end']}，用户明确授权只读导入Z来源；所有回测读取P盘冻结快照，原始Z文件没有写操作。
@@ -194,9 +222,10 @@ function node(s,t,a,v){{let n=document.createElementNS(NS,t);Object.entries(a).f
 function text(s,x,y,v,a={{}}){{node(s,'text',{{x,y,fill:'#203249','font-size':15,...a}},v);}}
 function options(el,items){{el.replaceChildren();items.forEach(([v,t])=>{{let o=document.createElement('option');o.value=v;o.textContent=t;el.append(o);}});}}
 function state(){{let c=DATA.cases[$('case').value],r=$('root').value,b=c.roots[r],d=+$('day').value;return {{c,r,b,d}};}}
-function chart(svg,values,label,unit){{svg.replaceChildren();let h=svg.viewBox.baseVal.height,p=60,min=Math.min(0,...values),max=Math.max(0,...values),span=max-min||1;min-=span*.08;max+=span*.08;span=max-min;const X=i=>p+(1000-2*p)*i/Math.max(1,values.length-1),Y=v=>h-p-(h-2*p)*(v-min)/span;
- for(let j=0;j<5;j++){{let v=min+span*j/4;node(svg,'line',{{x1:p,x2:940,y1:Y(v),y2:Y(v),stroke:'#dce3ee'}});text(svg,4,Y(v)+4,money(v),{{'font-size':12}});}}node(svg,'polyline',{{points:values.map((v,i)=>X(i)+','+Y(v)).join(' '),fill:'none',stroke:'#854bb2','stroke-width':2}});text(svg,p,25,label+'（'+unit+'）');let {{c,d}}=state();node(svg,'line',{{x1:X(d),x2:X(d),y1:40,y2:h-p,stroke:'#d27719','stroke-dasharray':'4 3'}});text(svg,p,h-15,c.dates[0],{{'font-size':12}});text(svg,850,h-15,c.dates[c.dates.length-1],{{'font-size':12}});}}
-function updatePair(){{let {{b,d}}=state(),p=b.pairs[$('pair').value];if(!p){{$('pnl').replaceChildren();$('pnlNote').textContent='此组没有实际成交';return;}}chart($('pnl'),p.pnl.map(v=>v/10000),p.future+' ↔ '+p.hedge+' 净 PnL','万元');$('pnlNote').textContent='所选日该实际pair累计净PnL：'+money(p.pnl[d])+' 元';}}
+function chart(svg,values,label,unit,legs=[]){{svg.replaceChildren();let all=[...values,...legs.flatMap(s=>s.values)],h=svg.viewBox.baseVal.height,p=60,min=Math.min(0,...all),max=Math.max(0,...all),span=max-min||1;min-=span*.08;max+=span*.08;span=max-min;const X=i=>p+(1000-2*p)*i/Math.max(1,values.length-1),Y=v=>h-p-(h-2*p)*(v-min)/span;
+ for(let j=0;j<5;j++){{let v=min+span*j/4;node(svg,'line',{{x1:p,x2:940,y1:Y(v),y2:Y(v),stroke:'#dce3ee'}});text(svg,4,Y(v)+4,money(v)+(unit==='%'?'%':''),{{'font-size':12}});}}let series=[{{values,color:legs.length?'#20834e':'#854bb2',name:'合计'}},...legs];series.forEach((s,i)=>{{node(svg,'polyline',{{points:s.values.map((v,i)=>X(i)+','+Y(v)).join(' '),fill:'none',stroke:s.color,'stroke-width':2}});if(legs.length)text(svg,620+i*110,25,s.name,{{fill:s.color,'font-size':13}});}});text(svg,p,25,label+'（'+unit+'）');let {{c,d}}=state();node(svg,'line',{{x1:X(d),x2:X(d),y1:40,y2:h-p,stroke:'#d27719','stroke-dasharray':'4 3'}});text(svg,p,h-15,c.dates[0],{{'font-size':12}});text(svg,850,h-15,c.dates[c.dates.length-1],{{'font-size':12}});}}
+function updatePair(){{let {{c,b,d}}=state(),p=b.pairs[$('pair').value];if(!p){{$('pnl').replaceChildren();$('pnlNote').textContent='此组没有实际成交';return;}}const ret=a=>a.map(v=>100*v/c.capital),isIndex=p.kind==='future_index';chart($('pnl'),ret(p.pnl),p.future+' ↔ '+p.hedge+' 净收益贡献','%',[
+ {{values:ret(p.future_pnl),color:'#2563ab',name:isIndex?'期货腿':'近月腿'}},{{values:ret(p.hedge_pnl),color:'#d27719',name:isIndex?'指数腿':'远月腿'}}]);$('pnlNote').textContent='所选日该实际pair累计净收益贡献：'+money(100*p.pnl[d]/c.capital)+'%（净PnL '+money(p.pnl[d])+' 元）；分母为本组初始资金，已扣各腿费用';}}
 function updateDay(){{let {{c,r,b,d}}=state(),svg=$('structure'),active=b.states[d];svg.replaceChildren();$('date').textContent=c.dates[d];if(!active.length)text(svg,400,100,'此组当日空仓');active.forEach(([id,lots,units,margin],i)=>{{let p=b.pairs[id],y=80+i*80;[[20,p.future,sign(lots)+' 手 × '+p.multiplier],[650,p.hedge,sign(units)+(p.kind==='future_index'?' 指数单位 × 1':' 手')]].forEach(([x,a,z])=>{{node(svg,'rect',{{x,y:y-30,width:330,height:65,rx:8,fill:'#eef3f9',stroke:'#2563ab'}});text(svg,x+15,y-5,a);text(svg,x+15,y+20,z);}});node(svg,'line',{{x1:360,x2:640,y1:y,y2:y,stroke:'#854bb2','stroke-width':2}});text(svg,405,y-12,'独立两腿，数量对冲');}});$('positionNote').textContent='独立账户 '+r+' | '+active.length+'组实际pair | 占用 '+money(active.reduce((s,a)=>s+a[3],0))+' 元';chart($('nav'),c.curves[r].map(v=>(v-1)*100),r+' 账户累计净收益','%');updatePair();}}
 function pairTable(){{let {{c,r}}=state(),threshold=+$('case').value.split('_').slice(-2).join('.'),rows=DATA.pair_comparison.filter(p=>p.group_id===r&&Math.abs(p.threshold-threshold)<1e-9),table=document.createElement('table');let head=table.createTHead().insertRow();['实际合约/指数','历史：期货净PnL','历史：指数净PnL','历史：合计','回归：期货净PnL','回归：指数净PnL','回归：合计'].forEach(t=>{{let th=document.createElement('th');th.textContent=t;head.append(th);}});let body=table.createTBody();rows.forEach(p=>{{let tr=body.insertRow();tr.insertCell().textContent=p.future+' / '+p.hedge;['history','regression'].forEach(m=>['future_pnl','hedge_pnl','net_pnl'].forEach(f=>tr.insertCell().textContent=money(p[m+'_'+f]/10000)));}});$('pairTable').replaceChildren(table);}}
 function rootChanged(){{let {{b,d}}=state();options($('pair'),Object.entries(b.pairs).map(([id,p])=>[id,p.future+' ↔ '+p.hedge]));if(b.states[d].length)$('pair').value=b.states[d][0][0];updateDay();pairTable();}}
@@ -220,12 +249,12 @@ def render_slot_report(directory):
                 raise ValueError("Cannot aggregate stopped accounts or fill missing equity")
             folders=[c for c in protocol["cases"] if c.startswith(method+"_") and c.endswith("_"+str(threshold).replace(".","_"))]
             frames=[pd.read_parquet(out/c/"pairs_daily.parquet") for c in folders if (out/c/"pairs_daily.parquet").exists()]
-            details[key]=pd.concat(frames,ignore_index=True)
+            details[key]=pd.concat(frames,ignore_index=True) if frames else pd.DataFrame(columns=["timestamp","root","group_id","pair_id","future","hedge","future_lots","hedge_units","net_pnl","future_pnl","hedge_pnl"])
     product,groups,comparison=comparison_tables(out,metrics,pairs,curves,protocol)
     images=_plots(out,metrics,curves,protocol,details)
     _report_html(out,protocol,metrics,product,groups,comparison,curves,details,images)
     write_json(out/"report.local.json",dict(status="complete",report=str(out/"report.html"),images=images,
-        input="saved account, pair and equity artifacts only; no original market reads",pair_rows=len(comparison)))
+        input="saved account, pair and equity artifacts only; no original market reads",chart_metric="cumulative_net_return_percent",pair_rows=len(comparison)))
     return dict(report=str(out/"report.html"),product=product,groups=groups,pairs=comparison)
 
 

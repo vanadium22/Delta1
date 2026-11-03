@@ -180,7 +180,7 @@ class DesktopTests(unittest.TestCase):
                     direction=-1, transform="center_percentile", missing="hold", hedge="index")),
             CTASpec(name="zscore", parameters=dict(lookback_window=7, z_open=1.8, z_close=.3, position_weight=.24,
                     direction=-1, transform="identity", missing="error")),
-            CTASpec(name="expiry_index", parameters=dict(threshold=.8, position_weight=.4, slots=(1, 3), selection="contract_independent")),
+            CTASpec(name="expiry_index", parameters=dict(threshold=.8, position_weight=.4, slots=(1, 3), selection="contract_independent", allowed_future_side="long")),
             CTASpec(name="expiry_spread", input_factor="calendar_spread_percentile", parameters=dict(threshold=.8, position_weight=.4)),
         ]
         with local_temp() as root:

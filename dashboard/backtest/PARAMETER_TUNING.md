@@ -18,7 +18,7 @@
 |---|---|---|
 | data | data_root、文件、版本、分红假设 | 新输入重新计算因子，执行仍核验版本/SHA |
 | factor | window_days、min_samples/min_training_samples、degree、quantiles、min_annual_days；跨期min_gap_days/price_base | 重算该因子 |
-| cta | threshold、direction、position_weight、slots；固定/Z各自内部参数 | 复用因子，重新生成CTA |
+| cta | threshold、direction、allowed_future_side、position_weight、slots；固定/Z各自内部参数 | 复用因子，重新生成CTA |
 | backtest | 初始资金、费用、执行精度、进程等 | 复用因子和不变CTA，重新执行 |
 
 backtest.start/end会改变CTA的起始持仓状态，因此重新生成CTA。持有到期CTA的执行约束仍适用，包括d0=0、on-change和neutral_units；批次配置不会绕过这些规则。保证金/乘数属于执行输入，不改变数值因子缓存。
@@ -26,6 +26,10 @@ backtest.start/end会改变CTA的起始持仓状态，因此重新生成CTA。�
 桌面四页继续用于单次调参。改变因子窗口/模型/计算范围/数据声明后，点击“仅运行CTA”会明确提示先重新计算，不能把旧60日因子当成新40日；仅改变CTA参数则可直接复用。保存重开同时保留JSON中的tuning批次设置。
 
 四页修改的是单次基础配置；运行批次时grid候选值优先，批次阈值/窗口请修改tuning.grid中的列表。
+
+新增[仅多期货空指数模板](long_future.config.example.json)：`allowed_future_side="long"`配合`direction=-1`，0.9/0.8分别只在原始p<.05/.10开仓；高尾不新开，已有持仓仍到期退出。默认`both`保留旧双向组。两种分位方法使用相同CTA约束，原始因子保持逐单元不变；该字段只用于期现expiry CTA，跨期沿用原规则。保存因子复用时可把`factor_input`设为旧合并因子目录，标准批次仍为16配置。
+
+新报告和桌面主图用累计净收益率%，两腿/实际pair用所属账户初始资金计算贡献%；CAGR与回撤在表格中，金额PnL与费用仍在CSV。品种汇总分母是四组本金之和。
 
 ## 单独调用及兼容现有产物
 

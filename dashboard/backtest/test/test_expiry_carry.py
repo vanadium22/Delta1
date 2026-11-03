@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from dashboard.backtest import BacktestConfig, MarketData, index_hedges, run_backtest
+from dashboard.backtest import BacktestConfig, BacktestError, MarketData, index_hedges, run_backtest
 from dashboard.backtest.analytics import attribute_legs
 from dashboard.backtest.calendar import verified_days
 from dashboard.backtest.strategy import hold_to_expiry_targets
@@ -20,6 +20,36 @@ def carry_inputs():
 
 
 class ExpiryCarryTests(unittest.TestCase):
+    def test_long_side_filters_before_ranking_and_holds_when_score_flips(self):
+        p,mapping,contracts=carry_inputs()
+        p.iloc[0]=[.999,.02]
+        before=p.copy(deep=True)
+        result=hold_to_expiry_targets(p,mapping,contracts,start="2026-09-21",threshold=.9,
+            roots=("IC",),allowed_future_side="long",direction=-1)
+        opens=result.decisions.query("action == 'signal_open'")
+        self.assertEqual(opens.symbol.tolist(),["IC2703.CFE"])
+        self.assertEqual(result.targets.iloc[0].tolist(),[0.,.99])
+        self.assertEqual(len(result.targets),1,"High subsequent p must not close or reverse the held long")
+        self.assertTrue(result.targets.ge(0).all().all())
+        pd.testing.assert_frame_equal(p,before)
+        default=hold_to_expiry_targets(p,mapping,contracts,start="2026-09-21",roots=("IC",))
+        self.assertEqual(default.targets.iloc[0].tolist(),[-.99,0.])
+
+    def test_long_reversal_ignores_upper_tail_and_strict_boundary_then_releases_at_expiry(self):
+        p,mapping,contracts=carry_inputs()
+        p["IC2612.CFE"]=[.999,.05,.99,np.nan,np.nan]
+        mapping=mapping[["IC00.CFE"]]
+        result=hold_to_expiry_targets(p,mapping,contracts,start="2026-09-21",threshold=.9,roots=("IC",),allowed_future_side="long")
+        self.assertTrue(result.targets.eq(0).all().all())
+        p.iloc[0,0]=.04
+        result=hold_to_expiry_targets(p,mapping,contracts,start="2026-09-21",threshold=.9,roots=("IC",),allowed_future_side="long")
+        self.assertEqual(result.targets.loc[p.index[0],"IC2612.CFE"],.99)
+        self.assertNotIn(p.index[1],result.targets.index)
+        self.assertTrue(result.targets.loc[p.index[2]].eq(0).all())
+        self.assertEqual(result.decisions.query("action == 'expiry_release'").symbol.tolist(),["IC2612.CFE"])
+        with self.assertRaisesRegex(BacktestError,"allowed_future_side"):
+            hold_to_expiry_targets(p,mapping,contracts,allowed_future_side="invalid")
+
     def test_product_selects_absolute_extreme_reverses_and_ignores_mid_hold_signal(self):
         p, mapping, contracts = carry_inputs()
         result = hold_to_expiry_targets(p, mapping, contracts, start="2026-09-21", threshold=.9, roots=("IC",))

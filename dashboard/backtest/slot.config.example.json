@@ -69,6 +69,7 @@
       "position_weight": 0.495,
       "direction": -1,
       "transform": "center_percentile",
+      "allowed_future_side": "both",
       "selection": "product_best",
       "slots": [
         2

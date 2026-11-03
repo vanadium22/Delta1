@@ -9,7 +9,7 @@ from time import monotonic, sleep
 from urllib.request import urlopen
 
 
-def browser_evidence(study,output,executable):
+def browser_evidence(study,output,executable,*,return_axes=False):
     """Use a separate headless browser profile; never attach to a user's browser."""
     import websocket
     profile=output/"browser_profile"
@@ -75,6 +75,15 @@ def browser_evidence(study,output,executable):
                 if(!Number.isFinite(DATA.cases[key].curves[r][d]))throw Error('Invalid return');checked++;}}}
                 $('case').value=Object.keys(DATA.cases).find(k=>k==='quantile_pairs_0_9')||Object.keys(DATA.cases)[0];caseChanged();return checked;})()""")
             assert checked>0
+            if return_axes:
+                axes=js("""(()=>{let checked=0;for(const key of Object.keys(DATA.cases)){
+                    $('case').value=key;caseChanged();for(const r of Object.keys(DATA.cases[key].roots)){
+                    $('root').value=r;rootChanged();if(!$('nav').textContent.includes('%'))throw Error('Account axis must be return %');
+                    for(const id of Object.keys(state().b.pairs)){$('pair').value=id;updatePair();
+                    if(!$('pnl').textContent.includes('%')||$('pnl').textContent.includes('万元'))throw Error('Pair axis must be return %');
+                    if($('pnl').querySelectorAll('polyline').length!==3)throw Error('Missing pair or leg return');checked++;}}}
+                    $('case').value='quantile_pairs_0_9';caseChanged();return checked;})()""")
+                counts["pair_return_axes_checked"]=axes
             for anchor,name in (("window.scrollTo(0,0)","report_summary"),("$('case').closest('section').scrollIntoView()","report_pairs")):
                 js(anchor)
                 capture=call("Page.captureScreenshot",dict(format="png",captureBeyondViewport=False))
