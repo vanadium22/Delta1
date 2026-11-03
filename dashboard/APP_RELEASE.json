@@ -378,7 +378,13 @@
     "dashboard/backtest/structure_study.py",
     "dashboard/backtest/test/test_structure_study.py",
     "dashboard/backtest/test/test_term_structure.py",
-    "dashboard/backtest/test/validate_structure_ui.py"
+    "dashboard/backtest/test/validate_structure_ui.py",
+    "dashboard/backtest/FIXED_SLOT_STUDY.md",
+    "dashboard/backtest/readonly_import.py",
+    "dashboard/backtest/slot.config.example.json",
+    "dashboard/backtest/slot_report.py",
+    "dashboard/backtest/slot_study.py",
+    "dashboard/backtest/test/test_slot_study.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -458,7 +464,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_138_verified_annualized_structure_quantile_pairs_company_pending_ddb_paused",
+    "status": "local_141_verified_fixed_slot_16_index_4_calendar_readonly_import_company_pending_ddb_paused",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -544,11 +550,17 @@
       "dashboard/backtest/structure_study.py",
       "dashboard/backtest/test/test_structure_study.py",
       "dashboard/backtest/test/test_term_structure.py",
-      "dashboard/backtest/test/validate_structure_ui.py"
+      "dashboard/backtest/test/validate_structure_ui.py",
+      "dashboard/backtest/FIXED_SLOT_STUDY.md",
+      "dashboard/backtest/readonly_import.py",
+      "dashboard/backtest/slot.config.example.json",
+      "dashboard/backtest/slot_report.py",
+      "dashboard/backtest/slot_study.py",
+      "dashboard/backtest/test/test_slot_study.py"
     ],
     "tests": {
-      "passed": 138,
-      "seconds": 32.006,
+      "passed": 141,
+      "seconds": 34.744,
       "resource_warnings": "errors",
       "future_warnings": "errors",
       "ruff": "passed"
@@ -658,17 +670,19 @@
       "registered_data_read": "selected_products_daily_partitions_with_bounded_workers_no_execution_minutes_for_daily_factors"
     },
     "data_policy": {
-      "z_drive_dependency": "rejected; known mixed-source lineage rejected before price read/factor generation",
-      "eligible_study_z_source_used": false,
+      "z_drive_dependency": "runtime direct paths rejected; explicitly authorized readonly importer writes a new local SHA-verified snapshot only",
+      "eligible_study_z_source_used": true,
       "earlier_mixed_cache_trial": "invalidated and quarantined; excluded from evidence and deliverables",
       "ddb_automatic_update": "deferred",
       "ddb_one_shot_daily": "explicit route-only readonly acquisition; no VPN action by command; bounded yearly queries and SHA/coverage snapshot",
       "ddb_source_output": "Delta1/data; new snapshot only",
-      "current_data_route": "user-paused acquisition; no route probes, VPN actions or acquisition in this framework change",
+      "current_data_route": "DDB paused; no VPN actions; authorized local readonly source import only",
       "company_tests": "authorized_not_yet_run_on_company_machine",
       "implicit_native_discovery": false,
       "input_contract": "dashboard/backtest/DATA_FORMAT.md",
-      "configured_default_margin_assumption": 1.0
+      "configured_default_margin_assumption": 1.0,
+      "z_authorization_date": "2026-11-03",
+      "old_mixed_cache_policy": "still rejected; never silently reuse old excluded caches"
     },
     "local_factor_validation": {
       "market_observation_days": 314,
@@ -911,6 +925,77 @@
         "web_network_requests": 0
       },
       "local_evidence": "local_artifacts/validation/2026-11-03/structure/",
+      "ddb": "paused",
+      "vpn": "untouched",
+      "company_acceptance": "pending_actual_company_run"
+    },
+    "fixed_slot_study": {
+      "base_commit": "e778dff8a50eb92199facfb0fc5d2ba612aca04d",
+      "date": "2026-11-03",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/DATA_FORMAT.md",
+        "dashboard/backtest/FIXED_SLOT_STUDY.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/data.py",
+        "dashboard/backtest/desktop.py",
+        "dashboard/backtest/models.py",
+        "dashboard/backtest/readonly_import.py",
+        "dashboard/backtest/slot.config.example.json",
+        "dashboard/backtest/slot_report.py",
+        "dashboard/backtest/slot_study.py",
+        "dashboard/backtest/structure_report.py",
+        "dashboard/backtest/test/test_slot_study.py"
+      ],
+      "readme": "dashboard/backtest/FIXED_SLOT_STUDY.md",
+      "template": "dashboard/backtest/slot.config.example.json",
+      "entry": "python -m dashboard.backtest.slot_study",
+      "report_entry": "python -m dashboard.backtest.slot_report",
+      "import_entry": "python -m dashboard.backtest.readonly_import --authorize-readonly-z",
+      "source_policy": "user-authorized read-only source; new local data snapshot only; explicit allow_readonly_z_import and source_manifest_path; per-file output SHA verified; no direct runtime Z or old mixed cache",
+      "layout": "4 roots x 4 fixed entry slots =16 independent future/index accounts; 4 independent 01-03 accounts per method/threshold; no cross-account cash/index netting",
+      "holding": "lock actual contract until expiry across slot changes; search original entry slot after exit",
+      "thresholds": "abs(2p-1)>0.9/0.8; 5%/10% tails",
+      "capital_per_account": 10000000,
+      "source_coverage": {
+        "start": "2023-07-03",
+        "end": "2026-10-14",
+        "sessions": 795,
+        "actual_contract_references": 172,
+        "overlap_cells": 5984,
+        "price_conflicts": 0
+      },
+      "evaluation": {
+        "start": "2024-01-02",
+        "end": "2026-10-14",
+        "warmup": "previous 60 sessions from 2023"
+      },
+      "local_validation": {
+        "cases": 18,
+        "accounts": 72,
+        "pair_comparison_rows": 556,
+        "factor_cells_unchanged": true,
+        "reloaded_cta_weights_exact": true,
+        "execution_stage_reload_four_accounts_exact": true,
+        "single_pair_and_actual_lots": true,
+        "legs_pnl_fees_margin_quantities_timing_reconciled": true
+      },
+      "ui": {
+        "parameter_pages": 4,
+        "resolutions": [
+          "1920x1080",
+          "3840x2160"
+        ],
+        "authorization_manifest_fixed_slot_restored": true,
+        "browser_case_group_date_combinations": 216,
+        "js_errors": 0,
+        "web_network_requests": 0
+      },
+      "local_evidence": "local_artifacts/validation/2026-11-03/structure/ and fixed_slots_ui/",
+      "real_results": "local ignored artifacts only",
       "ddb": "paused",
       "vpn": "untouched",
       "company_acceptance": "pending_actual_company_run"

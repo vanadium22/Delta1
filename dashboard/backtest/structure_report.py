@@ -175,13 +175,13 @@ def _quantile_plots(plt, out, factors, protocol):
     return True
 
 
-def _payload(summary,curves,details):
+def _payload(summary,curves,details,*,capital_label="每品种"):
     data={"cases":{}}
     for row in summary.itertuples(index=False):
         equity=curves[row.case]
         dates=equity.index.strftime("%Y-%m-%d").tolist()
         mapping={str(d.date()):i for i,d in enumerate(equity.index)}
-        case=dict(label=row.label+f" | {row.threshold:g} | 每品种 {row.capital_per_product/10000:g} 万元",dates=dates,
+        case=dict(label=row.label+f" | {row.threshold:g} | {capital_label} {row.capital_per_product/10000:g} 万元",dates=dates,
                   capital=row.capital_per_product,curves={r:np.round(equity[r]/row.capital_per_product,8).tolist() for r in equity},roots={})
         frame=details[row.case]
         for root in equity:

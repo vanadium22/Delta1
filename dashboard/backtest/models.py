@@ -34,7 +34,7 @@ def check_cancelled(cancel_event):
 
 
 def check_source_paths(value):
-    """The user excludes Z-drive dependencies from this project."""
+    """Runtime inputs stay local; a separate explicitly authorized importer reads Z."""
     if isinstance(value, Mapping):
         for item in value.values():
             check_source_paths(item)
@@ -44,21 +44,22 @@ def check_source_paths(value):
     elif isinstance(value, (str, Path)):
         path = str(value).strip().replace("\\", "/")
         if re.match(r"(?i)^(?://[?.]/)?z:", path):
-            raise BacktestError("Z-drive sources are excluded; use an explicit Delta1/data source or a future DDB provider")
+            raise BacktestError("Runtime Z-drive paths are excluded; use an authorized read-only import into local data first")
         if any(part.lower() in {"backfilled_cn_index", "backfilled_cn_index_future", "excluded_mixed_source_run"} for part in path.split("/")):
             raise BacktestError("Known Z-derived/mixed cache path is excluded; choose a traceable pure dataset")
 
 
-def check_market_source(value):
+def check_market_source(value, *, _allow_import=False):
     check_source_paths(value)
     if isinstance(value, Mapping):
+        allowed = _allow_import or value.get("allow_readonly_z_import") is True
         for item in value.values():
-            check_market_source(item)
+            check_market_source(item, _allow_import=allowed)
     elif isinstance(value, (list, tuple)):
         for item in value:
-            check_market_source(item)
-    elif isinstance(value, str) and any(token in value.lower() for token in ("readonly_z", "z_derived", "z-derived", "z_drive_source")):
-        raise BacktestError("Z-derived/mixed market sources are excluded even when cached on another drive; select a pure DDB dataset")
+            check_market_source(item, _allow_import=_allow_import)
+    elif not _allow_import and isinstance(value, str) and any(token in value.lower() for token in ("readonly_z", "z_derived", "z-derived", "z_drive_source")):
+        raise BacktestError("Imported Z-derived history requires explicit allow_readonly_z_import and a verified source manifest")
 
 
 def normalize_symbol(value: str, *, allow_continuous=False) -> str:
@@ -263,8 +264,12 @@ class DataConfig:
     dividend_records_path: str | Path | None = None
     dividend_store_root: str | Path | None = None
     calendar_path: str | Path | None = None
+    allow_readonly_z_import: bool = False
+    source_manifest_path: str | Path | None = None
 
     def __post_init__(self):
+        if type(self.allow_readonly_z_import) is not bool or (self.allow_readonly_z_import and not self.source_manifest_path):
+            raise BacktestError("allow_readonly_z_import must be boolean and requires source_manifest_path")
         check_market_source(vars(self))
         base = Path(self.data_root).expanduser().resolve() if self.data_root else Path.cwd()
         if self.data_root:

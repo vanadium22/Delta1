@@ -1,6 +1,6 @@
 # 标准数据契约与路径选择
 
-本规范用于离线回测。输入只读，不下载、不连接 DDB/VPN，不读取 Z 盘、已知 `backfilled_cn_index*` 混合缓存及其派生试跑。切换数据位置只修改 `data` 配置；标准输入和旧注册分片均适配为 `MarketData`，因子/CTA 不持有业务路径。
+本规范用于离线回测。执行阶段只读本地数据，不连接 DDB/VPN，也不直接读取 Z。2026-11-03用户已明确授权通过独立入口只读Z源补齐本地data；新快照须显式 `allow_readonly_z_import=true`、`source_manifest_path`，并核验配置文件的SHA。旧 `backfilled_cn_index*` 混合缓存及派生试跑仍不自动放行。切换数据位置只修改 `data` 配置；标准输入和旧注册分片均适配为 `MarketData`，因子/CTA 不持有业务路径。完整导入规则见 [FIXED_SLOT_STUDY](FIXED_SLOT_STUDY.md)。
 
 ## 数据位置与用途
 

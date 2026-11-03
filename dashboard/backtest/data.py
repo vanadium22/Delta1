@@ -126,9 +126,27 @@ def input_manifest(config, paths, close):
     for symbol in close:
         valid = close[symbol].dropna()
         coverage.append(dict(symbol=symbol, rows=len(valid), start=str(valid.index.min()), end=str(valid.index.max())))
+    if config.allow_readonly_z_import:
+        import json
+        manifest = json.loads(Path(config.source_manifest_path).read_text(encoding="utf-8-sig"))
+        if (manifest.get("schema_version") != "delta1_readonly_import_v1" or manifest.get("source_read_only") is not True
+                or manifest.get("source_id") != config.source_id or not manifest.get("outputs")):
+            raise BacktestError("Invalid authorized read-only import manifest")
+        base = Path(config.source_manifest_path).parent.resolve()
+        declared_outputs = {}
+        for relative, record in manifest["outputs"].items():
+            file = (base / relative).resolve()
+            if not file.is_relative_to(base):
+                raise BacktestError("Import manifest output escapes its snapshot")
+            declared_outputs[str(file)] = record["sha256"]
+        for name, record in files.items():
+            if name == "source_manifest_path" or name == "dashboard_config_path":
+                continue
+            if declared_outputs.get(record["path"]) != record.get("sha256"):
+                raise BacktestError(f"Imported input is absent from its manifest or changed: {name}")
     return dict(dataset_id=config.dataset_id, data_version=config.data_version, source_id=config.source_id,
                 paths=paths, files=files, coverage=coverage, dividend_mode=config.dividend_mode,
-                daily_label_time=config.daily_label_time, timezone="Asia/Shanghai")
+                daily_label_time=config.daily_label_time, timezone="Asia/Shanghai",allow_readonly_z_import=config.allow_readonly_z_import)
 
 
 def _store(root):

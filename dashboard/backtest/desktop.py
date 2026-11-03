@@ -381,6 +381,9 @@ class BacktestWindow(QMainWindow):
         form.addRow("行情来源", self.source)
         self.path_row(form, "数据根目录 · 相对文件位置以此为基准", "data_root", directory=True)
         self.path_row(form, "显式旧看板配置适配 · 不自动发现", "dashboard_config_path")
+        self.path_row(form, "只读导入清单 · SHA核验", "source_manifest_path")
+        self.allow_z_import = QCheckBox("使用已授权的Z只读导入快照")
+        form.addRow(self.allow_z_import)
         self.data_controls = {}
         for key, title, default in (("dataset_id", "数据集标识", "unversioned_local"),
                                     ("data_version", "数据版本", "unversioned"), ("source_id", "来源标识", "explicit_local"),
@@ -453,7 +456,7 @@ class BacktestWindow(QMainWindow):
         data = {**self._base_data}
         for key in ("data_root", "dashboard_config_path", "close_path", "minute_close_path", "daily_close_path", "days_to_expiry_path", "margin_rate_path", "reference_path",
                     "multiplier_path", "adjusted_close_path", "dividend_points_path", "dividend_root", "dividend_records_path",
-                    "dividend_store_root", "calendar_path"):
+                    "dividend_store_root", "calendar_path", "source_manifest_path"):
             data[key] = self.fields[key].text().strip() or None
         if self.source.currentData() != "wide":
             data["close_path"] = None
@@ -465,6 +468,7 @@ class BacktestWindow(QMainWindow):
         data["history_versions"] = json.loads(self.history_versions.toPlainText() or "{}")
         data.update({key: widget.text().strip() for key, widget in self.data_controls.items()})
         data["dividend_mode"] = self.dividend_mode.currentData()
+        data["allow_readonly_z_import"] = self.allow_z_import.isChecked()
         if self.margin_source.currentData() == "fixed":
             rates = {k: v for k, v in data.get("margin_rates", {}).items() if k not in self.rates}
             rates.update({k: s.value() / 100 for k, s in self.rates.items() if s.value() > 0})
@@ -532,6 +536,7 @@ class BacktestWindow(QMainWindow):
             self.liquidate.setChecked(config.liquidate_at_end)
             self.revised.setChecked(data.allow_unverified_availability)
             self.trusted.setChecked(data.trusted_pickle)
+            self.allow_z_import.setChecked(data.allow_readonly_z_import)
             self.start.setText(str(config.start or ""))
             self.end.setText(str(config.end or ""))
             self.date_at.setText(config.date_at)

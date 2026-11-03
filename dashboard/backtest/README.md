@@ -4,6 +4,8 @@
 
 年化期现、按两到期日差年化的 01−03、各实际合约独立对冲指数及期限结构条件分位回归见 [结构研究](TERM_STRUCTURE.md) 与 [配置模板](structure.config.example.json)。`structure_study` 保存因子后复用两阈值、逐 pair 对账并生成 PnL/收益/具体持仓图和离线交互报告；`structure_report` 可只重读产物画图，不重新计算因子。
 
+用户最新确认的研究口径是 **16个固定档位独立期现账户＋4个独立跨期账户**，各组不共享资金/指数净额；开仓锁定实际合约，到期后仍从原档位选下一组。当前入口 `slot_study/slot_report`、[固定档位说明](FIXED_SLOT_STUDY.md)、[模板](slot.config.example.json)。2026-11-03获准只读Z源后，可独立导入本地data快照；默认仍不连接DDB/VPN、不在Z写文件。
+
 ## 桌面窗口
 
 双击仓库内 `dashboard/start_backtest.vbs` 启动蓝白风格的独立桌面窗口；需要命令行入口时用同目录 `start_backtest.cmd`。复用已有看板的 Python 选择规则、PySide6 和 pyqtgraph，不启动看板采集或更改 Wind 环境。依赖清单为 `requirements-desktop.txt`，已有环境可直接复用。
@@ -118,7 +120,7 @@ if __name__ == "__main__":
 
 `--d0 0` 为默认到期强平阈值。可直接输入 00—03 目标，按信号当天四档映射展开；最终成交仍为实际代码，原始表及 `execution_instructions.parquet` 分别保存。分位/CTA 示例输出已经是实际合约表，无需再转换。剩余天数保存到 `days_to_expiry.parquet`，位置通过 `result.output_paths` 返回。
 
-用户要求后续不用 Z 盘；当前拒绝该盘路径和已知混合来源缓存，自动选择数据根时跳过被排除的数据集。显式选到混合数据会报错。独立 `acquire_daily` 在已有 DDB 路由上只读补取到新 data 快照，不自动连接 VPN；自动增量更新仍留后续，见 [NEXT_STRATEGY_PROMPT](NEXT_STRATEGY_PROMPT.md)。
+运行时拒绝直接Z路径和旧未经审计的混合来源缓存。用户2026-11-03已授权Z只读导入，须走新快照、授权标记及SHA清单核验，见 [FIXED_SLOT_STUDY](FIXED_SLOT_STUDY.md)，不自动复用旧混合试跑。DDB获取继续暂停；独立 `acquire_daily` 和自动增量留后续。
 
 `output_dir` 保存全账户 `actual_orders.parquet`、可读的 `actual_orders.csv`、`summary.csv`、`metadata.json`，以及每账户的权益、实际持仓、有效目标、信号执行计划。所有输出位置通过 `result.output_paths` 返回绝对路径。成交表包括信号/成交时间、具体合约、开平动作、方向、手数、价格、乘数、保证金率、费用和前后持仓；元数据记录参数、信号指纹和行情版本。
 
