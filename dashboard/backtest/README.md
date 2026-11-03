@@ -6,6 +6,8 @@
 
 用户最新确认的研究口径是 **16个固定档位独立期现账户＋4个独立跨期账户**，各组不共享资金/指数净额；开仓锁定实际合约，到期后仍从原档位选下一组。当前入口 `slot_study/slot_report`、[固定档位说明](FIXED_SLOT_STUDY.md)、[模板](slot.config.example.json)。2026-11-03获准只读Z源后，可独立导入本地data快照；默认仍不连接DDB/VPN、不在Z写文件。
 
+未来调参使用同一标准框架：[参数说明与图例](PARAMETER_TUNING.md)、[期现批次模板](tuning.config.example.json)、[跨期批次模板](tuning.calendar.config.example.json)。`workflow tune`复用原始因子、CTA和原引擎，保存每组有效配置及逐账户指标；桌面单次四页调参和历史结果重开继续兼容。
+
 ## 桌面窗口
 
 双击仓库内 `dashboard/start_backtest.vbs` 启动蓝白风格的独立桌面窗口；需要命令行入口时用同目录 `start_backtest.cmd`。复用已有看板的 Python 选择规则、PySide6 和 pyqtgraph，不启动看板采集或更改 Wind 环境。依赖清单为 `requirements-desktop.txt`，已有环境可直接复用。

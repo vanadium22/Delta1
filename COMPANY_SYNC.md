@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-03标准调参接续 `1fdcac5`：兼容目标明确为当前Delta1，workflow tune直接复用原因子→CTA→执行框架；四段配置增加可选grid/cases/max_runs，可预览、自动缓存因子/不变CTA，并保存每组有效配置及原生回测结果。桌面保留批次配置，因子参数变化后禁止误用旧因子跑CTA。148项回归及Ruff通过，连续/实际两份因子均核验不变；8合成配置仅2次因子/4份CTA，2024起冻结因子4组真实阈值/费用配置计算0次、16账户完成，未额外全量搜索。图例及蓝历史/紫条件回归区别、跨期阈值图说明见[调参说明](dashboard/backtest/PARAMETER_TUNING.md)；[期现模板](dashboard/backtest/tuning.config.example.json)、[跨期模板](dashboard/backtest/tuning.calendar.config.example.json)。数据/结果仅本机，DDB/VPN暂停，Z源未操作。
+
 - 2026-11-03固定档位研究接续 `e778dff`：用户确认16组独立期现账户、4组跨期，不共享资金/指数净额，固定入场档位但锁定实际代码至到期；中心化0.9/0.8保留。新slot_study/slot_report复用因子，逐品种/档位/实际合约比较历史分位与条件回归及两腿毛/净PnL、费用。用户已授权Z只读导入本地data新快照，默认仍拒绝直接Z和旧混合缓存，显式标记＋SHA清单核验；DDB/VPN暂停。新快照含2023暖启动，评估2024-01-02—2026-10-14，18case/72独立账户全部对账；141项回归、Ruff、四页恢复/1080p/4K、216组离线交互通过。真实源和结果只留本机，公司待验收。[当前口径和调用](dashboard/backtest/FIXED_SLOT_STUDY.md)、[模板](dashboard/backtest/slot.config.example.json)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-03 回测结构研究接续 `c736eb8`：01−03 用真实剩余自然日差年化，收益增加实际自然日CAGR；每品种历史期限结构条件分位回归保存原始p/q/模型诊断，CTA单独将各实际合约转成独立期现pair，同品种共享资金并保持旧pair手数。实际净指数费用/保证金及跨期两腿归因逐日对账，生成PnL/收益/具体持仓和离线交互报告。138项回归、Ruff、四页1080p/4K、144组浏览器交互通过；已有纯源区间12方案/48品种账户，真实结果仅本机。DDB/VPN继续暂停，完整2024至今和公司现场仍待后续。[结构研究与调用](dashboard/backtest/TERM_STRUCTURE.md)、[模板](dashboard/backtest/structure.config.example.json)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。

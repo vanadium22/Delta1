@@ -7,6 +7,14 @@ from .models import BacktestError
 from .strategy.models import CTAConfig, FactorConfig
 
 
+EXECUTION_DATA_FIELDS={"margin_rate_path","margin_rates","multiplier_path","multipliers"}
+
+
+def factor_data_declaration(data):
+    """Execution-only size/margin assumptions do not invalidate numerical factors."""
+    return {k:v for k,v in asdict(data).items() if k not in EXECUTION_DATA_FIELDS}
+
+
 @dataclass(frozen=True)
 class Parameter:
     default: object

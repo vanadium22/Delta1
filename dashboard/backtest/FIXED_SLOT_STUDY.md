@@ -35,6 +35,8 @@ python -m dashboard.backtest.readonly_import --source Z:/Project_data/future_inv
 
 ## 调用与配置
 
+完整可调参数与批次复用见 [PARAMETER_TUNING](PARAMETER_TUNING.md)。`slot_study`保留预设对照矩阵，逐函数独立窗口、跨期分母、阈值、费用等自由调节可直接使用标准 `workflow factor/cta/run/tune`，不需要改计算或执行代码。
+
 模板 [slot.config.example.json](slot.config.example.json) 的CTA为单独02档；用 `workflow factor/cta/run` 可单独运行此档四品种，factor.roots仅选IC时就是IC02一组。四段配置仍独立，资金/费用在backtest，方向/权重在cta，窗口/回归参数在factor，路径/授权在data。
 
 ```powershell

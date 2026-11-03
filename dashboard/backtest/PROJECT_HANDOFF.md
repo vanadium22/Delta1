@@ -1,6 +1,18 @@
 # 回测与策略框架交接
 
-2026-11-03，统一分支 `codex/company-apps`。当前固定档位研究接续 `e778dff`；此前年化结构接续 `c736eb8`，标准输入框架从 `6777c4d` 接续。入口为 `dashboard/start_backtest.vbs`，备用 CMD、CLI 和绝对脚本入口保留。
+2026-11-03，统一分支 `codex/company-apps`。当前标准调参接续 `1fdcac5`，固定档位研究接续 `e778dff`；此前年化结构接续 `c736eb8`，标准输入框架从 `6777c4d` 接续。入口为 `dashboard/start_backtest.vbs`，备用 CMD、CLI 和绝对脚本入口保留。
+
+## 最新接入：Delta1原框架调参及图例说明
+
+用户已明确兼容目标就是当前Delta1。新增 `workflow tune --plan/--output`，严格编排原factor_stage/cta_stage/backtest_stage及原引擎，不另算手数、成交或权益。四段配置不变，增加可选tuning.grid/cases/max_runs；逐函数参数仍由原schema校验。窗口/模型变更各自重算，阈值/方向/仓位变更复用因子，费用/资金变更也复用不变CTA。每组保存最终有效job、原生回测产物及逐账户summary，当前桌面可重开。
+
+新增声明校验与原始数据配置记录，保证批次复用相同版本/文件输入并逐单元检查因子不变；已有已发布的独立因子目录兼容。桌面改单次参数仍用四页，保存重开保留批次配置，因子窗口/模型/范围变化后“仅跑CTA”明确要求先重算，避免误把旧60日当40日。
+
+说明见 [PARAMETER_TUNING](PARAMETER_TUNING.md)，[期现模板](tuning.config.example.json)、[跨期模板](tuning.calendar.config.example.json)无真实数据。蓝色普通分位是在同档历史中的位置，紫色回归是同品种各期限历史对T的条件分位；当前跨期图颜色表示阈值（蓝0.9/橙0.8），只用年化跨期历史分位。现有跨期图为本机输出 calendar_returns.png，不混同两类图例。
+
+148项离线回归通过（35.090秒，ResourceWarning/FutureWarning作错误）及Ruff通过。新增窗口×阈值×费用8配置仅2次因子/4份CTA，标准入口复跑权益相同；保存因子复用计算0次，参数不匹配拒绝、按函数重置参数、配置根目录切换及桌面保存/重开/重算提示通过；仅篡改实际合约因子而连续值不变也在执行前拒绝。真实小范围4配置/16账户已完成：复用2024起冻结因子，计算0次、唯一因子1份/CTA2份，连续/实际两份因子指纹均不变，不做额外全量搜索。
+
+真实验证在忽略目录 outputs/backtest/tuning_cta_fee_20261103_checked/ 与 local_artifacts/validation/2026-11-03/tuning/，16账户指标与上一轮规范执行完全相同。本机可直接打开的配置在 dashboard/localsetting/backtest/spot_tuning.local.json、factor_tuning.local.json、calendar_tuning.local.json，分别为已有因子CTA调参、重算窗口、跨期调参；真实配置不提交。旧单次/预设矩阵接口、成交时序、独立资金与到期规则保持；DDB/VPN暂停，Z源本轮未操作，公司现场仍待验收。
 
 ## 当前口径：16个固定档位独立期现组＋4个跨期组
 

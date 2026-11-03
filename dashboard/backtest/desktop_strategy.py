@@ -223,8 +223,13 @@ def apply_cta_only(window):
         if factors is None:
             raise ValueError("请先计算或读取因子")
         output = Path(job["output_dir"]).with_name("cta_" + Path(job["output_dir"]).name)
-        window.submit(lambda cancel, progress: cta_stage(factors, job, output_dir=output, cancel_event=cancel),
-                      lambda result: _set_signals(window, result))
+        def run(cancel, progress):
+            from .factor_cache import validate_factor_artifact
+            from .models import DataConfig
+            saved=load_factors(factors,cancel_event=cancel) if isinstance(factors,(str,Path)) else factors
+            validate_factor_artifact(saved,factor_spec(job),DataConfig(**job["data"]))
+            return cta_stage(saved,job,output_dir=output,cancel_event=cancel)
+        window.submit(run,lambda result: _set_signals(window, result))
     except (ValueError, TypeError, OSError) as exc:
         window.show_error(str(exc))
 

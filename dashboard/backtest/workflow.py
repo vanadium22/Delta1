@@ -3,11 +3,12 @@ import argparse
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 
-from .configuration import FACTOR_SCHEMAS, cta_spec, describe_functions, factor_spec
+from .configuration import FACTOR_SCHEMAS, cta_spec, describe_functions, factor_data_declaration, factor_spec
 from .io import frame_fingerprint, json_default
 from .models import BacktestConfig, BacktestError, DataConfig, check_cancelled, check_market_source, time_bound
 from .strategy import CTAConfig, CTAResult, compute_factors, generate_cta, hold_to_expiry_targets, load_cta, load_factors
@@ -21,6 +22,7 @@ def factor_stage(job, *, market_data=None, output_dir=None, cancel_event=None, p
                               cancel_event=cancel_event, progress=progress)
     # This declaration contains only factor parameters and calculation context.
     result.metadata["factor"] = asdict(spec)
+    result.metadata["factor_data_config"] = factor_data_declaration(DataConfig(**job.get("data", {})))
     result.metadata["factor_units"][spec.name] = FACTOR_SCHEMAS[spec.name]["unit"]
     if output_dir is not None:
         check_cancelled(cancel_event)
@@ -182,19 +184,29 @@ def backtest_stage(signals, job, *, output_dir=None, cancel_event=None, progress
 def main(argv=None):
     from .__main__ import load_job
     parser = argparse.ArgumentParser(description="Independent Delta1 research stages (local inputs only)")
-    parser.add_argument("stage", choices=("factor", "cta", "run", "all", "schema"))
+    parser.add_argument("stage", choices=("factor", "cta", "run", "all", "schema", "tune"))
     parser.add_argument("--config", type=Path)
     parser.add_argument("--input", type=Path, help="saved factor directory for cta, saved CTA directory for run")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--plan", action="store_true", help="tune: validate and display effective parameter variants without calculating")
     args = parser.parse_args(argv)
     try:
+        if args.plan and args.stage!="tune":
+            raise BacktestError("--plan applies to tune only")
         if args.stage == "schema":
             result = describe_functions()
         else:
-            if args.config is None or args.output is None:
+            if args.config is None or (args.output is None and not (args.stage=="tune" and args.plan)):
                 raise BacktestError("--config and a new --output directory are required")
             job = load_job(args.config)
-            if args.stage == "factor":
+            if args.stage == "tune":
+                from .tuning import expand_tuning, run_tuning
+                if args.plan:
+                    result=dict(variants=expand_tuning(job,base_dir=args.config.resolve().parent))
+                else:
+                    tuned=run_tuning(job,args.output,base_dir=args.config.resolve().parent,progress=lambda s:print(s,flush=True,file=sys.stderr))
+                    result=dict(output_dir=tuned["output_dir"],manifest=tuned["manifest"])
+            elif args.stage == "factor":
                 saved = factor_stage(job, output_dir=args.output)
                 result = dict(output_paths=saved.output_paths, data=saved.metadata["market"])
             elif args.stage == "cta":

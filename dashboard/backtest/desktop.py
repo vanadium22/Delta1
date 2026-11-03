@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -497,7 +498,9 @@ class BacktestWindow(QMainWindow):
         return dict(instructions_path=self.fields["instructions_path"].text().strip() or None,
                     data=data_declaration(data), backtest=asdict(config),
                     output_dir=str(Path(output_root).expanduser().resolve() / ("run_" + identifier)),
-                    ui=dict(output_root=str(Path(output_root).expanduser().resolve())), **strategy_settings(self))
+                    ui=dict(output_root=str(Path(output_root).expanduser().resolve())),
+                    **({"tuning":deepcopy(self._tuning_settings)} if getattr(self,"_tuning_settings",None) is not None else {}),
+                    **strategy_settings(self))
 
     def load_config(self, path):
         try:
@@ -550,6 +553,7 @@ class BacktestWindow(QMainWindow):
             for root, field in self.rates.items():
                 field.setValue(data.margin_rates.get(root, 0) * 100)
             self.factor_result = None
+            self._tuning_settings = deepcopy(job.get("tuning"))
             self._config_path = Path(path).resolve()
             self.show_status(f"已读取配置：{self._config_path}")
         except (ValueError, TypeError, OSError) as exc:

@@ -207,6 +207,49 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(data["daily_close_path"], "daily_close.parquet")
             self.assertEqual(DataConfig(**data).daily_close_path, str(second / "daily_close.parquet"))
 
+    def test_tuning_batch_settings_survive_desktop_save_reopen_and_job_copies(self):
+        from dashboard.backtest.io import write_json
+        from dashboard.backtest.synthetic import write_inputs
+        from dashboard.backtest.__main__ import load_job
+        with local_temp() as root:
+            job=load_job(write_inputs(root/"inputs")/"index_09.local.json")
+            settings=dict(grid={"cta.parameters.threshold":[.9,.8],"backtest.commission_rate":[.0003,.0005]},max_runs=8)
+            job["tuning"]=settings
+            path=root/"tuning.local.json"
+            write_json(path,job)
+            self.window.load_config(path)
+            self.window.strategy_controls["threshold"].setValue(.85)
+            self.window.show_location("save_config")
+            self.window.location_path.setText(str(path))
+            self.window.apply_location()
+            self.window.load_config(path)
+            restored=self.window.job()
+            self.assertEqual(restored["tuning"],settings)
+            self.assertEqual(restored["cta"]["parameters"]["threshold"],.85)
+            restored["tuning"]["grid"]["cta.parameters.threshold"].append(.7)
+            self.assertEqual(self.window.job()["tuning"],settings)
+
+    def test_cta_only_rejects_changed_factor_window_until_explicit_recalculation(self):
+        from dashboard.backtest.desktop_strategy import compute_only,apply_cta_only
+        from dashboard.backtest.synthetic import write_inputs
+        with local_temp() as root:
+            self.window.load_config(write_inputs(root/"inputs")/"index_09.local.json")
+            self.window.fields["output_root"].setText(str(root/"runs"))
+            compute_only(self.window)
+            self.wait_idle()
+            before=self.window.factor_result.continuous_factors["basis_percentile"].copy(deep=True)
+            self.window.strategy_controls["window_days"].setValue(4)
+            apply_cta_only(self.window)
+            self.wait_idle()
+            self.assertIn("因子参数或计算范围已变化",self.window.status.text())
+            import pandas as pd
+            pd.testing.assert_frame_equal(before,self.window.factor_result.continuous_factors["basis_percentile"])
+            compute_only(self.window)
+            self.wait_idle()
+            apply_cta_only(self.window)
+            self.wait_idle()
+            self.assertTrue(hasattr(self.window,"strategy_result"),self.window.status.text())
+
     def test_quantile_regression_and_annual_calendar_parameters_and_execution_restore(self):
         from dataclasses import asdict
         import json

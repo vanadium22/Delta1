@@ -384,7 +384,13 @@
     "dashboard/backtest/slot.config.example.json",
     "dashboard/backtest/slot_report.py",
     "dashboard/backtest/slot_study.py",
-    "dashboard/backtest/test/test_slot_study.py"
+    "dashboard/backtest/test/test_slot_study.py",
+    "dashboard/backtest/PARAMETER_TUNING.md",
+    "dashboard/backtest/factor_cache.py",
+    "dashboard/backtest/test/test_tuning.py",
+    "dashboard/backtest/tuning.calendar.config.example.json",
+    "dashboard/backtest/tuning.config.example.json",
+    "dashboard/backtest/tuning.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -464,7 +470,7 @@
     "branch": "codex/company-apps",
     "entry": "dashboard/start_backtest.vbs",
     "cli_entry": "dashboard/backtest/run.py",
-    "status": "local_141_verified_fixed_slot_16_index_4_calendar_readonly_import_company_pending_ddb_paused",
+    "status": "local_148_verified_standard_stage_tuning_and_cache_guards_company_pending_ddb_paused",
     "files": [
       "dashboard/backtest/.gitignore",
       "dashboard/backtest/AGENTS.md",
@@ -556,11 +562,17 @@
       "dashboard/backtest/slot.config.example.json",
       "dashboard/backtest/slot_report.py",
       "dashboard/backtest/slot_study.py",
-      "dashboard/backtest/test/test_slot_study.py"
+      "dashboard/backtest/test/test_slot_study.py",
+      "dashboard/backtest/PARAMETER_TUNING.md",
+      "dashboard/backtest/factor_cache.py",
+      "dashboard/backtest/test/test_tuning.py",
+      "dashboard/backtest/tuning.calendar.config.example.json",
+      "dashboard/backtest/tuning.config.example.json",
+      "dashboard/backtest/tuning.py"
     ],
     "tests": {
-      "passed": 141,
-      "seconds": 34.744,
+      "passed": 148,
+      "seconds": 35.09,
       "resource_warnings": "errors",
       "future_warnings": "errors",
       "ruff": "passed"
@@ -676,7 +688,7 @@
       "ddb_automatic_update": "deferred",
       "ddb_one_shot_daily": "explicit route-only readonly acquisition; no VPN action by command; bounded yearly queries and SHA/coverage snapshot",
       "ddb_source_output": "Delta1/data; new snapshot only",
-      "current_data_route": "DDB paused; no VPN actions; authorized local readonly source import only",
+      "current_data_route": "local frozen snapshot only in tuning; DDB paused, VPN untouched, no Z source operations in this iteration",
       "company_tests": "authorized_not_yet_run_on_company_machine",
       "implicit_native_discovery": false,
       "input_contract": "dashboard/backtest/DATA_FORMAT.md",
@@ -998,6 +1010,73 @@
       "real_results": "local ignored artifacts only",
       "ddb": "paused",
       "vpn": "untouched",
+      "company_acceptance": "pending_actual_company_run"
+    },
+    "parameter_tuning": {
+      "base_commit": "1fdcac571ba8c35a7d414f81cc23a7c476ec317a",
+      "date": "2026-11-03",
+      "compatibility_target": "current Delta1 existing factor generation, CTA and backtest framework",
+      "entry": "python -m dashboard.backtest.workflow tune",
+      "readme": "dashboard/backtest/PARAMETER_TUNING.md",
+      "templates": [
+        "dashboard/backtest/tuning.config.example.json",
+        "dashboard/backtest/tuning.calendar.config.example.json"
+      ],
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/FIXED_SLOT_STUDY.md",
+        "dashboard/backtest/PARAMETER_TUNING.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/WORKFLOW.md",
+        "dashboard/backtest/configuration.py",
+        "dashboard/backtest/desktop.py",
+        "dashboard/backtest/desktop_strategy.py",
+        "dashboard/backtest/factor_cache.py",
+        "dashboard/backtest/test/test_desktop.py",
+        "dashboard/backtest/test/test_tuning.py",
+        "dashboard/backtest/tuning.calendar.config.example.json",
+        "dashboard/backtest/tuning.config.example.json",
+        "dashboard/backtest/tuning.py",
+        "dashboard/backtest/workflow.py"
+      ],
+      "stage_reuse": [
+        "factor_stage",
+        "cta_stage",
+        "backtest_stage"
+      ],
+      "configuration": "existing data/factor/cta/backtest plus optional tuning.grid/cases/max_runs; validate all candidates; plan mode does not read markets",
+      "factor_cache": "data and factor declarations; exclude execution margin/multiplier assumptions; validate saved declarations; check both continuous-slot and actual-contract raw factor cells before execution and after stages",
+      "cta_cache": "factor identity, CTA parameters, start/end; execution-only fee/capital changes reuse CTA",
+      "desktop": "preserve batch settings on save/reopen; factor parameter/data context changes require explicit recalculation before CTA-only",
+      "synthetic_validation": {
+        "variants": 8,
+        "factor_computations": 2,
+        "unique_ctas": 4,
+        "standard_execution_replay_exact": true
+      },
+      "local_real_validation": {
+        "variants": 4,
+        "accounts": 16,
+        "factor_computations": 0,
+        "unique_factors": 1,
+        "unique_ctas": 2,
+        "raw_factor_cells_unchanged": true,
+        "unrelated_full_search": false,
+        "actual_and_continuous_cells_unchanged": true,
+        "account_metrics_identical_to_canonical_execution": true
+      },
+      "template_plan_variants": {
+        "spot": 16,
+        "calendar": 4
+      },
+      "local_evidence": "local_artifacts/validation/2026-11-03/tuning/",
+      "real_configs_and_results": "local ignored files only",
+      "ddb": "paused",
+      "vpn": "untouched",
+      "Z_source_operation": "none this iteration",
       "company_acceptance": "pending_actual_company_run"
     }
   }
