@@ -1261,6 +1261,33 @@
         "dashboard/backtest/strategy/pipeline.py",
         "dashboard/backtest/test/test_calendar_study.py"
       ]
+    },
+    "calendar_margin100_preview": {
+      "base_commit": "c62e1d5",
+      "date": "2026-11-04",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry --no-render",
+      "scope": "01-02 / 02-03 x four roots; raw q_open .9; expiry only; 8 independent accounts",
+      "margin_rate_each_leg": 1.0,
+      "execution": "original engine/api unchanged; actual integer lots/fees/equity rerun at 100% margin, full-notional .0003 commission per side",
+      "factors": "existing adjacent factors reused, zero recomputations; margin excluded from factor declaration; old artifacts preserved",
+      "validation": "164 offline tests in 52.378s, 2 focused reruns, Ruff; 8 standalone accounts, reload/prefix/ledger checks; entry dates/pairs/directions unchanged",
+      "preview": "metrics and distribution combined; cumulative and per-trade returns labeled nonannualized, account CAGR annualized; raw spread above and direction-aware net PnL points below, detailed dates/units/leg sides; PDF pending user review",
+      "legacy_renderer": "original complete 48 schemes and explicit 20% margin only; custom matrices use --no-render",
+      "evidence": "local_artifacts/validation/2026-11-04/calendar_adjacent_margin100/",
+      "data_policy": "audited local snapshot only; DDB/VPN paused; Z not accessed; real data/config/results excluded",
+      "company_acceptance": "pending_actual_company_run",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/CALENDAR_REVERSAL.md",
+        "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/calendar_reversal.config.example.json",
+        "dashboard/backtest/calendar_study.py",
+        "dashboard/backtest/test/test_calendar_study.py"
+      ]
     }
   }
 }

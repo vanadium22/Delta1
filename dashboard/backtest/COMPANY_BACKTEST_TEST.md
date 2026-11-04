@@ -4,15 +4,17 @@
 
 ## 当前相邻跨期专项：公司调用（2026-11-04）
 
-当前模板为01-02/02-03 × 四品种，仅原始q_open=.9、持有到期，共8个独立账户。双腿保证金各20%、完整名义每腿每边万三、原引擎锁定实际合约及整数手数不变。正页收益/回撤/Sharpe数值表、后置收益/回撤曲线、最差两笔实际合约价差先交PNG/HTML示例；用户确认后才做新版PDF。旧48方案与既有PDF保留。
+当前模板为01-02/02-03 × 四品种，仅原始q_open=.9、持有到期，共8个独立账户。用户最新要求双腿保证金各100%；执行重新算整数手数、完整名义每腿每边万三费用及权益。收益数值与分布合并，标明累计/每笔非年化收益和年化CAGR；后置收益/回撤曲线。亏损详图明确买卖方向，上半实际点差、下半带方向含费净盈亏点数。先交PNG/HTML示例，用户确认后才做新版PDF；旧20%及48方案/PDF保留。
 
 复制当前无数据模板到本机配置目录，设置已有审计快照的位置和真实来源声明，运行：
 
 ```powershell
-python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_company01 --q-open 0.9 --exits expiry --no-render
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_margin100_company01 --q-open 0.9 --exits expiry --no-render
 ```
 
 factor.parameters.channels必须为["01-02","02-03"]。不可把旧01-03因子的CTA标签改成01-02；改变channels或window_days必须重算，之后阈值/退出/品种可复用该保存因子。此命令完整验证8个单独重跑、因子重读、3个前缀和逐笔对账，--no-render仅跳过旧48方案报告生成器，不连接Z/DDB/VPN。标准factor/cta/run和两通道tune命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。公司现场有效参数、覆盖末日及8/8对账需另行记录，不能以本机通过替代。
+
+确认data.margin_rates的IF/IH/IC/IM均为1.0且margin_rate_path为空；从20%切到100%可复用同channels/window的factor_input，因子声明排除执行保证金参数，但必须重跑执行，不能把旧手数收益直接缩放后当新结果。前版48研究的旧报告生成器仍限定原48矩阵及20%保证金，复现时另用0.2本机配置。
 
 ## 前版48方案跨期专项（2026-11-03，保留）
 

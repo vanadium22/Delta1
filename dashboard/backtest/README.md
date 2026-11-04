@@ -153,4 +153,4 @@ python -m dashboard.backtest.test.validate_performance_ui --config <本机配置
 源码和无真实数据的配置模板随统一分支发布。真实指令、数据、配置及产物仅本机保留，当前工作见 [交接](PROJECT_HANDOFF.md)。
 ## 相邻跨期与前版48方案研究
 
-当前为01-02/02-03、四品种、原始q_open=.9、持有到期，8独立账户、双腿20%保证金。入口 `python -m dashboard.backtest.calendar_study --config <本机配置> --output <新目录> --q-open 0.9 --exits expiry --no-render`，模板 `calendar_reversal.config.example.json`。因子显式声明channels，CTA只读匹配保存产物；先交PNG/HTML示例，确认后再做PDF。旧01-03/02-03的48方案与报告保留；完整说明和复现命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。复用原因子→CTA→执行阶段；真实数据/配置/结果不提交。
+当前为01-02/02-03、四品种、原始q_open=.9、持有到期，8独立账户；用户最新要求双腿各100%保证金，由原引擎重算手数、费用及收益。入口 `python -m dashboard.backtest.calendar_study --config <本机配置> --output <新目录> --q-open 0.9 --exits expiry --no-render`，模板 `calendar_reversal.config.example.json`。因子显式声明channels，改变保证金可复用原因子；收益数值与非年化分布合并，CAGR另标年化，回撤详图明确多空及带方向净盈亏点数。先交PNG/HTML示例，确认后再做PDF。旧20%与48方案报告保留；说明和命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。复用原因子→CTA→执行阶段；真实数据/配置/结果不提交。

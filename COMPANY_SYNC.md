@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-04跨期100%保证金接续c62e1d5：01-02/02-03 × 四品种、原始q_open=.9持有到期，8账户改为双腿各100%保证金，原引擎重算手数/费用/权益；原因子复用0次计算，旧20%及旧PDF保留。收益数值与分布合并、明确年化/非年化，回撤详图标多空方向，原始点差与带方向含费净盈亏点数分上下显示。164回归及保证金/因子复用复测、8账户单独重跑/前缀/账务对账通过，Ruff通过。仍先PNG/HTML示例，用户确认后做PDF；真实数据/配置/结果不入Git，DDB/VPN暂停、Z未访问。[说明](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-04相邻跨期接续e8915e8：当前01-02/02-03 × 四品种，仅原始q_open=.9持有到期，8独立账户。因子显式声明channels，CTA只查已保存通道；新增矩阵--q-open/--exits，旧48方案兼容保留。8账户独立重跑、前缀/重读/账务核对和163项回归通过，engine/api不改。先交收益/回撤/Sharpe数值表、后置曲线及最差两笔实际价差PNG/HTML预览，待用户确认再做PDF；真实数据/配置/结果不入Git，DDB/VPN暂停、Z未访问。[调用说明](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-03跨期专项接续212d95f：01-03/02-03 × 四品种 × 原始q_open=.8/.9 × 到期/q_close=.6/.4共48独立账户，双腿20%保证金。因子保存旧实际pair相对入场通道前60日分布的退出p，CTA只查表，原执行引擎不改；逐笔入场保证金收益、两腿费用/PnL和回撤日期对账，48账户单独重跑及因子前缀/重读一致。总结PDF限6页，完整CSV/HTML/PNG本机外置；数据/配置/结果不入Git，DDB/VPN暂停，本轮未访问Z。见[调用与调参](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。

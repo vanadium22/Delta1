@@ -1,8 +1,8 @@
 # 跨期反转：相邻跨期与独立账户
 
-2026-11-04当前要求：**01-02、02-03 × IF/IH/IC/IM，仅原始 q_open=.9、持有到期，共8个独立账户**。模板已切换到此范围。原01-03/02-03、两阈值、三退出的48账户研究及既有报告完整保留，未重写。新版报告先交PNG/HTML示例供用户看图，不生成PDF；正页只放收益、最大回撤及Sharpe数值表，累计收益/回撤曲线后置，另展示每通道闭合净亏损金额最大的两笔实际近减远价差和开平仓日期。完整逐笔、数值表和图另存本机。
+2026-11-04当前要求：**01-02、02-03 × IF/IH/IC/IM，仅原始 q_open=.9、持有到期，共8个独立账户，双腿保证金各100%**。模板已同步；按100%实际重跑整数手数、费用和权益。20%相邻跨期、原48账户和所有旧报告完整保留。新版先交PNG/HTML示例供用户看图，不生成PDF；收益数值表与每笔收益分布合并一张，账户累计收益与每笔收益明确标非年化，账户CAGR标年化，收益/回撤曲线后置。最差回撤及最终净亏损案例分别排名，详图同时给原始点差和带多空方向的净盈亏点数，标明实际合约、方向、手数、单位及完整日期。
 
-本研究复用 `workflow.factor_stage → cta_stage → backtest_stage` 和原执行引擎。每账户默认1000万元，方案间无资金共享或净额。默认前60交易日，保留2023暖启动，从2024年首个交易日评估至所选期货pair共同有效覆盖末日。**本专项两腿固定保证金20%**；不改变其他研究的既有显式保证金情景。
+本研究复用 `workflow.factor_stage → cta_stage → backtest_stage` 和原执行引擎。每账户默认1000万元，方案间无资金共享或净额。默认前60交易日，保留2023暖启动，从2024年首个交易日评估至所选期货pair共同有效覆盖末日。**当前模板两腿固定保证金100%**。study读取各品种显式且一致的固定margin_rates并写入有效协议，不再硬编码20%；旧20%配置仍可运行，不重写其他情景。改变保证金后复用因子，但必须重跑执行，手续费继续按实际成交的完整名义金额计算。
 
 ## 因子和交易规则
 
@@ -36,12 +36,12 @@ Copy-Item dashboard/backtest/calendar_reversal.config.example.json dashboard/loc
 当前8账户（包括8个单独重跑、因子重读、3个前缀和逐笔对账）：
 
 ```powershell
-python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_run01 --q-open 0.9 --exits expiry --no-render
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_margin100_run01 --q-open 0.9 --exits expiry --no-render
 ```
 
 输出必须使用新目录。因子参数 `channels=["01-02","02-03"]` 冻结所计算的通道；同一近档只允许一个远档，连续因子列始终对应明确入场通道。改channels或window_days必须重算因子；不能给旧01-03因子改CTA标签后冒充01-02。CTA若请求未保存通道会报错。旧因子未声明channels时仅兼容原默认 `["01-03","02-03"]`。
 
-`--q-open` 可列原始开仓阈值，`--exits` 可选expiry、close0.6、close0.4；矩阵只组合显式所选项。`--no-render`只跳过旧报告生成器，完整计算验证不受影响；`--no-verify`是探索选项，不能作为最终验收。旧报告生成器仍只接受原完整48方案。复现旧研究时将因子channels改回 `["01-03","02-03"]`，删除factor_input或指向匹配旧因子，再按原默认48矩阵运行：
+`--q-open` 可列原始开仓阈值，`--exits` 可选expiry、close0.6、close0.4；矩阵只组合显式所选项。`--no-render`只跳过旧报告生成器，完整计算验证不受影响；`--no-verify`是探索选项，不能作为最终验收。旧报告生成器只接受原完整48方案及20%保证金。复现旧研究时将因子channels改回 `["01-03","02-03"]`、data.margin_rates全部改为0.2，删除factor_input或指向匹配旧因子，再按原默认48矩阵运行：
 
 ```powershell
 python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal_legacy.local.json --output outputs/backtest/calendar_legacy_run01
@@ -74,6 +74,8 @@ python -m dashboard.backtest.calendar_pdf outputs/backtest/calendar_reversal_run
 当前示例的Sharpe使用包含空仓交易日的账户日简单收益率，首日以前一初始资金为基准，`mean(r_daily)/std(r_daily, ddof=1)*sqrt(252)`，无风险利率取0；标准差为0时N/A。它与按真实自然日计算的账户CAGR分开，不用每笔入场保证金收益代替账户收益。
 
 用户补充要求展示单笔最大回撤对应持仓日期的绝对价差。示例分别按单笔持仓期净PnL峰谷回撤金额、已闭合交易最终净亏损金额独立排名，各通道各取前两笔，不能把曾经浮亏后收回的交易遗漏。持仓回撤包含开仓前净PnL=0的前高基准；未平仓截至样本末估值。详图只画实际开仓至退出/估值日期的 `F实际近-F实际远` 收盘点差，单位点且保留正负，标出开平仓和回撤前高/谷底；同时保存交易ID、手数、保证金、两腿毛PnL/费用/净PnL。原最终净亏损案例保留作对照，不把跨账户案例排名混成组合账户胜率。
+
+空价差是卖近、买远；近减远点差扩大时会亏损，因此真实点差本身会上行。新版不反转原始价格轴，另外画 `d*(S(t)-S入场)-累计实际费用/(每腿手数*乘数)` 的净盈亏点数，d=+1多价差、d=-1空价差。该线为负即净亏损，回撤向下；乘回实际手数及乘数应逐日等于该笔净PnL。它是带方向的点数损益，不是百分比收益或年化收益；收益分布中的百分比始终为净PnL/冻结入场双腿100%保证金（非年化）。
 
 ## 外部详细交付与统计定义
 

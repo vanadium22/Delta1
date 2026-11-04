@@ -235,16 +235,46 @@ class CalendarStudyTests(unittest.TestCase):
         with local_temp() as root:
             declaration=load_job(write_inputs(root/"inputs")/"structure.local.json")
             declaration["factor"].update(name="calendar_pair_percentile",parameters=dict(window_days=3,channels=["01-02","02-03"]))
-            declaration["data"]["margin_rates"]={r:.2 for r in ("IF","IH","IC","IM")}
             declaration["cta"]=dict(name="calendar_reversal",input_factor="calendar_pair_percentile")
-            declaration["backtest"].update(initial_capital=1_000_000,start="2026-01-08",preserve_pair_lots=True,workers=1)
-            result=run_calendar_study(declaration,root/"study",q_opens=(.9,),exit_rules=("expiry",),render=False,progress=lambda _:None)
-            self.assertEqual(len(result["metrics"]),8)
-            self.assertEqual(result["protocol"]["standalone_verified"],8)
-            self.assertEqual(result["protocol"]["channels"],["01-02","02-03"])
-            self.assertEqual(result["metrics"].q_open.unique().tolist(),[.9])
-            self.assertEqual(result["metrics"].exit_mode.unique().tolist(),["expiry"])
-            self.assertEqual(len(result["protocol"]["prefix_checks"]),3)
+            declaration["backtest"].update(initial_capital=10_000_000,start="2026-01-08",preserve_pair_lots=True,workers=1)
+            factors=None
+            before=None
+            order_sizes=[]
+            for rate in (.2,1.):
+                declaration["data"]["margin_rates"]={r:rate for r in ("IF","IH","IC","IM")}
+                folder=root/f"study_{rate}"
+                if factors:
+                    declaration["factor_input"]=str(factors)
+                result=run_calendar_study(declaration,folder,q_opens=(.9,),exit_rules=("expiry",),render=False,progress=lambda _:None)
+                self.assertEqual(len(result["metrics"]),8)
+                self.assertEqual(result["protocol"]["standalone_verified"],8)
+                self.assertEqual(result["protocol"]["margin_rate"],rate)
+                self.assertEqual(result["protocol"]["channels"],["01-02","02-03"])
+                self.assertEqual(result["metrics"].q_open.unique().tolist(),[.9])
+                self.assertEqual(result["metrics"].exit_mode.unique().tolist(),["expiry"])
+                self.assertEqual(len(result["protocol"]["prefix_checks"]),3)
+                orders=pd.read_parquet(folder/"cases/01-02_open0.9_expiry/backtest/actual_orders.parquet")
+                self.assertTrue(orders.margin_rate.eq(rate).all())
+                order_sizes.append(orders.quantity.sum())
+                if factors:
+                    self.assertEqual(result["protocol"]["factor_computations"],0)
+                    self.assertEqual(before,fingerprints(load_factors(factors)))
+                else:
+                    factors=folder/"factors"
+                    before=fingerprints(load_factors(factors))
+            self.assertLess(order_sizes[1],order_sizes[0])
+
+    def test_study_rejects_missing_or_mixed_fixed_margin_rates(self):
+        with local_temp() as root:
+            declaration=load_job(write_inputs(root/"inputs")/"structure.local.json")
+            declaration["factor"].update(name="calendar_pair_percentile",parameters=dict(window_days=3,channels=["01-02","02-03"]))
+            declaration["cta"]=dict(name="calendar_reversal",input_factor="calendar_pair_percentile")
+            declaration["backtest"].update(preserve_pair_lots=True)
+            for rates in ({r:1. for r in ("IH","IC","IM")},dict(IF=1.,IH=.2,IC=1.,IM=1.)):
+                declaration["data"]["margin_rates"]=rates
+                with self.assertRaisesRegex(BacktestError,"one explicit fixed margin rate"):
+                    run_calendar_study(declaration,root/"invalid",q_opens=(.9,),exit_rules=("expiry",),render=False)
+                self.assertFalse((root/"invalid").exists())
 
 
 if __name__=="__main__":

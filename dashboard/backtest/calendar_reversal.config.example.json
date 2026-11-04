@@ -9,7 +9,7 @@
     "days_to_expiry_path": "days_to_expiry.parquet",
     "calendar_path": "calendar.csv",
     "dividend_mode": "ignore",
-    "margin_rates": {"IF": 0.2, "IH": 0.2, "IC": 0.2, "IM": 0.2},
+    "margin_rates": {"IF": 1.0, "IH": 1.0, "IC": 1.0, "IM": 1.0},
     "daily_label_time": "15:00"
   },
   "factor": {

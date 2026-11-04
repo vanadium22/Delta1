@@ -101,16 +101,18 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
     scenario_count=len(channels)*len(spec.roots)*len(q_opens)*len(exit_rules)
     legacy_matrix=(tuple(channels)==("01-03","02-03") and tuple(q_opens)==(.8,.9)
                    and tuple(exit_rules)==("expiry","close0.6","close0.4"))
-    if render and not legacy_matrix:
-        raise BacktestError("The legacy renderer requires its complete 48-scheme matrix; use --no-render for a custom matrix")
     cfg=BacktestConfig(**job["backtest"])
     if cfg.mode!="product" or cfg.weight_mode!="neutral_units" or cfg.precision!="1d" or cfg.d0!=0 or not cfg.rebalance_on_change_only or not cfg.preserve_pair_lots or cfg.liquidate_at_end:
         raise BacktestError("Calendar study requires product, daily, neutral_units, d0=0, on-change and preserved lots; leave end holdings open")
     data=DataConfig(**job["data"])
     if data.dividend_mode!="ignore":
         raise BacktestError("Calendar study explicitly ignores dividends")
-    if any(data.margin_rates.get(r)!=.2 for r in spec.roots) or data.margin_rate_path:
-        raise BacktestError("This calendar protocol requires an explicit fixed 20% margin on both futures legs")
+    rates={data.margin_rates.get(r) for r in spec.roots}
+    if data.margin_rate_path or None in rates or len(rates)!=1:
+        raise BacktestError("Calendar study requires one explicit fixed margin rate for every root and both legs")
+    margin_rate=rates.pop()
+    if render and (not legacy_matrix or margin_rate!=.2):
+        raise BacktestError("The legacy renderer requires the original 48 schemes and 20% margin; use --no-render for a custom matrix")
     out=Path(output).resolve()
     out.mkdir(parents=True,exist_ok=False)
     progress("计算/校验原始因子与实际 pair 退出分位")
@@ -197,9 +199,9 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
     if fingerprints(factors)!=before or _hashes(paths)!=source_hashes:
         raise BacktestError("Original factor or source snapshot changed during research")
     write_json(out/"input_sha256.local.json",source_hashes)
-    protocol=dict(schema_version="calendar_reversal_48_v1" if legacy_matrix else "calendar_reversal_matrix_v2",research_date=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),data=asdict(data),factor=asdict(spec),
+    protocol=dict(schema_version="calendar_reversal_48_v1" if legacy_matrix and margin_rate==.2 else "calendar_reversal_matrix_v2",research_date=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),data=asdict(data),factor=asdict(spec),
         evaluation_start=start,evaluation_end=end,coverage=coverage,capital_per_account=cfg.initial_capital,
-        scenario_count=scenario_count,cases=cases,channels=list(channels),q_opens=list(q_opens),exit_rules=list(exit_rules),margin_rate=.2,commission_rate=cfg.commission_rate,
+        scenario_count=scenario_count,cases=cases,channels=list(channels),q_opens=list(q_opens),exit_rules=list(exit_rules),margin_rate=margin_rate,commission_rate=cfg.commission_rate,
         backtest=asdict(replace(cfg,start=start,end=end)),factor_artifact=factors.output_paths["output_dir"],
         factor_computations=0 if job.get("factor_input") else 1,all_inputs_sha_unchanged=True,
         threshold_semantics="raw p > q_open short, p < 1-q_open long; strict; no centered labels",
