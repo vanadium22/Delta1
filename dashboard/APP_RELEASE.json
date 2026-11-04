@@ -1263,6 +1263,23 @@
       ]
     },
     "calendar_history_positions_preview": {
+      "latest_clarity": {
+        "base_commit": "ad0e4c0f9b20f307746109e7b94a15d08f767428",
+        "scope": "report-only enlarged fixed actual pairs, explicit buy/sell contracts/lots and spread-profit direction; original account/factor/CTA outputs unchanged",
+        "tables": "whole holding and peak-to-trough interval separately: dates, pair prices/spread changes, start/end actual-pair p, original signal p, gross/incremental fees/net PnL and nonannualized frozen-entry-margin return; keydate legs/positions table per root",
+        "jumps": "continuous lines broken at actual mapping changes; raw quote identity splits old-pair daily change and same-day replacement difference; held-pair leg price changes audited separately",
+        "validation": "independent two-leg fees/PnL, interval ledgers, saved-p/history, native positions, drawdown dates and all daily jump identities reconciled; offline browser and no-map-bridge checks; prior source/result/report SHA unchanged",
+        "evidence": "local_artifacts/validation/2026-11-04/calendar_loss_clarity/",
+        "delivery": "PNG/CSV/offline HTML examples and SHA/CRC validated ZIP; no new PDF pending user review; real artifacts excluded",
+        "files": [
+          "COMPANY_SYNC.md",
+          "dashboard/APP_RELEASE.json",
+          "dashboard/backtest/AGENTS.md",
+          "dashboard/backtest/CALENDAR_REVERSAL.md",
+          "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+          "dashboard/backtest/PROJECT_HANDOFF.md"
+        ]
+      },
       "base_commit": "055350222717e553d1d52309ac8d9f045cf8b9ea",
       "date": "2026-11-04",
       "scope": "existing eight 100-percent-margin accounts; report-only examples; no factor/CTA/backtest recomputation",
