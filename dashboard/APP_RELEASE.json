@@ -1263,6 +1263,29 @@
       ]
     },
     "calendar_history_positions_preview": {
+      "latest_pdf": {
+        "base_commit": "928d16a43ae9d6a93a1f3d7500a6eb64a3189a82",
+        "date": "2026-11-04",
+        "status": "user_approved_examples_updated_pdf_complete",
+        "scope": "report only; 01-02 / 02-03 x four roots, raw q_open .9, expiry, 100% margin each leg; existing eight independent accounts unchanged",
+        "layout": "approved four-root 2x2 history: near-minus-far spread, aligned raw percentile p underneath, then native post-close position band; locked actual pair and within-trade drawdown highlighted",
+        "percentiles": "read saved continuous and actual-pair factors only; actual pair versus entry-channel prior 60 complete trading days, excluding current date; first 60 unavailable dates stay missing; .9/.1 and distinct signal/fill/exit markers; break mapping changes",
+        "pdf": "six A3 landscape pages, all eight account metrics and summary on first page; metrics and per-trade distributions together; interval tables and return/drawdown curves later; no data appendix",
+        "validation": "6360 historical observations, all 115 trades / 4428 actual-pair dates, 40 selected markers, native positions and two-leg fees/PnL reconciled; all native PDF table cells matched to CSV; six pages rendered and visually inspected; two offline interactive pages including holding bands verified; 403 previous files retain SHA",
+        "recomputations": {"factor": 0, "cta": 0, "backtest": 0},
+        "engine_tests": "unchanged execution; prior 164-test baseline retained, not rerun for report/docs update",
+        "delivery": "local report_percentile_v5 output/pdf plus 32 PNG / 29 CSV / offline HTML and eight enlarged cases; portable ZIP CRC and per-file SHA verified; real artifacts and local plotting scripts excluded from Git",
+        "evidence": "local_artifacts/validation/2026-11-04/calendar_pdf_percentile/",
+        "data_policy": "audited local snapshot only; old previews/PDF preserved; DDB/VPN paused; Z not accessed",
+        "files": [
+          "COMPANY_SYNC.md",
+          "dashboard/APP_RELEASE.json",
+          "dashboard/backtest/AGENTS.md",
+          "dashboard/backtest/CALENDAR_REVERSAL.md",
+          "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+          "dashboard/backtest/PROJECT_HANDOFF.md"
+        ]
+      },
       "latest_clarity": {
         "base_commit": "ad0e4c0f9b20f307746109e7b94a15d08f767428",
         "scope": "report-only enlarged fixed actual pairs, explicit buy/sell contracts/lots and spread-profit direction; original account/factor/CTA outputs unchanged",

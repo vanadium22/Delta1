@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-04跨期报告接续928d16a：用户确认四品种2×2全历史版式后，点差下方补入同轴保存原始p及实际持仓，0.9/0.1与信号/成交/退出p明确区分。已完成6页A3横向PDF，首页前置全部8账户收益/年化CAGR/最大回撤日期/Sharpe与总结，收益分布含各自胜率及盈利/亏损均值，曲线后置；32PNG/29CSV/8笔放大案例外置。原生表逐格对账、6页逐页渲染、离线交互/原生持仓/保存p及包CRC/SHA核验通过，403项旧产物SHA保持。沿用100%账户，本轮因子/CTA/执行均0次重算；真实报告/数据/配置不入Git，旧报告保留，DDB/VPN暂停，Z未访问。[口径](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司调用](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-04跨期图表接续ad0e4c0：大回撤pair放大，直接写明每腿买卖实际代码及手数、价差上涨时盈亏；新增整笔/回撤段专表，分列日期、点差变化、实际pair起止p、原信号p及期间毛净PnL/新增费用。连续图换档处断线，逐日拆解旧pair变动与换pair差异，单品种详图附信号/成交/前高/谷底/平仓节点。独立对账区间表、逐日两腿及全部跳变等式；保留100%账户、原胜率/收益及旧报告，先示例、确认后PDF。DDB/VPN暂停，Z未访问。[口径](dashboard/backtest/CALENDAR_REVERSAL.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-04跨期图表接续0553502：保持100%保证金8账户数值，红涨绿跌；每通道四品种分别选择单笔持仓峰谷回撤最大案例，在全历史近减远点差上高亮实际pair及持仓/峰谷区间。新增实际成交后持仓状态带和样本末是否持仓，离线交互可查方向、代码与手数。逐日对账全部历史价格/原引擎持仓、独立重建逐笔PnL与案例排名，旧因子/结果/报告SHA不变。本轮仅更新PNG/HTML/CSV预览，待用户确认再做PDF；不重跑因子/CTA/账户，不访问Z/DDB/VPN。[口径](dashboard/backtest/CALENDAR_REVERSAL.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
