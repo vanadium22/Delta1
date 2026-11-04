@@ -18,14 +18,14 @@
     "slots": [0, 1, 2, 3],
     "precision": "1d",
     "workers": 1,
-    "parameters": {"window_days": 60}
+    "parameters": {"window_days": 60, "channels": ["01-02", "02-03"]}
   },
   "cta": {
     "name": "calendar_reversal",
     "input_factor": "calendar_pair_percentile",
     "parameters": {
-      "channel": "01-03", "root": "all", "q_open": 0.8,
-      "exit_mode": "threshold", "q_close": 0.6, "position_weight": 0.495
+      "channel": "01-02", "root": "all", "q_open": 0.9,
+      "exit_mode": "expiry", "q_close": 0.6, "position_weight": 0.495
     }
   },
   "backtest": {
@@ -39,10 +39,8 @@
   "factor_input": null,
   "tuning": {
     "grid": {
-      "cta.parameters.channel": ["01-03", "02-03"],
-      "cta.parameters.q_open": [0.8, 0.9],
-      "cta.parameters.q_close": [0.6, 0.4]
+      "cta.parameters.channel": ["01-02", "02-03"]
     },
-    "max_runs": 8
+    "max_runs": 2
   }
 }

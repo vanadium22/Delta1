@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-04相邻跨期接续e8915e8：当前01-02/02-03 × 四品种，仅原始q_open=.9持有到期，8独立账户。因子显式声明channels，CTA只查已保存通道；新增矩阵--q-open/--exits，旧48方案兼容保留。8账户独立重跑、前缀/重读/账务核对和163项回归通过，engine/api不改。先交收益/回撤/Sharpe数值表、后置曲线及最差两笔实际价差PNG/HTML预览，待用户确认再做PDF；真实数据/配置/结果不入Git，DDB/VPN暂停、Z未访问。[调用说明](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-03跨期专项接续212d95f：01-03/02-03 × 四品种 × 原始q_open=.8/.9 × 到期/q_close=.6/.4共48独立账户，双腿20%保证金。因子保存旧实际pair相对入场通道前60日分布的退出p，CTA只查表，原执行引擎不改；逐笔入场保证金收益、两腿费用/PnL和回撤日期对账，48账户单独重跑及因子前缀/重读一致。总结PDF限6页，完整CSV/HTML/PNG本机外置；数据/配置/结果不入Git，DDB/VPN暂停，本轮未访问Z。见[调用与调参](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-03研究报告/公司复现接续d63e670：本机42页PDF首页为总结图，含16组曲线、实际pair两腿、跨期及396行归因附录；公司数据ZIP带7份原SHA快照、离线报告、配置准备脚本及逐文件清单，真实产物不入Git。公司首次按同数据计算本机因子，后续CTA复用；四配置计划1/16/32/4及795日/172参考读取通过，原40个输入/因子SHA不变。PDF逐页渲染和包SHA核验通过，无引擎修改、无Z/DDB/VPN操作。[公司获取与调参步骤](dashboard/backtest/COMPANY_BACKTEST_TEST.md)，公司现场仍待运行。

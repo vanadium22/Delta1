@@ -17,7 +17,7 @@ def _rank(value, history, window):
     return float((np.count_nonzero(history < value) + .5 * np.count_nonzero(history == value)) / window)
 
 
-def calendar_pair_factors(panel, contracts, window, *, cancel_event=None):
+def calendar_pair_factors(panel, contracts, window, *, channels=("01-03", "02-03"), cancel_event=None):
     """Only pairs encountered by the current date are tracked; current date never trains p.
 
     A held pair can leave its original continuous slots. Its contemporaneous raw
@@ -37,14 +37,15 @@ def calendar_pair_factors(panel, contracts, window, *, cancel_event=None):
         close = panel.close[aliases].to_numpy()
         days = panel.days_to_expiry[aliases].to_numpy()
         mapping = panel.mapping[aliases].to_numpy()
-        for slot in (1, 2):
-            channel, alias = f"0{slot}-03", aliases[slot]
-            series = np.array([_annual(c[slot], c[3], d[slot], d[3]) for c, d in zip(close, days)])
+        for channel in channels:
+            slot, far_slot = (int(s) for s in channel.split("-"))
+            alias = aliases[slot]
+            series = np.array([_annual(c[slot], c[far_slot], d[slot], d[far_slot]) for c, d in zip(close, days)])
             annual[alias] = series
             seen = set()
             for i, stamp in enumerate(index):
                 check_cancelled(cancel_event)
-                near, far = mapping[i, slot], mapping[i, 3]
+                near, far = mapping[i, slot], mapping[i, far_slot]
                 if isinstance(near, str) and isinstance(far, str) and near != far:
                     seen.add((near, far))
                 history = series[max(0, i-window):i]
@@ -70,7 +71,7 @@ def calendar_pair_factors(panel, contracts, window, *, cancel_event=None):
         history="previous complete window_days trading sessions; excludes entire current day; ties half weight",
         exit_benchmark="held actual pair today compared with rolling prior continuous entry-channel history",
         quote_availability="saved factor-stage observation only; no fills or lot sizing in CTA",
-        channels=["01-03", "02-03"], window_days=window)
+        channels=list(channels), window_days=window)
 
 
 def calendar_reversal_targets(factors, spec, *, start=None, end=None, cancel_event=None):
@@ -84,7 +85,9 @@ def calendar_reversal_targets(factors, spec, *, start=None, end=None, cancel_eve
         raise BacktestError("Calendar reversal requires saved actual-pair factor diagnostics")
     params = spec.parameters
     channel = params["channel"]
-    slot = int(channel[:2])
+    slot, far_slot = (int(s) for s in channel.split("-"))
+    if channel not in factors.metadata.get("method", {}).get("channels", ("01-03", "02-03")):
+        raise BacktestError("CTA channel is absent from saved factors; recalculate the declared factor channels first")
     roots = sorted({s[:2] for s in factors.panel.mapping})
     if params["root"] != "all":
         roots = [params["root"]]
@@ -145,7 +148,7 @@ def calendar_reversal_targets(factors, spec, *, start=None, end=None, cancel_eve
                         changed = True
             if root in held:
                 continue
-            aliases = f"{root}0{slot}.CFE", root+"03.CFE"
+            aliases = f"{root}0{slot}.CFE", f"{root}0{far_slot}.CFE"
             near, far = (factors.panel.mapping.at[stamp, s] for s in aliases)
             row = lookup.get((stamp, near, far))
             value = row.percentile if row else np.nan

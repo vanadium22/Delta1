@@ -151,6 +151,6 @@ python -m dashboard.backtest.test.validate_performance_ui --config <本机配置
 前者只生成隔离合成价格；后者显式读取所选本机数据，离屏运行日频/自动和两个分辨率，所有报告及截图保持本机。
 
 源码和无真实数据的配置模板随统一分支发布。真实指令、数据、配置及产物仅本机保留，当前工作见 [交接](PROJECT_HANDOFF.md)。
-## 新增：独立跨期48方案研究
+## 相邻跨期与前版48方案研究
 
-原始p阈值、01-03/02-03、四品种、三类退出、双腿20%保证金及六页总结报告见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。入口 `python -m dashboard.backtest.calendar_study`，模板 `calendar_reversal.config.example.json`。复用原因子→CTA→执行阶段；真实数据/配置/结果不提交。
+当前为01-02/02-03、四品种、原始q_open=.9、持有到期，8独立账户、双腿20%保证金。入口 `python -m dashboard.backtest.calendar_study --config <本机配置> --output <新目录> --q-open 0.9 --exits expiry --no-render`，模板 `calendar_reversal.config.example.json`。因子显式声明channels，CTA只读匹配保存产物；先交PNG/HTML示例，确认后再做PDF。旧01-03/02-03的48方案与报告保留；完整说明和复现命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。复用原因子→CTA→执行阶段；真实数据/配置/结果不提交。

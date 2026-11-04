@@ -2,14 +2,26 @@
 
 用户已授权公司电脑的必要测试；以下入口使用明确配置，不要求再次申请测试许可。开发机通过不能代替公司实际运行，结果分别记录。统一分支 `codex/company-apps`，在原公司 Git 根正常 `git pull --ff-only` 后重开回测。
 
-## 48方案跨期专项：公司调用补充（2026-11-03）
+## 当前相邻跨期专项：公司调用（2026-11-04）
+
+当前模板为01-02/02-03 × 四品种，仅原始q_open=.9、持有到期，共8个独立账户。双腿保证金各20%、完整名义每腿每边万三、原引擎锁定实际合约及整数手数不变。正页收益/回撤/Sharpe数值表、后置收益/回撤曲线、最差两笔实际合约价差先交PNG/HTML示例；用户确认后才做新版PDF。旧48方案与既有PDF保留。
+
+复制当前无数据模板到本机配置目录，设置已有审计快照的位置和真实来源声明，运行：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_company01 --q-open 0.9 --exits expiry --no-render
+```
+
+factor.parameters.channels必须为["01-02","02-03"]。不可把旧01-03因子的CTA标签改成01-02；改变channels或window_days必须重算，之后阈值/退出/品种可复用该保存因子。此命令完整验证8个单独重跑、因子重读、3个前缀和逐笔对账，--no-render仅跳过旧48方案报告生成器，不连接Z/DDB/VPN。标准factor/cta/run和两通道tune命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。公司现场有效参数、覆盖末日及8/8对账需另行记录，不能以本机通过替代。
+
+## 前版48方案跨期专项（2026-11-03，保留）
 
 使用统一分支 `codex/company-apps` 和公司现有Git根。本次六页跨期专项说明、无数据配置模板及全部可复制命令见 [CALENDAR_REVERSAL](CALENDAR_REVERSAL.md)。这组原始q_open=.8/.9对应p>.8/.9和p<.2/.1，与前轮中心化阈值不同；保证金明确为双腿各20%。此前期现研究和42页PDF保持原位，本次跨期总结单独限6页。
 
-公司只需复用已审计的本地快照（已有公司转移包包含同SHA快照），无需访问Z、DDB或VPN。复制 `calendar_reversal.config.example.json` 到 `dashboard/localsetting/backtest/calendar_reversal.local.json`，按说明设置data_root、真实来源/version及授权清单；运行时核验SHA。每次指定新输出目录：
+公司只需复用已审计的本地快照（已有公司转移包包含同SHA快照），无需访问Z、DDB或VPN。复现旧48组时在独立本机配置中将factor.parameters.channels改回["01-03","02-03"]，保留原默认完整矩阵；按说明设置data_root、真实来源/version及授权清单，运行时核验SHA。每次指定新输出目录：
 
 ```powershell
-python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_reversal_company01
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal_legacy.local.json --output outputs/backtest/calendar_reversal_company01
 ```
 
 默认48方案并验证48个单独重跑；HTML/PNG/CSV在该输出目录，原生回测文件在cases下，可由既有桌面重开。首次计算一次新跨期因子；之后只改CTA用原factors，改变window_days必须重算。PDF由 `python -m dashboard.backtest.calendar_pdf outputs/backtest/calendar_reversal_company01` 从保存结果生成；依赖reportlab/Pillow/pypdf与Windows微软雅黑。公司缺报告依赖时仍可先查看离线HTML/PNG和CSV，不影响原回测执行。现场有效参数、覆盖末日、48/48及对账结果需单独回传，不能用开发机通过代替公司验收。

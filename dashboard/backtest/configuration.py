@@ -34,6 +34,11 @@ class Parameter:
         elif self.kind == "quantiles":
             from .strategy.term_structure import TermStructureConfig
             TermStructureConfig(quantiles=value)
+        elif self.kind == "calendar_channels":
+            if (not isinstance(value, (list, tuple)) or not value
+                    or any(v not in ("01-02", "01-03", "02-03") for v in value)
+                    or len({v[:2] for v in value}) != len(value)):
+                raise BacktestError(f"{name} requires distinct near slots from 01-02, 01-03, 02-03")
         else:
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
                 raise BacktestError(f"{name} must be a finite {self.kind}")
@@ -63,7 +68,8 @@ FACTOR_SCHEMAS = {
     "annual_calendar_spread_percentile": dict(inputs=("annualized 01-minus-03 carry",), unit="p in [0,1]", parameters={**WINDOW, **CALENDAR}),
     "calendar_pair_percentile": dict(inputs=("raw futures close", "true expiry days", "dated 00..03 mapping"),
         unit="raw p in [0,1]; actual held pairs versus prior entry-channel history",
-        parameters={"window_days": WINDOW["window_days"]}),
+        parameters={"window_days": WINDOW["window_days"],
+                    "channels": Parameter(("01-03", "02-03"), "saved entry channels; one far slot per near slot", "calendar_channels")}),
     "term_structure_percentile": dict(inputs=("annual basis across dated maturities", "prior dates only", "remaining natural days"),
         unit="conditional p in [0,1]", parameters={**ANNUAL, "window_days":WINDOW["window_days"],
         "min_training_samples":Parameter(120, "pooled previous date x contract observations", "integer", 3),
@@ -88,7 +94,7 @@ CTA_SCHEMAS = {
                          "slots": Parameter((0, 1, 2, 3), "candidate slots", "slots")}),
     "expiry_spread": dict(inputs=("01-minus-03 raw percentile", "dated mapping", "expiry reference"), parameters=EXPIRY),
     "calendar_reversal": dict(inputs=("saved continuous p", "saved actual-pair p and quote availability", "expiry reference"),
-        parameters=dict(channel=Parameter("01-03", "fixed entry channel", choices=("01-03", "02-03")),
+        parameters=dict(channel=Parameter("01-03", "fixed entry channel", choices=("01-02", "01-03", "02-03")),
             root=Parameter("all", "independent product account", choices=("all", "IF", "IH", "IC", "IM")),
             q_open=Parameter(.8, "raw upper-tail p; strict >; lower tail p<1-q_open", minimum=.5, maximum=1),
             exit_mode=Parameter("expiry", "exit rule", choices=("expiry", "threshold")),

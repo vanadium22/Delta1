@@ -16,6 +16,9 @@ def validate_factor_artifact(factors,spec,data):
     if recorded is not None:
         recorded=dict(recorded)
         recorded.pop("workers",None)
+        if spec.name == "calendar_pair_percentile":
+            recorded["parameters"] = dict(recorded.get("parameters", {}))
+            recorded["parameters"].setdefault("channels", ("01-03", "02-03"))
     expected.pop("workers",None)
     if recorded is None or _canonical(recorded)!=_canonical(expected) or spec.name not in factors.continuous_factors:
         raise BacktestError("Saved factor declaration differs; 因子参数或计算范围已变化，请先重新计算因子")

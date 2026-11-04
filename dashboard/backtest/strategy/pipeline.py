@@ -173,6 +173,7 @@ def compute_factors(*, market_data=None, data_config=None, source_config=None, f
             if data.dividend_mode != "ignore":
                 raise BacktestError("Calendar pair research requires explicit dividend_mode=ignore")
             values, diagnostics, method = calendar_pair_factors(panel, market.contracts, factors.window_days,
+                                                               channels=(factor_parameters or {}).get(factor_name, {}).get("channels", ("01-03", "02-03")),
                                                                cancel_event=cancel_event)
         elif factor_name.startswith("annual_calendar"):
             from .annual_calendar import annual_calendar_percentile, annual_calendar_spread

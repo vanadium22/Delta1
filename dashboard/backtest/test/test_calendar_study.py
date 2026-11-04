@@ -10,7 +10,9 @@ from dashboard.backtest import BacktestConfig, BacktestError, run_backtest
 from dashboard.backtest.__main__ import load_job
 from dashboard.backtest.calendar_analytics import annual_trade_returns, drawdown_episodes, round_trips
 from dashboard.backtest.calendar_study import fingerprints, run_calendar_study, verify_prefixes
-from dashboard.backtest.configuration import CTASpec
+from dashboard.backtest.configuration import CTASpec, factor_spec
+from dashboard.backtest.factor_cache import validate_factor_artifact
+from dashboard.backtest.models import DataConfig
 from dashboard.backtest.strategy import load_factors
 from dashboard.backtest.strategy.examples import demo_market
 from dashboard.backtest.synthetic import write_inputs
@@ -31,6 +33,49 @@ def fixture():
 
 
 class CalendarStudyTests(unittest.TestCase):
+    def test_adjacent_factor_formula_locked_pair_and_saved_cta(self):
+        market,_=demo_market(35)
+        declaration=job()
+        declaration["factor"]["parameters"]["channels"]=["01-02","02-03"]
+        factors=factor_stage(declaration,market_data=market)
+        table=factors.diagnostics["calendar_pairs"]
+        self.assertEqual(set(table.channel),{"01-02","02-03"})
+        for channel in ("01-02","02-03"):
+            row=table.loc[table.channel.eq(channel)&table.history_count.eq(3)&table.percentile.notna()].iloc[5]
+            self.assertAlmostEqual(row.annual_spread,36500*(row.near_price-row.far_price)/row.near_price/(row.far_t-row.near_t))
+            history=factors.continuous_factors["calendar_pair_annual"].loc[row.history_start:row.history_end,"IC"+channel[:2]+".CFE"]
+            self.assertEqual(row.percentile,((history<row.annual_spread).sum()+.5*(history==row.annual_spread).sum())/3)
+        verify_prefixes(factors)
+        original=fingerprints(factors)
+        with local_temp() as root:
+            factors.save(root/"factor")
+            declaration["cta"]["parameters"]=dict(channel="01-02",q_open=.9,exit_mode="expiry")
+            with patch("dashboard.backtest.strategy.pipeline._load_market",side_effect=AssertionError("CTA must not read market")):
+                a=cta_stage(factors,declaration)
+                b=cta_stage(root/"factor",declaration)
+            pd.testing.assert_frame_equal(a.targets,b.targets)
+            pd.testing.assert_frame_equal(a.decisions,b.decisions)
+            for row in a.decisions.loc[a.decisions.action.eq("signal_open")].itertuples():
+                self.assertEqual(row.near,factors.panel.mapping.at[row.timestamp,"IC01.CFE"])
+                self.assertEqual(row.far,factors.panel.mapping.at[row.timestamp,"IC02.CFE"])
+                self.assertNotEqual(row.far,factors.panel.mapping.at[row.timestamp,"IC03.CFE"])
+        self.assertEqual(original,fingerprints(factors))
+
+    def test_channel_declaration_and_legacy_factor_reuse(self):
+        _,factors=fixture()
+        factors.metadata["factor"]["parameters"].pop("channels")
+        validate_factor_artifact(factors,factor_spec(job()),DataConfig(dividend_mode="ignore"))
+        declaration=job()
+        declaration["cta"]["parameters"]=dict(channel="01-02")
+        with self.assertRaisesRegex(BacktestError,"absent from saved factors"):
+            cta_stage(factors,declaration)
+        declaration["factor"]["parameters"]["channels"]=["01-02","01-03"]
+        with self.assertRaisesRegex(BacktestError,"distinct near slots"):
+            factor_spec(declaration)
+        declaration["factor"]["parameters"]["channels"]=["01-02","02-03"]
+        with self.assertRaisesRegex(BacktestError,"declaration differs"):
+            validate_factor_artifact(factors,factor_spec(declaration),DataConfig(dividend_mode="ignore"))
+
     def test_formula_both_channels_and_real_pair_benchmark(self):
         _,factors=fixture()
         table=factors.diagnostics["calendar_pairs"]
@@ -185,6 +230,21 @@ class CalendarStudyTests(unittest.TestCase):
             summary=result["metrics"]
             self.assertTrue((summary.winning_trades+summary.losing_trades+summary.flat_trades).eq(summary.closed_trades).all())
             pd.testing.assert_series_equal(summary.net_pnl,summary.closed_net_pnl+summary.open_net_pnl,check_names=False,atol=1e-5)
+
+    def test_adjacent_expiry_eight_account_matrix(self):
+        with local_temp() as root:
+            declaration=load_job(write_inputs(root/"inputs")/"structure.local.json")
+            declaration["factor"].update(name="calendar_pair_percentile",parameters=dict(window_days=3,channels=["01-02","02-03"]))
+            declaration["data"]["margin_rates"]={r:.2 for r in ("IF","IH","IC","IM")}
+            declaration["cta"]=dict(name="calendar_reversal",input_factor="calendar_pair_percentile")
+            declaration["backtest"].update(initial_capital=1_000_000,start="2026-01-08",preserve_pair_lots=True,workers=1)
+            result=run_calendar_study(declaration,root/"study",q_opens=(.9,),exit_rules=("expiry",),render=False,progress=lambda _:None)
+            self.assertEqual(len(result["metrics"]),8)
+            self.assertEqual(result["protocol"]["standalone_verified"],8)
+            self.assertEqual(result["protocol"]["channels"],["01-02","02-03"])
+            self.assertEqual(result["metrics"].q_open.unique().tolist(),[.9])
+            self.assertEqual(result["metrics"].exit_mode.unique().tolist(),["expiry"])
+            self.assertEqual(len(result["protocol"]["prefix_checks"]),3)
 
 
 if __name__=="__main__":

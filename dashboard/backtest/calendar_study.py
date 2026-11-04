@@ -1,4 +1,4 @@
-"""48 independent calendar reversal schemes, using the original three workflow stages."""
+"""Independent calendar reversal matrices, using the original three workflow stages."""
 import argparse
 from copy import deepcopy
 from dataclasses import asdict, replace
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .calendar_analytics import drawdown_episodes, round_trips
-from .configuration import factor_spec
+from .configuration import CTASpec, factor_spec
 from .factor_cache import validate_factor_artifact
 from .io import frame_fingerprint, write_json
 from .models import BacktestConfig, BacktestError, DataConfig
@@ -35,13 +35,15 @@ def _coverage(factors, config, window):
     index=factors.panel.close.index
     common=pd.Series(True,index=index)
     rows=[]
+    channels=factors.metadata["method"]["channels"]
     for root in sorted({s[:2] for s in factors.panel.mapping}):
-        for slot in (1,2):
-            near,far=f"{root}0{slot}.CFE",root+"03.CFE"
+        for channel in channels:
+            near,far=(root+s+".CFE" for s in channel.split("-"))
             valid=factors.panel.close[[near,far]].gt(0).all(axis=1) & factors.panel.days_to_expiry[[near,far]].ge(0).all(axis=1)
+            valid &= factors.panel.days_to_expiry[far].gt(factors.panel.days_to_expiry[near])
             common &= valid
             last=index[valid][-1] if valid.any() else None
-            rows.append(dict(root=root,channel=f"0{slot}-03",last_common_quote=str(last.date()) if last is not None else None,
+            rows.append(dict(root=root,channel=channel,last_common_quote=str(last.date()) if last is not None else None,
                              valid_sessions=int(valid.sum()),missing_sessions=int((~valid).sum())))
     if not common.any():
         raise BacktestError("No common futures-pair coverage")
@@ -52,13 +54,14 @@ def _coverage(factors, config, window):
     eligible=index[(index>=start)&(index<=end)]
     if eligible.empty or (index<eligible[0]).sum()<window:
         raise BacktestError("Requested evaluation start lacks its complete prior warmup")
-    active=factors.continuous_factors["calendar_pair_percentile"].filter(regex=r"0[12]\.CFE$").loc[eligible]
+    aliases=[root+channel[:2]+".CFE" for root in sorted({s[:2] for s in factors.panel.mapping}) for channel in channels]
+    active=factors.continuous_factors["calendar_pair_percentile"].loc[eligible,aliases]
     if active.isna().any().any():
         raise BacktestError("Evaluation has missing calendar factors/quotes; inspect data rather than fill or shorten history")
     return str(eligible[0].date()),str(eligible[-1].date()),dict(price_start=str(index[0].date()),
         snapshot_end=str(index[-1].date()),common_pair_end=str(index[common][-1].date()),
         requested_start=str(start.date()),warmup_sessions=int((index<eligible[0]).sum()),window_days=window,pairs=rows,
-        scope="futures legs only; no spot coverage dependency",end_policy="minimum common valid coverage end across all eight root/channel pairs")
+        scope="futures legs only; no spot coverage dependency",end_policy=f"last simultaneous valid observation across all {len(rows)} root/channel pairs")
 
 
 def verify_prefixes(factors):
@@ -67,7 +70,8 @@ def verify_prefixes(factors):
     for stop in sorted({max(3,int(len(panel.close)*f)) for f in (.4,.7,.9)}):
         sliced={k:getattr(panel,k).iloc[:stop] for k in ("close","spot","dividend_points","days_to_expiry","mapping")}
         prefix=ContinuousPanel(**sliced)
-        values,diagnostics,_=calendar_pair_factors(prefix,factors.contracts,factors.metadata["method"]["window_days"])
+        values,diagnostics,_=calendar_pair_factors(prefix,factors.contracts,factors.metadata["method"]["window_days"],
+                                                  channels=factors.metadata["method"]["channels"])
         for key,value in values.items():
             pd.testing.assert_frame_equal(value,factors.continuous_factors[key].iloc[:stop])
         expected=factors.diagnostics["calendar_pairs"]
@@ -81,10 +85,24 @@ def verify_prefixes(factors):
     return checks
 
 
-def run_calendar_study(job, output, *, verify=True, render=True, progress=print):
+def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
+                       q_opens=(.8,.9), exit_rules=("expiry","close0.6","close0.4")):
     spec=factor_spec(job)
     if spec.name!="calendar_pair_percentile" or set(spec.roots)!={"IF","IH","IC","IM"}:
-        raise BacktestError("48-scheme study requires calendar_pair_percentile for IF/IH/IC/IM")
+        raise BacktestError("Calendar study requires calendar_pair_percentile for IF/IH/IC/IM")
+    channels=spec.parameters["channels"]
+    exits={"expiry":("expiry",.6),"close0.6":("threshold",.6),"close0.4":("threshold",.4)}
+    if not q_opens or len(set(q_opens))!=len(q_opens) or not exit_rules or len(set(exit_rules))!=len(exit_rules) or any(r not in exits for r in exit_rules):
+        raise BacktestError("Matrix thresholds and exits must be nonempty and unique; exits: expiry, close0.6, close0.4")
+    for q in q_opens:
+        for rule in exit_rules:
+            mode,close=exits[rule]
+            CTASpec(name="calendar_reversal",parameters=dict(q_open=q,exit_mode=mode,q_close=close))
+    scenario_count=len(channels)*len(spec.roots)*len(q_opens)*len(exit_rules)
+    legacy_matrix=(tuple(channels)==("01-03","02-03") and tuple(q_opens)==(.8,.9)
+                   and tuple(exit_rules)==("expiry","close0.6","close0.4"))
+    if render and not legacy_matrix:
+        raise BacktestError("The legacy renderer requires its complete 48-scheme matrix; use --no-render for a custom matrix")
     cfg=BacktestConfig(**job["backtest"])
     if cfg.mode!="product" or cfg.weight_mode!="neutral_units" or cfg.precision!="1d" or cfg.d0!=0 or not cfg.rebalance_on_change_only or not cfg.preserve_pair_lots or cfg.liquidate_at_end:
         raise BacktestError("Calendar study requires product, daily, neutral_units, d0=0, on-change and preserved lots; leave end holdings open")
@@ -116,12 +134,13 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print)
     metrics,all_trips,all_legs,all_paths,drawdowns,curves,verification=[],[],[],[],[],[],[]
     cases=[]
     case_id=0
-    for channel in ("01-03","02-03"):
-        for q_open in (.8,.9):
-            for exit_mode,q_close in (("expiry",.6),("threshold",.6),("threshold",.4)):
+    for channel in channels:
+        for q_open in q_opens:
+            for rule in exit_rules:
+                exit_mode,q_close=exits[rule]
                 case_id+=1
                 exit_label="expiry" if exit_mode=="expiry" else f"close{q_close:.1f}"
-                case=f"{channel}_open{q_open:.1f}_{exit_label}"
+                case=f"{channel}_open{q_open:.15g}_{exit_label}"
                 folder=out/"cases"/case
                 folder.mkdir(parents=True)
                 case_job=deepcopy(job)
@@ -131,7 +150,7 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print)
                 base_weight=job.get("cta",{}).get("parameters",{}).get("position_weight",.495)
                 case_job["cta"]=dict(name="calendar_reversal",input_factor=spec.name,parameters=dict(
                     channel=channel,root="all",q_open=q_open,exit_mode=exit_mode,q_close=q_close,position_weight=base_weight))
-                progress(f"{case_id}/12 {case}：4 个独立账户，调用原回测阶段")
+                progress(f"{case_id}/{scenario_count//len(spec.roots)} {case}：4 个独立账户，调用原回测阶段")
                 signals=cta_stage(factors,case_job,output_dir=folder/"cta")
                 reloaded=cta_stage(factors.output_paths["output_dir"],case_job)
                 pd.testing.assert_frame_equal(signals.targets,reloaded.targets)
@@ -164,8 +183,8 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print)
                         raw_factor_unchanged=True,locked_pair_and_lots=True,two_leg_pnl_fees_margin_equity=True,
                         drawdown_dates_equal=True,closed_sample=int(stats["closed_trades"])))
     summary=pd.DataFrame(metrics)
-    if len(summary)!=48 or summary.scenario.nunique()!=48:
-        raise BacktestError("48-scheme matrix is incomplete")
+    if len(summary)!=scenario_count or summary.scenario.nunique()!=scenario_count:
+        raise BacktestError("Calendar scheme matrix is incomplete")
     outputs={"account_metrics":summary,"round_trips":pd.concat(all_trips,ignore_index=True),
         "trade_legs":pd.concat(all_legs,ignore_index=True),"trades_daily":pd.concat(all_paths,ignore_index=True),
         "drawdown_top3":pd.concat(drawdowns,ignore_index=True),"equity_drawdown":pd.concat(curves,ignore_index=True),
@@ -178,21 +197,21 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print)
     if fingerprints(factors)!=before or _hashes(paths)!=source_hashes:
         raise BacktestError("Original factor or source snapshot changed during research")
     write_json(out/"input_sha256.local.json",source_hashes)
-    protocol=dict(schema_version="calendar_reversal_48_v1",research_date=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),data=asdict(data),factor=asdict(spec),
+    protocol=dict(schema_version="calendar_reversal_48_v1" if legacy_matrix else "calendar_reversal_matrix_v2",research_date=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),data=asdict(data),factor=asdict(spec),
         evaluation_start=start,evaluation_end=end,coverage=coverage,capital_per_account=cfg.initial_capital,
-        scenario_count=48,cases=cases,margin_rate=.2,commission_rate=cfg.commission_rate,
+        scenario_count=scenario_count,cases=cases,channels=list(channels),q_opens=list(q_opens),exit_rules=list(exit_rules),margin_rate=.2,commission_rate=cfg.commission_rate,
         backtest=asdict(replace(cfg,start=start,end=end)),factor_artifact=factors.output_paths["output_dir"],
         factor_computations=0 if job.get("factor_input") else 1,all_inputs_sha_unchanged=True,
-        threshold_semantics="raw p > .8/.9 short, p < .2/.1 long; no centered labels",
+        threshold_semantics="raw p > q_open short, p < 1-q_open long; strict; no centered labels",
         exit_benchmark=factors.metadata["method"]["exit_benchmark"],
         execution="next common valid observation; daily data fills actual next close; original engine expiry same-day close",
-        dividends="explicitly ignored",accounting="48 independent capital accounts; no shared cash/netting; equal opposite integer lots",
+        dividends="explicitly ignored",accounting=f"{scenario_count} independent capital accounts; no shared cash/netting; equal opposite integer lots",
         trade_return="net PnL / frozen actual entry margin; zero-day or r<=-1 annualization not applicable",
         win_rate="net winning closed trips / all closed trips per scheme; flat trades separate; open trips excluded",
         drawdown="top 3 non-overlapping high-watermark to recovery episodes; unrecovered to sample end; fewer than 3 if insufficient episodes",
         statistical_scope="descriptive historical parameter comparison; no holdout or multiple-testing correction; no predictive claim",
         availability_limit="algorithmic prefix invariance verified; dated reference metadata is not a complete point-in-time publication archive",
-        standalone_verified=48 if verify else 0,prefix_checks=prefixes,ddb="paused",vpn="untouched",z_source="not accessed")
+        standalone_verified=scenario_count if verify else 0,prefix_checks=prefixes,ddb="paused",vpn="untouched",z_source="not accessed")
     write_json(out/"study.local.json",protocol)
     if render:
         from .calendar_report import render_calendar_report
@@ -207,8 +226,10 @@ def main(argv=None):
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--no-verify",action="store_true",help="skip independent reruns and prefix verification; exploratory runs only")
     parser.add_argument("--no-render",action="store_true")
+    parser.add_argument("--q-open",type=float,nargs="+",default=[.8,.9],help="raw opening p thresholds; default .8 .9")
+    parser.add_argument("--exits",nargs="+",choices=("expiry","close0.6","close0.4"),default=["expiry","close0.6","close0.4"])
     args=parser.parse_args(argv)
-    run_calendar_study(load_job(args.config),args.output,verify=not args.no_verify,render=not args.no_render,
+    run_calendar_study(load_job(args.config),args.output,verify=not args.no_verify,render=not args.no_render,q_opens=args.q_open,exit_rules=args.exits,
                        progress=lambda s:print(s,flush=True))
     return 0
 

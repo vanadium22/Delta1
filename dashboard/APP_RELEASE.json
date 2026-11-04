@@ -1231,6 +1231,36 @@
         "dashboard/backtest/workflow.py",
         "dashboard/backtest/test/test_calendar_study.py"
       ]
+    },
+    "calendar_adjacent_study": {
+      "base_commit": "e8915e8",
+      "date": "2026-11-04",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry --no-render",
+      "matrix": "01-02 / 02-03 x IF/IH/IC/IM; raw q_open .9; expiry only; 8 independent accounts",
+      "factor": "explicit channels; one far per near slot; saved actual-pair quotes/p; changing channels requires factor recomputation",
+      "compatibility": "default original 48-scheme matrix and legacy factor declarations retained; absent saved CTA channels rejected",
+      "validation": "163 offline regressions in 52.614s; Ruff; 8 real standalone reruns; factor reload/prefix/ledger checks; prior 02-03 values identical",
+      "execution": "original engine/api unchanged; both legs 20% margin; integer lots; full-notional .0003 commission each side",
+      "report": "PNG/HTML preview only; front metric tables with Sharpe, later return/drawdown curves; two largest within-trade drawdowns and two worst final closed losses per channel ranked separately, actual signed near-minus-far point spreads over holding dates with entry/exit/peak/trough; no new PDF until user review",
+      "data_policy": "audited local snapshot only; DDB/VPN paused; Z not accessed; all real data/config/results ignored",
+      "evidence": "local_artifacts/validation/2026-11-04/calendar_adjacent/",
+      "company_acceptance": "pending_actual_company_run",
+      "files": [
+        "COMPANY_SYNC.md",
+        "dashboard/APP_RELEASE.json",
+        "dashboard/backtest/AGENTS.md",
+        "dashboard/backtest/CALENDAR_REVERSAL.md",
+        "dashboard/backtest/COMPANY_BACKTEST_TEST.md",
+        "dashboard/backtest/PROJECT_HANDOFF.md",
+        "dashboard/backtest/README.md",
+        "dashboard/backtest/calendar_reversal.config.example.json",
+        "dashboard/backtest/calendar_study.py",
+        "dashboard/backtest/configuration.py",
+        "dashboard/backtest/factor_cache.py",
+        "dashboard/backtest/strategy/calendar_pairs.py",
+        "dashboard/backtest/strategy/pipeline.py",
+        "dashboard/backtest/test/test_calendar_study.py"
+      ]
     }
   }
 }
