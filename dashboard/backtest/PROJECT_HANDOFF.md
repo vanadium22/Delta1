@@ -1,6 +1,21 @@
 # 回测与策略框架交接
 
-2026-11-05，统一分支 `codex/company-apps`。当前仅持有到期放大报告接续 `6d789bf`；跨期100%保证金执行版本 `0553502` 已发布；仅多期货研究接续 `b99094b`，标准调参接续 `1fdcac5`，固定档位研究接续 `e778dff`；此前年化结构接续 `c736eb8`，标准输入框架从 `6777c4d` 接续。入口为 `dashboard/start_backtest.vbs`，备用 CMD、CLI 和绝对脚本入口保留。
+2026-11-05，统一分支 `codex/company-apps`。当前仅持有到期放大报告说明与模板已发布于 `007d49b`；跨期100%保证金执行版本 `0553502` 已发布；仅多期货研究接续 `b99094b`，标准调参接续 `1fdcac5`，固定档位研究接续 `e778dff`；此前年化结构接续 `c736eb8`，标准输入框架从 `6777c4d` 接续。入口为 `dashboard/start_backtest.vbs`，备用 CMD、CLI 和绝对脚本入口保留。
+
+## 新对话接续：跨期价格差反转，具体问题待用户说明
+
+用户已要求保留当前交接，下一次将研究一些跨期价格差反转问题，具体规则届时由用户提供。本轮报告工作已完成；目前没有新的回测、调参、数据获取或改图任务。下方到期8账户与历史比较均为已完成基线，不自动成为新研究的品种、配对、阈值、退出、窗口或资金参数，也不把此前误拆的单尾32账户当作当前策略。新问题未说明前先读取交接、确认接续状态，不自行启动研究。
+
+当前实际交付已核验保留在本机 `outputs/backtest/calendar_both_tails_expiry_median_margin100_20261105/delivery_expiry_only/`：最终PDF为 `output/pdf/Delta1_calendar_expiry_only_enlarged_20261105.pdf`，离线入口 `preview.html`，证据 `verification.json`、`pdf_audit.json`、`MANIFEST.json`；完整ZIP在其上层目录。真实数据、配置、报告、绘图和核验脚本继续留在忽略目录，不随Git发布。此次交接整理只更新说明，不改已有结果。
+
+可直接复制的新对话提示词：
+
+```text
+继续Delta1的跨期价格差反转研究，复用 P:/project/swhy/Delta1/company-apps-worktree，分支 codex/company-apps。
+先读仓库根、dashboard、dashboard/backtest 的相关AGENTS.md，以及 dashboard/backtest/PROJECT_HANDOFF.md 和 CALENDAR_REVERSAL.md，核对工作区状态，保留现有文件和历史结果。
+上一轮仅持有到期的两组跨期、8账户报告已完成并归档，作为历史基线。新的研究问题、品种、配对和交易规则由我随后具体说明；先确认接续状态，等我说明，不自动套用旧参数或开始新回测。
+后续保持“数据→因子→CTA→回测引擎”分离，复用原账户、整数手数、费用、成交、日结、到期及爆仓逻辑；优先使用已有审计快照。DDB获取和VPN继续暂停，Z源仅按已有授权只读且不修改；真实数据、配置和结果不提交Git。
+```
 
 ## 当前交付：删除0.5退出，仅持有到期、放大图表
 

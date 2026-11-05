@@ -1232,6 +1232,15 @@
         "dashboard/backtest/test/test_calendar_study.py"
       ]
     },
+    "calendar_reversal_next_chat_handoff": {
+      "date": "2026-11-05",
+      "completed_report_commit": "007d49bd58296aa0e56fda2143a309dbce01f7fb",
+      "status": "previous_report_complete_next_research_details_pending_user",
+      "handoff": "dashboard/backtest/PROJECT_HANDOFF.md",
+      "scope": "preserve completed expiry-only report and evidence; save a copyable next-chat prompt for calendar price-spread reversal research; no new rules inferred or backtests/acquisition started",
+      "validation": "existing local PDF and verification record present; documentation and release JSON checks only; real outputs unchanged",
+      "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/PROJECT_HANDOFF.md"]
+    },
     "calendar_expiry_only_enlarged": {
       "date": "2026-11-05",
       "base_commit": "6d789bf507ad383153b169829a18dd871788c70f",
