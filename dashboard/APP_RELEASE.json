@@ -1264,6 +1264,16 @@
     },
     "calendar_history_positions_preview": {
       "latest_pdf": {
+        "layout_revision": {
+          "date": "2026-11-05",
+          "base_commit": "86b53dea063d09d3d766ff6c472589a0c41b0840",
+          "scope": "pages 2/5: full-page larger charts, remove duplicate titles and long prose; retain actual leg sides/lots, dates, percentile thresholds and native positions; six pages total",
+          "chart_size_change": "spread axes about 19% wider and 47% taller in physical PDF dimensions",
+          "validation": "new pages rendered and inspected, embedded PNG pixels exact; other four pages content/pixels identical; native table cells preserved; 29 CSV, 30 other PNG and interactive pages byte-identical; 474 old files retain SHA; local links and portable ZIP CRC/SHA verified",
+          "evidence": "local_artifacts/validation/2026-11-05/calendar_large_charts/",
+          "local_delivery": "report_large_charts_v6_20261105; real reports/data/local scripts excluded from Git; no factor/CTA/backtest recomputation",
+          "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/AGENTS.md", "dashboard/backtest/PROJECT_HANDOFF.md"]
+        },
         "base_commit": "928d16a43ae9d6a93a1f3d7500a6eb64a3189a82",
         "date": "2026-11-04",
         "status": "user_approved_examples_updated_pdf_complete",
