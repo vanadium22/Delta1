@@ -8,7 +8,7 @@
 
 复用已审计因子（本次主要因子计算0次），2023-07-03暖启动，2024-01-02至2026-10-14共同覆盖；32账户各自单独重跑、保存因子重读、三截点前缀、无隐含换月、355笔方向与p、逐腿费用/PnL/保证金和权益、94段回撤通过核对；167项离线回归与Ruff通过。单方向无信号账户正常返回0笔及带列名的空交易/回撤结果。图不再叠加灰色连续参考：空仓段深蓝连续通道，持仓段实际pair整笔净盈红/净亏绿，换pair处断线；价格原始点差，p基于年化价差。金色标单笔最大持仓回撤，蓝/紫状态带区分多空，信号与成交分开。详细32账户收益/回撤/分布图、最大持仓回撤实际pair案例及CSV外置，不混合账户胜率。
 
-调用见[跨期说明](CALENDAR_REVERSAL.md)与[公司测试](COMPANY_BACKTEST_TEST.md)。本机结果outputs/backtest/calendar_four_strategies_margin100_20261105/；delivery/output/pdf/为6页可提取文字的PDF，delivery/index.html为离线图表，78PNG/17CSV及ZIP外置。PDF逐页渲染、32行352单元格与CSV一致；25440个价差/p绘点、21472个引擎持仓日、254回撤标点、345笔闭合分布样本和84个本地链接通过复核。运行配置和核验脚本在忽略目录local_artifacts/validation/2026-11-05/calendar_four_strategies/；真实数据、配置、结果及本机绘图脚本均不入Git，原报告保留。DDB/VPN暂停、Z未访问，公司现场待运行。
+调用见[跨期说明](CALENDAR_REVERSAL.md)与[公司测试](COMPANY_BACKTEST_TEST.md)。本机结果outputs/backtest/calendar_four_strategies_margin100_20261105/；delivery/output/pdf/为6页可提取文字的PDF，delivery/index.html为离线图表，78PNG/18CSV及ZIP外置，PDF含8组代表性最大持仓回撤实合约及峰谷表。逐笔表拆分持仓/峰谷日期、实际方向手数、点差和p变化、毛损益及期间新增费用，并分别保存各账户前两笔持仓回撤/最终闭合亏损。PDF逐页渲染、32行352单元格与CSV一致；25440个价差/p绘点、21472个引擎持仓日、254回撤标点、345笔闭合分布样本、355笔区间账务和85个本地链接通过复核。运行配置和核验脚本在忽略目录local_artifacts/validation/2026-11-05/calendar_four_strategies/；真实数据、配置、结果及本机绘图脚本均不入Git，原报告保留。DDB/VPN暂停、Z未访问，公司现场待运行。
 
 ## 前版：整笔实际持仓净盈红、净亏绿
 
