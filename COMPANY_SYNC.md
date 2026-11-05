@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-05跨期曲线颜色纠正接续07d9861：每笔实际开仓至平仓整段按最终扣费后净PnL，盈利红、亏损绿，未平仓按期末净浮盈亏，连续参照/空仓灰色；点差/p、单笔放大、账户曲线及离线交互统一，蓝/紫状态带仅表多空。6页PDF、32PNG/30CSV另存，新增逐笔颜色基准CSV；115笔逐腿/费用/颜色、保存报价/p和图形逐笔核对，原29CSV及545项旧文件SHA不变。本轮无因子/CTA/执行重算，真实产物不入Git。[口径](dashboard/backtest/CALENDAR_REVERSAL.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-05跨期报告排版接续86b53de：第2/5页整页放大点差/分位/持仓图，去重复说明，保留实际多空与日期；点差绘图区约宽19%、高47%。PDF仍6页，其他四页内容及渲染像素相同，29CSV不变；新页/嵌图/原生表/全部链接及包CRC/SHA已核验。仅说明更新入Git，真实报告与数据仍本机忽略，因子/CTA/执行未重算。[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
 
 - 2026-11-04跨期报告接续928d16a：用户确认四品种2×2全历史版式后，点差下方补入同轴保存原始p及实际持仓，0.9/0.1与信号/成交/退出p明确区分。已完成6页A3横向PDF，首页前置全部8账户收益/年化CAGR/最大回撤日期/Sharpe与总结，收益分布含各自胜率及盈利/亏损均值，曲线后置；32PNG/29CSV/8笔放大案例外置。原生表逐格对账、6页逐页渲染、离线交互/原生持仓/保存p及包CRC/SHA核验通过，403项旧产物SHA保持。沿用100%账户，本轮因子/CTA/执行均0次重算；真实报告/数据/配置不入Git，旧报告保留，DDB/VPN暂停，Z未访问。[口径](dashboard/backtest/CALENDAR_REVERSAL.md)、[公司调用](dashboard/backtest/COMPANY_BACKTEST_TEST.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。

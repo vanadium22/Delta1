@@ -1264,6 +1264,16 @@
     },
     "calendar_history_positions_preview": {
       "latest_pdf": {
+        "trade_color_revision": {
+          "date": "2026-11-05",
+          "base_commit": "07d98613784d3abfecd79f03f1cbad202a7583ff",
+          "scope": "whole executed entry-to-exit trade has one color from its final net PnL after actual two-leg fees: profit red, loss green, flat gray; open trades explicitly use sample-end marked net PnL; never color by daily price/percentile changes",
+          "charts": "all locked actual pairs plotted separately; gray continuous reference/flat periods; spread, saved p, enlarged cases, account holding segments and offline interactions consistent; blue/purple band still means direction; retrospective labeling only",
+          "validation": "115 trades rebuilt from legs/fees; 944 uniform-color artist checks, 230 offline actual-pair traces and original 128 drawdown markers verified; PDF native content streams/tables unchanged; revised PNGs and PDF rendered/inspected; 29 original CSV and 545 protected prior files retain SHA; ZIP CRC/SHA and local links verified",
+          "delivery": "six-page PDF; 32 PNG / 30 CSV including 115-row trade_segment_colors; report_trade_pnl_colors_v7_20261105; real artifacts excluded from Git, factor/CTA/backtest recomputation zero",
+          "evidence": "local_artifacts/validation/2026-11-05/calendar_trade_colors/",
+          "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/AGENTS.md", "dashboard/backtest/CALENDAR_REVERSAL.md", "dashboard/backtest/COMPANY_BACKTEST_TEST.md", "dashboard/backtest/PROJECT_HANDOFF.md"]
+        },
         "layout_revision": {
           "date": "2026-11-05",
           "base_commit": "86b53dea063d09d3d766ff6c472589a0c41b0840",
@@ -1284,7 +1294,7 @@
         "validation": "6360 historical observations, all 115 trades / 4428 actual-pair dates, 40 selected markers, native positions and two-leg fees/PnL reconciled; all native PDF table cells matched to CSV; six pages rendered and visually inspected; two offline interactive pages including holding bands verified; 403 previous files retain SHA",
         "recomputations": {"factor": 0, "cta": 0, "backtest": 0},
         "engine_tests": "unchanged execution; prior 164-test baseline retained, not rerun for report/docs update",
-        "delivery": "local report_percentile_v5 output/pdf plus 32 PNG / 29 CSV / offline HTML and eight enlarged cases; portable ZIP CRC and per-file SHA verified; real artifacts and local plotting scripts excluded from Git",
+        "delivery": "latest local report_trade_pnl_colors_v7_20261105 output/pdf plus 32 PNG / 30 CSV / offline HTML and eight enlarged cases; portable ZIP CRC and per-file SHA verified; real artifacts and local plotting scripts excluded from Git",
         "evidence": "local_artifacts/validation/2026-11-04/calendar_pdf_percentile/",
         "data_policy": "audited local snapshot only; old previews/PDF preserved; DDB/VPN paused; Z not accessed",
         "files": [
@@ -1316,7 +1326,7 @@
       "base_commit": "055350222717e553d1d52309ac8d9f045cf8b9ea",
       "date": "2026-11-04",
       "scope": "existing eight 100-percent-margin accounts; report-only examples; no factor/CTA/backtest recomputation",
-      "colors": "red up/profit, green down/loss; blue long spread, purple short spread, gray no holdings",
+      "colors": "whole actual trade final net profit red, net loss green; open trades use sample-end marked net PnL; gray continuous reference/flat; blue long spread and purple short spread holding band",
       "history": "four roots per channel; dated continuous near-minus-far point history; highlight largest within-trade drawdown separately per root and its locked actual pair",
       "holding_state": "native executed/post-close positions; entry inclusive, closed exit exclusive; warmup separate; dated sample-end status; offline hover actual contracts/direction/lots/trade_id",
       "validation": "all historical prices/native holdings, closed exits/end status, independently reconstructed trade PnL/drawdowns/rankings, histogram samples and drawdown plot dates verified; two offline interactive pages rendered in headless Chrome; protected prior artifacts retain SHA",
