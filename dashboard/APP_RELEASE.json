@@ -1232,7 +1232,21 @@
         "dashboard/backtest/test/test_calendar_study.py"
       ]
     },
+    "calendar_expiry_only_enlarged": {
+      "date": "2026-11-05",
+      "base_commit": "6d789bf507ad383153b169829a18dd871788c70f",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry --sides both --no-render",
+      "scope": "user removed median exit; retain 01-02/02-03 x four independent products = eight accounts; low-p long/high-p short within each account, fixed 100 percent margin, capital/fees/actual-pair expiry unchanged",
+      "tuning_template": "two channel configurations, fixed exit_mode=expiry and allowed_spread_side=both; inactive q_close retained for compatibility",
+      "implementation": "no factor/CTA/engine changes or reruns; select frozen expiry rows and enlarge presentation; old comparisons and source outputs retained",
+      "report": "six A3 landscape pages, three per channel: metrics and 2x2 distribution, full-page four-product history, drawdown-case table and four account curves; approximate chart areas 2.37x/1.97x/2.98x previous version",
+      "validation": "all 22 CSV files equal previous expiry rows cell by cell; 104 native PDF cells and six embedded figures match source; 6360 quotes/percentiles, 5368 native position days, 24 drawdown episodes/64 markers and 110 closed histogram samples checked; all six pages visually inspected; prior interactive HTML copied byte-for-byte; ZIP SHA/CRC passed",
+      "data_policy": "all real config/data/results remain ignored; DDB/VPN paused, Z not accessed",
+      "company_acceptance": "pending_actual_company_run",
+      "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/AGENTS.md", "dashboard/backtest/CALENDAR_REVERSAL.md", "dashboard/backtest/COMPANY_BACKTEST_TEST.md", "dashboard/backtest/PROJECT_HANDOFF.md", "dashboard/backtest/calendar_reversal.config.example.json"]
+    },
     "calendar_two_way_four_cases": {
+      "status": "archived_after_expiry_only_report_request",
       "date": "2026-11-05",
       "base_commit": "ace0966eb18511f7803076c12b0d93315e2e93cc",
       "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry close0.5 --sides both --no-render",

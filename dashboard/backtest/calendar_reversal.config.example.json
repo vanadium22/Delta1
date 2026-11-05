@@ -40,9 +40,8 @@
   "factor_input": null,
   "tuning": {
     "grid": {
-      "cta.parameters.channel": ["01-02", "02-03"],
-      "cta.parameters.exit_mode": ["expiry", "threshold"]
+      "cta.parameters.channel": ["01-02", "02-03"]
     },
-    "max_runs": 4
+    "max_runs": 2
   }
 }

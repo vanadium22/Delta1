@@ -1,6 +1,18 @@
 # 跨期反转：相邻跨期与独立账户
 
-## 当前：双向反转，两种退出、四种情况（2026-11-05）
+## 当前：双向反转，仅持有到期，放大版（2026-11-05）
+
+用户最新删除0.5退出，其他口径不变：01-02、02-03 × IF/IH/IC/IM共8个独立账户，同账户p<0.1买近卖远、p>0.9卖近买远，严格越界；1000万元初始资金、双腿100%保证金、每腿每边完整名义万三。入场后锁定实际pair，任一腿到期按原引擎当日close双平，不因持仓分位变化平仓。
+
+本次仅从已验证结果筛选到期8账户，因子/CTA/执行未重跑，原账户数值不变。PDF仍6页，每通道三页：数值与2×2收益分布、四品种整页全历史点差/p/持仓、收益回撤与两笔大回撤表；图表空间约为前版每账户的2-3倍。深蓝样式、整笔净盈红/净亏绿、多空色带、原始点差及p口径保留。完整8账户CSV/PNG/离线HTML单独交付，旧报告与中位退出结果归档。
+
+当前模板exit_mode=expiry、allowed_spread_side=both；tune网格仅两通道，共2配置/8品种账户。q_close是兼容参数，在expiry下不生效。已有兼容因子可配置factor_input复用；公司仅复现本轮时运行：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_expiry_company01 --q-open 0.9 --exits expiry --sides both --no-render
+```
+
+## 前版比较：双向反转，两种退出、四种情况（2026-11-05）
 
 用户明确低尾 `p<0.1` 买近卖远、高尾 `p>0.9` 卖近买远是**同一个双向反转账户**。仅退出方式有两种：持有到期，或多价差 `p>=0.5` / 空价差 `p<=0.5` 发平仓信号。乘01-02、02-03共四种情况，每种IF/IH/IC/IM分别独立，**合计16个账户**。不能把分开多空的交易事后相加当同一账户；平仓前不能重叠开仓。每账户1000万元、双腿各100%保证金、每腿每边全名义万三；原引擎处理真实整数手数、成交、费用和到期双平。
 
@@ -14,7 +26,7 @@
 python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_two_way_company01 --q-open 0.9 --exits expiry close0.5 --sides both --no-render
 ```
 
-该命令验证16账户单独重跑、保存因子重读、三截点前缀及逐笔账务；`--no-render`仅跳过旧48组报告生成器。首次公司本机无兼容因子则factor_input=null计算一次；调整通道/历史窗口需重算因子，阈值或退出可复用。当前模板tune网格也是两通道×两退出，共4配置/16品种账户；q_close=.5，方向both。前版分开多空的32账户是对需求的误拆，产物保留但不采用。真实配置、行情和结果不入Git，公司现场独立验收。
+该前版比较命令验证16账户单独重跑、保存因子重读、三截点前缀及逐笔账务；`--no-render`仅跳过旧48组报告生成器。首次公司本机无兼容因子则factor_input=null计算一次；调整通道/历史窗口需重算因子，阈值或退出可复用。前版模板曾为两通道×两退出，共4配置/16品种账户；当前已收窄为上方仅到期2配置。此前分开多空的32账户是对需求的误拆，产物保留但不采用。真实配置、行情和结果不入Git，公司现场独立验收。
 
 报告按用户指定v7样式，6页A3横向、深蓝表头。按追加要求**持有到期和0.5退出分别成页，不在同一页混放**：第1-4页为01-02到期、01-02中位退出、02-03到期、02-03中位退出，每页本情况4账户数值/分布、两笔大回撤示例和收益回撤；第5页仅到期、第6页仅中位退出的全历史点差-p-持仓，分别含两个跨期。各账户分列胜率与盈利/亏损均值；全部16账户详图、案例与CSV外置。旧PDF保留。
 
@@ -90,7 +102,7 @@ python -m dashboard.backtest.workflow cta --config dashboard/localsetting/backte
 python -m dashboard.backtest.workflow run --config dashboard/localsetting/backtest/calendar_reversal.local.json --input outputs/backtest/calendar_cta01 --output outputs/backtest/calendar_account01
 ```
 
-只改CTA阈值/退出/已保存通道/品种、资金或费用，复用同一因子；改 `factor.parameters.window_days`（例如40或120）或channels后重新运行factor。再次跑矩阵时可将顶层 `factor_input` 设为原run的 `factors` 绝对路径，声明和输入SHA不符会拒绝。原 `workflow tune` 兼容此因子与CTA；当前模板grid为两组通道×expiry/threshold，固定q_open=.9、q_close=.5、方向both：
+只改CTA阈值/退出/已保存通道/品种、资金或费用，复用同一因子；改 `factor.parameters.window_days`（例如40或120）或channels后重新运行factor。再次跑矩阵时可将顶层 `factor_input` 设为原run的 `factors` 绝对路径，声明和输入SHA不符会拒绝。原 `workflow tune` 兼容此因子与CTA；当前模板grid仅两组通道，固定q_open=.9、exit_mode=expiry、方向both，共2配置/8品种账户：
 
 ```powershell
 python -m dashboard.backtest.workflow tune --plan --config dashboard/localsetting/backtest/calendar_reversal.local.json
