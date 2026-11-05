@@ -158,6 +158,9 @@ def calendar_reversal_targets(factors, spec, *, start=None, end=None, cancel_eve
             # Decimal thresholds are compared in raw p space, never via 2*p-1.
             lower = round(1-params["q_open"], 14)
             direction = -1 if value > params["q_open"] else 1 if value < lower else 0
+            side = params["allowed_spread_side"]
+            if (side == "long" and direction < 0) or (side == "short" and direction > 0):
+                continue
             if not direction:
                 continue
             serial[root] += 1

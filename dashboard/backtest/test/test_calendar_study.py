@@ -9,7 +9,7 @@ import pandas as pd
 from dashboard.backtest import BacktestConfig, BacktestError, run_backtest
 from dashboard.backtest.__main__ import load_job
 from dashboard.backtest.calendar_analytics import annual_trade_returns, drawdown_episodes, round_trips
-from dashboard.backtest.calendar_study import fingerprints, run_calendar_study, verify_prefixes
+from dashboard.backtest.calendar_study import _concat_results, fingerprints, run_calendar_study, verify_prefixes
 from dashboard.backtest.configuration import CTASpec, factor_spec
 from dashboard.backtest.factor_cache import validate_factor_artifact
 from dashboard.backtest.models import DataConfig
@@ -126,10 +126,56 @@ class CalendarStudyTests(unittest.TestCase):
         next_open=signal.decisions.loc[signal.decisions.action.eq("signal_open")].iloc[1]
         self.assertGreater(next_open.timestamp,close)
 
+    def test_single_tail_reversal_and_legacy_default(self):
+        _,original=fixture()
+        stamp=original.panel.close.index[4]
+        before=fingerprints(original)
+        for value in (.05,.1,.5,.9,.95):
+            factors=deepcopy(original)
+            factors.diagnostics["calendar_pairs"].loc[:,"percentile"]=value
+            outputs={}
+            for side in (None,"both","long","short"):
+                declaration=job()
+                declaration["cta"]["parameters"]=dict(q_open=.9)
+                if side is not None:
+                    declaration["cta"]["parameters"]["allowed_spread_side"]=side
+                declaration["backtest"]=dict(start=str(stamp),end=str(stamp))
+                outputs[side]=cta_stage(factors,declaration)
+                decisions=outputs[side].decisions
+                actual=[] if decisions.empty else decisions.loc[decisions.action.eq("signal_open"),"direction"].tolist()
+                expected=([1] if value<.1 and side in (None,"both","long") else
+                          [-1] if value>.9 and side in (None,"both","short") else [])
+                self.assertEqual(actual,expected,(side,value))
+            pd.testing.assert_frame_equal(outputs[None].targets,outputs["both"].targets)
+            pd.testing.assert_frame_equal(outputs[None].decisions,outputs["both"].decisions)
+        self.assertEqual(before,fingerprints(original))
+
+    def test_no_single_tail_signals_has_empty_labeled_outputs(self):
+        market,factors=fixture()
+        factors.diagnostics["calendar_pairs"].loc[:,"percentile"]=.5
+        declaration=job()
+        declaration["cta"]["parameters"]=dict(q_open=.9,allowed_spread_side="long")
+        signals=cta_stage(factors,declaration)
+        self.assertTrue(signals.decisions.empty)
+        cfg=BacktestConfig(initial_capital=1_000_000,start="2026-01-08",mode="product",weight_mode="neutral_units",
+            rebalance_on_change_only=True,preserve_pair_lots=True)
+        account=run_backtest(signals.targets,market_data=market,config=cfg).accounts["IC"]
+        trip,legs,path,stats=round_trips(account,factors,signals,scenario="no_trades",root="IC",channel="01-03",
+            initial_capital=cfg.initial_capital,commission_rate=cfg.commission_rate)
+        self.assertEqual((stats["closed_trades"],stats["open_trades"],stats["net_pnl"]),(0,0,0))
+        self.assertTrue(np.isnan(stats["net_win_rate"]))
+        for frame,required in ((trip,"trade_id"),(legs,"symbol"),(path,"net_pnl")):
+            self.assertTrue(frame.empty)
+            self.assertIn(required,frame.columns)
+            self.assertEqual(_concat_results([frame,frame]).columns.tolist(),frame.columns.tolist())
+        episodes,_=drawdown_episodes(account.equity.equity,cfg.initial_capital,scenario="no_trades")
+        self.assertTrue(episodes.empty)
+        self.assertIn("peak_date",_concat_results([episodes,episodes]).columns)
+
     def test_inclusive_exit_boundaries_for_both_directions(self):
         _,original=fixture()
         dates=original.panel.close.index
-        for q_close in (.6,.4):
+        for q_close in (.6,.5,.4):
             for direction in (-1,1):
                 factors=deepcopy(original)
                 table=factors.diagnostics["calendar_pairs"]
@@ -138,7 +184,8 @@ class CalendarStudyTests(unittest.TestCase):
                 table.loc[table.timestamp.eq(dates[4]),"percentile"]=boundary+(1e-8 if direction<0 else -1e-8)
                 table.loc[table.timestamp.eq(dates[5]),"percentile"]=boundary
                 declaration=job()
-                declaration["cta"]["parameters"]=dict(exit_mode="threshold",q_close=q_close)
+                declaration["cta"]["parameters"]=dict(exit_mode="threshold",q_close=q_close,
+                    allowed_spread_side="long" if direction>0 else "short")
                 signals=cta_stage(factors,declaration)
                 close=signals.decisions.loc[signals.decisions.action.eq("signal_close")].iloc[0]
                 self.assertEqual(close.timestamp,dates[5])
@@ -275,6 +322,26 @@ class CalendarStudyTests(unittest.TestCase):
                 with self.assertRaisesRegex(BacktestError,"one explicit fixed margin rate"):
                     run_calendar_study(declaration,root/"invalid",q_opens=(.9,),exit_rules=("expiry",),render=False)
                 self.assertFalse((root/"invalid").exists())
+
+    def test_four_split_tail_strategies_per_channel_and_product(self):
+        with local_temp() as root:
+            declaration=load_job(write_inputs(root/"inputs")/"structure.local.json")
+            declaration["factor"].update(name="calendar_pair_percentile",parameters=dict(window_days=3,channels=["01-02","02-03"]))
+            declaration["data"]["margin_rates"]={r:1. for r in ("IF","IH","IC","IM")}
+            declaration["cta"]=dict(name="calendar_reversal",input_factor="calendar_pair_percentile")
+            declaration["backtest"].update(initial_capital=10_000_000,start="2026-01-08",preserve_pair_lots=True,workers=1)
+            result=run_calendar_study(declaration,root/"study",q_opens=(.9,),exit_rules=("expiry","close0.5"),
+                sides=("long","short"),render=False,progress=lambda _:None)
+            metrics=result["metrics"]
+            self.assertEqual(len(metrics),32)
+            self.assertEqual(metrics.groupby(["channel","root"]).size().unique().tolist(),[4])
+            self.assertEqual(result["protocol"]["standalone_verified"],32)
+            trips=pd.read_parquet(root/"study/round_trips.parquet")
+            for row in trips.itertuples():
+                self.assertEqual(row.direction,"long_spread" if "_long_" in row.scenario else "short_spread")
+                self.assertTrue(row.entry_p<.1 if row.direction=="long_spread" else row.entry_p>.9)
+                if row.exit_reason=="threshold":
+                    self.assertTrue(row.exit_p>=.5 if row.direction=="long_spread" else row.exit_p<=.5)
 
 
 if __name__=="__main__":

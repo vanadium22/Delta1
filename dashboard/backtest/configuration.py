@@ -97,6 +97,7 @@ CTA_SCHEMAS = {
         parameters=dict(channel=Parameter("01-03", "fixed entry channel", choices=("01-02", "01-03", "02-03")),
             root=Parameter("all", "independent product account", choices=("all", "IF", "IH", "IC", "IM")),
             q_open=Parameter(.8, "raw upper-tail p; strict >; lower tail p<1-q_open", minimum=.5, maximum=1),
+            allowed_spread_side=Parameter("both", "entry direction; low-p long and high-p short are reversals", choices=("both", "long", "short")),
             exit_mode=Parameter("expiry", "exit rule", choices=("expiry", "threshold")),
             q_close=Parameter(.6, "short exit p<=q_close; long exit p>=1-q_close", minimum=0, maximum=1),
             position_weight=Parameter(.495, "equal leg budget; engine sizes integer lots", minimum=.000001, maximum=.5))),

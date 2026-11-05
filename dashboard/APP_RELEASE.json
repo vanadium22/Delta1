@@ -1232,6 +1232,20 @@
         "dashboard/backtest/test/test_calendar_study.py"
       ]
     },
+    "calendar_four_single_tail_strategies": {
+      "date": "2026-11-05",
+      "base_commit": "3a7b8c724d3fadea4475386b5bbae55b67349848",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry close0.5 --sides long short --no-render",
+      "scope": "01-02 / 02-03 x IF/IH/IC/IM x low-p long / high-p short x expiry / median exit; 32 independent accounts",
+      "execution": "original engine unchanged; 100 percent margin each leg; full-notional 0.0003 commission each side; actual opposite integer lots",
+      "factor": "existing saved factors reused; held actual pair compared with entry-channel prior 60-session continuous annual-spread history, excluding current day",
+      "compatibility": "allowed_spread_side defaults to both; legacy matrix and case names unchanged",
+      "validation": "167 offline tests and Ruff including zero-trade labeled outputs; 32 standalone reruns, saved-factor reload/prefix, 355 trade direction/percentile and two-leg ledger checks",
+      "charts": "no overlaid gray reference; flat continuous slot and locked held pair are distinct line segments; full trade red profit or green loss; signal and fill markers separated",
+      "data_policy": "audited local snapshot only; DDB/VPN paused; Z not accessed; real data/config/results excluded",
+      "company_acceptance": "pending_actual_company_run",
+      "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/CALENDAR_REVERSAL.md", "dashboard/backtest/COMPANY_BACKTEST_TEST.md", "dashboard/backtest/PROJECT_HANDOFF.md", "dashboard/backtest/calendar_reversal.config.example.json", "dashboard/backtest/calendar_study.py", "dashboard/backtest/calendar_analytics.py", "dashboard/backtest/configuration.py", "dashboard/backtest/strategy/calendar_pairs.py", "dashboard/backtest/test/test_calendar_study.py"]
+    },
     "calendar_adjacent_study": {
       "base_commit": "e8915e8",
       "date": "2026-11-04",

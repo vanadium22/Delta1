@@ -5,6 +5,20 @@ import pandas as pd
 from .analytics import performance_metrics
 from .models import BacktestError
 
+TRIP_COLUMNS = ("scenario", "trade_id", "root", "channel", "near", "far", "entry_signal_time", "entry_time",
+    "exit_signal_time", "exit_time", "valuation_time", "direction", "actual_lots", "entry_p", "entry_execution_p",
+    "exit_p", "exit_execution_p", "entry_near_t", "entry_far_t", "exit_near_t", "exit_far_t", "holding_calendar_days",
+    "exit_reason", "status", "entry_margin", "entry_history_start", "entry_history_end", "exit_history_start", "exit_history_end",
+    "near_entry_price", "near_exit_price", "near_signed_lots", "near_gross_pnl", "near_fees", "near_net_pnl", "near_entry_margin",
+    "far_entry_price", "far_exit_price", "far_signed_lots", "far_gross_pnl", "far_fees", "far_net_pnl", "far_entry_margin",
+    "gross_pnl", "fees", "net_pnl", "net_return", "annualized_net_pnl", "annualized_return", "annualization_status")
+LEG_COLUMNS = ("scenario", "trade_id", "leg", "symbol", "signed_lots", "multiplier", "margin_rate", "entry_time", "exit_time",
+    "entry_price", "exit_or_mark_price", "entry_fee", "exit_fee", "gross_pnl", "net_pnl", "status")
+PATH_COLUMNS = ("timestamp", "scenario", "trade_id", "root", "channel", "near", "far", "near_gross_pnl", "near_net_pnl",
+    "far_gross_pnl", "far_net_pnl", "net_pnl", "return_on_entry_margin", "entry_margin")
+DRAWDOWN_COLUMNS = ("scenario", "peak_date", "trough_date", "recovery_date", "end_date", "peak_equity", "trough_equity",
+    "drawdown", "duration_calendar_days", "peak_to_trough_days", "recovered", "peak_is_initial_anchor", "rank")
+
 
 def _check_equal(actual, expected, label, *, atol=1e-5):
     if not np.allclose(actual, expected, rtol=1e-10, atol=atol, equal_nan=False):
@@ -24,7 +38,8 @@ def round_trips(account, factors, signals, *, scenario, root, channel, initial_c
     lookup = {(r.timestamp, r.near, r.far): r for r in table.itertuples(index=False)}
     day_lookup = {(r.timestamp.normalize(), r.near, r.far): r for r in table.itertuples(index=False)}
     decisions = signals.decisions
-    opening = {r.timestamp: r for r in decisions.loc[decisions.root.eq(root) & decisions.action.eq("signal_open")].itertuples(index=False)}
+    opening = {} if decisions.empty else {r.timestamp: r for r in
+        decisions.loc[decisions.root.eq(root) & decisions.action.eq("signal_open")].itertuples(index=False)}
     orders = account.actual_orders
     active, states = None, []
     for stamp, group in orders.groupby("execution_time", sort=False):
@@ -157,7 +172,7 @@ def round_trips(account, factors, signals, *, scenario, root, channel, initial_c
     _check_equal(reconstructed_fees, account.equity.fees, "round-trip daily fees")
     _check_equal(reconstructed_margin, account.equity.required_margin, "round-trip daily margin")
     _check_equal(reconstructed_positions, account.positions, "locked actual pair and lots", atol=0)
-    trip_frame = pd.DataFrame(trips)
+    trip_frame = pd.DataFrame(trips) if trips else pd.DataFrame(columns=TRIP_COLUMNS)
     stats = performance_metrics(account.equity.equity, initial_capital)
     closed = trip_frame.loc[trip_frame.status.eq("closed")] if len(trip_frame) else trip_frame
     wins = closed.loc[closed.net_pnl > 0] if len(closed) else closed
@@ -177,7 +192,8 @@ def round_trips(account, factors, signals, *, scenario, root, channel, initial_c
         closed_net_pnl=float(closed.net_pnl.sum()) if len(closed) else 0.,
         fees=float(orders.fee.sum()),engine_status=account.summary["status"],
         annualization_na_trades=int(closed.annualization_status.ne("applicable").sum()) if len(closed) else 0)
-    return trip_frame, pd.DataFrame(legs), pd.concat(paths,ignore_index=True) if paths else pd.DataFrame(), stats
+    return (trip_frame, pd.DataFrame(legs) if legs else pd.DataFrame(columns=LEG_COLUMNS),
+        pd.concat(paths,ignore_index=True) if paths else pd.DataFrame(columns=PATH_COLUMNS), stats)
 
 
 def drawdown_episodes(equity, initial_capital, *, scenario):
@@ -227,4 +243,4 @@ def drawdown_episodes(equity, initial_capital, *, scenario):
         _check_equal(rows[0]["drawdown"],drawdown.min(),"maximum drawdown")
     curve=pd.DataFrame(dict(timestamp=dates,scenario=scenario,equity=values,
         cumulative_net_return=values/initial_capital-1,drawdown=drawdown,peak_equity=peak_values))
-    return pd.DataFrame(rows),curve
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=DRAWDOWN_COLUMNS),curve

@@ -25,6 +25,7 @@
     "input_factor": "calendar_pair_percentile",
     "parameters": {
       "channel": "01-02", "root": "all", "q_open": 0.9,
+      "allowed_spread_side": "both",
       "exit_mode": "expiry", "q_close": 0.6, "position_weight": 0.495
     }
   },

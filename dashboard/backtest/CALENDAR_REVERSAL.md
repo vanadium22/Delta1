@@ -1,6 +1,24 @@
 # 跨期反转：相邻跨期与独立账户
 
-2026-11-04当前要求：**01-02、02-03 × IF/IH/IC/IM，仅原始 q_open=.9、持有到期，共8个独立账户，双腿保证金各100%**。模板已同步；按100%实际重跑整数手数、费用和权益。20%相邻跨期、原48账户和所有旧报告完整保留。用户已确认四品种全历史示例，要求下方补分位并更新PDF；新版6页PDF已完成。收益数值表与每笔收益分布合并一张，账户累计收益与每笔收益明确标非年化，账户CAGR标年化，收益/回撤曲线后置。最差回撤及最终净亏损案例分别排名，详图同时给原始点差和带多空方向的净盈亏点数，标明实际合约、方向、手数、单位及完整日期。
+## 当前四种单尾策略（2026-11-05）
+
+**01-02、02-03 × IF/IH/IC/IM × 两个单尾方向 × 两种退出，共32个独立账户**。低尾 `p<0.1` 仅做多价差（买近卖远），高尾 `p>0.9` 仅做空价差（卖近买远）；均为严格越界反转，两个方向不共享账户。各方向分别持有到期或达到中位数退出：多价差 `p>=0.5`、空价差 `p<=0.5`。信号次个有效观测成交，任一腿到期仍按原引擎当日close双平。每账户1000万元、双腿各100%保证金、每腿每边全名义金额万三；实际整数手数和账务由原引擎处理。
+
+`allowed_spread_side` 可设 `long`、`short` 或默认 `both`；仅限制新开仓方向，不改变已持仓平仓。旧接口与默认48方案继续使用both。单尾不重算因子，开仓使用当前连续通道的年化价差p；持仓期间p使用锁定实际pair当天年化价差，相对其入场通道此前60个交易日的连续年化分布，不含当前日。分位0.5命中是信号，成交仍可能在下一有效观察才完成；到期可能先于阈值成交。
+
+图上不再叠加灰色连续参考线：空仓段深蓝显示连续入场通道，持仓段使用实际锁定pair，换pair处断线。实际持仓整笔净盈利红、净亏损绿，期末未平按净浮盈亏回看着色；色带蓝多价差、紫空价差。价格图是近减远原始点差（点、非年化），p来自年化价差，两者单位不同。开仓信号菱形、0.5平仓信号叉号、实际平仓成交倒三角，信号与成交日期/分位不可混同。金色区域标该账户最大单笔持仓峰谷回撤；完整表列真实合约、仓位、日期、p、价差及净损益。
+
+复用已有相邻通道保存因子时，在本机JSON中设置 `factor_input` 为对应factors目录，核对 `factor.parameters.channels=["01-02","02-03"]` 和四个 `margin_rates=1.0` 后运行：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_four_company01 --q-open 0.9 --exits expiry close0.5 --sides long short --no-render
+```
+
+该命令验证32个单账户重跑、保存因子重读、三截点前缀、逐笔两腿和权益对账；`--no-render`仅跳过旧48组报告生成器。首次公司本机未有兼容因子则 `factor_input=null` 计算一次；调整通道或历史窗口需重算因子，单改方向、阈值或退出可复用。`--sides both` 保持原双向账户语义，不能把分开单尾账户的交易合并算胜率。真实配置、行情和结果不入Git；公司现场须独立验收。
+
+## 前版：相邻通道双向持有到期
+
+2026-11-04要求：**01-02、02-03 × IF/IH/IC/IM，仅原始 q_open=.9、持有到期，共8个独立账户，双腿保证金各100%**。20%相邻跨期、原48账户和所有旧报告完整保留。用户已确认四品种全历史示例，要求下方补分位并更新PDF；新版6页PDF已完成。收益数值表与每笔收益分布合并一张，账户累计收益与每笔收益明确标非年化，账户CAGR标年化，收益/回撤曲线后置。最差回撤及最终净亏损案例分别排名，详图同时给原始点差和带多空方向的净盈亏点数，标明实际合约、方向、手数、单位及完整日期。
 
 当前报告沿用用户确认的四品种2×2全历史版式，各面板从上到下为原始点差、同时间轴原始分位p、实际收盘持仓。p轴0至1，虚线0.9/0.1仅严格越界开仓；细线读当日连续通道p，粗线读本笔锁定实际pair相对入场通道此前60日分布的p。均来自保存因子，排除当前日，历史不足留空；连续换档处断线。菱形为开仓信号p，圆点为下一有效观测成交日p，倒三角为退出p，不把成交日p当原信号。
 
@@ -29,6 +47,7 @@ CTA `calendar_reversal` 仅读取保存因子，不重读行情或计算分位�
 | channel | `01-02`、`01-03` 或 `02-03`，必须包含在保存因子的channels内 |
 | root | `all` 或单个IF/IH/IC/IM；all仍是四个独立账户 |
 | q_open | 原始p上尾严格越界；`.8`对应p>.8空价差/p<.2多价差，`.9`对应p>.9/p<.1 |
+| allowed_spread_side | `both`（默认兼容）、`long`（仅低分位做多）、`short`（仅高分位做空） |
 | exit_mode | `expiry` 或 `threshold` |
 | q_close | threshold时空价差p≤q_close平、多价差p≥1-q_close平 |
 | position_weight | 默认每腿.495；由原引擎按双腿真实保证金和费用预算生成等整数手数 |
@@ -47,7 +66,7 @@ Copy-Item dashboard/backtest/calendar_reversal.config.example.json dashboard/loc
 
 编辑该本机JSON的 `data.data_root` 为**已有审计快照**目录，所有文件名可保留相对路径。填写真实dataset_id/data_version/source_id。如果复用经授权只读Z导入的本地审计快照，必须显式设置 `data.source_id="local_ddb_plus_authorized_readonly_z_v2"`、`data.allow_readonly_z_import=true`、`data.source_manifest_path="import_manifest.local.json"`；原加载器核验清单及输入SHA。运行时不接受直接Z路径、旧未经审计backfilled缓存。无需重新导入，不连接DDB/VPN。
 
-当前8账户（包括8个单独重跑、因子重读、3个前缀和逐笔对账）：
+前版双向到期8账户（包括8个单独重跑、因子重读、3个前缀和逐笔对账）：
 
 ```powershell
 python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_adjacent_margin100_run01 --q-open 0.9 --exits expiry --no-render
@@ -55,7 +74,7 @@ python -m dashboard.backtest.calendar_study --config dashboard/localsetting/back
 
 输出必须使用新目录。因子参数 `channels=["01-02","02-03"]` 冻结所计算的通道；同一近档只允许一个远档，连续因子列始终对应明确入场通道。改channels或window_days必须重算因子；不能给旧01-03因子改CTA标签后冒充01-02。CTA若请求未保存通道会报错。旧因子未声明channels时仅兼容原默认 `["01-03","02-03"]`。
 
-`--q-open` 可列原始开仓阈值，`--exits` 可选expiry、close0.6、close0.4；矩阵只组合显式所选项。`--no-render`只跳过旧报告生成器，完整计算验证不受影响；`--no-verify`是探索选项，不能作为最终验收。旧报告生成器只接受原完整48方案及20%保证金。复现旧研究时将因子channels改回 `["01-03","02-03"]`、data.margin_rates全部改为0.2，删除factor_input或指向匹配旧因子，再按原默认48矩阵运行：
+`--q-open` 可列原始开仓阈值，`--exits` 可选expiry、close0.6、close0.5、close0.4；`--sides` 可选both、long、short，矩阵只组合显式所选项。`--no-render`只跳过旧报告生成器，完整计算验证不受影响；`--no-verify`是探索选项，不能作为最终验收。旧报告生成器只接受原完整48方案及20%保证金。复现旧研究时将因子channels改回 `["01-03","02-03"]`、data.margin_rates全部改为0.2，删除factor_input或指向匹配旧因子，再按原默认48矩阵运行：
 
 ```powershell
 python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal_legacy.local.json --output outputs/backtest/calendar_legacy_run01
@@ -76,7 +95,7 @@ python -m dashboard.backtest.workflow tune --plan --config dashboard/localsettin
 python -m dashboard.backtest.workflow tune --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_tuning01
 ```
 
-以下仅用于原完整48方案的已有结果（不读取行情、不重算；当前8账户的定制6页报告另随聊天交付，不调用此旧PDF入口）：
+以下仅用于原完整48方案的已有结果（不读取行情、不重算；本轮四策略的定制6页报告另随聊天交付，不调用此旧PDF入口）：
 
 ```powershell
 python -m dashboard.backtest.calendar_report outputs/backtest/calendar_reversal_run01
