@@ -2,15 +2,15 @@
 
 用户已授权公司电脑的必要测试；以下入口使用明确配置，不要求再次申请测试许可。开发机通过不能代替公司实际运行，结果分别记录。统一分支 `codex/company-apps`，在原公司 Git 根正常 `git pull --ff-only` 后重开回测。
 
-## 当前相邻跨期专项：四种独立策略（2026-11-05）
+## 当前相邻跨期专项：双向反转、四种情况（2026-11-05）
 
-两通道、四品种分别比较低尾仅多 / 高尾仅空与中位数退出 / 到期退出，共32个独立账户。复制无数据模板并填已有审计快照，本机因子可复用时配置factor_input；四品种保证金率均为1.0，费用每腿每边万三。执行：
+同一账户允许低尾做多、高尾做空；只比较中位数退出与持有到期，乘两通道共四种情况，四品种分别独立，共16账户。复制无数据模板并填已有审计快照，本机因子可复用时配置factor_input；四品种保证金率均为1.0，费用每腿每边万三。执行：
 
 ```powershell
-python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_four_company01 --q-open 0.9 --exits expiry close0.5 --sides long short --no-render
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_two_way_company01 --q-open 0.9 --exits expiry close0.5 --sides both --no-render
 ```
 
-开仓是p<0.1多近空远、p>0.9空近多远的严格反转；中位数平仓使用持仓实际pair对入场通道此前60日年化分布的p，再于下一有效观测执行；到期当日双平优先。命令含32账户独立重跑和逐笔对账，默认both仍兼容旧双向方案。详细口径、示例和因子复用见[跨期说明](CALENDAR_REVERSAL.md)。公司现场覆盖、结果和32账户核验仍须单独记录。Git只同步源码和无数据模板，真实数据、配置和报告不入Git。
+开仓是p<0.1多近空远、p>0.9空近多远的严格反转；中位数平仓使用持仓实际pair对入场通道此前60日年化分布的p，多仓p>=.5、空仓p<=.5，再于下一有效观测执行；到期当日双平优先。方向必须both，命令含16账户独立重跑与逐笔对账。不能把单尾32账户相加代替本轮。当前tune模板4配置/16品种账户。详细口径、示例和因子复用见[跨期说明](CALENDAR_REVERSAL.md)。公司现场覆盖与16账户核验须单独记录。Git只同步源码和无数据模板，真实数据、配置和报告不入Git。
 
 ## 前版相邻跨期专项：双向持有到期（2026-11-04）
 

@@ -1,20 +1,22 @@
 # 跨期反转：相邻跨期与独立账户
 
-## 当前四种单尾策略（2026-11-05）
+## 当前：双向反转，两种退出、四种情况（2026-11-05）
 
-**01-02、02-03 × IF/IH/IC/IM × 两个单尾方向 × 两种退出，共32个独立账户**。低尾 `p<0.1` 仅做多价差（买近卖远），高尾 `p>0.9` 仅做空价差（卖近买远）；均为严格越界反转，两个方向不共享账户。各方向分别持有到期或达到中位数退出：多价差 `p>=0.5`、空价差 `p<=0.5`。信号次个有效观测成交，任一腿到期仍按原引擎当日close双平。每账户1000万元、双腿各100%保证金、每腿每边全名义金额万三；实际整数手数和账务由原引擎处理。
+用户明确低尾 `p<0.1` 买近卖远、高尾 `p>0.9` 卖近买远是**同一个双向反转账户**。仅退出方式有两种：持有到期，或多价差 `p>=0.5` / 空价差 `p<=0.5` 发平仓信号。乘01-02、02-03共四种情况，每种IF/IH/IC/IM分别独立，**合计16个账户**。不能把分开多空的交易事后相加当同一账户；平仓前不能重叠开仓。每账户1000万元、双腿各100%保证金、每腿每边全名义万三；原引擎处理真实整数手数、成交、费用和到期双平。
 
-`allowed_spread_side` 可设 `long`、`short` 或默认 `both`；仅限制新开仓方向，不改变已持仓平仓。旧接口与默认48方案继续使用both。单尾不重算因子，开仓使用当前连续通道的年化价差p；持仓期间p使用锁定实际pair当天年化价差，相对其入场通道此前60个交易日的连续年化分布，不含当前日。分位0.5命中是信号，成交仍可能在下一有效观察才完成；到期可能先于阈值成交。
+本轮固定 `allowed_spread_side="both"`。开仓取当前连续通道年化价差p；入场后锁定真实pair，退出p为所持pair当天年化价差相对其入场通道此前60个交易日连续年化分布的分位，排除当前日。到0.5是平仓信号，下一有效观测成交，到期当日close双平优先；不能在中间分位按新连续pair隐含换月。
 
 图上不再叠加灰色连续参考线：空仓段深蓝显示连续入场通道，持仓段使用实际锁定pair，换pair处断线。实际持仓整笔净盈利红、净亏损绿，期末未平按净浮盈亏回看着色；色带蓝多价差、紫空价差。价格图是近减远原始点差（点、非年化），p来自年化价差，两者单位不同。开仓信号菱形、0.5平仓信号叉号、实际平仓成交倒三角，信号与成交日期/分位不可混同。金色区域标该账户最大单笔持仓峰谷回撤；完整表列真实合约、仓位、日期、p、价差及净损益。
 
 复用已有相邻通道保存因子时，在本机JSON中设置 `factor_input` 为对应factors目录，核对 `factor.parameters.channels=["01-02","02-03"]` 和四个 `margin_rates=1.0` 后运行：
 
 ```powershell
-python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_four_company01 --q-open 0.9 --exits expiry close0.5 --sides long short --no-render
+python -m dashboard.backtest.calendar_study --config dashboard/localsetting/backtest/calendar_reversal.local.json --output outputs/backtest/calendar_two_way_company01 --q-open 0.9 --exits expiry close0.5 --sides both --no-render
 ```
 
-该命令验证32个单账户重跑、保存因子重读、三截点前缀、逐笔两腿和权益对账；`--no-render`仅跳过旧48组报告生成器。首次公司本机未有兼容因子则 `factor_input=null` 计算一次；调整通道或历史窗口需重算因子，单改方向、阈值或退出可复用。`--sides both` 保持原双向账户语义，不能把分开单尾账户的交易合并算胜率。真实配置、行情和结果不入Git；公司现场须独立验收。
+该命令验证16账户单独重跑、保存因子重读、三截点前缀及逐笔账务；`--no-render`仅跳过旧48组报告生成器。首次公司本机无兼容因子则factor_input=null计算一次；调整通道/历史窗口需重算因子，阈值或退出可复用。当前模板tune网格也是两通道×两退出，共4配置/16品种账户；q_close=.5，方向both。前版分开多空的32账户是对需求的误拆，产物保留但不采用。真实配置、行情和结果不入Git，公司现场独立验收。
+
+报告按用户指定v7样式，6页A3横向、深蓝表头。按追加要求**持有到期和0.5退出分别成页，不在同一页混放**：第1-4页为01-02到期、01-02中位退出、02-03到期、02-03中位退出，每页本情况4账户数值/分布、两笔大回撤示例和收益回撤；第5页仅到期、第6页仅中位退出的全历史点差-p-持仓，分别含两个跨期。各账户分列胜率与盈利/亏损均值；全部16账户详图、案例与CSV外置。旧PDF保留。
 
 ## 前版：相邻通道双向持有到期
 
@@ -88,7 +90,7 @@ python -m dashboard.backtest.workflow cta --config dashboard/localsetting/backte
 python -m dashboard.backtest.workflow run --config dashboard/localsetting/backtest/calendar_reversal.local.json --input outputs/backtest/calendar_cta01 --output outputs/backtest/calendar_account01
 ```
 
-只改CTA阈值/退出/已保存通道/品种、资金或费用，复用同一因子；改 `factor.parameters.window_days`（例如40或120）或channels后重新运行factor。再次跑矩阵时可将顶层 `factor_input` 设为原run的 `factors` 绝对路径，声明和输入SHA不符会拒绝。原 `workflow tune` 兼容此因子与CTA；当前模板grid仅两组通道、固定q_open=.9和expiry：
+只改CTA阈值/退出/已保存通道/品种、资金或费用，复用同一因子；改 `factor.parameters.window_days`（例如40或120）或channels后重新运行factor。再次跑矩阵时可将顶层 `factor_input` 设为原run的 `factors` 绝对路径，声明和输入SHA不符会拒绝。原 `workflow tune` 兼容此因子与CTA；当前模板grid为两组通道×expiry/threshold，固定q_open=.9、q_close=.5、方向both：
 
 ```powershell
 python -m dashboard.backtest.workflow tune --plan --config dashboard/localsetting/backtest/calendar_reversal.local.json
@@ -124,7 +126,7 @@ python -m dashboard.backtest.calendar_pdf outputs/backtest/calendar_reversal_run
 | cases/*/cta、cases/*/backtest | 原标准产物，可重读权重、成交、权益、持仓、调度；各case四个独立品种账户 |
 | study.local.json、input_sha256.local.json、csv/verification.csv | 冻结有效参数、覆盖末日、因子/源文件SHA及每方案验证 |
 
-每笔收益率分母为入场双腿实际 `价格×乘数×绝对手数×20%` 之和，入场后冻结；净PnL扣两腿开平费。净收益率r=净PnL/入场保证金；年化金额为净PnL×365/自然持有天数（元/年）；年化收益率为 `(1+r)^(365/天数)-1`。天数0或r≤-1时两项年化均N/A，注明原因，不截断。账户CAGR以初始资金及实际首末自然日另算。若执行源有分钟，signal p来自信号日，无法对应同刻的执行p留空，绝不把稍后日线p当成交时可知信息。
+每笔收益率分母为入场双腿实际 `价格×乘数×绝对手数×有效保证金率` 之和，入场后冻结；本轮两腿各100%，旧48方案各20%。净PnL扣两腿开平费。净收益率r=净PnL/入场保证金；年化金额为净PnL×365/自然持有天数（元/年）；年化收益率为 `(1+r)^(365/天数)-1`。天数0或r≤-1时两项年化均N/A，注明原因，不截断。账户CAGR以初始资金及实际首末自然日另算。若执行源有分钟，signal p来自信号日，无法对应同刻的执行p留空，绝不把稍后日线p当成交时可知信息。
 
 胜率=该方案净盈利闭合笔数/全部闭合笔数，持平单独列出。平均亏损为负数，盈亏比=平均盈利/平均亏损绝对值；没有盈利或亏损样本时N/A。未平仓净浮盈亏包含已付开仓费，不虚构平仓费，不纳入闭合胜率/年化。不同方案不混合统计胜率。
 

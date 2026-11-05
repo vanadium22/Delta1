@@ -1232,7 +1232,22 @@
         "dashboard/backtest/test/test_calendar_study.py"
       ]
     },
+    "calendar_two_way_four_cases": {
+      "date": "2026-11-05",
+      "base_commit": "ace0966eb18511f7803076c12b0d93315e2e93cc",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry close0.5 --sides both --no-render",
+      "scope": "same account buys near/sells far at p<0.1 and sells near/buys far at p>0.9; expiry vs median exit x 01-02/02-03 = four cases, four roots separately = 16 accounts",
+      "tuning_template": "four configurations: two channels x expiry/threshold; q_close=0.5; allowed_spread_side=both",
+      "execution": "existing CTA/engine unchanged; fixed 100 percent margin each leg, 0.0003 full-notional fee each side, next eligible observation, earlier-leg expiry same-day close",
+      "validation": "16 standalone reruns, factor reload/prefix and two-leg ledger checks; all eight expiry accounts exactly equal original reference study across five native ledgers; four targeted boundary/actual-pair/expiry regressions",
+      "report": "six A3 landscape pages in user-selected v7 visual style; never mix exit modes on one page: first four pages each one channel/exit case with four account metrics/distributions, two drawdown examples and return/drawdown curves; final two history pages one exit mode each, both channels and all roots; detailed real outputs excluded from Git",
+      "supersedes": "previous 32-account single-tail interpretation; retained only as an unused comparison",
+      "data_policy": "audited local snapshot only; DDB/VPN paused, Z not accessed; all real data/config/results ignored",
+      "company_acceptance": "pending_actual_company_run",
+      "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/AGENTS.md", "dashboard/backtest/CALENDAR_REVERSAL.md", "dashboard/backtest/COMPANY_BACKTEST_TEST.md", "dashboard/backtest/PROJECT_HANDOFF.md", "dashboard/backtest/calendar_reversal.config.example.json"]
+    },
     "calendar_four_single_tail_strategies": {
+      "status": "superseded_by_user_clarification_use_two_way_four_cases",
       "date": "2026-11-05",
       "base_commit": "3a7b8c724d3fadea4475386b5bbae55b67349848",
       "entry": "python -m dashboard.backtest.calendar_study --config <local.json> --output <new-directory> --q-open 0.9 --exits expiry close0.5 --sides long short --no-render",

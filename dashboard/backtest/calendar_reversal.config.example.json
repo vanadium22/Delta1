@@ -26,7 +26,7 @@
     "parameters": {
       "channel": "01-02", "root": "all", "q_open": 0.9,
       "allowed_spread_side": "both",
-      "exit_mode": "expiry", "q_close": 0.6, "position_weight": 0.495
+      "exit_mode": "expiry", "q_close": 0.5, "position_weight": 0.495
     }
   },
   "backtest": {
@@ -40,8 +40,9 @@
   "factor_input": null,
   "tuning": {
     "grid": {
-      "cta.parameters.channel": ["01-02", "02-03"]
+      "cta.parameters.channel": ["01-02", "02-03"],
+      "cta.parameters.exit_mode": ["expiry", "threshold"]
     },
-    "max_runs": 2
+    "max_runs": 4
   }
 }
