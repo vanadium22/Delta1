@@ -119,7 +119,7 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
     if data.margin_rate_path or None in rates or len(rates)!=1:
         raise BacktestError("Calendar study requires one explicit fixed margin rate for every root and both legs")
     margin_rate=rates.pop()
-    if render and (not legacy_matrix or margin_rate!=.2):
+    if render and (not legacy_matrix or margin_rate!=.2 or cfg.entry_timing!="next_observation"):
         raise BacktestError("The legacy renderer requires the original 48 schemes and 20% margin; use --no-render for a custom matrix")
     out=Path(output).resolve()
     out.mkdir(parents=True,exist_ok=False)
@@ -158,7 +158,8 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
         case_job["backtest"].update(start=start,end=end)
         base_weight=job.get("cta",{}).get("parameters",{}).get("position_weight",.495)
         case_job["cta"]=dict(name="calendar_reversal",input_factor=spec.name,parameters=dict(
-            channel=channel,root="all",q_open=q_open,allowed_spread_side=side,exit_mode=exit_mode,q_close=q_close,position_weight=base_weight))
+            channel=channel,root="all",q_open=q_open,allowed_spread_side=side,exit_mode=exit_mode,q_close=q_close,
+            position_weight=base_weight,entry_timing=cfg.entry_timing))
         progress(f"{case_id}/{scenario_count//len(spec.roots)} {case}：4 个独立账户，调用原回测阶段")
         signals=cta_stage(factors,case_job,output_dir=folder/"cta")
         reloaded=cta_stage(factors.output_paths["output_dir"],case_job)
@@ -173,7 +174,7 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
         for root,account in result.accounts.items():
             scenario=root+"_"+case
             trip,legs,path,stats=round_trips(account,factors,signals,scenario=scenario,root=root,channel=channel,
-                initial_capital=cfg.initial_capital,commission_rate=cfg.commission_rate)
+                initial_capital=cfg.initial_capital,commission_rate=cfg.commission_rate,entry_timing=cfg.entry_timing)
             episodes,curve=drawdown_episodes(account.equity.equity,cfg.initial_capital,scenario=scenario)
             metrics.append(dict(scenario=scenario,case=case,root=root,channel=channel,q_open=q_open,allowed_spread_side=side,
                 exit_mode=exit_mode,q_close=q_close if exit_mode=="threshold" else np.nan,**stats))
@@ -213,7 +214,9 @@ def run_calendar_study(job, output, *, verify=True, render=True, progress=print,
         factor_computations=0 if job.get("factor_input") else 1,all_inputs_sha_unchanged=True,
         threshold_semantics="raw p > q_open short, p < 1-q_open long; strict; no centered labels",
         exit_benchmark=factors.metadata["method"]["exit_benchmark"],
-        execution="next common valid observation; daily data fills actual next close; original engine expiry same-day close",
+        execution=("explicit signal-day close entry assumption; threshold exits at next common valid close; original engine expiry same-day close"
+                   if cfg.entry_timing == "signal_close" else
+                   "next common valid observation; daily data fills actual next close; original engine expiry same-day close"),
         dividends="explicitly ignored",accounting=f"{scenario_count} independent capital accounts; no shared cash/netting; equal opposite integer lots",
         trade_return="net PnL / frozen actual entry margin; zero-day or r<=-1 annualization not applicable",
         win_rate="net winning closed trips / all closed trips per scheme; flat trades separate; open trips excluded",

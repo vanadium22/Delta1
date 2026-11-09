@@ -112,7 +112,8 @@ def cta_stage(factors, job, *, output_dir=None, cancel_event=None):
         targets, decisions = calendar_reversal_targets(factors, spec, start=start, end=end, cancel_event=cancel_event)
         result = CTAResult(targets, factors.factors[spec.input_factor].copy(), {}, decisions)
         result.metadata["required_backtest_options"] = dict(weight_mode="neutral_units", mode="product", precision="1d",
-            d0=0, rebalance_on_change_only=True, preserve_pair_lots=True, liquidate_at_end=False)
+            d0=0, rebalance_on_change_only=True, preserve_pair_lots=True, liquidate_at_end=False,
+            entry_timing=spec.parameters["entry_timing"])
         result.metadata["exit_benchmark"] = "held actual pair versus previous window_days continuous entry-channel annual spreads"
         result.metadata["threshold_semantics"] = "raw p; strict entry; inclusive exit; no centered-threshold conversion"
     else:

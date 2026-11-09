@@ -1,5 +1,17 @@
 # 跨期反转：相邻跨期与独立账户
 
+## 2026-11-09追加：开仓时点对照，0.5退出
+
+用户授权新增“计算当日以同一close开仓”假设：`entry_timing="signal_close"`。默认`next_observation`仍为原信号后下一有效观测；新选项仅适用于日频product、neutral_units、目标变化时执行且无显式hedge的账户。0.5平仓仍由信号后的下一有效观测执行，到期仍当日close两腿双平。当前1000万元、双腿100%保证金、全名义万三等参数不变；只重跑执行与相关CTA状态，不重算因子。
+
+普通workflow须同时设置`cta.parameters.entry_timing`与`backtest.entry_timing`，保存CTA会声明执行约束，不一致报错。矩阵study由`backtest.entry_timing`传给CTA；在本机副本中将该字段设为signal_close后运行：
+
+```powershell
+python -m dashboard.backtest.calendar_study --config <同日close本机配置.json> --output outputs/backtest/calendar_same_close_company01 --q-open 0.9 --exits close0.5 --sides both --no-render
+```
+
+信号与当日close成交是用户指定的敏感性假设，输出必须明确标注；历史训练仍排除当前日。缺少实际同日close不静默改用后续价；阈值退出和下一次同日入场撞到同一观测时，先执行原平仓指令再开新仓，不能净额合并成连续持仓。原表中的回撤峰谷p不代表开仓信号p，新表分列信号计算日/p、实际开仓日/p和回撤峰谷p；账户最大回撤与其区间内最大单笔回撤继续区分。
+
 ## 当前：双向反转，仅持有到期，放大版（2026-11-05）
 
 用户最新删除0.5退出，其他口径不变：01-02、02-03 × IF/IH/IC/IM共8个独立账户，同账户p<0.1买近卖远、p>0.9卖近买远，严格越界；1000万元初始资金、双腿100%保证金、每腿每边完整名义万三。入场后锁定实际pair，任一腿到期按原引擎当日close双平，不因持仓分位变化平仓。

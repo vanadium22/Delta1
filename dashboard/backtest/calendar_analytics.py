@@ -32,7 +32,8 @@ def annual_trade_returns(net, margin, days):
     return ratio, net*365/days, float(np.expm1(np.log1p(ratio)*365/days)), "applicable"
 
 
-def round_trips(account, factors, signals, *, scenario, root, channel, initial_capital, commission_rate):
+def round_trips(account, factors, signals, *, scenario, root, channel, initial_capital, commission_rate,
+                entry_timing="next_observation"):
     table = factors.diagnostics["calendar_pairs"]
     table = table.loc[table.root.eq(root) & table.channel.eq(channel)]
     lookup = {(r.timestamp, r.near, r.far): r for r in table.itertuples(index=False)}
@@ -55,8 +56,10 @@ def round_trips(account, factors, signals, *, scenario, root, channel, initial_c
             if is_open:
                 if active is not None or part.position_before.ne(0).any():
                     raise BacktestError("Overlapping calendar round trips or resized held lots")
-                if part.signal_time.nunique() != 1 or not (part.signal_time < part.execution_time).all():
-                    raise BacktestError("Entry must follow a common earlier signal")
+                valid_entry = (part.signal_time.eq(part.execution_time) if entry_timing == "signal_close"
+                               else part.signal_time.lt(part.execution_time))
+                if part.signal_time.nunique() != 1 or not valid_entry.all():
+                    raise BacktestError("Entry execution differs from its declared signal timing")
                 signal = opening.get(part.signal_time.iloc[0])
                 if signal is None or {signal.near, signal.far} != set(part.symbol):
                     raise BacktestError("Executed pair differs from the locked entry signal")

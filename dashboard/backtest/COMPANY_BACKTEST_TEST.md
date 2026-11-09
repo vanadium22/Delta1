@@ -2,6 +2,8 @@
 
 用户已授权公司电脑的必要测试；以下入口使用明确配置，不要求再次申请测试许可。开发机通过不能代替公司实际运行，结果分别记录。统一分支 `codex/company-apps`，在原公司 Git 根正常 `git pull --ff-only` 后重开回测。
 
+2026-11-09追加同日close开仓对照：默认entry_timing=next_observation不变。仅研究用户授权的新假设时，在本机新配置设backtest.entry_timing=signal_close，study用`--q-open 0.9 --exits close0.5 --sides both --no-render`；普通workflow还须cta.parameters.entry_timing一致。开仓当日close、0.5退出下一有效观测、到期同日双平。公司须核对8账户信号日=开仓日、信号p=成交p、真实close及费用/持仓，并与旧口径分别保存，不能混用日期/分位或覆盖旧结果。完整命令见[跨期说明](CALENDAR_REVERSAL.md)。本机已完成验证，公司现场另行记录。
+
 ## 当前相邻跨期专项：双向反转、仅持有到期（2026-11-05）
 
 用户最新删除0.5退出；同一账户允许低尾做多、高尾做空，只持有到期。两通道×四品种分别独立，共8账户。复制无数据模板并填已有审计快照，本机因子可复用时配置factor_input；四品种保证金率均为1.0，费用每腿每边万三。执行：

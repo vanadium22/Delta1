@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-09开仓时点对照：用户授权0.5退出策略增加entry_timing=signal_close，默认仍next_observation；仅开仓当日close，阈值退出下一有效观测，到期同日双平。沿用保存因子和原账户逻辑，8账户独立重跑及199笔同日信号/成交、两腿账务/实际价格核验通过，旧口径40原生账本完全一致，170项回归与Ruff通过。新Excel分列信号/成交/回撤分位，两口径各一页签，无引用和表下说明；真实结果本机外置不入Git，DDB/VPN暂停、Z未访问，公司现场待运行。[参数调用](dashboard/backtest/CALENDAR_REVERSAL.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。
+
 - 2026-11-05新对话交接留存：仅持有到期放大报告的说明/模板版本007d49b与本机交付、核验证据已记录在[回测交接](dashboard/backtest/PROJECT_HANDOFF.md)，附可复制的新对话提示词。下一轮主题为跨期价格差反转，具体问题待用户说明；不预设沿用旧参数，不启动新回测、调参或获取。本轮只更新交接与发布说明，真实结果保留原位。
 
 - 2026-11-05仅到期放大报告接续6d789bf：用户删除0.5退出，仅保留01-02/02-03、同账户低分位多/高分位空、四品种共8账户，100%保证金及其他参数不变。复用既有到期结果，因子/CTA/执行0次重跑；六页每跨期三页（数值/2×2分布、整页历史、收益回撤/案例），图表空间约2-3倍。24PNG/22CSV/3HTML和PDF本机外置，22CSV对应行完全一致，104原生PDF单元格、报价/p/持仓/回撤标记及ZIP校验通过。模板tune固定expiry、2配置/8账户，旧比较归档；DDB/VPN暂停、Z未访问，公司现场待运行。[当前调用](dashboard/backtest/CALENDAR_REVERSAL.md)、[交接](dashboard/backtest/PROJECT_HANDOFF.md)。

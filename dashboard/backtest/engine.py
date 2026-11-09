@@ -166,7 +166,7 @@ class ParameterBook:
         return result
 
 
-def _schedule(instructions, times, *, daily_only=False):
+def _schedule(instructions, times, *, daily_only=False, entry_timing="next_observation"):
     pending, rows = {}, []
     locations = times.searchsorted(instructions.index, side="right")
     if daily_only:
@@ -174,11 +174,24 @@ def _schedule(instructions, times, *, daily_only=False):
     values = instructions.to_numpy(dtype=float)
     for i, (signal_time, loc) in enumerate(zip(instructions.index, locations)):
         record = dict(signal_time=signal_time, execution_time=pd.NaT, status="no_next_bar")
+        same_close = entry_timing == "signal_close" and np.any(values[i] != 0)
+        if same_close:
+            loc = int(times.searchsorted(signal_time, side="left"))
+            if loc == len(times) or times[loc] != signal_time:
+                record["status"] = "no_signal_close"
+                rows.append(record)
+                continue
         if loc < len(times):
             loc = int(loc)
             record.update(execution_time=times[loc], status="scheduled")
             if loc in pending:
-                rows[pending[loc][2]]["status"] = "superseded"
+                previous = pending[loc]
+                if same_close and not np.any(previous[1]):
+                    # Execute the older flat close before this fresh entry. A
+                    # close and re-entry in the same pair must remain two trips.
+                    record["close_before_entry_record"] = previous[2]
+                else:
+                    rows[previous[2]]["status"] = "superseded"
             pending[loc] = (signal_time, values[i], len(rows))
         rows.append(record)
     return pending, rows
@@ -208,7 +221,8 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
     last_price = np.full(len(symbols), np.nan)
     last_multiple = np.full(len(symbols), np.nan)
     cash = float(config.initial_capital)
-    pending, schedule = _schedule(instructions, times, daily_only=config.precision == "1d" or input_precision(instructions) == "1d")
+    pending, schedule = _schedule(instructions, times,
+        daily_only=config.precision == "1d" or input_precision(instructions) == "1d", entry_timing=config.entry_timing)
     day_rows = {int(times.get_loc(t)): i for i, t in enumerate(daily.index)}
     events = list(set(pending) | set(day_rows))
     heapq.heapify(events)
@@ -410,6 +424,8 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
                     require_days(days, ((positions != 0) | wanted) & ~spot, symbols, now)
                     wanted = wanted & (spot | (days > config.d0))
                 needed = expand_needed((positions != 0) | wanted, pairs)
+                if config.entry_timing == "signal_close" and np.any(weights) and not valid[loc, needed].all():
+                    raise BacktestError("signal_close entry requires actual jointly valid signal-day closing quotes")
                 future_loc = loc if valid[loc, needed].all() else next_joint_quote(valid, loc, needed, joint_cache)
                 if future_loc is None:
                     raise BacktestError(f"No next valid execution close for {[s for s, n in zip(symbols, needed) if n]} after {signal_time}")
@@ -431,6 +447,13 @@ def _run_account(name, instructions, market, config, *, cancel_event=None, progr
             price = prices[loc]
             multiple, rate = multiple_book.at(now), rate_book.at(now)
             equity, required, available, _ = mark(price, multiple, rate, now)
+            prior_close = schedule[record].get("close_before_entry_record")
+            if prior_close is not None:
+                execute(np.zeros_like(positions), now, price, multiple, rate,
+                    schedule[prior_close]["signal_time"], "target_rebalance", fallback[loc])
+                schedule[prior_close].update(execution_time=now, status="executed")
+                previous_requested[:] = 0.
+                equity, required, available, _ = values(price, multiple, rate)
             needed = (positions != 0) | (weights != 0)
             locked = np.zeros(len(symbols), dtype=bool)
             blocked = np.zeros(len(symbols), dtype=bool)
@@ -642,7 +665,9 @@ def run_engine(instructions: pd.DataFrame, market: MarketData,
                                                        risk="every_observed_quote" if config.precision == "auto" else "daily_close"),
                                         performance=dict(account_processes=parallel, input_quote_rows=len(close),
                                                          evaluated_events=sum(a.summary["evaluated_events"] for a in results)),
-                                        execution="first jointly valid quote strictly after signal; minute then actual daily-close fallback",
+                                        execution=("explicit signal-day close entry assumption; zero-target exits at next valid observation; expiry unchanged"
+                                                   if config.entry_timing == "signal_close" else
+                                                   "first jointly valid quote strictly after signal; minute then actual daily-close fallback"),
                                         sizing=("equal contract-equivalent weights, zero sum by product; gross pair margin budget; exact paired integer lots"
                                                 if config.weight_mode == "neutral_units" else "literal signed equity fractions as gross margin; integer truncation"),
                                         spot_model="fully funded synthetic index units; multiplier=1, margin=1; shorts allowed",

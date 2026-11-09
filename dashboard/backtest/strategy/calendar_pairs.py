@@ -166,7 +166,8 @@ def calendar_reversal_targets(factors, spec, *, start=None, end=None, cancel_eve
             serial[root] += 1
             trade_id = f"{root}_{channel}_{serial[root]:04d}"
             held[root] = dict(near=near, far=far, expiry=expiry, direction=direction,
-                phase="pending_open", pending_since=stamp, trade_id=trade_id)
+                phase="held" if params["entry_timing"] == "signal_close" else "pending_open",
+                pending_since=stamp, trade_id=trade_id)
             desired[near], desired[far] = direction*params["position_weight"], -direction*params["position_weight"]
             records.append(dict(timestamp=stamp, root=root, channel=channel, action="signal_open", trade_id=trade_id,
                 near=near, far=far, percentile=value, direction=direction))

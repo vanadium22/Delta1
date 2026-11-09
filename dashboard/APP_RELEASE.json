@@ -1232,6 +1232,19 @@
         "dashboard/backtest/test/test_calendar_study.py"
       ]
     },
+    "calendar_signal_close_entry_comparison": {
+      "date": "2026-11-09",
+      "base_commit": "9d769ac9f22f532f022598c319660f4a684f8567",
+      "entry": "python -m dashboard.backtest.calendar_study --config <local-signal-close-config.json> --output <new-directory> --q-open 0.9 --exits close0.5 --sides both --no-render",
+      "execution": "optional entry_timing=signal_close in CTA and execution; matrix takes backtest.entry_timing; default next_observation unchanged; only entries at same signal-day close, threshold exits still later, expiry same-day close",
+      "assumption": "user-authorized same-close entry sensitivity; no claim that final close was known before execution; missing signal-day close cannot shift entry to a later price",
+      "accounting": "original engine sizes integer equal-opposite lots, commissions, daily settlement, expiry and margin calls; delayed close and fresh same-close entry execute flat first and stay two round trips",
+      "validation": "170 offline regressions including three new timing/close-reentry/expiry tests; Ruff passed; eight standalone reruns and factor reload/prefix checks; 199 entries equal signal time and p, 196 closed and three open; original eight accounts exactly match 40 native ledgers; source/factor SHA unchanged",
+      "delivery": "local Excel has original and same-close entry sheets with separate signal-date/p, fill-date/p and drawdown-peak/trough p; real workbook/data/config/results excluded from Git",
+      "data_policy": "existing audited snapshot only; DDB/VPN paused, Z not accessed",
+      "company_acceptance": "pending_actual_company_run",
+      "files": ["COMPANY_SYNC.md", "dashboard/APP_RELEASE.json", "dashboard/backtest/AGENTS.md", "dashboard/backtest/CALENDAR_REVERSAL.md", "dashboard/backtest/COMPANY_BACKTEST_TEST.md", "dashboard/backtest/PROJECT_HANDOFF.md", "dashboard/backtest/calendar_reversal.config.example.json", "dashboard/backtest/calendar_analytics.py", "dashboard/backtest/calendar_study.py", "dashboard/backtest/configuration.py", "dashboard/backtest/engine.py", "dashboard/backtest/models.py", "dashboard/backtest/strategy/calendar_pairs.py", "dashboard/backtest/workflow.py", "dashboard/backtest/test/test_calendar_study.py"]
+    },
     "calendar_reversal_next_chat_handoff": {
       "date": "2026-11-05",
       "completed_report_commit": "007d49bd58296aa0e56fda2143a309dbce01f7fb",

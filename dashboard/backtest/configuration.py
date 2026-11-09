@@ -100,6 +100,7 @@ CTA_SCHEMAS = {
             allowed_spread_side=Parameter("both", "entry direction; low-p long and high-p short are reversals", choices=("both", "long", "short")),
             exit_mode=Parameter("expiry", "exit rule", choices=("expiry", "threshold")),
             q_close=Parameter(.6, "short exit p<=q_close; long exit p>=1-q_close", minimum=0, maximum=1),
+            entry_timing=Parameter("next_observation", "entry execution assumption; closes remain next observation", choices=("next_observation", "signal_close")),
             position_weight=Parameter(.495, "equal leg budget; engine sizes integer lots", minimum=.000001, maximum=.5))),
     "expiry_index_structure": dict(inputs=("per-contract raw percentile", "dated actual mapping", "expiry reference"),
         parameters={**EXPIRY, "position_weight":Parameter(.12375, "per leg; 4 dedicated pair budgets per product", minimum=.000001, maximum=.125),

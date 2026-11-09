@@ -26,11 +26,13 @@
     "parameters": {
       "channel": "01-02", "root": "all", "q_open": 0.9,
       "allowed_spread_side": "both",
+      "entry_timing": "next_observation",
       "exit_mode": "expiry", "q_close": 0.5, "position_weight": 0.495
     }
   },
   "backtest": {
     "initial_capital": 10000000, "commission_rate": 0.0003,
+    "entry_timing": "next_observation",
     "max_capital_usage": 0.99, "minimum_margin_ratio": 0.0001,
     "margin_call_basis": "equity", "mode": "product", "precision": "1d", "workers": 1,
     "weight_mode": "neutral_units", "d0": 0,

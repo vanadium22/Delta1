@@ -33,6 +33,58 @@ def fixture():
 
 
 class CalendarStudyTests(unittest.TestCase):
+    def test_signal_close_entry_retains_delayed_exit_and_separate_reentry(self):
+        market,factors=fixture()
+        dates=factors.panel.close.index
+        table=factors.diagnostics["calendar_pairs"]
+        table.loc[:,"percentile"]=.5
+        table.loc[table.timestamp.isin([dates[3],dates[5]]),"percentile"]=.95
+        declaration=job()
+        declaration["cta"]["parameters"]=dict(exit_mode="threshold",q_close=.5,entry_timing="signal_close")
+        declaration["backtest"].update(start=str(dates[3]),end=str(dates[8]))
+        signals=cta_stage(factors,declaration)
+        cfg=BacktestConfig(initial_capital=1_000_000,start=dates[3],end=dates[8],mode="product",
+            weight_mode="neutral_units",rebalance_on_change_only=True,preserve_pair_lots=True,entry_timing="signal_close")
+        account=run_backtest(signals.targets,market_data=market,config=cfg).accounts["IC"]
+        trip,_,_,stats=round_trips(account,factors,signals,scenario="same_close",root="IC",channel="01-03",
+            initial_capital=cfg.initial_capital,commission_rate=cfg.commission_rate,entry_timing=cfg.entry_timing)
+        self.assertEqual(trip.entry_time.tolist(),[dates[3],dates[5]])
+        self.assertTrue(trip.entry_signal_time.eq(trip.entry_time).all())
+        self.assertTrue(trip.entry_p.eq(trip.entry_execution_p).all())
+        self.assertEqual(trip.exit_time.tolist(),[dates[5],dates[7]])
+        self.assertTrue(trip.exit_signal_time.lt(trip.exit_time).all())
+        self.assertEqual(len(account.actual_orders[account.actual_orders.execution_time.eq(dates[5])]),4)
+        self.assertEqual(stats["closed_trades"],2)
+
+    def test_signal_close_cannot_use_a_later_quote(self):
+        from dashboard.backtest.engine import _schedule
+        date=pd.Timestamp("2026-01-08 15:00",tz="Asia/Shanghai")
+        weights=pd.DataFrame({"IC2602.CFE":[.495],"IC2603.CFE":[-.495]},index=[date])
+        pending,schedule=_schedule(weights,pd.DatetimeIndex([date+pd.Timedelta(days=1)]),
+            daily_only=True,entry_timing="signal_close")
+        self.assertEqual(pending,{})
+        self.assertEqual(schedule[0]["status"],"no_signal_close")
+
+    def test_signal_close_expiry_still_wins_pending_threshold(self):
+        market,factors=fixture()
+        table=factors.diagnostics["calendar_pairs"]
+        table.loc[:,"percentile"]=.5
+        enter=pd.Timestamp("2026-01-14 15:00",tz="Asia/Shanghai")
+        close=pd.Timestamp("2026-02-19 15:00",tz="Asia/Shanghai")
+        table.loc[table.timestamp.eq(enter),"percentile"]=.95
+        table.loc[table.timestamp.gt(enter)&table.timestamp.lt(close),"percentile"]=.8
+        declaration=job()
+        declaration["cta"]["parameters"]=dict(exit_mode="threshold",q_close=.5,entry_timing="signal_close")
+        declaration["backtest"].update(start=str(enter))
+        signals=cta_stage(factors,declaration)
+        cfg=BacktestConfig(initial_capital=1_000_000,start=enter,mode="product",weight_mode="neutral_units",
+            rebalance_on_change_only=True,preserve_pair_lots=True,entry_timing="signal_close")
+        account=run_backtest(signals.targets,market_data=market,config=cfg).accounts["IC"]
+        trip,_,_,_=round_trips(account,factors,signals,scenario="expiry",root="IC",channel="01-03",
+            initial_capital=cfg.initial_capital,commission_rate=cfg.commission_rate,entry_timing=cfg.entry_timing)
+        self.assertEqual(len(account.actual_orders),4)
+        self.assertEqual(trip.exit_reason.tolist(),["expiry_d0"])
+
     def test_adjacent_factor_formula_locked_pair_and_saved_cta(self):
         market,_=demo_market(35)
         declaration=job()

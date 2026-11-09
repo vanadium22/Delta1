@@ -186,6 +186,7 @@ class BacktestConfig:
     timestamp_unit: str | None = None
     nan_policy: str = "error"  # error / zero (explicit opt-in)
     liquidate_at_end: bool = False
+    entry_timing: str = "next_observation"  # signal_close: explicit daily-close entry assumption
 
     def __post_init__(self):
         for key in ("initial_capital", "commission_rate", "max_capital_usage", "minimum_margin_ratio"):
@@ -218,6 +219,11 @@ class BacktestConfig:
             raise BacktestError("preserve_pair_lots requires boolean and neutral_units weights")
         if self.precision not in {"1d", "auto"}:
             raise BacktestError("precision must be 1d or auto")
+        if self.entry_timing not in {"next_observation", "signal_close"}:
+            raise BacktestError("entry_timing must be next_observation or signal_close")
+        if self.entry_timing == "signal_close" and (self.precision != "1d" or self.mode != "product"
+                or self.weight_mode != "neutral_units" or not self.rebalance_on_change_only or self.hedges):
+            raise BacktestError("signal_close entry requires daily product neutral_units accounts, on-change targets and no hedges")
         if isinstance(self.workers, bool) or not isinstance(self.workers, (int, np.integer)) or self.workers < 0:
             raise BacktestError("workers must be a non-negative integer; 0 selects a bounded automatic count")
         if self.d0 is not None and (isinstance(self.d0, bool) or not isinstance(self.d0, (int, np.integer)) or self.d0 < 0):
