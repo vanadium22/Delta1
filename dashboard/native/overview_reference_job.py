@@ -65,6 +65,9 @@ class ReferenceJob:
         chosen={r['symbol'] for root in ROOTS for r in ranking(current['data'],root,today=now.date().isoformat())[0]}
         saved_nav=current['data'].get('etf_nav',{}).get('rows',{})
         nav_due=bool(chosen) and (config.get('overview_reference_backend') or 'windpy')=='windpy' and any(saved_nav.get(s,{}).get('as_of')!=target for s in chosen)
+        history=current['data'].get('etf_aum_history',{})
+        aum_due=bool(chosen) and (config.get('overview_reference_backend') or 'windpy')=='windpy' and (
+            history.get('requested_day')!=target or any(s not in history.get('rows',{}) for s in chosen))
         week = '-'.join(map(str, now.isocalendar()[:2]))
         profile=hashlib.sha256(json.dumps([PROTOCOL,{k:config.get(k) for k in
             ('overview_reference_backend','overview_wind_python','overview_wind_config','overview_wind_aum_field',
@@ -79,14 +82,14 @@ class ReferenceJob:
         daily_repair_due=bool(repairs) and (attempt.get('day')!=target or attempt.get('checked_day')!=now.date().isoformat())
         stage='all'
         if not force and not daily_repair_due and (not current['due'] and not repairs or weekly_tried):
-            if not nav_due:
+            if not nav_due and not aum_due:
                 record('attempted_this_week' if weekly_tried and (current['due'] or current['data'].get('errors')) else 'up_to_date',
-                    '该完成日今日已尝试；缺项明日有界复核，结果见Wind状态' if repairs else '本周资料及最近完成日净值已核验');return
+                    '该完成日今日已尝试；缺项明日有界复核，结果见Wind状态' if repairs else '本周资料及最近完成日净值/规模历史已核验');return
             stage='nav';profile=hashlib.sha256((profile+target).encode()).hexdigest()
             try:nav_attempt=json.loads((self.directory/'nav-attempt.json').read_text(encoding='utf8'))
             except (OSError,ValueError):nav_attempt={}
             if nav_attempt.get('day')==target and nav_attempt.get('checked_day')==now.date().isoformat() and nav_attempt.get('profile')==profile:
-                record('nav_attempted_today','该完成日净值已尝试；保留原数据日期');return
+                record('nav_attempted_today','该完成日净值/规模历史已尝试；保留原数据日期');return
         self.directory.mkdir(parents=True, exist_ok=True)
         # A persistent stop file is never deleted while an old worker is alive.
         if self.stop_file.exists():

@@ -111,7 +111,8 @@ class Split(QWidget):
 class ScrollPage(QWidget):
     def __init__(self):
         super().__init__(); outer = QVBoxLayout(self); outer.setContentsMargins(8, 15, 8, 0)
-        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        from .page_scale import ScaleScrollArea
+        self.scroll = ScaleScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body = QWidget(); self.box = QVBoxLayout(self.body); self.box.setContentsMargins(2, 2, 12, 12); self.box.setSpacing(20)
         self.box.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -178,7 +179,7 @@ class MiniBar(QWidget):
             return
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         col = QColor(ink(self.value)); col.setAlpha(65); painter.setBrush(col); painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(QRectF(5, self.height()/2-7, max(0, self.width()-10)*abs(self.value)/self.maximum, 14), 3, 3)
+        painter.drawRoundedRect(QRectF(5, self.height()/2-7, max(3, max(0,self.width()-10)*abs(self.value)/self.maximum), 14), 3, 3)
 
 
 class IndustryWeights(QWidget):
@@ -254,18 +255,19 @@ class IndexOverviewPage(ScrollPage):
         self.heading.setText(name+' · 谁在推动，谁在拖累')
         self.snapshot.setText(('有效成分 '+str(detail.get('covered',0))+'/'+str(detail.get('expected',0))+
             ' · 权重覆盖 '+numeric(detail.get('coverage_pct'),1,suffix='%')) if detail.get('expected') else '待成分资料')
+        if detail.get('display_saved'):self.snapshot.setText('上次显示 · '+stamp(detail.get('snapshot_at'))+' · '+self.snapshot.text())
         self.snapshot.setToolTip('成分源 '+str(detail.get('source_at') or '—')+'\n'+str(detail.get('reason') or ''))
         self.snapshot.setToolTip('实际取得 '+stamp(detail.get('snapshot_at'))+'\n权重基准 '+str(detail.get('weight_date') or '待核验')+'\n官方权重日 '+str(detail.get('official_weight_date') or '待核验')+'\n'+str(detail.get('weight_reason') or detail.get('reason',''))+f"\n有效 {detail.get('covered',0)}/{detail.get('expected',0)}只")
         for widget, key, suffix in zip(self.metrics, ('up_pct', 'actual_points', 'contribution_points', 'residual_points'), ('%', '点', '点', '点')):
             value = detail.get(key); put(widget, numeric(value, 1 if key == 'up_pct' else 2, key != 'up_pct', suffix), color=ink(value), size=28, bold=True)
         self.weight_panel.note.setText((detail.get('industry_standard') or '行业分类待核验')+(' · 估算权重 ' if detail.get('weight_method')=='fixed_quantity_estimate' else ' · 权重 ')+str(detail.get('weight_date') or '待核验'))
-        groups = detail.get('industries', []); self.weights.render(groups if detail.get('weights_complete') is not False else [])
+        groups = detail.get('industries', []); self.weights.render(groups)
         ranked = detail.get('leaders', [])+detail.get('laggards', [])
         displayed = ranked if ranked else groups[:6]
-        self.industry_panel.note.setText('完整行业参与排名' if ranked else '权重待核验，可查看成分涨跌' if detail.get('weights_complete') is False else '贡献待核验，先看权重')
+        self.industry_panel.note.setText('按已覆盖成分计算 · 缺项已剔除' if detail.get('partial') else '按有效权重计算' if ranked else '贡献待核验，先看权重')
         self.displayed_industries = displayed; self.industries.setRowCount(max(6, len(displayed)))
         self.industries.clearContents()
-        maximum = max([abs(r['contribution_points']) for r in displayed if r.get('contribution_points') is not None] or [1]) or 1
+        maximum = max([abs(r['change_pct']) for r in displayed if r.get('change_pct') is not None] or [1]) or 1
         for i in range(max(6, len(displayed))):
             if i >= len(displayed):
                 cell(self.industries, i, 0, '待行业资料' if not displayed else '—', MUTED)
@@ -275,7 +277,7 @@ class IndexOverviewPage(ScrollPage):
             cell(self.industries, i, 0, r['name'], ACCENT, r['name'])
             cell(self.industries, i, 1, numeric(r.get('weight_pct'), 1, suffix='%'))
             cell(self.industries, i, 2, numeric(r.get('change_pct'), signed=True, suffix='%'), ink(r.get('change_pct')))
-            self.industries.setCellWidget(i, 3, MiniBar(value, maximum, self.industries))
+            self.industries.setCellWidget(i, 3, MiniBar(r.get('change_pct'), maximum, self.industries))
             cell(self.industries, i, 4, numeric(value, signed=True), ink(value))
             for column in (2,4):self.industries.item(i,column).setToolTip(r.get('reason') or detail.get('reason',''))
         names = {r['name'] for r in groups}
@@ -323,14 +325,17 @@ class EtfCard(Panel):
         self.badge.setAlignment(Qt.AlignmentFlag.AlignRight); head.addWidget(self.heading, 3); head.addWidget(self.badge, 1); self.box.addLayout(head)
         values = QHBoxLayout(); self.price = lab('—', 39, ACCENT, True); self.change = lab('—', 27, TEXT, True)
         self.change.setAlignment(Qt.AlignmentFlag.AlignRight); values.addWidget(self.price, 1); values.addWidget(self.change, 1); self.box.addLayout(values)
-        second = QHBoxLayout(); self.iopv = lab('', 19); self.premium = lab('', 28, TEXT, True)
+        second = QHBoxLayout(); self.iopv = lab('', 16,MUTED); self.premium = lab('', 29, TEXT, True)
         self.premium.setAlignment(Qt.AlignmentFlag.AlignRight); second.addWidget(self.iopv, 1); second.addWidget(self.premium, 1); self.box.addLayout(second)
-        self.closing_premium=lab('',16,MUTED);self.box.addWidget(self.closing_premium)
+        self.closing_premium=lab('',14,MUTED);self.box.addWidget(self.closing_premium)
         divider = QFrame(); divider.setFixedHeight(1); divider.setStyleSheet(f'background:{BORDER};'); self.box.addWidget(divider)
-        self.scale = lab('', 20,ACCENT,True); self.spread=lab('',20,ACCENT,True);self.activity = lab('', 16, MUTED); self.clock = lab('', 14, MUTED)
-        for w in (self.scale,self.spread,self.activity): self.box.addWidget(w)
+        metrics=QHBoxLayout();self.scale=lab('',25,ACCENT,True);self.share=lab('',25,ACCENT,True);self.spread=lab('',25,ACCENT,True)
+        for caption,value in (('规模 · 亿元',self.scale),('同指数占比',self.share),('买卖价差 · bp',self.spread)):
+            column=QVBoxLayout();column.setSpacing(3);column.addWidget(value);column.addWidget(lab(caption,14,MUTED));metrics.addLayout(column,1)
+        self.box.addLayout(metrics)
+        self.activity=lab('',14,MUTED);self.box.addWidget(self.activity);self.clock = lab('', 14, MUTED)
         self.clock.setParent(self);self.clock.hide()
-        self.setMinimumHeight(265)
+        self.setMinimumHeight(245)
 
     def render(self, row, position):
         self.row = row
@@ -344,18 +349,21 @@ class EtfCard(Panel):
         label=row.get('display_premium_label') if row.get('display_premium_mode')==display['display_premium_mode'] else None
         self.iopv.setText((label or display['display_premium_label']) if display['display_premium_mode']=='closing' else
             'IOPV '+numeric(row['iopv'],4) if row.get('iopv') is not None else 'IOPV待有效报价' if row.get('iopv_id') else 'IOPV待接入')
-        put(self.premium,numeric(value,1,True,' bp') if value is not None else '盘中折溢价 —',color=ink(value),size=27 if value is not None else 21,bold=True)
+        put(self.premium,numeric(value,1,True,' bp'),color=ink(value),size=29,bold=True)
         self.iopv.setToolTip(row.get('premium_reason') or '缺少可核验IOPV来源或明确映射')
         self.premium.setToolTip(display['display_premium_reason'] or '待可用折溢价')
-        self.closing_premium.setText('收盘折溢价 '+numeric(row.get('closing_premium_bp'),1,True,' bp')+' · '+str(row.get('nav_date') or '待净值'))
+        self.closing_premium.setText('净值日期 '+str(row.get('nav_date') or '待核验') if display['display_premium_mode']=='closing' else '')
+        self.closing_premium.setVisible(display['display_premium_mode']=='closing')
         self.closing_premium.setToolTip(row.get('closing_premium_reason') or '待同日收盘和单位净值，非盘中IOPV')
         scale_valid=finite(row.get('aum_cny')) and row['aum_cny']>0
-        put(self.scale,'基金规模 '+money(row.get('aum_cny'))+' · 同指数占比 '+numeric(row.get('aum_share_pct'),1,suffix='%'),
-            color=ACCENT if scale_valid else MUTED,size=20 if scale_valid else 17,bold=scale_valid)
-        self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；占比的分母为同指数全部普通ETF')
+        put(self.scale,numeric(row.get('aum_cny')/1e8 if scale_valid else None),color=ACCENT if scale_valid else MUTED,size=25,bold=True)
+        put(self.share,numeric(row.get('aum_share_pct'),1,suffix='%'),color=ACCENT,size=25,bold=True)
+        self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；人民币资产净值')
+        self.share.setToolTip('占比日期 '+str(row.get('aum_share_date') or row.get('aum_date') or '待核验')+'；分母为同日同指数全部普通ETF，不混用更新后的单只规模')
         spread_valid=finite(row.get('spread_bp'))
-        put(self.spread,'买卖价差 '+numeric(row.get('spread_bp'),1,suffix=' bp'),color=ACCENT if spread_valid else MUTED,size=20 if spread_valid else 17,bold=spread_valid)
+        put(self.spread,numeric(row.get('spread_bp'),1),color=ACCENT if spread_valid else MUTED,size=25,bold=True)
         self.activity.setText('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')
+        self.activity.setVisible(row.get('amount_cny') is not None)
         self.activity.setToolTip('现有tradedQuantities为源单位成交量，不能冒充人民币成交额。\n累计成交量 '+numeric(row.get('volume'), 0))
         quote_time = source_label(row)
         self.clock.setText('报价 '+quote_time+' · 配对 '+clock(row.get('premium_source_at')))
@@ -391,11 +399,11 @@ class EtfOverviewPage(ScrollPage):
         for text in ('是否允许申购 / 赎回：待核验', '最小申赎单位 / 当日限额：待核验', '仅展示真实已披露状态'):
             self.pcf.box.addWidget(lab(text, 18, MUTED))
         self.box.addWidget(Split(self.flows, self.pcf, (2, 1)))
-        self.chart = Panel('盘中折溢价采集轨迹 · bp', 'ETF与IOPV同刻配对')
-        self.plot = pg.PlotWidget(background=PANEL,axisItems={'bottom':MinuteAxis(orientation='bottom')}); self.plot.setMinimumWidth(0); self.plot.setMinimumHeight(155); self.plot.setMaximumHeight(180)
+        self.chart = Panel('近三个月基金规模 · 亿元', '当前展示的前三只')
+        self.plot = pg.PlotWidget(background=PANEL,axisItems={'bottom':pg.DateAxisItem(orientation='bottom',utcOffset=0)}); self.plot.setMinimumWidth(0); self.plot.setMinimumHeight(155); self.plot.setMaximumHeight(180)
         self.plot.setMenuEnabled(False); self.plot.setMouseEnabled(x=False, y=False); self.plot.hideButtons()
         self.plot.showGrid(y=True, alpha=.12)
-        self.chart.box.addWidget(self.plot); self.empty_plot = lab('待可核验IOPV及同步报价；收盘折溢价见上方卡片', 17, MUTED)
+        self.chart.box.addWidget(self.plot); self.empty_plot = lab('等待Wind近三个月规模历史；缺值不补零', 17, MUTED)
         self.empty_plot.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_plot.setMinimumHeight(120); self.chart.box.addWidget(self.empty_plot)
         legend=QHBoxLayout();self.legend=[]
         for i in range(3):
@@ -418,10 +426,11 @@ class EtfOverviewPage(ScrollPage):
         pending = bool(meta.get('reason')) or not meta.get('as_of')
         self.summary.setText('同一指数内筛选 · 基金规模前三'+('待核验' if pending else ''))
         self.review.setText('每周复核 · 规模 '+str(meta.get('as_of') or '待核验')+(' · 待复核' if self.reference.get('due') and meta.get('as_of') else ''))
+        if group.get('display_saved'):self.review.setText('保留上次资料 · '+self.review.text())
         self.review.setToolTip(meta.get('reason') or str(meta.get('source') or '')+'\n资料取得 '+stamp(self.reference.get('fetched_at')))
         for i, card in enumerate(self.fund_cards):
             row = rows[i] if i < len(rows) else {}; card.render(row, i+1)
-            self.legend[i].setText(row.get('name','') if row.get('premium_series') else '')
+            self.legend[i].setText('● '+row.get('name','') if row.get('aum_series') else '')
             if row.get('symbol'): self.cards[row['symbol']] = card
         changes={r['symbol']:r for r in group.get('size_changes',[])}
         self.flow_table.setRowCount(3);self.flow_table.clearContents()
@@ -436,15 +445,20 @@ class EtfOverviewPage(ScrollPage):
         self.flows.note.setText('仅当前展示的前三只')
         self.pcf.setVisible(bool(group.get('pcf',{}).get('as_of')))
         self.flow_reason.setText('两期基金规模变化包含净值涨跌影响；份额与净申赎另待来源')
-        self.plot.clear(); self.plot.addItem(pg.InfiniteLine(0, angle=0, pen=pg.mkPen(BORDER)))
+        self.plot.clear()
         has_points = False
         for i, row in enumerate(rows):
-            points = row.get('premium_series', []); xs = []; ys = []; previous = None
+            points = row.get('aum_series', []); xs = []; ys = []
             for point in points:
-                if previous and (point['session'] != previous['session'] or (pd.Timestamp(point['source_at'])-pd.Timestamp(previous['source_at'])).total_seconds() > 30):
-                    xs.append(point['x']); ys.append(float('nan'))
-                xs.append(point['x']); ys.append(point['value']); previous = point
+                xs.append(pd.Timestamp(point['as_of'],tz='UTC').timestamp());ys.append(point['aum_cny']/1e8)
             if points:
                 has_points = True; self.plot.plot(xs, ys, pen=pg.mkPen(CHART_COLORS[i % len(CHART_COLORS)], width=2),
                     symbol='o' if len(points) == 1 else None, symbolSize=5, connect='finite')
         self.plot.setVisible(has_points); self.empty_plot.setVisible(not has_points)
+        self.plot.enableAutoRange()
+        if has_points:
+            from dashboard.marketdata.overview_aum import start_day
+            last=group.get('aum_window',{}).get('end') or max(p['as_of'] for r in rows for p in r.get('aum_series',[]))
+            first=group.get('aum_window',{}).get('start') or start_day(last)
+            self.plot.setXRange(pd.Timestamp(first,tz='UTC').timestamp(),(pd.Timestamp(last,tz='UTC')+pd.Timedelta(days=1)).timestamp(),padding=.01)
+        self.chart.setToolTip('Wind日频人民币资产净值，Fill=Blank；仅绘实际已披露日期，缺值不补零、不前填。\n规模变化含净值涨跌，不代表份额变化或净申赎。')

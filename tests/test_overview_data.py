@@ -193,17 +193,18 @@ class DatedDataTests(unittest.TestCase):
 
     def test_side_cache_fill_resumes_only_missing_days_and_instruments(self):
         value=reference();metadata={'IF2611.CFE':dict(listing_date='2026-09-01',expiry_date='2026-11-20')}
+        config=dict(overview_stock_daily_enabled=True)
         with tempfile.TemporaryDirectory() as tmp,patch.object(daily,'reference_load',return_value=dict(data=value)):
-            first=daily.requests({},tmp,'2026-10-26',metadata)
+            first=daily.requests(config,tmp,'2026-10-26',metadata)
             self.assertTrue(any(j['asset']=='etf' for j in first));self.assertTrue(any(j['asset']=='stock' for j in first))
             asked=[]
             def fetch(client,job,root):
                 asked.append((job['day'],tuple(job['symbols'])))
                 return {s:close_row(s,job['day']) for s in job['symbols']}
-            result=daily.fill(Mock(),{},tmp,'2026-10-26',metadata,fetcher=fetch)
+            result=daily.fill(Mock(),config,tmp,'2026-10-26',metadata,fetcher=fetch)
             self.assertEqual(result['status'],'complete');self.assertGreater(result['inserted'],0)
-            self.assertEqual(daily.requests({},tmp,'2026-10-26',metadata),[])
-            count=len(asked);daily.fill(Mock(),{},tmp,'2026-10-26',metadata,fetcher=fetch)
+            self.assertEqual(daily.requests(config,tmp,'2026-10-26',metadata),[])
+            count=len(asked);daily.fill(Mock(),config,tmp,'2026-10-26',metadata,fetcher=fetch)
             self.assertEqual(len(asked),count)
 
     def test_cache_keeps_archives_and_exact_previous_session_not_last_available(self):

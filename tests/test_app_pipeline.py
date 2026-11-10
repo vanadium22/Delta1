@@ -198,10 +198,14 @@ class RefreshQueueTests(unittest.TestCase):
         for cls in (PresentationWindow,DeveloperWindow):
             with self.subTest(edition=cls.__name__):
                 target='dashboard.native.market_overview.capture'
-                with patch(target,side_effect=[ValueError('synthetic'),{}]):
+                with patch(target,side_effect=[ValueError('synthetic'),{}]) as capture:
                     w=self.window(cls);rendered=[];w.render=rendered.append
-                    pump(.05);self.assertFalse(w.busy)
-                    w.refresh();pump(.1);self.assertTrue(rendered);self.assertFalse(w.busy)
+                    deadline=time.monotonic()+2
+                    while (not capture.called or w.busy) and time.monotonic()<deadline:pump(.005)
+                    self.assertTrue(capture.called);self.assertFalse(w.busy)
+                    w.refresh();deadline=time.monotonic()+2
+                    while (not rendered or w.busy) and time.monotonic()<deadline:pump(.005)
+                    self.assertTrue(rendered);self.assertFalse(w.busy)
                     w.close();pump(.1)
 
 

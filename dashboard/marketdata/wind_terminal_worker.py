@@ -17,7 +17,7 @@ ROOTS={'IF':'000300.SH','IH':'000016.SH','IC':'000905.SH','IM':'000852.SH'}
 COUNTS={'IF':300,'IH':50,'IC':500,'IM':1000}
 NAMES={'沪深300':'IF','上证50':'IH','中证500':'IC','中证1000':'IM'}
 SECURITY=re.compile(r'[0-9]{6}\.(?:SH|SZ)')
-PROTOCOL='wind-terminal-v5-membership-and-nav'
+PROTOCOL='wind-terminal-v6-dated-aum-history'
 VALIDATION_CODES={
     'Wind数据集字段不一致':'dataset_fields_mismatch',
     'Wind数据集长度不一致':'dataset_shape_mismatch',
@@ -300,6 +300,39 @@ def refresh_nav(w,output,day,stamp,stop,warnings):
         warnings.append(w.warning(exc,'ETF收盘净值'));return 0
 
 
+def refresh_aum(w,output,day,stamp,config,stop,warnings):
+    """Reuse the verified daily AUM field, one code per WSD time series."""
+    try:from .overview_aum import SCHEMA,start_day
+    except ImportError:from overview_aum import SCHEMA,start_day  # Standalone Wind Python worker.
+    first=start_day(day);field=config.get('aum_field','netasset_total')
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',field):raise ValueError('Wind字段无效')
+    codes=sorted({r['symbol'] for group in output.get('etfs',{}).values() if group.get('complete') is True
+        for r in sorted(group.get('rows',[]),key=lambda r:(-r['aum_cny'],r['symbol']))[:3]})
+    if not codes:return 0
+    old=output.get('etf_aum_history',{}).get('rows',{});rows={};updated=0
+    for symbol in codes:
+        if stop():raise InterruptedError()
+        prior=old.get(symbol,{})
+        points={p['as_of']:p['aum_cny'] for p in prior.get('points',[]) if first<=p['as_of']<=day}
+        try:
+            response=checked(w.wsd(symbol,field,first,day,'unit=1;Fill=Blank;Days=Trading'),'WSD '+field)
+            dates=[iso(t) for t in response.Times]
+            if ([str(c).upper() for c in response.Codes]!=[symbol] or [str(f).lower() for f in response.Fields]!=[field.lower()] or
+                len(set(dates))!=len(dates) or any(not first<=d<=day for d in dates) or
+                not isinstance(response.Data,(list,tuple)) or len(response.Data)!=1 or
+                not isinstance(response.Data[0],(list,tuple)) or len(response.Data[0])!=len(dates)):
+                raise ValueError('Wind规模历史矩阵或日期不匹配')
+            received={d:number(v) for d,v in zip(dates,response.Data[0]) if number(v) is not None and number(v)>0}
+            points.update(received);updated+=bool(received)
+            if not received:warnings.append(symbol+' 规模历史暂无有效观测，保留已有数据')
+        except (WindError,ValueError,TypeError) as exc:
+            warnings.append(w.warning(exc,'ETF规模历史'))
+        rows[symbol]=dict(symbol=symbol,source='WindPy WSD '+field+';unit=1;Fill=Blank;Days=Trading',
+            points=[dict(as_of=d,aum_cny=a) for d,a in sorted(points.items())])
+    output['etf_aum_history']=dict(schema=SCHEMA,requested_start=first,requested_day=day,fetched_at=stamp,rows=rows)
+    return updated
+
+
 def _refresh(w,request,stop):
     checked(w.start(waitTime=10,showmenu=False),'Wind连接')
     old=request.get('old') or {};config=request.get('config') or {}
@@ -310,8 +343,10 @@ def _refresh(w,request,stop):
     if stage not in ('all','connect','indices','etfs','nav'):raise ValueError('低频检查阶段无效')
     if stage=='connect':return dict(data=output,diagnostics=safe_diagnostics(diagnostics))
     if stage=='nav':
-        if not refresh_nav(w,output,day,stamp,stop,warnings):raise WindError('Wind未返回可发布参考资料')
-        output['errors']=[s for s in old.get('errors',[]) if not s.startswith(('ETF同日净值','ETF收盘净值'))]+warnings
+        nav_updated=refresh_nav(w,output,day,stamp,stop,warnings)
+        aum_updated=refresh_aum(w,output,day,stamp,config,stop,warnings)
+        if not nav_updated and not aum_updated:raise WindError('Wind未返回可发布参考资料')
+        output['errors']=[s for s in old.get('errors',[]) if not s.startswith(('ETF同日净值','ETF收盘净值','ETF规模历史'))]+warnings
         return dict(data=output,diagnostics=safe_diagnostics(diagnostics))
     output['reference_reviewed_at']=stamp
     for root,index in (ROOTS.items() if stage in ('all','indices') else []):
@@ -349,7 +384,7 @@ def _refresh(w,request,stop):
                 membership_date_basis='Wind indexconstituent requested day; row reference dates retained separately',
                 weights_complete=complete,weight_as_of=as_of if complete else None,
                 weight_method='source_reference' if complete else 'incomplete_reference',weight_source_dates=sorted(dates),
-                weight_reason=None if complete else '参考日期混合或权重缺失；保留成分名单，不归一化、不补零、不计算未核验贡献')
+                weight_reason=None if complete else '参考日期混合或权重缺失；缺项剔除，已知权重保留原比例计算并注明覆盖')
             symbols.update(r['symbol'] for r in members);changed+=1
         except (WindError,ValueError,KeyError,TypeError) as exc:
             warnings.append(w.warning(exc,root+' 权重'))
@@ -440,6 +475,7 @@ def _refresh(w,request,stop):
         else:warnings.append('ETF标的指数映射未完整取得；具体字段与失败阶段见诊断')
     else:warnings.append('Wind ETF全集未取得；可在设置中指定终端板块参数')
     refresh_nav(w,output,day,stamp,stop,warnings)
+    refresh_aum(w,output,day,stamp,config,stop,warnings)
     output['errors']=warnings
     if not changed:raise WindError('Wind未返回可发布参考资料')
     return dict(data=output,diagnostics=safe_diagnostics(diagnostics))

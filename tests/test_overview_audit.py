@@ -77,7 +77,8 @@ class OverviewAuditTests(unittest.TestCase):
             with patch('requests.sessions.Session.request',side_effect=AssertionError('offline')):
                 result=calculation_preview(config,tmp,pd.Timestamp('2026-10-27T09:29:59+08:00'),repo,{})
             self.assertEqual(len(result['futures']),16)
-            self.assertEqual(result['etf_aum_history'],dict(files_read=0,truncated=False))
+            self.assertEqual(result['etf_aum_history']['files_read'],0);self.assertFalse(result['etf_aum_history']['truncated'])
+            self.assertEqual(result['etf_aum_history']['points'],0)
             self.assertEqual(result['basis_formula'],'(F - S + D) / S × 365 / T × 100%')
             for row in result['futures']:
                 self.assertEqual(row['basis_kind'],'completed_daily');self.assertEqual(row['pricing_day'],'2026-10-26')

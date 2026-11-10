@@ -13,11 +13,16 @@ from index_strategy.instant_dld.realtime_store import RealtimeStore, publish_par
 
 
 class EquityObservationStore(RealtimeStore):
-    def __init__(self, root, *, progress=lambda value: None):
+    def __init__(self, root, *, progress=lambda value: None, archive_enabled=True):
         self.progress = progress
+        self.archive_enabled=archive_enabled
         super().__init__(root)
 
     def flush_parquet(self):
+        if not self.archive_enabled:
+            self.progress(dict(status='sqlite_committed',policy='batch_durable_no_automatic_parquet',
+                updated_at=datetime.now(timezone.utc).isoformat()))
+            return
         started = time.monotonic()
         groups = self.connection.execute("""SELECT q.symbol,q.capture_date,q.newest,COALESCE(p.archived,0) AS archived
             FROM (SELECT symbol,capture_date,MAX(sequence) AS newest FROM quotes GROUP BY symbol,capture_date) q

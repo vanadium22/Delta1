@@ -1,11 +1,11 @@
 # 看板文档索引
 
-当前日期：2026-10-29。先读当前交接与公司测试；历史原文只作为对应时期证据。
+当前日期：2026-11-10。先读当前交接与公司测试；历史原文只作为对应时期证据。
 
 | 分类 | 文件 |
 |---|---|
 | 当前交接与下一对话 | [PROJECT_HANDOFF](../PROJECT_HANDOFF.md)、[可复制新提示词](NEXT_COMPANY_RETEST_PROMPT.md) |
-| 公司完整操作 | [APP_COMPANY_TEST](../APP_COMPANY_TEST.md)：更新、Y盘/指定文件分红、行业/ETF、开窗/关闭后Overview、安全JSON ZIP |
+| 公司完整操作 | [一键复测CMD](../company_retest.cmd)、[APP_COMPANY_TEST](../APP_COMPANY_TEST.md)：更新、Y盘/指定文件分红、行业/ETF、开窗/关闭后Overview、安全JSON ZIP |
 | 发布与本地验证 | [APP_RELEASE精确文件清单](../APP_RELEASE.json)、[APP_VALIDATION](../APP_VALIDATION.md)、[统一更新](../../COMPANY_SYNC.md) |
 | 当前数据口径 | [市场概览](../APP_MARKET_OVERVIEW.md)、[数据能力/字段契约/行情分析](DATA_CAPABILITIES.md)、[本地字段模板](etf_fields.example.json) |
 | 使用与开发规则 | [README](../README.md)、[打开方式](../打开方式.md)、[AGENTS](../AGENTS.md) |
@@ -17,4 +17,4 @@
 
 AGENTS、PROJECT_HANDOFF、APP_RELEASE、APP_COMPANY_TEST等固定入口保留。归档的ROOT_AGENTS/DASHBOARD_AGENTS不是当前指令入口；旧UNC、旧固定分红情景和阶段限制不覆盖最新用户要求。不重复制作多套旧说明。项目总体目录见 [分类索引](../../docs/PROJECT_STRUCTURE.md)。
 
-2026-11-10：公司33份JSON已核验，Y最新11-06表与16当前合约计算一致，同次安全关闭73.499秒。历史缺D按用户要求暂0，补零信息留在悬浮/诊断，230项本地回归通过，ETF主位收盘回退/三只规模变化及数值去“估”已实现，新版待公司复测。操作见 [公司复测](../APP_COMPANY_TEST.md)，接续见 [新提示词](NEXT_COMPANY_RETEST_PROMPT.md)，历史真实D仍由 [分红审计](../dividend_check.py) 单独报告。
+2026-11-10：本轮接续1b621fc，ETF三个月规模/数字布局、部分行业计算/轮询缓存、期货图例和大中小比例已实现。完整/一键命令见公司测试，最终本机结果见APP_VALIDATION，公司真实历史/页面/性能以新反馈为准。历史D真实覆盖独立审计，七份旧说明唯一归档不动。

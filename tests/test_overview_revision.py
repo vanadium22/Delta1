@@ -94,9 +94,11 @@ class OverviewRevisionTests(unittest.TestCase):
         self.assertFalse(data['indices']['IF']['weights_complete']);self.assertIsNone(data['indices']['IF']['rows'][0]['weight_pct'])
         self.assertEqual(data['indices']['IH']['as_of'],'2026-09-30')
         snapshot=equity_snapshot();snapshot['reference_version']='v'
-        detail=contributions(data['indices']['IF'],snapshot,dict(symbol='000300.SH'),NOW,'2026-10-23','v')
-        self.assertEqual(detail['expected'],300);self.assertIsNone(detail['contribution_points'])
-        self.assertIsNone(detail['coverage_pct']);self.assertFalse(detail['leaders'])
+        snapshot['finished_at']=NOW.isoformat()
+        for q in snapshot['quotes'].values():q.update(source_event_time=NOW.isoformat(),observed_at=NOW.isoformat())
+        detail=contributions(data['indices']['IF'],snapshot,dict(symbol='000300.SH',prev_close=100,source_at=NOW.isoformat()),NOW,'2026-10-23','v')
+        self.assertEqual(detail['expected'],300);self.assertIsNotNone(detail['contribution_points'])
+        self.assertIsNotNone(detail['coverage_pct']);self.assertTrue(detail['partial']);self.assertFalse(detail['inputs']['previous_weights_valid'])
 
     def test_dated_nav_premium_is_separate_from_live_iopv(self):
         request=dict(day='2026-10-23',fetched_at=NOW.isoformat(),old={},config={},stage='etfs')
@@ -117,7 +119,7 @@ class OverviewRevisionTests(unittest.TestCase):
         old=refresh(FakeWind(),dict(day='2026-10-23',fetched_at=NOW.isoformat(),old={},config={},stage='etfs'))['data']
         sdk=FakeWind();value=refresh(sdk,dict(day='2026-10-26',fetched_at='2026-10-27T10:00:00+08:00',old=old,config={},stage='nav'))['data']
         self.assertEqual({kind for kind,_,_ in sdk.calls},{'WSD'})
-        self.assertEqual({field for _,field,_ in sdk.calls},{'nav','close'})
+        self.assertEqual({field for _,field,_ in sdk.calls},{'nav','close','netasset_total'})
         self.assertEqual(value['reference_reviewed_at'],old['reference_reviewed_at'])
         self.assertTrue(all(r['as_of']=='2026-10-26' for r in value['etf_nav']['rows'].values()))
 

@@ -1,10 +1,28 @@
-# 公司本轮完整复测命令（2026-11-10）
+# 公司完整复测命令（2026-11-10）
 
-本轮接续12f34f1：11月10日完整33份JSON已确认Y三表读入、当前16合约D映射和实时计算，同一运行安全关闭73.499秒。按用户新要求历史缺D暂0并标估算，当前D不补0；公司新估算分位仍需更新后复测。诊断用OutputDirectory直接保存本轮目录并安全打包。公盘三表10-27/10-30/11-06均读取正常，库64条/4版本；旧代码20日16档完整，60日仅缺历史D428条。截图确认收盘折溢价已显示，盘中IOPV/净申购/申赎仍缺可靠定义；公司关闭耗时约1–2分钟待复测。本页是完整命令入口。公司Git根为 `D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard`，LocalRoot为其下 `dashboard/localsetting/app`。先正常关闭旧看板并等后台退出，保留Wind终端登录；用平时能打开Y:的同一Windows用户，在同一个PowerShell窗口按顺序执行。
+接续1b621fc，检查ETF三个月规模、部分行业计算、轮询/显示缓存、期货图例和页面比例。旧公司源/当前D/公式已核验，新功能和关闭耗时仍待最后反馈。公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。Wind保持登录，实时VPN手动，所有关闭等窗口自行退出，不强杀/删锁。
 
-确认公盘为 `Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026`。本次公司drive_y.json记录DisplayRoot为 `\\192.168.91.230\FTPServer`，默认仍用Y路径，不猜拼IP地址、不重新映射。2026是年份目录，匹配 `指数基差情况_*.xlsx`，业务日以Sheet1!B1为准。
+## 0. 推荐：一键Runtime复测
 
-本次已回传过ZIP的公司用户，只需执行第1、4、5节；默认Runtime模式只要求版本/映射和开窗、关闭后两次Overview。第2、3节保留为按需数据排查，完整源复测时把下方deltaReturnMode改成full。
+先正常关闭旧看板，在CMD执行以下更新取得新脚本；以后可直接双击dashboard/company_retest.cmd。
+
+```bat
+cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+git pull --ff-only
+call dashboard\company_retest.cmd
+```
+
+脚本检查codex/company-apps并ff-only更新，记录新HEAD/本轮时间/Y映射，打开正常看板，默认保持10分钟供约5分钟成分轮询和Wind规模历史更新。按提示保持开窗保存Overview，再正常关闭、等排空、关闭后Overview及安全打包。只回传最后打印的ZIP。脚本不操作VPN、不重新映射Y、不强杀；无本轮开窗或最终同运行安全关闭时仍生成明确缺项包。Git错误保留现场，不reset/clean。
+
+非默认LocalRoot可在PowerShell调用：
+
+```powershell
+./dashboard/company_retest.cmd -LocalRoot 'D:/实际配置目录' -SampleSeconds 600
+```
+
+重点看：1080p最大化后“中”全卡可见，“大”可滚动，“小”更紧凑；行业覆盖、篮子涨跌条及贡献；ETF数字/带日收盘折溢价、近三个月规模曲线和相邻两次有效规模变化；期货量仓图例。规模只有一期时应缺项，真实两期相等才0，不称份额/净申赎。实际Wind历史覆盖以回传aum_history首尾日期和观测数为准。
+
+以下是完整手动和按需分红/行业ETF排查。一键已完成时不重复执行。Runtime只需第1、4、5节，full另做第2、3节。正确Y源为Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，业务日B1；现场DisplayRoot为\\192.168.91.230\FTPServer，仅记录，不猜拼/重映射。命令不改原配置/凭据/Excel。
 
 ## 1. 更新与本轮输出
 
@@ -84,9 +102,9 @@ ETF能力测试总预算90秒，close_nav查看同日有效配对数；IOPV/净�
 & "$env:WINDIR\System32\wscript.exe" '.\dashboard\start_presentation.vbs' --theme public --local-root $deltaLocalRoot
 ```
 
-保持看板打开10–15分钟，实时VPN仍手动。**正常任务才会发布行业/ETF资料**；需要立即复核时，在“数据更新/设置”点一次“DDB一键补齐”：先复核Wind资料，再按实际缺口补概览日线，本地标准历史优先复用，等待结束，勿反复点击。缺项资料有每日有界修复，成分行情约60秒一轮。
+保持看板打开10–15分钟，实时VPN仍手动。**正常任务才会发布行业/ETF资料**；需要立即复核时，在“数据更新/设置”点一次“DDB一键补齐”：先复核Wind资料，再按实际缺口补概览日线，本地标准历史优先复用，等待结束，勿反复点击。缺项资料有每日有界修复，成分独立100只/15秒、约5分钟一轮，每批保存；主报价仍3秒，个股昨收用HTTP，不每轮DDB取全体成分。App日常不再关闭时逐股Parquet导出。
 
-检查概览顶部“最新分红表”日期、20卡/16期货20与60分位、逐卡较昨日变化、行业覆盖/缺项、ETF无盘中值时主位的带日收盘溢价、加重的规模/占比/买卖价差，以及当前前三只两期规模变化、午休/盘前盘后参考及切页/滚动；可选验证行情分析查询、取消和CSV。研究32项/A02继续暂停。然后**保持窗口开着**，回到同一PowerShell执行：
+检查概览顶部“最新分红表”日期、20卡/16期货20与60分位、逐卡较昨日变化、行业覆盖/缺项、ETF无盘中值时主位的带日收盘溢价、加重的规模/占比/买卖价差，以及当前前三只相邻两次有效规模变化/近三个月曲线、1080p中比例全卡和期货图例、午休/盘前盘后参考及切页/滚动；可选验证行情分析查询、取消和CSV。研究32项/A02继续暂停。然后**保持窗口开着**，回到同一PowerShell执行：
 
 ```powershell
 if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalRoot $deltaLocalRoot -OutputDirectory $deltaReport -WindStage Nav -NoPause }
@@ -97,7 +115,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 年化不一致时，把鼠标放在期货卡年化值上，查看F（期货）、S（指数）、D（分红点）、T（自然日）、定价日及D业务日；与Excel同一时点和实际合约比较。Excel文件名/B1/RTD价格变化不证明G列分红同步变化。Overview的data_gaps.page_calculation_preview.futures保留上述输入、两腿源时、到期日与D文件SHA；它是只读计算预览，不证明运行中页面已应用。不为对账自动导入另一份Excel覆盖Y源。
 
-默认Overview离线，不启动采集或任何接口。Nav需要正常任务已发布ETF排名；尚未发布时失败也回传，不能用只读ETFs成功冒充生产发布。历史closing/stopped记录不能单独证明采样时当前窗口状态。
+默认Overview离线，不启动采集或任何接口。Nav需要正常任务已发布ETF排名，同时有界取近三个月规模，aum_history单列观测数/首尾日期，缺值不前填。尚未发布时失败也回传，不能用只读ETFs成功冒充生产发布。历史closing/stopped记录不能单独证明采样时当前窗口状态。
 
 正常关闭看板，观察左上“正在安全关闭”的等待阶段、成分归档进度和秒数，等窗口自行退出；不强杀、不删锁。关闭后在同一PowerShell再运行一次：
 
@@ -123,6 +141,6 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮本地230项受影响测试通过（46.355秒，ResourceWarning作为错误，无跳过）；两份Excel共32行与当前计算函数一致，但15个合约D和其他输入不同，现场仍需同输入核验。前序1800标的隔离归档从8.884秒降至2.489秒，仅代表本机合成数据，不承诺公司相同耗时。Y读取/导入和收盘折溢价已由本次公司报告/截图确认；60日历史D、完整行业贡献、盘中IOPV/净申购/PCF仍有待办；同一运行关闭已记录73.499秒，关闭性能待后续，缺定义不能猜填。此前55及229/62/272项属于历史批次。
+本轮最终本地结果见[APP_VALIDATION](APP_VALIDATION.md)，包含分红迁移/导入、连续20/60、缓存/部分行业、规模历史、比例和安全打包；本机模拟不替代公司验收。既有230项/46.355秒和逐股归档8.884→2.489秒属于前序批次。旧公司同次安全关闭73.499秒，本轮取消日常逐股导出后的耗时待新包；Y/16实际D/实时公式已核验，不盲改公式。
 
-ETF变化表只比较当前展示三只的真实两期AUM，日期可能不相邻；首次只有一期会标待前期规模，后续正常发布的参考归档可补出对比。规模变化含净值涨跌影响，份额/净申赎/PCF缺来源继续如实；IOPV不足时仅显示已披露收盘溢价，不把收盘值写成盘中IOPV。无须重复已通过的Y/Wind全阶段，默认runtime可完成新版UI/分位复测。
+ETF变化表只比较当前三只相邻两次有效规模及真实日期，Wind近三个月日频补取与已有本地参考归档一起提供对比；仅一期仍明确缺项。规模变化含净值涨跌，不代表份额/净申赎，IOPV/PCF缺定义不猜填。默认runtime即可完成最后显示与关闭复测，无须重复已通过的Y/Wind全阶段。

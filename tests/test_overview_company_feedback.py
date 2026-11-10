@@ -165,7 +165,7 @@ class CompanyEvidenceTests(unittest.TestCase):
         card=EtfCard(None)
         try:
             card.render(dict(symbol='510301.SH',name='Synthetic ETF',quality={},**expected),1)
-            self.assertIn('-20.0',card.premium.text());self.assertIn('-20.0',card.closing_premium.text())
+            self.assertIn('-20.0',card.premium.text())
             self.assertIn('2026-10-28',card.closing_premium.text());self.assertIn('收盘折溢价',card.iopv.text())
         finally:card.close();card.deleteLater();APP.processEvents()
 

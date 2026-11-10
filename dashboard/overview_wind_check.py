@@ -36,6 +36,12 @@ def collect(local_root,stage,*,now=None,day=None):
         result=refresh(config,root,old,now=stamp,stage=stage,requested_day=day)
         report['diagnostics']=safe_diagnostics(result.get('diagnostics'))
         data=result['data'];day=report['diagnostics'].get('requested_day')
+        if stage in ('etfs','nav'):
+            history=data.get('etf_aum_history',{})
+            report['aum_history']=dict(requested_start=history.get('requested_start'),requested_day=history.get('requested_day'),
+                symbols=[dict(symbol=s,observations=len(r.get('points',[])),first=r['points'][0]['as_of'] if r.get('points') else None,
+                    last=r['points'][-1]['as_of'] if r.get('points') else None) for s,r in history.get('rows',{}).items()],
+                source='WindPy WSD dated AUM; CNY; Fill=Blank; not share changes')
         if stage=='indices':
             report['indices']={r:dict(members=len((g:=data.get('indices',{}).get(r,{})).get('rows',[])),
                 as_of=g.get('as_of'),expected={'IF':300,'IH':50,'IC':500,'IM':1000}[r],

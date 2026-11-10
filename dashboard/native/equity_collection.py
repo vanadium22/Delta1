@@ -1,4 +1,4 @@
-"""Slow equity snapshots owned by the main collector's network lease.
+"""Rolling equity snapshots owned by the main collector's network lease.
 
 Separate HTTP session and storage keep constituent batches off the three-second
 headline path. No VPN control, Wind access, or historical bar publication.
@@ -11,17 +11,19 @@ import uuid
 
 from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
 from dashboard.marketdata.overview_reference import load
-from dashboard.marketdata.overview_contributions import equity_path
+from dashboard.marketdata.overview_contributions import equity_path,read_equities
+from dashboard.marketdata.overview_reference import finite
 from dashboard.marketdata.equity_observations import EquityObservationStore
 
 
 class EquitySampler:
-    def __init__(self, local_root, config, policy, client_factory):
+    def __init__(self, local_root, config, policy, client_factory, *, pause=None):
         self.local_root = Path(local_root)
         self.config = config
         self.policy = policy
         self.client_factory = client_factory
         self.stop_event = threading.Event()
+        self.pause=pause or self.stop_event.wait
         self.worker = None
         self.status = {'status': 'waiting_reference'}
         self.archive = {}
@@ -39,34 +41,46 @@ class EquitySampler:
         self.stop_event.set()
 
     def cycle(self, client, store, reference, poll):
-        members = {r['symbol'] for g in reference['data'].get('indices', {}).values() for r in g.get('rows', [])}
-        indices = {g['index_id'] for g in reference['data'].get('indices', {}).values() if g.get('rows')}
-        symbols = sorted(members | indices)
-        if not symbols:
-            return None
-        started = datetime.now(timezone.utc).isoformat()
-        quotes = {}; failed = []
-        size = 100
-        for offset in range(0, len(symbols), size):
-            if self.stop_event.is_set() or not self.policy()['allowed']:
-                return None
-            batch = symbols[offset:offset+size]
-            result = client.fetch(batch)
-            result.update(symbols=batch, poll=poll, batch=offset//size+1,
-                          batch_count=(len(symbols)+size-1)//size)
-            # The existing store preserves original HTTP bodies before parsing.
+        members={r['symbol'] for g in reference['data'].get('indices',{}).values() for r in g.get('rows',[])}
+        indices={g['index_id'] for g in reference['data'].get('indices',{}).values() if g.get('rows')}
+        symbols=sorted(members|indices)
+        if not symbols:return None
+        started=datetime.now(timezone.utc).isoformat();value=None
+        prior=read_equities(self.config,self.local_root)
+        quotes={s:q for s,q in prior.get('quotes',{}).items() if s in members|indices}
+        failed=set();size=100;interval=15.;batches=(len(symbols)+size-1)//size
+        for offset in range(0,len(symbols),size):
+            if self.stop_event.is_set() or not self.policy()['allowed']:return value
+            batch=symbols[offset:offset+size];number=offset//size+1
+            self.status=dict(status='requesting',batch=number,batch_count=batches,rows=len(quotes),requested=len(symbols))
+            try:result=client.fetch(batch)
+            except Exception as exc:
+                result=dict(status='request_failed',received_at=datetime.now(timezone.utc).isoformat(),
+                    response={},missing_symbols=batch,error_type=type(exc).__name__)
+            result.update(symbols=batch,poll=poll,batch=number,batch_count=batches)
             store.batch(result)
             for row in store.last_rows:
-                quotes[row['symbol']] = dict(row, observed_at=row['received_at'])
-            failed.extend(result.get('missing_symbols', []))
-        if self.stop_event.is_set():
-            return None
-        value = dict(schema='overview-equities-v1', snapshot_id=uuid.uuid4().hex,
-            reference_version=reference['version'], started_at=started,
-            finished_at=datetime.now(timezone.utc).isoformat(), quotes=quotes,
-            requested_count=len(symbols), failed_symbols=failed)
-        _atomic_bytes(equity_path(self.config, self.local_root), _json_bytes(value))
-        self.status = dict(status='sampled', snapshot_at=value['finished_at'], rows=len(quotes), requested=len(symbols))
+                if not finite(row.get('close')) or row['close']<=0 or not row.get('source_event_time'):continue
+                old=quotes.get(row['symbol'],{})
+                try:
+                    incoming=datetime.fromisoformat(row['source_event_time'])
+                    previous=datetime.fromisoformat(old['source_event_time']) if old.get('source_event_time') else None
+                    if previous is not None and incoming<previous:continue
+                except (ValueError,TypeError):continue
+                compact={k:row.get(k) for k in ('symbol','close','prev_close','source_event_time','received_at','source_date_basis','snapshot_status','sequence')}
+                compact['observed_at']=row['received_at']
+                if (not finite(compact.get('prev_close')) or compact['prev_close']<=0) and previous is not None and incoming.date()==previous.date() and finite(old.get('prev_close')) and old['prev_close']>0:
+                    compact.update(prev_close=old['prev_close'],prev_close_source='saved_same_day_http')
+                quotes[row['symbol']]=compact;failed.discard(row['symbol'])
+            failed.update(result.get('missing_symbols',[]));failed.update(result.get('failed_symbols',[]))
+            value=dict(schema='overview-equities-v1',mode='rolling',snapshot_id=uuid.uuid4().hex,
+                reference_version=reference['version'],started_at=started,finished_at=datetime.now(timezone.utc).isoformat(),
+                quotes=quotes,requested_count=len(symbols),failed_symbols=sorted(failed),batch=number,batch_count=batches,
+                round_complete=number==batches,batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval),quote_max_age_seconds=360)
+            _atomic_bytes(equity_path(self.config,self.local_root),_json_bytes(value))
+            self.status=dict(status='sampled' if number==batches else 'sampling',snapshot_at=value['finished_at'],rows=len(quotes),
+                requested=len(symbols),batch=number,batch_count=batches,batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval))
+            if number<batches and self.pause(interval):return value
         return value
 
     def start(self):
@@ -79,10 +93,10 @@ class EquitySampler:
                     if any(g.get('rows') for g in reference['data'].get('indices', {}).values()):
                         if client is None:
                             client = self.client_factory(connect_timeout=1, read_timeout=2)
-                            store = EquityObservationStore(self.local_root/'overview_equities/observations', progress=self.archive_progress)
+                            store = EquityObservationStore(self.local_root/'overview_equities/observations', progress=self.archive_progress,archive_enabled=False)
                         poll += 1
                         self.cycle(client, store, reference, poll)
-                    self.stop_event.wait(max(1, 60-(time.monotonic()-started)))
+                    self.stop_event.wait(max(1, 300-(time.monotonic()-started)))
             except Exception as exc:
                 self.status = dict(status='failed', error_type=type(exc).__name__)
             finally:

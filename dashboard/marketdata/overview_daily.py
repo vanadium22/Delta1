@@ -57,7 +57,7 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
     from dashboard.native.overview_instruments import etfs
     reference=reference_load(config,local_root)['data'] if reference_data is None else reference_data
     current={s for s,r in metadata.items() if s[:2] in ROOTS and r['listing_date']<=target<=r['expiry_date']}
-    equities={r['symbol'] for g in reference.get('indices',{}).values() for r in g.get('rows',[])}
+    equities={r['symbol'] for g in reference.get('indices',{}).values() for r in g.get('rows',[])} if config.get('overview_stock_daily_enabled',False) else set()
     funds={r['symbol'] for r in etfs(config,reference,target)}
     symbols=set(ROOTS.values())|current|equities|funds
     day_symbols={d:set(symbols) for d in (target,previous_session(target)) if d}
@@ -65,6 +65,7 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
     for item in requirements(metadata,target)['rows']:
         day_symbols.setdefault(item['day'],set()).add(item['symbol'])
     for group in reference.get('indices',{}).values():
+        if not config.get('overview_stock_daily_enabled',False):continue
         anchor=group.get('as_of')
         if anchor and 0<=(date.fromisoformat(target)-date.fromisoformat(anchor)).days<=14:
             # Retain the official-weight day's unadjusted close and factor so

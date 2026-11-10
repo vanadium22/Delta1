@@ -3,7 +3,7 @@ import math
 
 import pandas as pd
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
 
@@ -56,6 +56,7 @@ class FuturesCard(Panel):
         carried=bool(source_day and pricing_day and source_day<pricing_day)
         self.dividend_note.setText('D '+numeric(row.get('dividend_points'),6)+'点 · '+
             ('沿用 ' if carried else '表内 ')+str(source_day or '待核验'))
+        if row.get('display_saved'):self.dividend_note.setText('上次显示 '+stamp(row.get('source_at'))+' · '+self.dividend_note.text())
         self.dividend_note.setToolTip(input_summary(row)+'\n来源合约 '+str(row.get('dividend_source_contract') or '—')+
             '\n文件SHA '+str(row.get('dividend_file_sha256') or '—'))
         source=source_label(row)
@@ -79,9 +80,12 @@ class VolumeDistribution(QWidget):
         x=0;available=max(0,self.width()-9)
         for i,row in enumerate(self.rows):
             width=available*row['share_pct']/100
-            p.setBrush(QColor(COLORS[i]));p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRectF(x,14,width,25),3,3);x+=width+3
-            p.setPen(QColor(MUTED));p.drawText(QRectF(i*self.width()/4,51,self.width()/4,30),Qt.AlignmentFlag.AlignVCenter,
+            color=COLORS[row['slot']];p.setBrush(QColor(color));p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(x,14,width,25),3,3);center=x+width/2;x+=width+3
+            legend_x=i*self.width()/len(self.rows)
+            p.setPen(pg.mkPen(color,width=1));p.drawLine(QPointF(center,40),QPointF(legend_x+6,55));p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(color));p.drawRoundedRect(QRectF(legend_x,59,12,12),2,2)
+            p.setPen(QColor(color));p.drawText(QRectF(legend_x+19,51,self.width()/len(self.rows)-19,30),Qt.AlignmentFlag.AlignVCenter,
                 SLOTS[row['slot']]+' '+numeric(row['share_pct'],1,suffix='%'))
 
 

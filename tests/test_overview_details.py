@@ -58,6 +58,8 @@ class ReferenceTests(unittest.TestCase):
             self.assertEqual(job.state()['status'],'disabled');spawn.assert_not_called()
             value=reference();value['etf_nav']=dict(schema='etf-nav-v1',rows={r['symbol']:dict(symbol=r['symbol'],as_of='2026-10-23',
                 nav_cny=4,close_cny=4,source='fixture') for r in ranking(value,'IF',today='2026-10-26')[0]})
+            value['etf_aum_history']=dict(schema='etf-aum-history-v1',requested_start='2026-07-23',requested_day='2026-10-23',
+                rows={r['symbol']:dict(symbol=r['symbol'],source='fixture',points=[]) for r in ranking(value,'IF',today='2026-10-26')[0]})
             publish(Path(tmp)/'overview_reference/latest.json',value)
             # This small ranking fixture is not a full four-index membership.
             with patch('dashboard.native.overview_reference_job.repair_needs',return_value=[]):
@@ -129,17 +131,18 @@ class ContributionTests(unittest.TestCase):
         self.assertIsNone(next(r for r in result['industries'] if r['name']=='银行')['change_pct'])
         self.assertAlmostEqual(result['contribution_points'],5)
 
-    def test_old_weights_keep_structure_and_stock_returns_but_not_fake_yesterday_points(self):
+    def test_old_dated_weights_compute_available_contributions_without_claiming_yesterday(self):
         group=reference()['indices']['IF'];group['as_of']='2026-10-22'
         result=self.calculate(group=group)
         self.assertEqual(result['coverage_pct'],100)
         self.assertIsNotNone(result['rows'][0]['change_pct'])
-        self.assertIsNone(result['contribution_points']);self.assertEqual(result['leaders'],[])
-        self.assertIn('不是准确上一交易日',result['reason'])
+        self.assertIsNotNone(result['contribution_points']);self.assertTrue(result['leaders'])
+        self.assertIn('非准确昨日',result['reason']);self.assertEqual(result['weight_date'],'2026-10-22')
 
-    def test_wrong_membership_future_and_prior_day_snapshots_are_not_current(self):
-        for mutate in (lambda s:s.update(reference_version='v0'),
-                       lambda s:s.update(finished_at=(NOW+pd.Timedelta(seconds=1)).isoformat()),
+    def test_changed_reference_sha_matches_by_code_but_future_and_prior_day_are_not_current(self):
+        snapshot=equity_snapshot();snapshot['reference_version']='v0'
+        self.assertEqual(self.calculate(snapshot)['covered'],3)
+        for mutate in (lambda s:s.update(finished_at=(NOW+pd.Timedelta(seconds=1)).isoformat()),
                        lambda s:s.update(finished_at='2026-10-23T10:00:05+08:00')):
             snapshot=equity_snapshot();mutate(snapshot);result=self.calculate(snapshot)
             self.assertEqual(result['covered'],0);self.assertIsNone(result['contribution_points'])
@@ -217,7 +220,7 @@ class EquitySamplerTests(unittest.TestCase):
                 requested.append(symbols)
                 return dict(status='success',received_at=NOW.isoformat(),response=dict(data={s:{**quote(10,100,100005),'securityId':s} for s in symbols}))
         with tempfile.TemporaryDirectory() as tmp:
-            sampler=EquitySampler(tmp,{},lambda:dict(allowed=True),Mock())
+            sampler=EquitySampler(tmp,{},lambda:dict(allowed=True),Mock(),pause=lambda _:False)
             with RealtimeStore(Path(tmp)/'separate-observations') as store:
                 sampler.cycle(Client(),store,dict(data=value,version='v1'),1)
             result=json.loads((Path(tmp)/'overview_equities/latest.json').read_text())
@@ -226,7 +229,7 @@ class EquitySamplerTests(unittest.TestCase):
             self.assertEqual(result['quotes']['600000.SH']['source_event_time'],NOW.replace(microsecond=0).isoformat())
             self.assertTrue(list((Path(tmp)/'separate-observations').rglob('*.json')))
 
-    def test_cancelled_cycle_keeps_prior_snapshot_and_does_not_start_next_batch(self):
+    def test_stop_during_request_saves_received_batch_before_exiting(self):
         from index_strategy.instant_dld.realtime_store import RealtimeStore
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'overview_equities/latest.json';path.parent.mkdir();path.write_bytes(b'prior-cycle')
@@ -236,8 +239,9 @@ class EquitySamplerTests(unittest.TestCase):
                     sampler.stop()
                     return dict(status='success',received_at=NOW.isoformat(),response=dict(data={s:{**quote(10,100,100005),'securityId':s} for s in symbols}))
             with RealtimeStore(Path(tmp)/'separate-observations') as store:
-                self.assertIsNone(sampler.cycle(Client(),store,dict(data=reference(),version='v1'),1))
-            self.assertEqual(path.read_bytes(),b'prior-cycle')
+                value=sampler.cycle(Client(),store,dict(data=reference(),version='v1'),1)
+            self.assertIsNotNone(value);self.assertEqual(len(value['quotes']),4)
+            self.assertEqual(json.loads(path.read_text())['quotes'],value['quotes'])
 
 
 class WindReferenceTests(unittest.TestCase):

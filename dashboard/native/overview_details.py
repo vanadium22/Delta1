@@ -5,7 +5,7 @@ from bisect import bisect_left, bisect_right
 import pandas as pd
 
 from dashboard.marketdata.overview_reference import load, ranking, finite, closing_nav,premium_display
-from dashboard.marketdata.overview_contributions import contributions, read_equities
+from dashboard.marketdata.overview_contributions import contributions, read_equities,equity_max_age
 from dashboard.marketdata.quote_quality import aligned_quotes, quote_quality
 from dashboard.session_clock import market_phase
 from .instruments import UNDERLYINGS
@@ -92,7 +92,7 @@ def enrich(model, data, reference, now):
     # All four indices share one immutable minute generation. An ordinary page
     # repaint never advances its source cutoff or recalculates with later legs.
     key = (reference['version'], 'close:'+data['completed_session'] if closed else equity.get('snapshot_id'),
-           today,previous,tuple(tokens))
+           today,previous,tuple(tokens),tuple((r['symbol'],r.get('prev_close')) for r in data['indices']))
     if getattr(model, '_overview_contribution_key', None) != key:
         model._overview_contribution_key = key
         if hasattr(model,'local_root'):
@@ -103,12 +103,12 @@ def enrich(model, data, reference, now):
     data['index_details'] = deepcopy(model._overview_contributions)
     for detail in data['index_details'].values():
         cutoff = detail.get('snapshot_at')
-        if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > 90:
+        if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > equity_max_age(equity)+60:
             detail['stale'] = True
-            detail['reason'] = '分钟快照已停更，保留原始截止时间；'+detail.get('reason','')
+            detail['reason'] = '成分快照已停更，保留原始截止时间；'+detail.get('reason','')
     for row in data['indices']:
         row['change_5m_pct'] = five_minute(row, now)
-    from dashboard.marketdata.overview_etf_history import archive_token,read_aum_history,size_changes
+    from dashboard.marketdata.overview_etf_history import archive_token,read_aum_history,size_changes,series_for
     history=dict(snapshots=[],files_read=0,truncated=False)
     if hasattr(model,'local_root'):
         token=(reference['version'],archive_token(model.config,model.local_root))
@@ -117,6 +117,10 @@ def enrich(model, data, reference, now):
             model._overview_aum_history_token=token
         history=model._overview_aum_history
     data['aum_history']={k:history[k] for k in ('files_read','truncated')}
+    data['aum_history'].update(requested_start=history.get('daily',{}).get('requested_start'),requested_day=history.get('daily',{}).get('requested_day'),
+        symbols=len(history.get('daily',{}).get('rows',{})),points=sum(len(r.get('points',[])) for r in history.get('daily',{}).get('rows',{}).values()),
+        series=[dict(symbol=s,observations=len(r.get('points',[])),first=r['points'][0]['as_of'] if r.get('points') else None,
+            last=r['points'][-1]['as_of'] if r.get('points') else None,source=r.get('source')) for s,r in history.get('daily',{}).get('rows',{}).items()])
     groups = {}
     for root in UNDERLYINGS:
         selected, meta = ranking(source, root, today=today)
@@ -124,11 +128,16 @@ def enrich(model, data, reference, now):
         by_symbol = {r['symbol']: r for r in rows}
         if selected:
             visible = [dict(by_symbol.get(r['symbol'], {}), **r) for r in selected]
+            for row in visible:
+                row['aum_share_date']=meta.get('as_of');row['aum_series']=series_for(root,row,history)
+                if row['aum_series']:
+                    latest=row['aum_series'][-1];row.update(aum_cny=latest['aum_cny'],aum_date=latest['as_of'])
         else:
             # Keep available representative quotes visible, but never give them
             # a fabricated size rank or a fabricated 100% market share.
             visible = [dict(r, rank=None, aum_cny=None, aum_share_pct=None) for r in rows[:1]]
-        groups[root] = dict(rows=visible, ranking=meta,size_changes=size_changes(root,selected,history),
+        groups[root] = dict(rows=visible, ranking=meta,size_changes=size_changes(root,visible if selected else [],history),
+            aum_window=dict(start=history.get('daily',{}).get('requested_start'),end=history.get('daily',{}).get('requested_day')),
             flow=dict(daily_cny=None, five_day_cny=None, top_daily_cny=None, top_five_day_cny=None,
                       as_of=None, reason='待已披露总份额、净值及份额折算核验'),
             pcf=dict(as_of=None, reason='待当日申赎清单'))
@@ -151,5 +160,5 @@ def enrich(model, data, reference, now):
     for root, group in groups.items():
         newest = {r['symbol']: r for r in data['etfs'] if r['root'] == root}
         group['rows'] = [dict(newest.get(r['symbol'], {}), **{k:v for k,v in r.items() if k in
-            ('symbol','name','root','rank','aum_cny','aum_date','aum_share_pct')}) for r in group['rows']]
+            ('symbol','name','root','rank','aum_cny','aum_date','aum_share_pct','aum_share_date','aum_series')}) for r in group['rows']]
     return data

@@ -12,7 +12,7 @@ from .overview_reference import load,ranking,ROOTS,finite,worker_status
 from .overview_daily import read_day,requests,directory,merge_daily,local_copy_plan
 from .overview_percentiles import requirements,prepare,evaluate,prior_days,SLOTS
 from .overview_sessions import latest_completed_session
-from .overview_contributions import read_equities
+from .overview_contributions import read_equities,equity_max_age
 
 
 def read_object(path):
@@ -115,7 +115,10 @@ def calculation_preview(config,local_root,now,repo,frozen):
             'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason',
             'display_premium_bp','display_premium_mode','display_premium_date','display_premium_label')} for r in state['market_overview']['etfs']],
         etf_size_changes={root:g.get('size_changes',[]) for root,g in state['market_overview']['etf_groups'].items()},
-        etf_aum_history=state['market_overview']['aum_history'])
+        etf_aum_history=state['market_overview']['aum_history'],display_cache=state['market_overview'].get('display_cache'),
+        index_display={root:{k:v for k,v in detail.items() if k in ('covered','weighted_covered','expected','coverage_pct','snapshot_at','source_at',
+            'weight_date','official_weight_date','partial','contribution_points','actual_points','residual_points','display_saved','reason','inputs')}
+            for root,detail in state['market_overview'].get('index_details',{}).items()})
 
 
 def collect(config,local_root,*,now=None,iopv_fields=None):
@@ -132,6 +135,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     snapshot=read_equities(config,local_root)
     result=dict(schema='overview-data-gaps-v1',at=stamp.isoformat(),expected_completed_session=target,
         percentile_pricing_day=pricing,network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
+    preference=read_object(Path(local_root)/'overview_ui.json').get('page_scale','medium')
+    result['display_preferences']=dict(page_scale=preference if preference in ('large','medium','small') else 'medium')
     try:metadata=latest_contracts(ReferenceBook(config.get('reference_file')).data)
     except (OSError,ValueError,KeyError,TypeError) as exc:
         metadata={};result['errors'].append(dict(stage='contract_reference',error_type=type(exc).__name__))
@@ -195,6 +200,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         # Cache absence is distinct from missing underlying historical bars: local
         # seeding during one-click runs before deciding whether DDB is needed.
         result['ddb']=dict(target=target,close_cache_missing_batches=batches,
+            stock_daily_enabled=bool(config.get('overview_stock_daily_enabled',False)),
             close_cache_missing_rows=sum(j['missing_count'] for j in batches),
             equity_universe_known=bool(equity_universe),all_four_equity_universes_known=all_members_known,
             source_availability='not_tested',note='这是缓存待补清单；已有可用标准历史先本地复制，仍缺才请求DDB；不证明远端源表没有数据',
@@ -220,7 +226,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     except (ValueError,TypeError):cutoff=None;cutoff_status='invalid_or_missing_cutoff'
     for symbol in sorted(equity_universe & set(quotes)):
         q=quotes[symbol]
-        try:usable=cutoff is not None and quote_quality(q,cutoff)['usable']
+        try:usable=cutoff is not None and quote_quality(q,cutoff,max_age=equity_max_age(snapshot))['usable']
         except (ValueError,TypeError):usable=False
         if cutoff is not None and not usable:stale.append(symbol)
         if not finite(q.get('prev_close')) or q['prev_close']<=0:no_previous.append(symbol)
@@ -228,7 +234,10 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         snapshot_at=snapshot.get('finished_at'),reference_matches=bool(reference['version'] and snapshot.get('reference_version')==reference['version']),
         missing_symbols=absent,stale_at_snapshot_symbols=stale if cutoff is not None else None,missing_previous_close=no_previous,
         quality_evaluation=cutoff_status,
-        universe_known=bool(equity_universe),note='分钟采集来自现有HTTP，不由Wind或DDB实时提供；盘后收盘参考另用DDB日线')
+        universe_known=bool(equity_universe),mode=snapshot.get('mode'),batch=snapshot.get('batch'),batch_count=snapshot.get('batch_count'),
+        round_complete=snapshot.get('round_complete'),batch_interval_seconds=snapshot.get('batch_interval_seconds'),
+        round_target_seconds=snapshot.get('round_target_seconds'),quote_max_age_seconds=equity_max_age(snapshot),
+        note='成分约100只/15秒、约5分钟一轮；昨收来自HTTP yesterdayClosePrice，不是每轮DDB读取；默认不补全部成分日线')
     result['constituent_quotes'].update(all_four_universes_known=all_members_known,
         known_missing_count=len(absent),total_missing_count=len(absent) if all_members_known else None)
     result['other_inputs']=dict(iopv=[dict(symbol=f['symbol'],iopv_id=f.get('iopv_id'),

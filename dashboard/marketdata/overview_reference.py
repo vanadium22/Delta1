@@ -110,6 +110,9 @@ def validate(data):
             if not SECURITY.fullmatch(symbol) or not isinstance(row,dict) or row.get('symbol')!=symbol:raise ValueError('ETF净值代码不匹配')
             if day(row['as_of'])>fetched.date().isoformat() or not row.get('source'):raise ValueError('ETF净值日期或来源无效')
             if not all(finite(row.get(k)) and row[k]>0 for k in ('nav_cny','close_cny')):raise ValueError('ETF净值/同日收盘无效')
+    if 'etf_aum_history' in value:
+        from .overview_aum import validate as validate_aum
+        validate_aum(value['etf_aum_history'],value['fetched_at'])
     return value
 
 
@@ -120,7 +123,7 @@ def available_sections(data):
     ranking groups remain atomic: a damaged member cannot imply a full basket.
     """
     if not isinstance(data,dict):raise ValueError('低频资料格式不匹配')
-    base={k:v for k,v in data.items() if k not in ('indices','etfs','etf_nav')}
+    base={k:v for k,v in data.items() if k not in ('indices','etfs','etf_nav','etf_aum_history')}
     value=validate(base);issues=[]
     for kind in ('indices','etfs'):
         groups=data.get(kind,{})
@@ -151,6 +154,22 @@ def available_sections(data):
                 except (ValueError,TypeError,KeyError):
                     safe=symbol if isinstance(symbol,str) and SECURITY.fullmatch(symbol) else 'unknown'
                     issues.append(dict(scope='etf_nav.'+safe,error_type='InvalidRow'))
+    if 'etf_aum_history' in data:
+        history=data['etf_aum_history']
+        if not isinstance(history,dict) or not isinstance(history.get('rows'),dict) or len(history['rows'])>12:
+            issues.append(dict(scope='etf_aum_history',error_type='InvalidContainer'))
+        else:
+            try:
+                checked=validate(dict(base,etf_aum_history=dict(history,rows={})))
+                value['etf_aum_history']=checked['etf_aum_history']
+                for symbol,row in history['rows'].items():
+                    try:
+                        checked=validate(dict(base,etf_aum_history=dict(history,rows={symbol:row})))
+                        value['etf_aum_history']['rows'][symbol]=checked['etf_aum_history']['rows'][symbol]
+                    except (ValueError,TypeError,KeyError,AttributeError):
+                        safe=symbol if isinstance(symbol,str) and SECURITY.fullmatch(symbol) else 'unknown'
+                        issues.append(dict(scope='etf_aum_history.'+safe,error_type='InvalidRow'))
+            except (ValueError,TypeError,KeyError):issues.append(dict(scope='etf_aum_history',error_type='InvalidContainer'))
     return value,issues
 
 

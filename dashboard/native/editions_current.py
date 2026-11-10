@@ -69,6 +69,14 @@ class PresentationWindow(QMainWindow):
         self.setStyleSheet(CARD_STYLE)
         widget=QWidget();self.setCentralWidget(widget);layout=QVBoxLayout(widget);layout.setContentsMargins(24,18,24,18)
         row=QHBoxLayout();title=QLabel('Δ DELTA1  ·  市场看板');title.setStyleSheet('font-size:24px;font-weight:700');row.addWidget(title);row.addStretch()
+        self.page_scale=QComboBox();self.page_scale.setToolTip('页面比例：中在宽屏完整显示卡片；大保留原字号，可滚动；小更紧凑')
+        for text,value in (('页面比例 · 大','large'),('页面比例 · 中','medium'),('页面比例 · 小','small')):self.page_scale.addItem(text,value)
+        mode='medium'
+        try:
+            saved=json.loads((Path(model.local_root)/'overview_ui.json').read_text(encoding='utf8'))
+            if saved.get('page_scale') in ('large','medium','small'):mode=saved['page_scale']
+        except (OSError,ValueError,AttributeError):pass
+        self.page_scale.setCurrentIndex(self.page_scale.findData(mode));row.addWidget(self.page_scale)
         for text,fn in [('更新报价',lambda:self.start_collection(False)),('DDB一键补齐',lambda:self.pipeline.one_click()),('暂停',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
             if self.frozen_payload and text!='导出快照':b.hide()
@@ -123,8 +131,18 @@ class PresentationWindow(QMainWindow):
         if not self.market_mode and hasattr(self.quotes,'tabs'):self.quotes.tabs.setTabVisible(1,False)
         self.quotes.changed.connect(self.selection_changed)
         self.timer=QTimer(self);self.timer.setInterval(3000);self.timer.timeout.connect(self.refresh)
+        self.page_scale.currentIndexChanged.connect(self.change_page_scale)
+        QTimer.singleShot(0,lambda:self.change_page_scale(save=False))
         if not self.frozen_payload:self.timer.start()
         QTimer.singleShot(0,self.refresh)
+
+    def change_page_scale(self,*_,save=True):
+        from .page_scale import apply_scale
+        mode=self.page_scale.currentData();apply_scale(self,mode)
+        if save and not self.frozen_payload:
+            from dashboard.marketdata.bars import _atomic_bytes,_json_bytes
+            try:_atomic_bytes(Path(self.model.local_root)/'overview_ui.json',_json_bytes(dict(page_scale=mode)))
+            except OSError:self.status.setToolTip('页面比例已应用；显示偏好暂未保存')
 
     def refresh(self):
         if self.closing:return

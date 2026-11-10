@@ -1,45 +1,37 @@
 # Delta1 公司看板当前交接
 
-2026-11-10。基线12f34f1ba7e94776d177344692cdbe56f16f652f，统一分支codex/company-apps。本轮批次2026-11-10-company-dividend-history-and-etf-display。必要实施、测试、精确清单提交推送授权继续；最新提交看Git/远端及交付回复，文件见APP_RELEASE.latest_update.files。
+2026-11-10。本轮基线1b621fc18ee433db8ab593b325d79e2b7872755a，统一分支codex/company-apps；批次2026-11-10-company-display-resilience-and-final-retest。最终提交看Git/远端及交付回复，精确清单见APP_RELEASE.latest_update.files。必要实施、测试和精确清单提交推送授权持续。
 
-## 公司本轮事实
+## 本轮实现
 
-完整读取20261110_092411_072_safe_094017_545_23667ca4.zip，SHA256=827b9a1feddd74a88873071b5a0f6ab2a06cc1bd118cf0a06e82abb13d5acc4b，201,026字节、33份JSON，full/Complete=true/MissingReports为空。git与8个diagnosis均为12f34f1，配置保留未改。9:28盘前、9:36开窗、9:40关闭后Overview属于同一App报告路径。
+- ETF卡减少文字，以价格、折溢价和规模/占比/买卖价差数字为重点。无盘中值时保留带日收盘溢价，只有准确前一交易日才称昨日，不将NAV冒充IOPV。
+- 用户授权补历史规模。现有WindPy netasset_total（或已配置规模字段），unit=1/Fill=Blank/Days=Trading，每组当前前三只单独读取近三个月；代码/字段/日期/矩阵校验，每日NAV任务一起有界更新。失败保留历史，缺值不前填/不补0，单只坏历史隔离。图改为近三个月规模（亿元），表比较相邻两次有效规模及日期，只有一期不伪造0，真实相等才0。规模变化含净值涨跌，不叫份额/净申赎。占比保留原完整同日全集分母及基准日，不混新单只规模与旧分母。
+- 行业剔除缺报价/昨收/权重，篮子涨跌=sum(w*r)/sum(w)，贡献点=指数昨收*sum(w*r)/10000，维持原指数权重、不放大已覆盖部分。旧权重带原日期，不能伪称准确昨日；部分行业按实际覆盖贡献参与排名，待分类单列。右条绑定涨跌%而非贡献点。资料SHA仅因NAV变化不再清空同代码报价。
+- 成分独立HTTP每100只/15秒、约5分钟一轮，每批raw/SQLite提交后立即发布快照；昨收用HTTP yesterdayClosePrice，不每轮去DDB取1850只。360秒预算仅用于滚动成分；主报价3秒及期现30秒/3秒不变。App默认不补全部成分日线/锚点，显式overview_stock_daily_enabled仍支持旧完整模式，不改个人配置。
+- 显示结果按indices/etfs/quotes持续原子保存到LocalRoot/overview_display。缺整组保留上次结果及原源时，新有效部分优先，新价格不套旧基差，缓存恢复不变实时；离线Overview可读不写。
+- App成分日常不自动逐股Parquet导出，raw/SQLite每批已持久化。旧归档及显式有界归档器保留。关闭仍等请求/计算/写入安全排空，不强杀、不删锁。
+- 顶部大/中/小页面比例，默认中在1080p及125%系统缩放对应逻辑尺寸全卡可见，大可滚动、小更紧凑。只适配可见页；偏好独立overview_ui.json，不改native.json。期货成交条/图例按真实slot同色，增加色块和引导线。
 
-- Y Share complete，实际匹配并验证10-27、10-30、11-06三份表，B1日期一致；未看到11-09/10的新表。库64条/4文件版本，含原本地09-18版本；本次Import新增0、unchanged=4、无错误，表示已有相同内容，不是下载失败。
-- 当前16个合约D全部来自11-06表SHA09c72b6a56b57a5e18b2f40a91ecf0d54e2341f0f483900d9961f2500d8f62b2，source_contract与卡片实际合约逐个一致，没有前序合约继承或错档。9:36的16行F/S/D/T独立复算最大误差8.8818e-16个百分点；用户补充可能用了更早的分红表比较，正在复核，未发现当前算式错误。
-- 9:36历史20日16档完整；60日全部因D不齐，00各缺20日，01/02/03各缺29日，合计428条，真实日线缺价/映射缺0。9:28使用11-09收盘参考，窗口不同，缺D444条，不能混为同一窗口。
-- 同一App最终phase=closed、shutdown.complete=true、等待者空，关闭73.499秒。9:36成分归档1408/1802、已耗51.639秒；最终最后一次空归档耗时0.09秒不等于全部关闭耗时。安全退出已确认，关闭性能仍待后续，不能沿用本机合成2.489秒当现场结果。
-- 完整名单300/50/500/1000，仍有214只未分类；当前权重原始日期{"IF": "2026-11-02", "IH": "2026-10-30", "IC": "2026-10-30", "IM": "2026-10-30"}，不把旧权重当准确昨日。Wind Connect/ETFs/Nav complete，Indices partial；ETF排名日11-09，IOPV/份额/PCF仍需可靠定义。
+## 本地验证与公司复测
 
-## 用户新口径与本轮实施
+最终本地测试/截图见[APP_VALIDATION](APP_VALIDATION.md)。模拟源、离屏和本机性能不当作公司Wind/页面/新关闭耗时验收。
 
-用户明确希望用各品种00/01/02/03连续档位，每日一个年化样本，与前20/60交易日比较；历史缺分红暂0、随后补齐。此最新指令覆盖旧文档“历史缺D一律阻断”。当前算式仍100*(F-S+D)/S*365/T，当前D不补0；价格/映射缺失不跳过，真实D冲突不当缺失，T<5仍规则排除。
+运行[company_retest.cmd](company_retest.cmd)：ff-only更新、记录新HEAD/Y映射，开窗约10分钟→开窗Overview→提示用户正常关闭→等排空→关闭后离线Overview→白名单JSON ZIP。完整手动/按需分红/行业ETF命令统一见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)。实时VPN手动，Wind保持登录；无同一运行开窗及最终安全关闭则包明确缺项，不压缩LocalRoot/native.json或原始业务目录。
 
-历史按每天实际合约重建非复权连续档位，一天一个收盘年化，当前日排除；等值半权分位=100*(小于当前个数+0.5*等于个数)/有效样本数。历史当时可用D优先（含原有明确0/有来源前序继承）；确实缺D时派生计算用0，source_kind=historical_missing_zero_estimate，绝不向records.sqlite写伪分红。窗口输出estimated、zero_dividend_count/dates/rows及dividend_observations_complete。complete仅指估算输入可计算，Local.history_dividends_complete继续报告真实覆盖，不冒报真实D齐备。
+待公司最后反馈：Wind实际三个月规模覆盖/前期日期，行业覆盖/条形和轮询，1080p中比例，缓存恢复及正常关闭耗时。研究32/A02暂停保留，当前年化/逐日D/连续20与60分位保持。
 
-后续导入历史旧日表时，按实际修订/输入键替换相应占位并重算，旧派生缓存版本保留。今日新D不回填过去；同日冲突继续阻断。当前年化、原独立App/Excel、研究32/A02、回测因子/CTA和执行口径不受此次估算改变。
+## 已核验的公司事实（旧代码12f34f1）
 
-期货卡直接显示D及来源表日期，早于价格日标“沿用”；按用户最新要求数值旁不放“估”，补零天数保留于悬浮和诊断。Overview分别列估算窗口和零占位行、当前D来源/业务日/实际合约/SHA。保持原质量门槛、字体与离屏测试。
+包20261110_092411_072_safe_094017_545_23667ca4.zip：201,026字节，SHA827b9a1feddd74a88873071b5a0f6ab2a06cc1bd118cf0a06e82abb13d5acc4b；33份JSON、full/Complete=true、无缺项，git及8个diagnosis一致。Y三表B1=10-27/10-30/11-06，库64条/4版本含09-18；Import新增0/unchanged4表示已在库，未见11-09/10新表。16当前D均为11-06表SHA09c72b6a56b57a5e18b2f40a91ecf0d54e2341f0f483900d9961f2500d8f62b2，实际合约全对应；9:36实时F/S/D/T复算最大误差8.8818e-16个百分点。用户随后表示可能比较旧表，不盲改公式/映射。
 
-## 验证与下一步
+旧20日16档完整，60日只缺D428条，缺价/映射0。1b621fc已按用户要求历史缺D暂0、补旧日真实D按版本重算；今日新D不回填过去，当前D不补0、真实冲突/缺价/映射阻断。数值不放“估”，补零数量/日期仅悬浮/诊断，真实覆盖独立审计。新分位/显示仍待公司新包。
 
-230项受影响回归通过，46.355秒，无跳过，ResourceWarning作为错误。9项新增回归覆盖16档每日样本、真实0与缺失0区分、补旧历史D替换派生键、今日新D不重写过去、冲突/缺价/映射/当前D仍阻断、独立中位秩、离线审计与UI标记；另含分红迁移/调度/导入、既有安全打包和排空。1580/860卡片已离屏生成查看，无截断，证据见APP_VALIDATION。
+同次9:36开窗→9:40最终closed/shutdown.complete=true，关闭73.499秒；51.639秒时逐股归档1408/1802，最后空归档0.09秒不是总关闭时间。本轮新性能仍待现场。名单300/50/500/1000，214未分类，权重IF11-02/其余10-30。收盘NAV/价格已证，IOPV/份额/PCF缺定义。
 
-公司更新后按 [APP_COMPANY_TEST](APP_COMPANY_TEST.md) 的runtime开窗/关闭后Overview及安全ZIP复测即可；已通过的Y源不必反复全量重测。此次价格齐备且缺项仅历史D，预期16个60日窗口可估算；公司新代码实际数字仍待回传，不以本地测试宣称已验收。分红表要比较同一B1/实际合约，当前最新来源仍11-06，不自动导入另一份旧Excel覆盖。
+## 路径与保护
 
-## 保护与路径
+已确认Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，业务日B1。现场DisplayRoot为\\192.168.91.230\FTPServer，仅证据，不重映射/猜拼。旧默认迁移、自定义/空白保留、09:00/15:30有界同步及SourceDirectory/InputFile互斥语义保持。
 
-默认源Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，业务日Sheet1!B1；实际DisplayRoot为\\192.168.91.230\FTPServer，不猜拼、不重映射。09:00/15:30有界同步、SourceDirectory/InputFile语义保留。默认Overview离线，实时VPN手动；DDB仅真实价格缺口，不能为缺D重复下价。
+本机P:/project/swhy/Delta1/company-apps-worktree；公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot其下dashboard/localsetting/app。默认Overview离线，实时VPN手动，DDB只补实际所需价格缺口。原数据/配置/凭据/Excel、四受保护提示词、其他模块/worktree/进程不动；不reset/clean/全量stage/强推。APP_RELEASE.backtest原值及原序列化块保留。
 
-本机P:/project/swhy/Delta1/company-apps-worktree；公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。入口start_presentation.vbs/public。原配置/凭据/数据/Excel、其他模块/worktree、四受保护提示词不动；研究32/A02暂停且保留，不强杀写入者、不删锁，不reset/clean/全量stage/强推。APP_RELEASE.backtest和其他研究文件原样保留。
-
-本轮8,453个文件、365,738,904字节在修改前冻结SHA，发布前逐个复核；原ZIP/真实报告不提交。证据仅在忽略的local_artifacts/validation/company_20261110。七份旧说明与MANIFEST仍 [唯一归档](../docs/archive/2026-10-29/README.md)，不重复制造归档。下一对话先读 [接续提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md) 与本页、AGENTS、公司步骤和发布清单，再核验最新Git/远端。
-
-## 用户后续ETF与显示要求已实施
-
-数值旁不放“估”，占位标记仅保留于悬浮与诊断；概览顶部与期货卡直接显示最新/实际分红表日期。ETF主位优先有效盘中折溢价，无则显示带日收盘折溢价；日期等于准确昨日时才叫昨日。规模/同指数占比/买卖价差加重，原IOPV、盘中premium及轨迹保持真实含义。
-
-份额/净申赎数据尚无可靠定义，改为当前展示三只ETF的两期已披露规模变化，按代码匹配当前三只，列各自前期/本期日期和CNY/百分比变化，不显示全体ETF申购合计。规模变化含净值涨跌，不标份额或净申赎；仅一期明确待前期规模。历史只读现有参考archive，最多64文件/32MiB、单文件4MiB，冻结到当前资料取得时刻、排除未来档案、冲突不任意选值，有界结果/缓存代次有诊断，不猜字段、不新开接口。
-
-包含ETF新增11项在内，最终230项完整回归通过（46.355秒，无跳过，ResourceWarning作为错误）。前219项为追加ETF前的中间验证，不能充当最终结果；65项ETF/页面针对性检查也通过。1580/860概览与ETF页面已离屏查看，当前截图数值无“估”，收盘溢价/来源日、突出数据与三只规模变化可见；小屏滚动重排保持。
+8,453个文件、365,738,904字节编辑前冻结SHA；本轮证据在忽略的local_artifacts/validation/company_resilience_20261110，旧包在company_20261110。七份旧说明与MANIFEST唯一SHA归档不动。先读[接续提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)，核验最新Git和最终测试，不沿用旧230项结果。

@@ -371,8 +371,10 @@ class MarketOverviewEngine:
                                           dividend_policy=self.dividends.info.get('historical_policy'),slot_day=registry_day),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)
+        from dashboard.marketdata.overview_display_cache import preserve
+        preserve(model,state['market_overview'],now)
         from .futures_overview import details
-        state['market_overview']['futures_details']=details(futures,indices,live,observations,now,dividends=self.dividends)
+        state['market_overview']['futures_details']=details(state['market_overview']['futures'],state['market_overview']['indices'],live,observations,now,dividends=self.dividends)
         return calculated(model, state, trace)
 
 
