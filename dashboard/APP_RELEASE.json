@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-10-company-afternoon-feedback-and-market-sizes",
+  "release": "2026-11-10-company-handoff-and-collection-notes",
   "branch": "codex/company-apps",
-  "base_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
-  "status": "local_verified_267_company_365_AUM_industry_shutdown_verified_new_market_sizes_and_interactions_pending",
+  "base_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
+  "status": "documentation_handoff_complete_runtime_b5746c7_new_company_feedback_and_ideas_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,61 +11,33 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
-    "scope": "Real viewport clicks for four index cards; larger card numbers while medium still fits 1080p. Constituent batches default 300/15s with five-minute rounds, missing-first ordering and next-round 100 fallback for low response; freeze stock snapshot generation. Thick volume strip with internal labels. Preserve a complete previous basis/annual/20/60 and its original F/S/D/T/source time in basis_display when current derived inputs are temporarily missing, with current price independent and raw results unchanged. Replace main ETF change/history display with same-day full ETF top-three-plus-other and four actual futures OI*price*multiplier notionals; honest partial totals/dates. Local-first actual OI gaps for current 16 latest-completed contracts, price progress isolated, coherent whole-bar replacement. Old history/data/research retained.",
+    "base_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
+    "scope": "Documentation-only next-dialogue prompt: receive new safe company feedback, incorporate user ideas, explain current implemented collection sources/cadence/retry/cache/shutdown from source. No runtime code, parameters, APIs, configurations or data changed; no new collection started.",
     "files": [
-      "AGENTS.md",
       "COMPANY_SYNC.md",
-      "dashboard/AGENTS.md",
-      "dashboard/APP_COMPANY_TEST.md",
-      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
-      "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/README.md",
-      "dashboard/company_retest.ps1",
-      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-      "dashboard/docs/README.md",
-      "dashboard/marketdata/overview_audit.py",
-      "dashboard/marketdata/overview_daily.py",
-      "dashboard/marketdata/overview_display_cache.py",
-      "dashboard/marketdata/overview_market_sizes.py",
-      "dashboard/native/equity_collection.py",
-      "dashboard/native/futures_overview_view.py",
-      "dashboard/native/market_overview.py",
-      "dashboard/native/market_overview_view.py",
-      "dashboard/native/market_size_view.py",
-      "dashboard/native/overview_details.py",
-      "dashboard/native/overview_pages.py",
-      "dashboard/native/overview_summary.py",
-      "tests/test_market_overview_ui.py",
-      "tests/test_overview_afternoon_feedback.py",
-      "tests/test_overview_audit.py",
-      "tests/test_overview_data.py",
-      "tests/test_overview_details.py",
-      "tests/test_overview_etf_display.py",
-      "tests/test_overview_final_polish.py"
+      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md"
     ],
+    "runtime_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
     "company_evidence_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
     "tests": {
-      "passed": 267,
-      "seconds": 53.505,
-      "skipped": 0,
-      "resource_warnings": "errors",
-      "post_instruction_one_click_recheck": 1
+      "runtime_reference_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
+      "previous_runtime_passed": 267,
+      "previous_runtime_seconds": 53.505,
+      "runtime_rerun": false,
+      "documentation_checks": [
+        "exact file list",
+        "local Markdown links",
+        "JSON syntax",
+        "backtest raw serialization",
+        "git diff whitespace",
+        "protected prompt hashes"
+      ]
     },
     "one_click": "dashboard/company_retest.cmd",
-    "validation": "dashboard/APP_VALIDATION.md",
-    "protection": {
-      "files": 8453,
-      "bytes": 365647987,
-      "changed": 0,
-      "missing": 0,
-      "old_archives": 7,
-      "preexisting_absent_previous_zip": 1,
-      "backtest_raw_block": "unchanged"
-    },
-    "company_acceptance": "365fe84 runtime evidence verified; this release actual notional amounts and interactions require company update; no original OI quantities in old packet"
+    "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+    "company_acceptance": "new feedback package and user ideas not yet supplied; no new company acceptance inferred"
   },
   "files": [
     ".gitattributes",
@@ -441,7 +413,7 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "267 final affected regressions passed in 53.505s; no skips; ResourceWarning as error. All 247 preceding tests plus 20 new feedback tests rerun after OI/price isolation fix. Eight 1920x1080/1536x864 offscreen medium views fit without scroll; overview annual effective font about 14.24 to 21.13 pixels. Actual viewport clicks, retained-basis labels, dual pies and internal strip labels checked. PowerShell AST and real one-click/whitelist ZIP rechecked after instruction text update. 8453 protected files/365647987 bytes match baseline SHA; backtest raw block preserved. Local synthetic verification is distinct from company new-feature acceptance.",
+  "current_validation": "Runtime validation at b5746c7afcdc42c9b30c1c84fc31845ae3f54eed: 267 final affected regressions passed in 53.505s; no skips; ResourceWarning as error. All 247 preceding tests plus 20 new feedback tests rerun after OI/price isolation fix. Eight 1920x1080/1536x864 offscreen medium views fit without scroll; overview annual effective font about 14.24 to 21.13 pixels. Actual viewport clicks, retained-basis labels, dual pies and internal strip labels checked. PowerShell AST and real one-click/whitelist ZIP rechecked after instruction text update. 8453 protected files/365647987 bytes match baseline SHA; backtest raw block preserved. Local synthetic verification is distinct from company new-feature acceptance. Current update changes only handoff/release documents; runtime tests were not rerun or recounted.",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
     "company new release: all-four-index viewport navigation, larger medium card fonts, last complete basis retained during refresh and real 300/15 next-round-missing collection responses",
@@ -462,7 +434,12 @@
     "remaining": "Company one-click runtime retest of four-index clicks/fonts, 300/15 missing-first batches, stable retained display and actual ETF/futures notional inputs/totals. Baseline company dated AUM 720 points and same-run 7.422s shutdown verified. Two stock quotes, 214 classifications, true historical D and IOPV/share/PCF definitions remain incomplete.",
     "phase2_implemented": true,
     "phase3_implemented": true,
-    "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md"
+    "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+    "handoff_topics": [
+      "analyze_new_company_safe_feedback",
+      "incorporate_user_new_ideas",
+      "explain_current_collection_logic_from_code_and_reports"
+    ]
   },
   "overview_dividend_policy": "Dated actual-contract revisions/SHA/effective times; historical rows use their own known D. Confirmed Y mapped source; only old built-in UNC migrates at runtime without saving personal config, custom/empty retained. Scheduler fingerprint includes effective source. AM/PM bounded metadata/content deduplication, B1-based window filtering without filename-date exclusion, raw/history retained. Explicit SourceDirectory for Share/Import or local InputFile for Import, mutually exclusive; actual configured/effective sources and per-contract provenance audited. Original Excel/research API preserved. User 2026-11-10 exception: missing historical D may use a flagged zero calculation placeholder, never a false store observation; import real historical dated records to re-key and recompute placeholders, do not apply today D to past. Current D, true conflicts, price/mapping gaps and paused research unchanged. Numeric labels have no estimate suffix; tooltip/diagnostic retain assumption dates/counts.",
   "dividend_source": {
@@ -1542,5 +1519,63 @@
     "real_historical_D_complete": false,
     "new_pies_actual_OI_values": "absent_from_this_old_runtime_packet; new_market_sizes_exports_inputs",
     "company_update_pending": true
+  },
+  "last_runtime_update": {
+    "base_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+    "scope": "Real viewport clicks for four index cards; larger card numbers while medium still fits 1080p. Constituent batches default 300/15s with five-minute rounds, missing-first ordering and next-round 100 fallback for low response; freeze stock snapshot generation. Thick volume strip with internal labels. Preserve a complete previous basis/annual/20/60 and its original F/S/D/T/source time in basis_display when current derived inputs are temporarily missing, with current price independent and raw results unchanged. Replace main ETF change/history display with same-day full ETF top-three-plus-other and four actual futures OI*price*multiplier notionals; honest partial totals/dates. Local-first actual OI gaps for current 16 latest-completed contracts, price progress isolated, coherent whole-bar replacement. Old history/data/research retained.",
+    "files": [
+      "AGENTS.md",
+      "COMPANY_SYNC.md",
+      "dashboard/AGENTS.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
+      "dashboard/APP_RELEASE.json",
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/README.md",
+      "dashboard/company_retest.ps1",
+      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+      "dashboard/docs/README.md",
+      "dashboard/marketdata/overview_audit.py",
+      "dashboard/marketdata/overview_daily.py",
+      "dashboard/marketdata/overview_display_cache.py",
+      "dashboard/marketdata/overview_market_sizes.py",
+      "dashboard/native/equity_collection.py",
+      "dashboard/native/futures_overview_view.py",
+      "dashboard/native/market_overview.py",
+      "dashboard/native/market_overview_view.py",
+      "dashboard/native/market_size_view.py",
+      "dashboard/native/overview_details.py",
+      "dashboard/native/overview_pages.py",
+      "dashboard/native/overview_summary.py",
+      "tests/test_market_overview_ui.py",
+      "tests/test_overview_afternoon_feedback.py",
+      "tests/test_overview_audit.py",
+      "tests/test_overview_data.py",
+      "tests/test_overview_details.py",
+      "tests/test_overview_etf_display.py",
+      "tests/test_overview_final_polish.py"
+    ],
+    "company_evidence_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+    "tests": {
+      "passed": 267,
+      "seconds": 53.505,
+      "skipped": 0,
+      "resource_warnings": "errors",
+      "post_instruction_one_click_recheck": 1
+    },
+    "one_click": "dashboard/company_retest.cmd",
+    "validation": "dashboard/APP_VALIDATION.md",
+    "protection": {
+      "files": 8453,
+      "bytes": 365647987,
+      "changed": 0,
+      "missing": 0,
+      "old_archives": 7,
+      "preexisting_absent_previous_zip": 1,
+      "backtest_raw_block": "unchanged"
+    },
+    "company_acceptance": "365fe84 runtime evidence verified; this release actual notional amounts and interactions require company update; no original OI quantities in old packet",
+    "commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed"
   }
 }

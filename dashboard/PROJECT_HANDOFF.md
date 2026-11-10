@@ -1,6 +1,14 @@
 # Delta1 公司看板当前交接
 
-2026-11-10。开发基线365fe84dad7f377dd76be1199f5e7a7788b41464，统一分支codex/company-apps；本轮2026-11-10-company-afternoon-feedback-and-market-sizes。最终提交看Git/远端与交付回复，精确文件见APP_RELEASE.latest_update.files。实施、测试和精确提交推送授权持续，不丢现有工作。
+2026-11-10。运行修复已发布并核验远端b5746c7afcdc42c9b30c1c84fc31845ae3f54eed（开发基线365fe84），统一分支codex/company-apps。本次只整理新对话交接，不改运行源码/采集参数，不启动新采集。文档提交看最新Git；当前精确文件见APP_RELEASE.latest_update.files，上一运行发布31文件见last_runtime_update.files。267项测试属于b5746c7运行修复，不冒称本次重跑。实施、必要测试和精确提交推送授权持续，不丢现有工作。
+
+## 下一对话的三件事
+
+1. 用户提供新的公司安全反馈ZIP，先核对HEAD/完整性与同次开窗/安全关闭，再验新点击/字号/稳定基差、双饼图真实OI金额及300回包。
+2. 用户提供新想法，结合反馈和现有补丁实施；未提供的想法不自行虚构，先完成包分析及现状解释。
+3. 按源码解释当前采集：主HTTP3秒；独立成分默认300/15秒、每轮起点约5分钟，失败/缺项优先、低回包后续轮100，个股昨收用HTTP；Wind周度/每日有界、Y盘09:00/15:30有界、DDB仅概览价格/16最近完成日OI真实缺口；持续raw/SQLite/分类显示缓存，关闭安全排空，不自动逐股Parquet。
+
+可复制新提示词及含时段/配置/批次/降级细节的当前采集表见[接续入口](docs/NEXT_COMPANY_RETEST_PROMPT.md)。公司更新/取样/正常关闭/Overview/安全ZIP仍用APP_COMPANY_TEST和company_retest.cmd。新包或想法尚未提供，本轮未冒称新的公司验收。
 
 ## 本轮公司回传已核验
 
