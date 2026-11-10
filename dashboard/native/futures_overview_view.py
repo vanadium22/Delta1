@@ -30,6 +30,7 @@ class FuturesCard(Panel):
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
             self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
         self.basis_value,self.annual_value,self.previous_value,self.rank_value,self.rank60_value=self.values
+        self.dividend_note=lab('分红来源待核验',14,MUTED);self.box.addWidget(self.dividend_note)
         self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(355)
 
     def render(self,row,position):
@@ -51,6 +52,12 @@ class FuturesCard(Panel):
             widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 去分红年化基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
+        source_day=row.get('dividend_snapshot');pricing_day=row.get('pricing_day')
+        carried=bool(source_day and pricing_day and source_day<pricing_day)
+        self.dividend_note.setText('D '+numeric(row.get('dividend_points'),6)+'点 · '+
+            ('沿用 ' if carried else '表内 ')+str(source_day or '待核验'))
+        self.dividend_note.setToolTip(input_summary(row)+'\n来源合约 '+str(row.get('dividend_source_contract') or '—')+
+            '\n文件SHA '+str(row.get('dividend_file_sha256') or '—'))
         source=source_label(row)
         self.clock.setText(source)
         self.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
@@ -121,6 +128,8 @@ class FuturesOverviewPage(ScrollPage):
         root=self.selected_root
         for key,button in self.products.items():button.setChecked(key==root)
         rows=sorted((r for r in self.rows if r['root']==root),key=lambda r:r.get('slot',99))
+        latest=max((r['dividend_snapshot'] for r in self.rows if r.get('dividend_snapshot')),default=None)
+        self.note.setText('最新分红表 '+str(latest or '待核验')+' · 20 / 60日分位')
         self.visible_rows=rows;self.cards={}
         spot=next((r for r in self.indices if r['root']==root),{})
         self.spot.setText('现货 '+numeric(spot.get('price'))+'  '+numeric(spot.get('change_pct'),signed=True,suffix='%'))

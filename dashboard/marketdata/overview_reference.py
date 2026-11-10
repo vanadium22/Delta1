@@ -202,6 +202,19 @@ def closing_nav(reference, symbol, today):
         closing_premium_reason='同一交易日未复权收盘 / 单位净值；非盘中IOPV' if valid else '待同日单位净值和未复权收盘，未以前值填充')
 
 
+def premium_display(row,previous=None):
+    """Choose a dated display value without putting closing NAV into live IOPV."""
+    live=row.get('premium_bp');close=row.get('closing_premium_bp')
+    if finite(live):return dict(display_premium_bp=live,display_premium_mode='intraday',display_premium_date=None,
+        display_premium_label='盘中折溢价',display_premium_reason=row.get('premium_reason'))
+    if finite(close) and row.get('nav_date'):
+        return dict(display_premium_bp=close,display_premium_mode='closing',display_premium_date=row['nav_date'],
+            display_premium_label='昨日收盘折溢价' if row['nav_date']==previous else '收盘折溢价',
+            display_premium_reason='盘中配对暂不可用；显示 '+row['nav_date']+' 同日收盘/净值计算的折溢价')
+    return dict(display_premium_bp=None,display_premium_mode='missing',display_premium_date=None,
+        display_premium_label='盘中折溢价',display_premium_reason=row.get('premium_reason') or '待有效盘中配对或已披露收盘/净值')
+
+
 def publish(path, data):
     """Publish only validated data; retain the last good version and all archives."""
     from dashboard.marketdata.bars import _atomic_bytes, _json_bytes

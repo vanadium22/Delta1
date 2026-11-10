@@ -4,7 +4,7 @@ from bisect import bisect_left, bisect_right
 
 import pandas as pd
 
-from dashboard.marketdata.overview_reference import load, ranking, finite, closing_nav
+from dashboard.marketdata.overview_reference import load, ranking, finite, closing_nav,premium_display
 from dashboard.marketdata.overview_contributions import contributions, read_equities
 from dashboard.marketdata.quote_quality import aligned_quotes, quote_quality
 from dashboard.session_clock import market_phase
@@ -108,6 +108,15 @@ def enrich(model, data, reference, now):
             detail['reason'] = '分钟快照已停更，保留原始截止时间；'+detail.get('reason','')
     for row in data['indices']:
         row['change_5m_pct'] = five_minute(row, now)
+    from dashboard.marketdata.overview_etf_history import archive_token,read_aum_history,size_changes
+    history=dict(snapshots=[],files_read=0,truncated=False)
+    if hasattr(model,'local_root'):
+        token=(reference['version'],archive_token(model.config,model.local_root))
+        if getattr(model,'_overview_aum_history_token',None)!=token:
+            model._overview_aum_history=read_aum_history(model.config,model.local_root,source)
+            model._overview_aum_history_token=token
+        history=model._overview_aum_history
+    data['aum_history']={k:history[k] for k in ('files_read','truncated')}
     groups = {}
     for root in UNDERLYINGS:
         selected, meta = ranking(source, root, today=today)
@@ -119,7 +128,7 @@ def enrich(model, data, reference, now):
             # Keep available representative quotes visible, but never give them
             # a fabricated size rank or a fabricated 100% market share.
             visible = [dict(r, rank=None, aum_cny=None, aum_share_pct=None) for r in rows[:1]]
-        groups[root] = dict(rows=visible, ranking=meta,
+        groups[root] = dict(rows=visible, ranking=meta,size_changes=size_changes(root,selected,history),
             flow=dict(daily_cny=None, five_day_cny=None, top_daily_cny=None, top_five_day_cny=None,
                       as_of=None, reason='待已披露总份额、净值及份额折算核验'),
             pcf=dict(as_of=None, reason='待当日申赎清单'))
@@ -137,6 +146,7 @@ def enrich(model, data, reference, now):
         if pair:
             row.update(premium_bp=pair['value'], premium_source_at=pair['source_at'],
                        premium_reason='已配对ETF与IOPV观测；两腿源时和接收时差均不超过3秒')
+        row.update(premium_display(row,data.get('previous_session')))
     # Copies above must include the final premium/spread enrichment.
     for root, group in groups.items():
         newest = {r['symbol']: r for r in data['etfs'] if r['root'] == root}

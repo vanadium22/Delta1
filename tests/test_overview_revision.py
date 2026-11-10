@@ -62,7 +62,7 @@ class OverviewRevisionTests(unittest.TestCase):
         self.assertIsNone(book.points('IF2608.CFE','2026-07-30'))
         self.assertIsNone(book.points('IH2611.CFE',DAY))
 
-    def test_slot_history_uses_same_simple_dividend_formula_without_filling_missing_days(self):
+    def test_slot_history_uses_same_formula_and_marks_missing_dividend_zero_estimate(self):
         meta=metadata();data=daily_data(meta)
         book=SimpleNamespace(points=lambda s,d:2.,version='explicit-fixed-D',info={})
         history=prepare('IF',3,meta,data,DAY,dividends=book)
@@ -72,9 +72,10 @@ class OverviewRevisionTests(unittest.TestCase):
         missing_day=row['day'];book.points=lambda s,d:None if d==missing_day else 2.
         history=prepare('IF',3,meta,data,DAY,dividends=book)
         result=evaluate(history,1000,history['current_symbol'])
-        self.assertIsNone(result['windows']['20']['percentile'])
-        self.assertEqual(result['windows']['20']['missing'][0]['reason'],'dividend_missing')
-        self.assertEqual(result['windows']['20']['samples'],19)
+        self.assertEqual(result['windows']['20']['percentile'],100)
+        self.assertEqual(result['windows']['20']['zero_dividend_dates'],[missing_day])
+        self.assertEqual(result['windows']['20']['samples'],20)
+        self.assertTrue(result['windows']['20']['estimated'])
 
     def test_company_mixed_dates_and_missing_weights_keep_members_and_classification(self):
         sdk=FakeWind();original=sdk.wset

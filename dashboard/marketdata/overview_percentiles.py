@@ -15,6 +15,16 @@ from dashboard.native.continuous import slot_map
 
 WINDOWS=(20,60)
 SLOTS=(0,1,2,3)
+HISTORICAL_DIVIDEND_POLICY='历史缺分红暂按0估算，明确标记；补入该历史日真实D后重算；当前D不补0'
+
+
+def historical_dividend(book,symbol,day):
+    """A calculation placeholder, never a new dividend observation in the store."""
+    record=dividend_record(book,symbol,day)
+    if record.get('points') is None and not record.get('reason'):
+        return dict(points=0.,estimated_zero=True,source_kind='historical_missing_zero_estimate',
+            revision=digest(dict(policy='historical-missing-zero-v1',symbol=symbol,day=day)))
+    return dict(record,estimated_zero=False)
 
 
 def prior_days(day,count=60):
@@ -56,12 +66,14 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
     days=prior_days(day);rows=dated_slots(metadata,root,slot,days)
     spot=final_rows(daily.get(SPOTS[root]));tables={}
     for item in rows:
-        symbol=item['symbol'];item['annual_pct']=None
+        symbol=item['symbol'];item['annual_pct']=None;item['dividend_estimated_zero']=False
         if item['reason']:continue
         if symbol not in tables:tables[symbol]=final_rows(daily.get(symbol))
         f=tables[symbol].get(item['day'],{});s=spot.get(item['day'],{})
-        record=dividend_record(dividends,symbol,item['day']);dividend=record.get('points')
+        record=historical_dividend(dividends,symbol,item['day']);dividend=record.get('points')
         item['dividend_points']=dividend
+        item['dividend_estimated_zero']=record['estimated_zero']
+        item['dividend_source_kind']=record.get('source_kind')
         item['dividend_revision']=record.get('revision');item['dividend_inherited_from']=record.get('inherited_from')
         values=(cache.calculate(symbol,item['day'],f.get('close'),s.get('close'),dividend,item['days'],
             dividend_record=record,price_version=digest([f,s])) if cache is not None else
@@ -77,7 +89,8 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
     return dict(alias=f'{root}0{slot}.CFE',pricing_day=day,current_symbol=current.get(f'{root}0{slot}.CFE'),
         current_mapping_error=bool(error),slot_day=current_day or day,rows=rows,method='continuous_slot_dividend_simple_annual',
         formula=FORMULA+'；已知T<5另列排除；不调整期现价格',
-        dividend_version=getattr(dividends,'version',None),dividend_policy=(getattr(dividends,'info',{}) or {}).get('historical_policy'),
+        dividend_version=getattr(dividends,'version',None),dividend_policy=HISTORICAL_DIVIDEND_POLICY,
+        dividend_source_policy=(getattr(dividends,'info',{}) or {}).get('historical_policy'),
         mapping_policy='按历日挂牌/到期重建；交割日保留旧档，下一交易日换月；非当时可得映射')
 
 
@@ -89,6 +102,7 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
         rows=history['rows'][-length:];excluded=[r for r in rows if r['excluded']]
         missing=[r for r in rows if not r['excluded'] and r['annual_pct'] is None]
         good=[r for r in rows if not r['excluded'] and r['annual_pct'] is not None]
+        estimated=[r for r in rows if not r['excluded'] and r.get('dividend_estimated_zero')]
         values=[raw(r['annual_pct']) for r in good]
         available=len(rows)==length and not missing and len(values)>=2
         pct=None
@@ -100,8 +114,13 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
                 '当前连续档位合约映射不完整' if not matches else
                 current_reason or '当前年化基差不可用' if current.value is None else
                 '有效年化样本不足' if not available else '前'+str(length)+'交易日窗口；排除当前日，等值半权，已知T<5日另列排除')
+        if estimated:reason+='；历史缺分红暂按0估算 '+str(len(estimated))+'日'
         output['windows'][str(length)]=dict(percentile=pct,samples=len(good),calendar_days=length,
             expected_eligible=length-len(excluded),excluded=len(excluded),complete=available,
+            estimated=bool(estimated),zero_dividend_count=len(estimated),
+            zero_dividend_dates=[r['day'] for r in estimated],
+            zero_dividend_rows=[dict(day=r['day'],symbol=r['symbol']) for r in estimated],
+            dividend_observations_complete=not estimated and not any(r['reason']=='dividend_missing' for r in missing),
             start=rows[0]['day'] if rows else None,end=rows[-1]['day'] if rows else None,reason=reason,
             missing_counts=counts,
             missing=[dict(day=r['day'],symbol=r['symbol'],reason=r['reason'],missing_symbols=r.get('missing_symbols',[])) for r in missing],

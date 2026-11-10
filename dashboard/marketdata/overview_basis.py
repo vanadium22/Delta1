@@ -16,7 +16,8 @@ def input_summary(row):
         return format(value,'.10g') if isinstance(value,Real) and not isinstance(value,bool) and isfinite(value) else '—'
     return ('F='+number('basis_future_price')+' · S='+number('basis_spot_price')+
         ' · D='+number('dividend_points')+' · T='+number('days')+'天\n定价日 '+str(row.get('pricing_day') or '—')+
-        '；分红表业务日 '+str(row.get('dividend_snapshot') or '—'))
+        '；分红表业务日 '+str(row.get('dividend_snapshot') or '—')+
+        ('（沿用早于定价日的表）' if row.get('dividend_carried_forward') else ''))
 
 
 def calculate(future,spot,dividend,days):

@@ -2,7 +2,8 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QBoxLayout
 
-from .overview_pages import ScrollPage, IndexCard, FlowGrid
+from .overview_pages import ScrollPage, IndexCard, FlowGrid,lab
+from .theme import ACCENT
 from .futures_overview_view import FuturesCard
 from .instruments import UNDERLYINGS
 
@@ -37,6 +38,7 @@ class OverviewSummary(ScrollPage):
 
     def __init__(self):
         super().__init__()
+        self.dividend_source=lab('最新分红表：待核验',18,ACCENT,True);self.box.addWidget(self.dividend_source)
         self.products = {}
         self.cards = {}
         self.index_cards = {}
@@ -49,6 +51,8 @@ class OverviewSummary(ScrollPage):
         self.visible_rows = []
 
     def render_data(self, data):
+        latest=data.get('dividend_latest_business_day') or max((r['dividend_snapshot'] for r in data.get('futures',[]) if r.get('dividend_snapshot')),default=None)
+        self.dividend_source.setText('最新分红表：'+str(latest or '待核验'))
         indices = {r['root']:r for r in data.get('indices', [])}
         futures = {(r['root'],r.get('slot')):r for r in data.get('futures', [])}
         self.cards = {}

@@ -1,23 +1,29 @@
-# 下一对话：公司有效报告与Excel同输入对账
+# 下一对话：公司分红与ETF显示复测
 
-2026-10-29。当前批次2026-10-29-company-resilience-and-excel-reconciliation，基线75d9da0，实际新提交看Git/远端及交付回复。先读本文件全文，再读根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。
+2026-11-10。先完整读本文件，再读根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。工作区P:/project/swhy/Delta1/company-apps-worktree，统一分支codex/company-apps，基线12f34f1，实际新提交看Git/远端及交付回复。本轮批次2026-11-10-company-dividend-history-and-etf-display。
 
 ## 可复制接续提示词
 
-请接续Delta1公司看板，工作区P:/project/swhy/Delta1/company-apps-worktree，统一分支codex/company-apps。先核验最新Git/远端、worktree、status/diff与发布清单，不从旧版重做。必要实施/测试/精确清单提交推送授权持续有效；不reset/clean、全量stage、强推，不动其他模块/worktree与四份受保护提示词。
+请继续Delta1公司看板。必要实施、测试和精确清单提交推送授权持续；先核验最新分支/worktree/status/diff/远端，保留并行工作、其他模块及四份受保护提示词，不从旧版本重做，不reset/clean/全量stage/强推。
 
-最新下午包20261029_131553_666_safe_135610_892.zip只有git/drive_y/manifest三个JSON，HEAD=75d9da0，明确缺Overview与同运行开窗/完成关闭。不能认证新关闭时间或现场年化，也不能认定用户没采样。新OutputDirectory让diagnosis直接进入deltaReport子目录，collect_company_return.ps1按diagnosis.at兼容恢复旧runtime，不依赖目录CreationTime；检查HEAD/LocalRoot/时间、同一App report_path、Complete/MissingReports，不混旧git.json与新HEAD。公司按APP_COMPANY_TEST第1/4/5节更新、正常开窗Overview、正常关闭等排空、关闭后Overview及JSON ZIP；Full源测试保留按需。
+最新完整公司包20261110_092411_072_safe_094017_545_23667ca4.zip为33份JSON、full/Complete=true、无MissingReports，HEAD及8份diagnosis=12f34f1。Y Share complete，匹配B1=10-27/10-30/11-06三表；库64条/4版本含旧本地09-18，本次Import新增0/unchanged4是内容已在库。最新源11-06，未发现11-09/10文件。16当前D源合同与卡片实际合同全一致，均来自SHA09c72b6a56b57a5e18b2f40a91ecf0d54e2341f0f483900d9961f2500d8f62b2；9:36的16实时年化独立复算吻合。用户补充可能比较了旧分红表，仍在自查，不盲改当前公式或映射。
 
-用户问分红后年化和Excel不一致：两份用户Excel共32行按当前calculate复算全符，最大误差3.3751e-14个百分点；15/16合约D不同，F/S/T也不同。10-27表B1=10-27且日收盘，文件名09-18的上传件B1实际10-28且RTD缓存，G列为值，不因更新B1/价格就证明D更新。f345174→75d9da0未改公式。需用新Overview.data_gaps.page_calculation_preview.futures的F/S/D/T、pricing_day/at、两腿源时、D业务日/生效时间/文件SHA与Excel同输入对账，不能盲改公式或自动导入上传Excel覆盖Y源。原件只读，不执行RTD、不保存。
+本轮用户新要求覆盖旧历史严格缺D门槛：00/01/02/03每交易日一个收盘年化，历史确实无可用D暂0并标估算，慢慢补齐。当前100*(F-S+D)/S*365/T不变，当前D不补0，价格/映射缺失与真实D冲突仍阻断，当前定价日排除、T<5规则排除、等值半权。原有明确0/有来源前序继承优先。派生历史占位不写records.sqlite；历史旧日真实表导入后按修订键重算占位，今天新D不回填旧日，旧缓存版本保留。原独立App/Excel、32/A02和回测因子/CTA/执行口径不变。
 
-本轮鲁棒性：低频读取按完整指数/ETF分组、单只NAV隔离，坏可选资料不隐藏其他有效报价；正式publish保持严格，损坏成员不当完整篮子或排名。个别成分/时间和历史I/O错误仅影响对应范围，其余有效行情保留。年化悬浮/详情显示实际输入。210项受影响回归通过（51.206秒，无跳过，ResourceWarning作为错误），其中6个实际PowerShell打包场景；另有真实隔离Overview验证OutputDirectory。不得以本地测试代替公司。
+UI分位数值不放“估”，补零信息保留于悬浮和诊断；窗口zero_dividend_count/dates/rows和estimated留审计；dividend_observations_complete与数值complete分开，Local.history_dividends_complete仍反映真实覆盖。卡片显示当前D/来源表日，旧于定价日标沿用。9:36原20日16档完整，60日16档均只缺D，00各20日、其余各29日，共428条，缺价/映射0；新估算逻辑预期可算，但公司新数字仍需更新后Overview，不能用本地测试冒验收。
 
-前次24份JSON(f345174)和截图已确认Y Share/Import成功，新D16条、库16→32，B1=10-27；16档20日完整，60日全缺D，共556行，真实历史日线缺价0。Y源仍Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026；现场DisplayRoot为\\192.168.91.230\FTPServer，默认用Y，不猜拼或重新映射。2026为年份目录，业务日以B1；旧默认运行时迁移、自定义/空白保留及SourceDirectory/InputFile语义不变。
+同运行9:36开窗与9:40关闭后已完整回传，最终closed/shutdown.complete=true/等待者空，耗时73.499秒。最后一次空归档0.09秒不等于全部耗时；9:36归档1408/1802、已用51.639秒。安全关闭确认，现场性能仍待后续，不拿本机合成2.489秒替代。名单齐，214未分类；权重日期仍旧，不臆造准确昨日权重。Wind Connect/ETFs/Nav complete、Indices partial，排名日11-09；IOPV/份额/PCF仍需已核验字段/单位/带日定义。
 
-完整名单300/50/500/1000，IF/IC/IM缺权重1/2/2且日期混合，IH日期09-30，分类缺17/2/49/148；未知权重不补0、不归一化。四组ETF各前三/价格与12组同日10-28 NAV/close已有证据，截图收盘溢价−20.0/−19.8/−18.2bp已显示。大字空项为盘中IOPV；IOPV/份额/PCF仍须已核验字段、单位和带日定义，不猜字段，不用NAV/成交量/规模替代。
+230项回归通过（46.355秒，无跳过，ResourceWarning作为错误），包括新历史补零/回补/审计/标记和既有Y迁移/导入/连续分位/排空/安全打包；1580/860卡片离屏已看。公司按APP_COMPANY_TEST第1/4/5节runtime更新→正常开窗Overview→正常关闭等排空→关闭后Overview→安全JSON ZIP。OutputDirectory直接保存本轮，packer检查记录时间/HEAD/配置与同一report_path，Complete/MissingReports不冒报。不向旧git.json目录混新HEAD。Full数据阶段按需。
 
-75d9da0已优化App专用成分归档：最多4个文件写入者、完成后每64个批量提交SQLite目录，保留原SQLite/raw/逐股Parquet和标准Reader，失败从已提交SQLite重放，关闭等待全部写入。进度、等待者、最终phase=closed/shutdown.complete/elapsed_seconds须新公司包确认。旧版用户关闭1–2分钟，本机1800标的8.884→2.489秒仅属合成数据，不认证现场。
+正确源仍Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，年份目录匹配xlsx、业务日以B1。公司DisplayRoot为\\192.168.91.230\FTPServer，仅证据，不重映射或猜拼。旧内置默认运行时迁移、自定义/空白/原配置保留、09:00/15:30有界同步和SourceDirectory/InputFile语义保留。默认Overview离线，实时VPN手动，DDB仅实际价格缺口；不因HTTP失败切DDB，不因缺历史D重复下价。
 
-继续保留逐日实际合约D、00/01/02/03连续20/60、100*(F-S+D)/S*365/T、当前定价日排除、T<5单列、真实缺价/映射/D不跳过。明确0优先，缺D只继承当时已知前序到期合约，新D不回写过去；非交易保留真实价格日/T/D及来源。研究32项/A02继续暂停且保留，原独立App/Excel不动。主HTTP三秒、成分一分钟、30秒/3秒不放宽。默认Overview离线，实时VPN手动，DDB仅实际缺口，HTTP失败不切DDB。不强杀写入者、不删锁。
+原数据/缓存/配置/凭据/Excel、其他工作及四提示词不动。APP_RELEASE.backtest字段原样保留，本轮无研究文件改动。七份旧说明与MANIFEST仍唯一SHA归档，不复制旧说明。证据在忽略的local_artifacts/validation/company_20261110。没有公司新估算报告时，只确认旧代码本次源和映射已核验，新分位仍待真实回传。
 
-原数据/缓存/配置/凭据/Excel、其他工作和四提示词不动。七份旧说明及MANIFEST仍唯一SHA归档，不再复制。证据在忽略的local_artifacts/validation/company_afternoon_20261029。暂无有效新公司报告时，如实报告Y/收盘溢价已确认，历史D/完整行业/盘中数据定义、现场年化输入和新关闭耗时仍待验收。
+## 用户后续ETF与显示要求已实施
+
+数值旁不放“估”，占位标记仅保留于悬浮与诊断；概览顶部与期货卡直接显示最新/实际分红表日期。ETF主位优先有效盘中折溢价，无则显示带日收盘折溢价；日期等于准确昨日时才叫昨日。规模/同指数占比/买卖价差加重，原IOPV、盘中premium及轨迹保持真实含义。
+
+份额/净申赎数据尚无可靠定义，改为当前展示三只ETF的两期已披露规模变化，按代码匹配当前三只，列各自前期/本期日期和CNY/百分比变化，不显示全体ETF申购合计。规模变化含净值涨跌，不标份额或净申赎；仅一期明确待前期规模。历史只读现有参考archive，最多64文件/32MiB、单文件4MiB，冻结到当前资料取得时刻、排除未来档案、冲突不任意选值，有界结果/缓存代次有诊断，不猜字段、不新开接口。
+
+包含ETF新增11项在内，最终230项完整回归通过（46.355秒，无跳过，ResourceWarning作为错误）。前219项为追加ETF前的中间验证，不能充当最终结果；65项ETF/页面针对性检查也通过。1580/860概览与ETF页面已离屏查看，当前截图数值无“估”，收盘溢价/来源日、突出数据与三只规模变化可见；小屏滚动重排保持。

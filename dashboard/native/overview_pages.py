@@ -327,8 +327,8 @@ class EtfCard(Panel):
         self.premium.setAlignment(Qt.AlignmentFlag.AlignRight); second.addWidget(self.iopv, 1); second.addWidget(self.premium, 1); self.box.addLayout(second)
         self.closing_premium=lab('',16,MUTED);self.box.addWidget(self.closing_premium)
         divider = QFrame(); divider.setFixedHeight(1); divider.setStyleSheet(f'background:{BORDER};'); self.box.addWidget(divider)
-        self.scale = lab('', 17); self.activity = lab('', 16, MUTED); self.clock = lab('', 14, MUTED)
-        for w in (self.scale, self.activity): self.box.addWidget(w)
+        self.scale = lab('', 20,ACCENT,True); self.spread=lab('',20,ACCENT,True);self.activity = lab('', 16, MUTED); self.clock = lab('', 14, MUTED)
+        for w in (self.scale,self.spread,self.activity): self.box.addWidget(w)
         self.clock.setParent(self);self.clock.hide()
         self.setMinimumHeight(265)
 
@@ -339,15 +339,23 @@ class EtfCard(Panel):
         self.badge.setText('规模 #'+str(row['rank']) if row.get('rank') else '待排名')
         self.price.setText(numeric(row.get('price'), 3))
         put(self.change, numeric(row.get('change_pct'), signed=True, suffix='%'), color=ink(row.get('change_pct')), size=27, bold=True)
-        self.iopv.setText('IOPV '+numeric(row['iopv'], 4) if row.get('iopv') is not None else 'IOPV待有效报价' if row.get('iopv_id') else 'IOPV待接入')
-        put(self.premium, numeric(row['premium_bp'], 1, True, ' bp') if row.get('premium_bp') is not None else '盘中折溢价 —', color=ink(row.get('premium_bp')), size=27 if row.get('premium_bp') is not None else 21, bold=True)
+        from dashboard.marketdata.overview_reference import premium_display,finite
+        display=premium_display(row);value=display['display_premium_bp']
+        label=row.get('display_premium_label') if row.get('display_premium_mode')==display['display_premium_mode'] else None
+        self.iopv.setText((label or display['display_premium_label']) if display['display_premium_mode']=='closing' else
+            'IOPV '+numeric(row['iopv'],4) if row.get('iopv') is not None else 'IOPV待有效报价' if row.get('iopv_id') else 'IOPV待接入')
+        put(self.premium,numeric(value,1,True,' bp') if value is not None else '盘中折溢价 —',color=ink(value),size=27 if value is not None else 21,bold=True)
         self.iopv.setToolTip(row.get('premium_reason') or '缺少可核验IOPV来源或明确映射')
-        self.premium.setToolTip(row.get('premium_reason') or '不使用昨日净值替代IOPV')
+        self.premium.setToolTip(display['display_premium_reason'] or '待可用折溢价')
         self.closing_premium.setText('收盘折溢价 '+numeric(row.get('closing_premium_bp'),1,True,' bp')+' · '+str(row.get('nav_date') or '待净值'))
         self.closing_premium.setToolTip(row.get('closing_premium_reason') or '待同日收盘和单位净值，非盘中IOPV')
-        self.scale.setText('基金规模 '+money(row.get('aum_cny'))+' · 同指数占比 '+numeric(row.get('aum_share_pct'), 1, suffix='%'))
+        scale_valid=finite(row.get('aum_cny')) and row['aum_cny']>0
+        put(self.scale,'基金规模 '+money(row.get('aum_cny'))+' · 同指数占比 '+numeric(row.get('aum_share_pct'),1,suffix='%'),
+            color=ACCENT if scale_valid else MUTED,size=20 if scale_valid else 17,bold=scale_valid)
         self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；占比的分母为同指数全部普通ETF')
-        self.activity.setText(('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')+' · 买卖价差 '+numeric(row.get('spread_bp'), 1, suffix=' bp'))
+        spread_valid=finite(row.get('spread_bp'))
+        put(self.spread,'买卖价差 '+numeric(row.get('spread_bp'),1,suffix=' bp'),color=ACCENT if spread_valid else MUTED,size=20 if spread_valid else 17,bold=spread_valid)
+        self.activity.setText('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')
         self.activity.setToolTip('现有tradedQuantities为源单位成交量，不能冒充人民币成交额。\n累计成交量 '+numeric(row.get('volume'), 0))
         quote_time = source_label(row)
         self.clock.setText('报价 '+quote_time+' · 配对 '+clock(row.get('premium_source_at')))
@@ -376,9 +384,9 @@ class EtfOverviewPage(ScrollPage):
         head = QHBoxLayout(); self.summary = lab('同一指数内筛选 · 基金规模前三', 21, ACCENT, True); self.review = lab('每周复核 · 规模日期待核验', 15, MUTED)
         self.review.setAlignment(Qt.AlignmentFlag.AlignRight); head.addWidget(self.summary, 3); head.addWidget(self.review, 2); self.box.addLayout(head)
         self.fund_cards = [EtfCard(self.body) for _ in range(3)]; self.box.addWidget(FlowGrid(self.fund_cards, 3, 320, self.body))
-        self.flows = Panel('已披露净申购 · 关注份额变化', '按实际数据日期标注')
-        self.flow_table = table(['同指数ETF', '最近可核验日', '近5日合计'], 125); self.flows.box.addWidget(self.flow_table)
-        self.flow_reason = lab('待已披露份额与净值；成交额不等于净申购', 16, MUTED); self.flows.box.addWidget(self.flow_reason)
+        self.flows = Panel('规模变化 · 当前前三只', '按两期实际规模日期对比')
+        self.flow_table = table(['ETF', '规模变化', '对比日期'], 205);self.flow_table.verticalHeader().setDefaultSectionSize(53); self.flows.box.addWidget(self.flow_table)
+        self.flow_reason = lab('规模变化包含净值涨跌影响；份额与净申赎另待来源', 16, MUTED); self.flows.box.addWidget(self.flow_reason)
         self.pcf = Panel('申赎可用性 · 可选', '需要当日申赎清单')
         for text in ('是否允许申购 / 赎回：待核验', '最小申赎单位 / 当日限额：待核验', '仅展示真实已披露状态'):
             self.pcf.box.addWidget(lab(text, 18, MUTED))
@@ -415,13 +423,19 @@ class EtfOverviewPage(ScrollPage):
             row = rows[i] if i < len(rows) else {}; card.render(row, i+1)
             self.legend[i].setText(row.get('name','') if row.get('premium_series') else '')
             if row.get('symbol'): self.cards[row['symbol']] = card
-        flow = group.get('flow', {}); self.flow_table.setRowCount(2); self.flow_table.clearContents()
-        for i, title in enumerate((UNDERLYINGS[root][1]+'ETF全体', '其中：展示前三只')):
-            cell(self.flow_table, i, 0, title)
-            for j, key in enumerate((('daily_cny', 'five_day_cny') if i == 0 else ('top_daily_cny', 'top_five_day_cny')), 1):
-                value = flow.get(key); cell(self.flow_table, i, j, money(value), ink(value))
-        self.flows.note.setText('数据日期 '+str(flow.get('as_of') or '待披露'))
-        self.flow_reason.setText(flow.get('reason') or '份额变化与净值估算；成交额不等于净申购')
+        changes={r['symbol']:r for r in group.get('size_changes',[])}
+        self.flow_table.setRowCount(3);self.flow_table.clearContents()
+        for i in range(3):
+            fund=rows[i] if i<len(rows) else {};change=changes.get(fund.get('symbol'),{});value=change.get('aum_change_cny')
+            cell(self.flow_table,i,0,(fund.get('symbol','')+' '+fund.get('name','')).strip() or '待规模排名')
+            text=('+' if value is not None and value>0 else '')+money(value)
+            if change.get('aum_change_pct') is not None:text+=' ('+numeric(change['aum_change_pct'],1,True,'%')+')'
+            cell(self.flow_table,i,1,text,ink(value));cell(self.flow_table,i,2,
+                str(change['aum_previous_date'])+' → '+str(change['aum_current_date']) if change.get('aum_previous_date') else '待前期规模')
+            for j in (1,2):self.flow_table.item(i,j).setToolTip(change.get('reason') or '待同一ETF两期已披露规模')
+        self.flows.note.setText('仅当前展示的前三只')
+        self.pcf.setVisible(bool(group.get('pcf',{}).get('as_of')))
+        self.flow_reason.setText('两期基金规模变化包含净值涨跌影响；份额与净申赎另待来源')
         self.plot.clear(); self.plot.addItem(pg.InfiniteLine(0, angle=0, pen=pg.mkPen(BORDER)))
         has_points = False
         for i, row in enumerate(rows):

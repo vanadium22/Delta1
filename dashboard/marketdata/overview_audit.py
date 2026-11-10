@@ -105,13 +105,17 @@ def calculation_preview(config,local_root,now,repo,frozen):
     fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day','pricing_at',
         'basis_future_price','basis_spot_price','basis_future_source_at','basis_spot_source_at','expiry','days',
         'basis_points','raw_basis_points','annual_pct','basis_reason','dividend_points','dividend_snapshot','dividend_inherited_from',
-        'dividend_source_contract','dividend_source_kind','dividend_file_sha256','dividend_effective_from','dividend_revision','dividend_precision',
+        'dividend_source_contract','dividend_source_kind','dividend_file_sha256','dividend_effective_from','dividend_revision','dividend_precision','dividend_carried_forward',
         'percentile_20','percentile_60','percentile_reason','continuous_percentiles')
     return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
         calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],basis_formula=state['market_overview']['basis_formula'],
+        dividend_latest_business_day=state['market_overview']['dividend_latest_business_day'],
         futures=[{k:r.get(k) for k in fields} for r in state['market_overview']['futures']],
         etfs=[{k:r.get(k) for k in ('symbol','root','price','source_at','iopv','iopv_id','premium_bp','premium_reason',
-            'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason')} for r in state['market_overview']['etfs']])
+            'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason',
+            'display_premium_bp','display_premium_mode','display_premium_date','display_premium_label')} for r in state['market_overview']['etfs']],
+        etf_size_changes={root:g.get('size_changes',[]) for root,g in state['market_overview']['etf_groups'].items()},
+        etf_aum_history=state['market_overview']['aum_history'])
 
 
 def collect(config,local_root,*,now=None,iopv_fields=None):
@@ -165,7 +169,9 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
                 checked.update(evaluation_scope='history_only',current_value_evaluated=False)
                 # This audit certifies history coverage, never an untested live marker.
                 for window in checked['windows'].values():
-                    if window['complete']:window['reason']='历史窗口完整；本历史审计未计算当前分位，需另查页面的实时配对或收盘模式'
+                    if window['complete']:
+                        window['reason']='历史窗口完整；本历史审计未计算当前分位，需另查页面的实时配对或收盘模式'
+                        if window.get('estimated'):window['reason']+='；历史缺分红暂按0估算 '+str(window['zero_dividend_count'])+'日'
                     for row in window['missing']:
                         if row['reason'] in ('future_close_missing','index_close_missing'):
                             for symbol in row.get('missing_symbols') or [row.get('symbol') or ROOTS[root]]:missing[symbol].add(row['day'])
@@ -173,6 +179,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         result['continuous_annual']=dict(start=required['start'],end=required['end'],windows=[20,60],
             slots=slots,mapping_gaps=required['mapping_gaps'],dividend_version=dividends.version,dividend_reason=dividends.reason,
             dividend_missing=[dict(alias=alias,day=r['day'],symbol=r['symbol']) for alias,checked in slots.items() for r in checked['windows']['60']['missing'] if r['reason']=='dividend_missing'],
+            zero_dividend_assumptions=[dict(alias=alias,**r) for alias,checked in slots.items() for r in checked['windows']['60']['zero_dividend_rows']],
             daily_missing=[dict(symbol=s,dates=sorted(d)) for s,d in sorted(missing.items())],
             note='逐行读取可用已完成收盘；缺档案、缺行情和已知T<5规则排除分别列示；不把旧合约上市短误当连续窗口不足')
         present=defaultdict(set)
@@ -235,6 +242,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         known_missing_industry_symbols=len(set(s for g in wind.values() for s in g['missing_industry'])),
         continuous_windows_incomplete=[alias+'/'+window for alias,slot in result.get('continuous_annual',{}).get('slots',{}).items()
             for window,value in slot['windows'].items() if not value['complete']],
+        continuous_windows_estimated=[alias+'/'+window for alias,slot in result.get('continuous_annual',{}).get('slots',{}).items()
+            for window,value in slot['windows'].items() if value.get('estimated')],
         history_pending_current=history.get('pending_current',False),
         source_availability_tested=False,company_acceptance_passed=False)
     try:result['page_calculation_preview']=calculation_preview(config,local_root,stamp,repo,frozen)

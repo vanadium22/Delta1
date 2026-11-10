@@ -140,7 +140,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
     row.update(expiry=expiry, basis_points=None, raw_basis_points=None,log_basis_bp=None, annual_pct=None,dividend_points=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
                percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None,
-               basis_future_price=None,basis_spot_price=None,basis_future_source_at=None,basis_spot_source_at=None,
+               basis_future_price=None,basis_spot_price=None,basis_future_source_at=None,basis_spot_source_at=None,dividend_carried_forward=False,
                basis_kind=None,pricing_day=None,days=None,percentile_start=None,percentile_end=None)
     day = str(now.tz_convert('Asia/Shanghai').date())
     mode='realtime'
@@ -181,6 +181,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
                annual_pct=current['annual_pct'], days=t,dividend_points=dividend,
                dividend_inherited_from=scenario.get('inherited_from'),dividend_source_contract=scenario.get('value_source_contract'),
                dividend_snapshot=scenario.get('source_snapshot'),dividend_version=getattr(dividends,'version',None),
+               dividend_carried_forward=bool(scenario.get('source_snapshot') and scenario['source_snapshot']<day),
                dividend_file_sha256=record.get('file_sha256'),dividend_source_kind=record.get('source_kind'),
                basis_source_at=at.isoformat(),
                basis_kind=mode,pricing_day=day,pricing_at=at.isoformat(),basis_future_price=q['close'],basis_spot_price=s['close'],
@@ -189,6 +190,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
                dividend_revision=record.get('revision'),dividend_effective_from=record.get('effective_from'),dividend_precision=record.get('precision'))
     row['basis_reason'] = (('收盘参考 ' if mode=='completed_daily' else '缓存参考 ')+day+' · ' if mode!='realtime' else '')+(FORMULA+'；T<5年化留空' if dividend is not None else '缺分红；保留原始点基差，不把缺值当0')
     if scenario.get('inherited_from'):row['basis_reason']+='；分红沿用 '+scenario['inherited_from']
+    if row['dividend_carried_forward']:row['basis_reason']+='；D来源 '+scenario['source_snapshot']+'，早于定价日'
     if t is None:row['basis_reason']+='；到期日缺失，年化留空'
 
 
@@ -359,10 +361,13 @@ class MarketOverviewEngine:
         for row in [*indices, *funds, *futures]:
             check_stop()
             row['series'] = observed_series(row, observations, now)
+        dividend_dates=[r.get('source_business_date') for r in getattr(self.dividends,'records',[])]
+        dividend_dates += [r.get('dividend_snapshot') for r in futures]
+        latest_dividend=max((d for d in dividend_dates if isinstance(d,str) and len(d)==10 and d<=day),default=None)
         state = dict(as_of=now.isoformat(), versions=versions, selection=dict(overview_slot=0), overview=[], entities=[],
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
                                           previous_session=previous,completed_session=completed,market_session=phase, errors=errors, source_date_basis='每值保留日期依据',
-                                          basis_formula=FORMULA,dividend_version=self.dividends.version,dividend_reason=self.dividends.reason,
+                                          basis_formula=FORMULA,dividend_version=self.dividends.version,dividend_reason=self.dividends.reason,dividend_latest_business_day=latest_dividend,
                                           dividend_policy=self.dividends.info.get('historical_policy'),slot_day=registry_day),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now)

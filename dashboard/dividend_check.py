@@ -14,6 +14,7 @@ def audit(config, local_root, *, now=None, day=None):
     from .marketdata.repository import ReferenceBook
     from .marketdata.overview_basis import load_dividends
     from .marketdata.overview_percentiles import prior_days, dated_slots
+    from .marketdata.overview_percentiles import HISTORICAL_DIVIDEND_POLICY
     from .marketdata.overview_dividends import directory
     from .marketdata.overview_dividend_sync import read_json
     now = now or datetime.now(ZoneInfo('Asia/Shanghai'))
@@ -46,14 +47,15 @@ def audit(config, local_root, *, now=None, day=None):
             mapped=dated_slots(meta,root_name,slot,[day])[0]
             symbol=mapped['symbol'];selected=book.resolve(symbol,selected_at)
             current[root_name+'0'+str(slot)+'.CFE']=dict(contract_id=symbol,
-                **{k:(selected or {}).get(k) for k in ('points','source_business_date','effective_from','file_sha256','inherited_from')},
+                **{k:(selected or {}).get(k) for k in ('points','source_business_date','effective_from','file_sha256','inherited_from','value_source_contract','source_kind')},
+                carried_forward=bool((selected or {}).get('source_business_date') and selected['source_business_date']<day),
                 reason=(selected or {}).get('reason') or (None if selected else mapped['reason'] or book.reason or '待该实际合约在定价时点已知的分红输入'))
     return dict(schema='overview-dividend-audit-v1',checked_at=now.isoformat(),pricing_day=day,mode=book.mode,
         network_requested=False,configuration_changed=False,reason=book.reason,
         record_count=len(records),file_versions=len({r['file_sha256'] for r in records}),
         oldest_business_day=dates[0] if dates else None,latest_business_day=dates[-1] if dates else None,
         precision_counts=dict(Counter(r.get('precision','day') for r in records)),
-        policy=book.info.get('historical_policy'),errors=book.info.get('errors',[]),slots=slots,
+        policy=book.info.get('historical_policy'),percentile_dividend_policy=HISTORICAL_DIVIDEND_POLICY,errors=book.info.get('errors',[]),slots=slots,
         history_dividends_complete=all(not r['dividend_missing'] and not r['mapping_missing'] for r in slots.values()),
         sources=dict(downloads_auto_scanned=False,share_directory=source_directory(config),configured_share_directory=config.get('overview_dividend_source_dir'),
             pattern=config.get('overview_dividend_pattern') or '指数基差情况_*.xlsx',

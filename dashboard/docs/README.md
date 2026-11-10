@@ -17,4 +17,4 @@
 
 AGENTS、PROJECT_HANDOFF、APP_RELEASE、APP_COMPANY_TEST等固定入口保留。归档的ROOT_AGENTS/DASHBOARD_AGENTS不是当前指令入口；旧UNC、旧固定分红情景和阶段限制不覆盖最新用户要求。不重复制作多套旧说明。项目总体目录见 [分类索引](../../docs/PROJECT_STRUCTURE.md)。
 
-本轮接续75d9da0，210项回归通过：可选资料/单股/历史错误隔离，年化实际输入与来源；公司诊断直接保存本轮目录，使用 [安全打包脚本](../collect_company_return.ps1)。两份Excel32行同输入一致，下午三JSON包缺Overview，现场年化与新关闭仍待有效报告。操作见 [公司复测](../APP_COMPANY_TEST.md)，接续见 [新提示词](NEXT_COMPANY_RETEST_PROMPT.md)。
+2026-11-10：公司33份JSON已核验，Y最新11-06表与16当前合约计算一致，同次安全关闭73.499秒。历史缺D按用户要求暂0，补零信息留在悬浮/诊断，230项本地回归通过，ETF主位收盘回退/三只规模变化及数值去“估”已实现，新版待公司复测。操作见 [公司复测](../APP_COMPANY_TEST.md)，接续见 [新提示词](NEXT_COMPANY_RETEST_PROMPT.md)，历史真实D仍由 [分红审计](../dividend_check.py) 单独报告。
