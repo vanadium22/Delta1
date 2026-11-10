@@ -61,7 +61,7 @@ class OverviewAuditTests(unittest.TestCase):
             ddb=result['ddb']
             self.assertGreater(ddb['local_copy_available_rows'],1000)
             self.assertEqual(ddb['local_copy_available_rows']+ddb['remaining_after_local_copy_rows'],ddb['close_cache_missing_rows'])
-            self.assertTrue(all(j['asset']=='etf' for j in ddb['remaining_after_local_copy_batches']))
+            self.assertTrue(all(j['asset']=='etf' or j['asset']=='future' and j.get('requires_oi') for j in ddb['remaining_after_local_copy_batches']))
             self.assertFalse((Path(tmp)/'overview_daily').exists());self.assertFalse(ddb['local_copy_performed'])
             self.assertFalse(result['historical']['minute_deep_verification_complete'])
             self.assertIsNone(result['summary']['missing_industry_symbols'])
@@ -143,7 +143,7 @@ class OverviewAuditTests(unittest.TestCase):
             inserted=overview_daily.seed_local(repo,{},config,tmp,'2026-10-26',meta)
             self.assertGreater(inserted,0)
             jobs=overview_daily.requests(config,tmp,'2026-10-26',meta)
-            self.assertTrue(jobs);self.assertTrue(all(j['asset']=='etf' for j in jobs))
+            self.assertTrue(jobs);self.assertTrue(all(j['asset']=='etf' or j['asset']=='future' and j.get('requires_oi') for j in jobs))
             result=collect(config,tmp,now=NOW)
             self.assertEqual(len(result['continuous_annual']['mapping_gaps']),0)
             self.assertTrue(all(w['complete'] for slot in result['continuous_annual']['slots'].values() for w in slot['windows'].values()))

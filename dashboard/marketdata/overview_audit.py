@@ -81,7 +81,7 @@ def daily_inputs(config,local_root,target,metadata,*,repo=None,frozen=None):
     return daily,needed,errors
 
 
-def calculation_preview(config,local_root,now,repo,frozen):
+def calculation_preview(config,local_root,now,repo,frozen,*,equity_snapshot=None):
     """Run the real page engine with a read-only model and the frozen publication.
 
     No NativeModel constructor, ResultStore, App, collector or network client.
@@ -101,12 +101,12 @@ def calculation_preview(config,local_root,now,repo,frozen):
     model=SimpleNamespace(config=config,local_root=Path(local_root),demo=False,live_cursor=0,live_key=None,
         live_rows=pd.DataFrame(),configure_repository=configured)
     model._live=lambda instruments,as_of:NativeModel._live(model,instruments,as_of)
-    state=MarketOverviewEngine(model).snapshot(now=now)
+    state=MarketOverviewEngine(model).snapshot(now=now,equity_snapshot=equity_snapshot)
     fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day','pricing_at',
         'basis_future_price','basis_spot_price','basis_future_source_at','basis_spot_source_at','expiry','days',
         'basis_points','raw_basis_points','annual_pct','basis_reason','dividend_points','dividend_snapshot','dividend_inherited_from',
         'dividend_source_contract','dividend_source_kind','dividend_file_sha256','dividend_effective_from','dividend_revision','dividend_precision','dividend_carried_forward',
-        'percentile_20','percentile_60','percentile_reason','continuous_percentiles')
+        'percentile_20','percentile_60','percentile_reason','continuous_percentiles','basis_display')
     return dict(scope='actual_page_engine_preview_not_running_UI',ui_application_verified=False,network_requested=False,
         calculation=state['refresh_evidence'],errors=state['market_overview']['errors'],basis_formula=state['market_overview']['basis_formula'],
         dividend_latest_business_day=state['market_overview']['dividend_latest_business_day'],
@@ -115,7 +115,7 @@ def calculation_preview(config,local_root,now,repo,frozen):
             'closing_nav_cny','closing_price_cny','closing_premium_bp','nav_date','closing_premium_reason',
             'display_premium_bp','display_premium_mode','display_premium_date','display_premium_label')} for r in state['market_overview']['etfs']],
         etf_size_changes={root:g.get('size_changes',[]) for root,g in state['market_overview']['etf_groups'].items()},
-        etf_aum_history=state['market_overview']['aum_history'],display_cache=state['market_overview'].get('display_cache'),
+        etf_aum_history=state['market_overview']['aum_history'],market_sizes=state['market_overview'].get('market_sizes'),display_cache=state['market_overview'].get('display_cache'),
         index_display={root:{k:v for k,v in detail.items() if k in ('covered','weighted_covered','expected','coverage_pct','snapshot_at','source_at',
             'weight_date','official_weight_date','partial','contribution_points','actual_points','residual_points','display_saved','reason','inputs')}
             for root,detail in state['market_overview'].get('index_details',{}).items()})
@@ -196,7 +196,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         result['continuous_annual']=dict(status='unavailable',error_type=type(exc).__name__)
     try:
         jobs=requests(config,local_root,target,metadata,reference_data=data)
-        batches=[dict(day=j['day'],asset=j['asset'],missing_count=len(j['symbols']),symbols=j['symbols']) for j in jobs]
+        batches=[dict(day=j['day'],asset=j['asset'],missing_count=len(j['symbols']),symbols=j['symbols'],requires_oi=bool(j.get('requires_oi')),
+            required_fields=['close','open_interest'] if j.get('requires_oi') else ['close']) for j in jobs]
         # Cache absence is distinct from missing underlying historical bars: local
         # seeding during one-click runs before deciding whether DDB is needed.
         result['ddb']=dict(target=target,close_cache_missing_batches=batches,
@@ -235,9 +236,9 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         missing_symbols=absent,stale_at_snapshot_symbols=stale if cutoff is not None else None,missing_previous_close=no_previous,
         quality_evaluation=cutoff_status,
         universe_known=bool(equity_universe),mode=snapshot.get('mode'),batch=snapshot.get('batch'),batch_count=snapshot.get('batch_count'),
-        round_complete=snapshot.get('round_complete'),batch_interval_seconds=snapshot.get('batch_interval_seconds'),
+        round_complete=snapshot.get('round_complete'),batch_size=snapshot.get('batch_size'),next_batch_size=snapshot.get('next_batch_size'),pending_count=snapshot.get('pending_count'),batch_interval_seconds=snapshot.get('batch_interval_seconds'),
         round_target_seconds=snapshot.get('round_target_seconds'),quote_max_age_seconds=equity_max_age(snapshot),
-        note='成分约100只/15秒、约5分钟一轮；昨收来自HTTP yesterdayClosePrice，不是每轮DDB读取；默认不补全部成分日线')
+        note='成分默认300只/15秒、约5分钟一轮；优先缺项，回包受限后下轮100只；昨收来自HTTP，默认不补全部成分日线')
     result['constituent_quotes'].update(all_four_universes_known=all_members_known,
         known_missing_count=len(absent),total_missing_count=len(absent) if all_members_known else None)
     result['other_inputs']=dict(iopv=[dict(symbol=f['symbol'],iopv_id=f.get('iopv_id'),
@@ -255,7 +256,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             for window,value in slot['windows'].items() if value.get('estimated')],
         history_pending_current=history.get('pending_current',False),
         source_availability_tested=False,company_acceptance_passed=False)
-    try:result['page_calculation_preview']=calculation_preview(config,local_root,stamp,repo,frozen)
+    try:result['page_calculation_preview']=calculation_preview(config,local_root,stamp,repo,frozen,equity_snapshot=snapshot)
     except (OSError,ValueError,TypeError,KeyError) as exc:
         result['page_calculation_preview']=dict(status='unavailable',error_type=type(exc).__name__,ui_application_verified=False,network_requested=False)
     return result

@@ -53,7 +53,7 @@ function Invoke-CompanyRetest {
     Write-Host ('本轮报告：'+$reports)
     Open-DeltaPresentation $Repository $Profile
     Write-Host '保持新看板打开约10分钟，检查各页和大/中/小比例。中在1080p完整显示卡片。'
-    Write-Host '检查行业覆盖/条形、ETF规模历史与变化、期货量仓图例；需要时在设置点一次DDB一键补齐并等待完成。'
+    Write-Host '检查四指数点击、卡内字号/基差沿用、ETF与期货名义规模双饼图和粗条标签；OI待补时点一次DDB一键补齐并等待。'
     for ($remaining=$Seconds;$remaining -gt 0;$remaining-=[Math]::Min(30,$remaining)) {
         Write-Progress -Activity '保持看板打开取样' -Status ('剩余约 '+$remaining+' 秒') -PercentComplete (100*(1-$remaining/[Math]::Max(1,$Seconds)))
         Start-Sleep -Seconds ([Math]::Min(30,$remaining))
@@ -79,7 +79,7 @@ function Invoke-CompanyRetest {
     } else { Write-Host '未识别到本轮开窗采集报告；包会如实标缺项，请仍回传。' }
     Invoke-DeltaDiagnosis $Repository $Profile $reports
     $code=Export-DeltaReturn $Repository $Profile $reports
-    Write-Host '请回传上面打印的安全ZIP（仅白名单JSON），并说明页面比例、规模曲线和正常关闭感受。'
+    Write-Host '请回传上面打印的安全ZIP（仅白名单JSON），并说明四指数点击、页面比例/字号、规模双饼图和正常关闭感受。'
     return $code
 }
 

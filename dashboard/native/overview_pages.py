@@ -66,7 +66,7 @@ class Panel(QFrame):
     def __init__(self, title='', note='', parent=None):
         super().__init__(parent); self.setObjectName('overviewPanel')
         self.setStyleSheet(f'QFrame#overviewPanel{{background:{PANEL};border:1px solid {BORDER};border-radius:12px;}}')
-        self.box = QVBoxLayout(self); self.box.setContentsMargins(18, 15, 18, 15); self.box.setSpacing(12)
+        self.box = QVBoxLayout(self); self.box.setContentsMargins(14, 10, 14, 10); self.box.setSpacing(8)
         if title:
             head = QHBoxLayout(); self.title = lab(title, 22, ACCENT, True); self.note = lab(note, 15, MUTED)
             self.note.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -114,7 +114,7 @@ class ScrollPage(QWidget):
         from .page_scale import ScaleScrollArea
         self.scroll = ScaleScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.body = QWidget(); self.box = QVBoxLayout(self.body); self.box.setContentsMargins(2, 2, 12, 12); self.box.setSpacing(20)
+        self.body = QWidget(); self.box = QVBoxLayout(self.body); self.box.setContentsMargins(2, 2, 12, 12); self.box.setSpacing(12)
         self.box.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.scroll.setWidget(self.body); outer.addWidget(self.scroll)
 
@@ -124,16 +124,26 @@ class IndexCard(Panel):
     def __init__(self, root, parent):
         super().__init__(parent=parent); self.root = root; self.row = None
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        top = QHBoxLayout(); self.heading = lab(UNDERLYINGS[root][1], 21, ACCENT, True); self.change = lab('—', 25, TEXT, True)
+        top = QHBoxLayout(); self.heading = lab(UNDERLYINGS[root][1], 23, ACCENT, True); self.change = lab('—', 27, TEXT, True)
         self.change.setAlignment(Qt.AlignmentFlag.AlignRight); top.addWidget(self.heading, 1); top.addWidget(self.change, 1)
-        self.box.addLayout(top); self.price = lab('—', 36, ACCENT, True); self.box.addWidget(self.price)
+        self.box.addLayout(top); self.price = lab('—', 42, ACCENT, True); self.box.addWidget(self.price)
         bottom = QHBoxLayout(); self.short = lab('5分钟 —', 16, MUTED); self.clock = lab('行情源 —', 14, MUTED)
         self.clock.setAlignment(Qt.AlignmentFlag.AlignRight); bottom.addWidget(self.short, 1);self.clock.setParent(self);self.clock.hide()
         self.box.addLayout(bottom); self.setMinimumHeight(148)
+        self._pressed=False
+        for widget in (self.heading,self.change,self.price,self.short,self.clock):
+            widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
+
+    def mousePressEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton:
+            self._pressed=True;event.accept();return
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.root)
+            pressed=self._pressed;self._pressed=False
+            if pressed and self.rect().contains(event.position().toPoint()):self.clicked.emit(self.root)
+            event.accept();return
         super().mouseReleaseEvent(event)
 
     def selected(self, yes):
@@ -156,7 +166,7 @@ def table(headers, height):
     w.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     w.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     w.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); w.setShowGrid(False)
-    w.setStyleSheet(f'QTableWidget{{border:0;background:{PANEL};font-size:17px;}} QTableWidget::item{{padding:4px;}} QHeaderView::section{{background:{PANEL};font-size:15px;padding:5px;color:{MUTED};border:0;}}')
+    w.setStyleSheet(f'QTableWidget{{border:0;background:{PANEL};font-size:20px;}} QTableWidget::item{{padding:4px;}} QHeaderView::section{{background:{PANEL};font-size:16px;padding:5px;color:{MUTED};border:0;}}')
     w.setMinimumWidth(0); w.setFixedHeight(height); w.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     return w
 
@@ -323,13 +333,13 @@ class EtfCard(Panel):
         super().__init__(parent=parent); self.row = None
         head = QHBoxLayout(); self.heading = lab('', 20, ACCENT, True); self.badge = lab('', 15, ACCENT)
         self.badge.setAlignment(Qt.AlignmentFlag.AlignRight); head.addWidget(self.heading, 3); head.addWidget(self.badge, 1); self.box.addLayout(head)
-        values = QHBoxLayout(); self.price = lab('—', 39, ACCENT, True); self.change = lab('—', 27, TEXT, True)
+        values = QHBoxLayout(); self.price = lab('—', 43, ACCENT, True); self.change = lab('—', 29, TEXT, True)
         self.change.setAlignment(Qt.AlignmentFlag.AlignRight); values.addWidget(self.price, 1); values.addWidget(self.change, 1); self.box.addLayout(values)
         second = QHBoxLayout(); self.iopv = lab('', 16,MUTED); self.premium = lab('', 29, TEXT, True)
         self.premium.setAlignment(Qt.AlignmentFlag.AlignRight); second.addWidget(self.iopv, 1); second.addWidget(self.premium, 1); self.box.addLayout(second)
         self.closing_premium=lab('',14,MUTED);self.box.addWidget(self.closing_premium)
         divider = QFrame(); divider.setFixedHeight(1); divider.setStyleSheet(f'background:{BORDER};'); self.box.addWidget(divider)
-        metrics=QHBoxLayout();self.scale=lab('',25,ACCENT,True);self.share=lab('',25,ACCENT,True);self.spread=lab('',25,ACCENT,True)
+        metrics=QHBoxLayout();self.scale=lab('',28,ACCENT,True);self.share=lab('',28,ACCENT,True);self.spread=lab('',28,ACCENT,True)
         for caption,value in (('规模 · 亿元',self.scale),('同指数占比',self.share),('买卖价差 · bp',self.spread)):
             column=QVBoxLayout();column.setSpacing(3);column.addWidget(value);column.addWidget(lab(caption,14,MUTED));metrics.addLayout(column,1)
         self.box.addLayout(metrics)
@@ -349,19 +359,19 @@ class EtfCard(Panel):
         label=row.get('display_premium_label') if row.get('display_premium_mode')==display['display_premium_mode'] else None
         self.iopv.setText((label or display['display_premium_label']) if display['display_premium_mode']=='closing' else
             'IOPV '+numeric(row['iopv'],4) if row.get('iopv') is not None else 'IOPV待有效报价' if row.get('iopv_id') else 'IOPV待接入')
-        put(self.premium,numeric(value,1,True,' bp'),color=ink(value),size=29,bold=True)
+        put(self.premium,numeric(value,1,True,' bp'),color=ink(value),size=32,bold=True)
         self.iopv.setToolTip(row.get('premium_reason') or '缺少可核验IOPV来源或明确映射')
         self.premium.setToolTip(display['display_premium_reason'] or '待可用折溢价')
         self.closing_premium.setText('净值日期 '+str(row.get('nav_date') or '待核验') if display['display_premium_mode']=='closing' else '')
         self.closing_premium.setVisible(display['display_premium_mode']=='closing')
         self.closing_premium.setToolTip(row.get('closing_premium_reason') or '待同日收盘和单位净值，非盘中IOPV')
         scale_valid=finite(row.get('aum_cny')) and row['aum_cny']>0
-        put(self.scale,numeric(row.get('aum_cny')/1e8 if scale_valid else None),color=ACCENT if scale_valid else MUTED,size=25,bold=True)
-        put(self.share,numeric(row.get('aum_share_pct'),1,suffix='%'),color=ACCENT,size=25,bold=True)
+        put(self.scale,numeric(row.get('aum_cny')/1e8 if scale_valid else None),color=ACCENT if scale_valid else MUTED,size=28,bold=True)
+        put(self.share,numeric(row.get('aum_share_pct'),1,suffix='%'),color=ACCENT,size=28,bold=True)
         self.scale.setToolTip('规模日期 '+str(row.get('aum_date') or '待核验')+'；人民币资产净值')
         self.share.setToolTip('占比日期 '+str(row.get('aum_share_date') or row.get('aum_date') or '待核验')+'；分母为同日同指数全部普通ETF，不混用更新后的单只规模')
         spread_valid=finite(row.get('spread_bp'))
-        put(self.spread,numeric(row.get('spread_bp'),1),color=ACCENT if spread_valid else MUTED,size=25,bold=True)
+        put(self.spread,numeric(row.get('spread_bp'),1),color=ACCENT if spread_valid else MUTED,size=28,bold=True)
         self.activity.setText('成交额 '+money(row['amount_cny']) if row.get('amount_cny') is not None else '成交额待来源')
         self.activity.setVisible(row.get('amount_cny') is not None)
         self.activity.setToolTip('现有tradedQuantities为源单位成交量，不能冒充人民币成交额。\n累计成交量 '+numeric(row.get('volume'), 0))
@@ -383,82 +393,49 @@ class MinuteAxis(pg.AxisItem):
 
 class EtfOverviewPage(ScrollPage):
     def __init__(self):
-        super().__init__(); self.selected_root = 'IF'; self.groups = {}; self.rows = []; self.reference = {}; self.cards = {}
-        self.products = {}
-        for root, (_, name, _) in UNDERLYINGS.items():
-            button = QPushButton(name+' · 3只'); button.setCheckable(True); button.setMinimumHeight(39)
-            button.clicked.connect(lambda _, r=root: self.select(r)); self.products[root] = button
-        self.box.addWidget(FlowGrid(list(self.products.values()), 4, 220, self.body))
-        head = QHBoxLayout(); self.summary = lab('同一指数内筛选 · 基金规模前三', 21, ACCENT, True); self.review = lab('每周复核 · 规模日期待核验', 15, MUTED)
-        self.review.setAlignment(Qt.AlignmentFlag.AlignRight); head.addWidget(self.summary, 3); head.addWidget(self.review, 2); self.box.addLayout(head)
-        self.fund_cards = [EtfCard(self.body) for _ in range(3)]; self.box.addWidget(FlowGrid(self.fund_cards, 3, 320, self.body))
-        self.flows = Panel('规模变化 · 当前前三只', '按两期实际规模日期对比')
-        self.flow_table = table(['ETF', '规模变化', '对比日期'], 205);self.flow_table.verticalHeader().setDefaultSectionSize(53); self.flows.box.addWidget(self.flow_table)
-        self.flow_reason = lab('规模变化包含净值涨跌影响；份额与净申赎另待来源', 16, MUTED); self.flows.box.addWidget(self.flow_reason)
-        self.pcf = Panel('申赎可用性 · 可选', '需要当日申赎清单')
-        for text in ('是否允许申购 / 赎回：待核验', '最小申赎单位 / 当日限额：待核验', '仅展示真实已披露状态'):
-            self.pcf.box.addWidget(lab(text, 18, MUTED))
-        self.box.addWidget(Split(self.flows, self.pcf, (2, 1)))
-        self.chart = Panel('近三个月基金规模 · 亿元', '当前展示的前三只')
-        self.plot = pg.PlotWidget(background=PANEL,axisItems={'bottom':pg.DateAxisItem(orientation='bottom',utcOffset=0)}); self.plot.setMinimumWidth(0); self.plot.setMinimumHeight(155); self.plot.setMaximumHeight(180)
-        self.plot.setMenuEnabled(False); self.plot.setMouseEnabled(x=False, y=False); self.plot.hideButtons()
-        self.plot.showGrid(y=True, alpha=.12)
-        self.chart.box.addWidget(self.plot); self.empty_plot = lab('等待Wind近三个月规模历史；缺值不补零', 17, MUTED)
-        self.empty_plot.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_plot.setMinimumHeight(120); self.chart.box.addWidget(self.empty_plot)
-        legend=QHBoxLayout();self.legend=[]
-        for i in range(3):
-            item=lab('',15,CHART_COLORS[i],True);self.legend.append(item);legend.addWidget(item)
-        self.chart.box.addLayout(legend)
-        self.box.addWidget(self.chart)
-        self.note = lab('候选范围：同一标的指数的普通股票ETF；规模占比以该组全部ETF为分母', 15, MUTED); self.box.addWidget(self.note)
+        super().__init__();self.selected_root='IF';self.groups={};self.rows=[];self.reference={};self.cards={};self.market_sizes={}
+        self.products={}
+        for root,(_,name,_) in UNDERLYINGS.items():
+            button=QPushButton(name+' · 3只');button.setCheckable(True);button.setMinimumHeight(39)
+            button.clicked.connect(lambda _,r=root:self.select(r));self.products[root]=button
+        self.box.addWidget(FlowGrid(list(self.products.values()),4,220,self.body))
+        head=QHBoxLayout();self.summary=lab('同一指数内筛选 · 基金规模前三',24,ACCENT,True);self.review=lab('',16,MUTED)
+        self.review.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.summary,3);head.addWidget(self.review,2);self.box.addLayout(head)
+        self.fund_cards=[EtfCard(self.body) for _ in range(3)];self.box.addWidget(FlowGrid(self.fund_cards,3,320,self.body))
+        self.capacity=Panel('规模对比 · ETF资产与期货名义本金','')
+        from .market_size_view import SizePie
+        self.etf_panel=Panel('同指数ETF · 前三与其它','');self.futures_panel=Panel('四档期货 · 持仓名义本金','')
+        self.etf_pie=SizePie();self.futures_pie=SizePie();self.etf_panel.box.addWidget(self.etf_pie);self.futures_panel.box.addWidget(self.futures_pie)
+        self.capacity.box.addWidget(Split(self.etf_panel,self.futures_panel,(1,1)));self.box.addWidget(self.capacity)
+        self.note=lab('ETF采用完整同指数普通ETF净资产；期货采用持仓手数 × 价格 × 合约乘数',17,MUTED);self.box.addWidget(self.note)
 
-    def render(self, rows, groups=None, reference=None):
-        self.rows = rows; self.groups = groups or {}; self.reference = reference or {}; self.show_group()
+    def render(self,rows,groups=None,reference=None,market_sizes=None):
+        self.rows=rows;self.groups=groups or {};self.reference=reference or {};self.market_sizes=market_sizes or {};self.show_group()
 
-    def select(self, root):
-        self.selected_root = root; self.show_group()
+    def select(self,root):
+        self.selected_root=root;self.show_group()
 
     def show_group(self):
-        root = self.selected_root; group = self.groups.get(root, {})
-        meta = group.get('ranking', {}); rows = group.get('rows', [r for r in self.rows if r['root'] == root][:1])
-        self.visible_rows = rows; self.cards = {}
-        for r, button in self.products.items(): button.setChecked(r == root)
-        pending = bool(meta.get('reason')) or not meta.get('as_of')
+        from dashboard.marketdata.overview_reference import finite
+        root=self.selected_root;group=self.groups.get(root,{});meta=group.get('ranking',{})
+        rows=group.get('rows',[r for r in self.rows if r['root']==root][:1]);self.visible_rows=rows;self.cards={}
+        for r,button in self.products.items():button.setChecked(r==root)
+        pending=bool(meta.get('reason')) or not meta.get('as_of')
         self.summary.setText('同一指数内筛选 · 基金规模前三'+('待核验' if pending else ''))
-        self.review.setText('每周复核 · 规模 '+str(meta.get('as_of') or '待核验')+(' · 待复核' if self.reference.get('due') and meta.get('as_of') else ''))
+        self.review.setText('规模排名 '+str(meta.get('as_of') or '待核验'))
         if group.get('display_saved'):self.review.setText('保留上次资料 · '+self.review.text())
         self.review.setToolTip(meta.get('reason') or str(meta.get('source') or '')+'\n资料取得 '+stamp(self.reference.get('fetched_at')))
-        for i, card in enumerate(self.fund_cards):
-            row = rows[i] if i < len(rows) else {}; card.render(row, i+1)
-            self.legend[i].setText('● '+row.get('name','') if row.get('aum_series') else '')
-            if row.get('symbol'): self.cards[row['symbol']] = card
-        changes={r['symbol']:r for r in group.get('size_changes',[])}
-        self.flow_table.setRowCount(3);self.flow_table.clearContents()
-        for i in range(3):
-            fund=rows[i] if i<len(rows) else {};change=changes.get(fund.get('symbol'),{});value=change.get('aum_change_cny')
-            cell(self.flow_table,i,0,(fund.get('symbol','')+' '+fund.get('name','')).strip() or '待规模排名')
-            text=('+' if value is not None and value>0 else '')+money(value)
-            if change.get('aum_change_pct') is not None:text+=' ('+numeric(change['aum_change_pct'],1,True,'%')+')'
-            cell(self.flow_table,i,1,text,ink(value));cell(self.flow_table,i,2,
-                str(change['aum_previous_date'])+' → '+str(change['aum_current_date']) if change.get('aum_previous_date') else '待前期规模')
-            for j in (1,2):self.flow_table.item(i,j).setToolTip(change.get('reason') or '待同一ETF两期已披露规模')
-        self.flows.note.setText('仅当前展示的前三只')
-        self.pcf.setVisible(bool(group.get('pcf',{}).get('as_of')))
-        self.flow_reason.setText('两期基金规模变化包含净值涨跌影响；份额与净申赎另待来源')
-        self.plot.clear()
-        has_points = False
-        for i, row in enumerate(rows):
-            points = row.get('aum_series', []); xs = []; ys = []
-            for point in points:
-                xs.append(pd.Timestamp(point['as_of'],tz='UTC').timestamp());ys.append(point['aum_cny']/1e8)
-            if points:
-                has_points = True; self.plot.plot(xs, ys, pen=pg.mkPen(CHART_COLORS[i % len(CHART_COLORS)], width=2),
-                    symbol='o' if len(points) == 1 else None, symbolSize=5, connect='finite')
-        self.plot.setVisible(has_points); self.empty_plot.setVisible(not has_points)
-        self.plot.enableAutoRange()
-        if has_points:
-            from dashboard.marketdata.overview_aum import start_day
-            last=group.get('aum_window',{}).get('end') or max(p['as_of'] for r in rows for p in r.get('aum_series',[]))
-            first=group.get('aum_window',{}).get('start') or start_day(last)
-            self.plot.setXRange(pd.Timestamp(first,tz='UTC').timestamp(),(pd.Timestamp(last,tz='UTC')+pd.Timedelta(days=1)).timestamp(),padding=.01)
-        self.chart.setToolTip('Wind日频人民币资产净值，Fill=Blank；仅绘实际已披露日期，缺值不补零、不前填。\n规模变化含净值涨跌，不代表份额变化或净申赎。')
+        for i,card in enumerate(self.fund_cards):
+            row=rows[i] if i<len(rows) else {};card.render(row,i+1)
+            if row.get('symbol'):self.cards[row['symbol']]=card
+        sizes=self.market_sizes.get(root,{})
+        assets=sizes.get('etfs',{});futures=sizes.get('futures',{})
+        self.etf_pie.render(assets);self.futures_pie.render(futures)
+        self.etf_panel.note.setText(str(assets.get('as_of') or '待规模日期')+' · '+str(assets.get('universe_count') or '—')+'只')
+        source='HTTP同步持仓/价格' if futures.get('basis')=='current_http' else '已完成同日收盘'
+        covered=futures.get('covered',0);status=('已知 '+str(covered)+'/4 · ' if covered<4 else '')
+        self.futures_panel.note.setText(status+str(futures.get('as_of') or '待持仓日期'))
+        self.futures_panel.setToolTip(source+'\n'+str(futures.get('reason') or '待可靠持仓来源'))
+        ratio=sizes.get('futures_to_etf')
+        self.capacity.note.setText('期货 / ETF '+numeric(ratio,2)+'倍' if finite(ratio) else '缺项只显示已知规模')
+        self.note.setText('ETF净资产 · 期货持仓手数 × 价格 × 合约乘数（IF/IH 300，IC/IM 200）')

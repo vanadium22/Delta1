@@ -1,37 +1,41 @@
 # Delta1 公司看板当前交接
 
-2026-11-10。本轮基线1b621fc18ee433db8ab593b325d79e2b7872755a，统一分支codex/company-apps；批次2026-11-10-company-display-resilience-and-final-retest。最终提交看Git/远端及交付回复，精确清单见APP_RELEASE.latest_update.files。必要实施、测试和精确清单提交推送授权持续。
+2026-11-10。开发基线365fe84dad7f377dd76be1199f5e7a7788b41464，统一分支codex/company-apps；本轮2026-11-10-company-afternoon-feedback-and-market-sizes。最终提交看Git/远端与交付回复，精确文件见APP_RELEASE.latest_update.files。实施、测试和精确提交推送授权持续，不丢现有工作。
 
-## 本轮实现
+## 本轮公司回传已核验
 
-- ETF卡减少文字，以价格、折溢价和规模/占比/买卖价差数字为重点。无盘中值时保留带日收盘溢价，只有准确前一交易日才称昨日，不将NAV冒充IOPV。
-- 用户授权补历史规模。现有WindPy netasset_total（或已配置规模字段），unit=1/Fill=Blank/Days=Trading，每组当前前三只单独读取近三个月；代码/字段/日期/矩阵校验，每日NAV任务一起有界更新。失败保留历史，缺值不前填/不补0，单只坏历史隔离。图改为近三个月规模（亿元），表比较相邻两次有效规模及日期，只有一期不伪造0，真实相等才0。规模变化含净值涨跌，不叫份额/净申赎。占比保留原完整同日全集分母及基准日，不混新单只规模与旧分母。
-- 行业剔除缺报价/昨收/权重，篮子涨跌=sum(w*r)/sum(w)，贡献点=指数昨收*sum(w*r)/10000，维持原指数权重、不放大已覆盖部分。旧权重带原日期，不能伪称准确昨日；部分行业按实际覆盖贡献参与排名，待分类单列。右条绑定涨跌%而非贡献点。资料SHA仅因NAV变化不再清空同代码报价。
-- 成分独立HTTP每100只/15秒、约5分钟一轮，每批raw/SQLite提交后立即发布快照；昨收用HTTP yesterdayClosePrice，不每轮去DDB取1850只。360秒预算仅用于滚动成分；主报价3秒及期现30秒/3秒不变。App默认不补全部成分日线/锚点，显式overview_stock_daily_enabled仍支持旧完整模式，不改个人配置。
-- 显示结果按indices/etfs/quotes持续原子保存到LocalRoot/overview_display。缺整组保留上次结果及原源时，新有效部分优先，新价格不套旧基差，缓存恢复不变实时；离线Overview可读不写。
-- App成分日常不自动逐股Parquet导出，raw/SQLite每批已持久化。旧归档及显式有界归档器保留。关闭仍等请求/计算/写入安全排空，不强杀、不删锁。
-- 顶部大/中/小页面比例，默认中在1080p及125%系统缩放对应逻辑尺寸全卡可见，大可滚动、小更紧凑。只适配可见页；偏好独立overview_ui.json，不改native.json。期货成交条/图例按真实slot同色，增加色块和引导线。
+20261110_131148_048_safe_132420_204_4c19bc5e.zip：110,109字节，SHA256=efafad2fbdd5036683a68d1226592dc41a1cbd7e8c006e82f0cfbca413840aa2。9份JSON，runtime/Complete=true，无MissingReports，git及两份diagnosis均365fe84。
 
-## 本地验证与公司复测
+13:23开窗collecting与13:24关闭后为同一App路径126449697e59409daf710f848ab32089，最终closed/shutdown.complete=true/等待者空，耗时7.422秒。旧运行20.229/76.312秒早于本轮开始，不能混入本轮；更早73.499秒和最后空归档0.09秒仍仅历史。新版取消逐股自动Parquet已实证sqlite_committed，不能把本机合成关闭耗时当公司耗时。
 
-最终本地测试/截图见[APP_VALIDATION](APP_VALIDATION.md)。模拟源、离屏和本机性能不当作公司Wind/页面/新关闭耗时验收。
+Wind正常任务published、无警告。12只ETF各60条，共720条，2026-08-10至11-09；最新两期11-06/11-09的AUM相同，是本次源返回值，不是缺历史补0。只证明有日期的披露规模，不推断盘中基金资产每天相同。收盘NAV/价格已取得；IOPV/份额/PCF仍缺定义。
 
-运行[company_retest.cmd](company_retest.cmd)：ff-only更新、记录新HEAD/Y映射，开窗约10分钟→开窗Overview→提示用户正常关闭→等排空→关闭后离线Overview→白名单JSON ZIP。完整手动/按需分红/行业ETF命令统一见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)。实时VPN手动，Wind保持登录；无同一运行开窗及最终安全关闭则包明确缺项，不压缩LocalRoot/native.json或原始业务目录。
+成分1798/1800、无已接收股票缺昨收或在快照截止时陈旧；IF300/300、IH50/50、IC499/500、IM999/1000，均能算贡献。214只行业分类仍缺；权重原日期仍保留，IH为完整日线滚动估算。开窗计算预览另捕获了晚于固定截止的新成分快照，导致四组短暂判0覆盖；与下载覆盖不是同一问题。
 
-待公司最后反馈：Wind实际三个月规模覆盖/前期日期，行业覆盖/条形和轮询，1080p中比例，缓存恢复及正常关闭耗时。研究32/A02暂停保留，当前年化/逐日D/连续20与60分位保持。
+当前16实际合约D均仍取11-06，20/60数值各16项可用。历史60窗口仍含428条缺D暂0占位，数值可算不等于真实D覆盖完整。原Y源/实际合约映射及同输入公式已在前序包核验，本次runtime不能冒称重跑Share/Import。
 
-## 已核验的公司事实（旧代码12f34f1）
+## 用户五项要求与本轮修复
 
-包20261110_092411_072_safe_094017_545_23667ca4.zip：201,026字节，SHA827b9a1feddd74a88873071b5a0f6ab2a06cc1bd118cf0a06e82abb13d5acc4b；33份JSON、full/Complete=true、无缺项，git及8个diagnosis一致。Y三表B1=10-27/10-30/11-06，库64条/4版本含09-18；Import新增0/unchanged4表示已在库，未见11-09/10新表。16当前D均为11-06表SHA09c72b6a56b57a5e18b2f40a91ecf0d54e2341f0f483900d9961f2500d8f62b2，实际合约全对应；9:36实时F/S/D/T复算最大误差8.8818e-16个百分点。用户随后表示可能比较旧表，不盲改公式/映射。
+1. IndexCard接收鼠标按下和释放，子标签透传；用真实缩放viewport坐标点击四指数及概览入口，覆盖1920/1536两尺寸。指数选择跨刷新保留。
+2. 成分默认每批300、批间15秒，每轮仍约5分钟。失败/缺项优先，源回包不足70%后下一轮自动100；不紧密重试、不挤占主HTTP3秒。每批raw/SQLite提交并发布，保留旧值/时钟。freeze成分代次后才做长计算，离线预览用审计已冻结代次，不再重新读取晚到快照。
+3. 概览期货头部价格合并布局、减少留白、放大卡内数字；指数/ETF/期货字号增大，中比例仍1080p全卡可见。概览年化实际字号约14.24→21.13像素；125%系统缩放逻辑尺寸及860窄屏保持。
+4. 期货分布条加粗、标签置于色块内部，取消细引导线，窄段通过精简百分数/悬浮与量仓明细查看。横条仍按其标题的成交占比，持仓金额另在新饼图。
+5. 显示层保存每实际合约完整基差/年化/分位/F/S/D/T。当前配对或部分派生暂缺时，basis_display沿用上次完整结果并显示源时，现价继续更新；raw当前计算仍缺项，不写过期值冒充实时。新有效结果替换旧结果，不跨slot/到期日修订复用，T<5/冲突/缺价门槛不改。
+6. ETF原变化表/历史曲线主展示改为两个规模饼图：同日完整同指数ETF前三+其它；四个实际期货持仓手数×价格×乘数，IF/IH300、IC/IM200，按源手数计一次。优先同步HTTP有效持仓/价格，否则同日已完成持仓/收盘；日期/来源明确。缺档只显示已知n/4，完整总额留空，不用成交量或零替代。旧规模历史及缓存保留、日频有界更新保留。
+7. 日线准备增加当前16合约最近完成日的实际OI缺口，先复用本地；已有价格不表示持仓齐。价格与持仓缺损隔离，首次有价格先保存、缺持仓继续补，已有价格不重复冒报持仓进展。已核验完整侧缓存按整行替换缺OI旧行，价格/持仓不混修订。默认不补全体成分日线/研究分钟。
 
-旧20日16档完整，60日只缺D428条，缺价/映射0。1b621fc已按用户要求历史缺D暂0、补旧日真实D按版本重算；今日新D不回填过去，当前D不补0、真实冲突/缺价/映射阻断。数值不放“估”，补零数量/日期仅悬浮/诊断，真实覆盖独立审计。新分位/显示仍待公司新包。
+## 验证与下一步
 
-同次9:36开窗→9:40最终closed/shutdown.complete=true，关闭73.499秒；51.639秒时逐股归档1408/1802，最后空归档0.09秒不是总关闭时间。本轮新性能仍待现场。名单300/50/500/1000，214未分类，权重IF11-02/其余10-30。收盘NAV/价格已证，IOPV/份额/PCF缺定义。
+267项最终回归通过，53.505秒，无跳过，ResourceWarning错误。20项新增覆盖真实viewport点击/字号、冻结代次、300分批/降级/优先、完整派生沿用/重开/换slot/修订/T<5、ETF全分母、四品种名义金额/时间配对/真实0/缺项、持仓缺口与价格隔离；原247项一并重跑。截图与证据见APP_VALIDATION，均为离屏/模拟源，不当作新图公司真实金额验收。
 
-## 路径与保护
+公司继续用APP_COMPANY_TEST的一键company_retest.cmd：更新→开窗约10分钟→开窗Overview→正常关闭等排空→关闭后Overview→白名单JSON安全ZIP。新报告包含market_sizes各档OI/价格/乘数/金额/日期和basis_display源时。此包没有原持仓数值，不能直接复算新饼图真实总额；还需公司更新核验新点击/字号/稳定显示、300回包和饼图量源。
 
-已确认Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，业务日B1。现场DisplayRoot为\\192.168.91.230\FTPServer，仅证据，不重映射/猜拼。旧默认迁移、自定义/空白保留、09:00/15:30有界同步及SourceDirectory/InputFile互斥语义保持。
+## 保留边界
 
-本机P:/project/swhy/Delta1/company-apps-worktree；公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot其下dashboard/localsetting/app。默认Overview离线，实时VPN手动，DDB只补实际所需价格缺口。原数据/配置/凭据/Excel、四受保护提示词、其他模块/worktree/进程不动；不reset/clean/全量stage/强推。APP_RELEASE.backtest原值及原序列化块保留。
+当前/历史简单年化100*(F-S+D)/S*365/T；00/01/02/03逐日实际映射、前20/60交易日、排当前日、T<5规则排除、等值半权。历史缺D暂0仅派生、真实旧日D补入按版本重算、今日新D不回填过去，当前D不补0。数值无“估”，占位日期/数量仅悬浮/诊断。研究32/A02、独立App/Excel、回测/因子/CTA保持。
 
-8,453个文件、365,738,904字节编辑前冻结SHA；本轮证据在忽略的local_artifacts/validation/company_resilience_20261110，旧包在company_20261110。七份旧说明与MANIFEST唯一SHA归档不动。先读[接续提示词](docs/NEXT_COMPANY_RETEST_PROMPT.md)，核验最新Git和最终测试，不沿用旧230项结果。
+源Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026，业务日B1；现场DisplayRoot为\\192.168.91.230\FTPServer仅证据，不猜拼/重映射。旧默认运行时迁移、自定义/空白保留、09:00/15:30有界同步及SourceDirectory/InputFile语义保持。默认Overview离线，实时VPN手动；仅实际价格/本轮16合约OI缺口按原DDB政策准备，不因HTTP失败另下实时价。
+
+工作区P:/project/swhy/Delta1/company-apps-worktree；公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot其下dashboard/localsetting/app。原行情/分红/缓存/配置/凭据/Excel、四受保护提示词、其他模块/worktree/进程不动，APP_RELEASE.backtest对象及原序列化保留。不强杀/删锁、不reset/clean/全量stage/强推。
+
+本轮8453个现存原件/依赖/归档在编辑前冻结SHA，含本次ZIP；前次ZIP原路径在本轮开始前已不存在，单独记absent_before，不自行恢复。证据仅忽略的local_artifacts/validation/company_20261110_afternoon；七份旧说明/MANIFEST唯一SHA归档不动。先读docs/NEXT_COMPANY_RETEST_PROMPT.md，核验最新Git和本轮测试，不沿用旧结果。

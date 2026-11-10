@@ -131,6 +131,7 @@ class WindTerminalTests(unittest.TestCase):
 
 
 def close_row(symbol,day,price=100,**kwargs):
+    kwargs.setdefault('oi',100. if symbol.endswith('.CFE') else None)
     return dict(symbol=symbol,trade_date=day,source_at=day+'T15:00:00+08:00',is_final=True,
         source='DDB test catalog',open=price,high=price+1,low=price-1,close=price,volume=1000,
         amount=100000,units={},**kwargs)

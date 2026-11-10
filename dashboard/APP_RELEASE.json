@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-10-company-display-resilience-and-final-retest",
+  "release": "2026-11-10-company-afternoon-feedback-and-market-sizes",
   "branch": "codex/company-apps",
-  "base_commit": "1b621fc18ee433db8ab593b325d79e2b7872755a",
-  "status": "local_verified_final_company_display_AUM_coverage_and_shutdown_retest_pending",
+  "base_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+  "status": "local_verified_267_company_365_AUM_industry_shutdown_verified_new_market_sizes_and_interactions_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,8 +11,8 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "1b621fc18ee433db8ab593b325d79e2b7872755a",
-    "scope": "Partial valid-member industry basket/points with original dated index weights; 100 stocks per 15 seconds, five-minute sweeps, HTTP previous close, default no bulk stock DDB daily/automatic per-symbol Parquet. Atomic latest display sections preserve source clocks and avoid old basis on new prices. Numeric ETF cards, existing Wind field retrieves dated three-calendar-month AUM for current top three, real adjacent-observation changes and AUM chart. Slot-colored futures legend. Large/medium/small page scale with 1080p medium fit. One-click company update/open sample/normal close/post-close offline Overview/safe JSON ZIP. Existing dividend and research boundaries retained.",
+    "base_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+    "scope": "Real viewport clicks for four index cards; larger card numbers while medium still fits 1080p. Constituent batches default 300/15s with five-minute rounds, missing-first ordering and next-round 100 fallback for low response; freeze stock snapshot generation. Thick volume strip with internal labels. Preserve a complete previous basis/annual/20/60 and its original F/S/D/T/source time in basis_display when current derived inputs are temporarily missing, with current price independent and raw results unchanged. Replace main ETF change/history display with same-day full ETF top-three-plus-other and four actual futures OI*price*multiplier notionals; honest partial totals/dates. Local-first actual OI gaps for current 16 latest-completed contracts, price progress isolated, coherent whole-bar replacement. Old history/data/research retained.",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -23,55 +23,49 @@
       "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
       "dashboard/README.md",
-      "dashboard/company_retest.cmd",
       "dashboard/company_retest.ps1",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
-      "dashboard/marketdata/equity_observations.py",
       "dashboard/marketdata/overview_audit.py",
-      "dashboard/marketdata/overview_aum.py",
-      "dashboard/marketdata/overview_contributions.py",
       "dashboard/marketdata/overview_daily.py",
       "dashboard/marketdata/overview_display_cache.py",
-      "dashboard/marketdata/overview_etf_history.py",
-      "dashboard/marketdata/overview_reference.py",
-      "dashboard/marketdata/wind_terminal_worker.py",
-      "dashboard/native/editions_current.py",
+      "dashboard/marketdata/overview_market_sizes.py",
       "dashboard/native/equity_collection.py",
       "dashboard/native/futures_overview_view.py",
       "dashboard/native/market_overview.py",
+      "dashboard/native/market_overview_view.py",
+      "dashboard/native/market_size_view.py",
       "dashboard/native/overview_details.py",
       "dashboard/native/overview_pages.py",
-      "dashboard/native/overview_reference_job.py",
-      "dashboard/native/page_scale.py",
-      "dashboard/overview_wind_check.py",
-      "tests/test_app_pipeline.py",
+      "dashboard/native/overview_summary.py",
       "tests/test_market_overview_ui.py",
+      "tests/test_overview_afternoon_feedback.py",
       "tests/test_overview_audit.py",
-      "tests/test_overview_company_feedback.py",
       "tests/test_overview_data.py",
       "tests/test_overview_details.py",
       "tests/test_overview_etf_display.py",
-      "tests/test_overview_final_polish.py",
-      "tests/test_overview_revision.py"
+      "tests/test_overview_final_polish.py"
     ],
-    "company_evidence_commit": "12f34f1ba7e94776d177344692cdbe56f16f652f",
+    "company_evidence_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
     "tests": {
-      "passed": 247,
-      "seconds": 54.683,
+      "passed": 267,
+      "seconds": 53.505,
       "skipped": 0,
-      "resource_warnings": "errors"
+      "resource_warnings": "errors",
+      "post_instruction_one_click_recheck": 1
     },
     "one_click": "dashboard/company_retest.cmd",
     "validation": "dashboard/APP_VALIDATION.md",
     "protection": {
       "files": 8453,
-      "bytes": 365738904,
+      "bytes": 365647987,
       "changed": 0,
       "missing": 0,
-      "old_archives": 7
+      "old_archives": 7,
+      "preexisting_absent_previous_zip": 1,
+      "backtest_raw_block": "unchanged"
     },
-    "company_acceptance": "pending_final_feedback_not_inferred_from_local_mocks"
+    "company_acceptance": "365fe84 runtime evidence verified; this release actual notional amounts and interactions require company update; no original OI quantities in old packet"
   },
   "files": [
     ".gitattributes",
@@ -425,7 +419,10 @@
     "dashboard/marketdata/overview_aum.py",
     "dashboard/marketdata/overview_display_cache.py",
     "dashboard/native/page_scale.py",
-    "tests/test_overview_final_polish.py"
+    "tests/test_overview_final_polish.py",
+    "dashboard/marketdata/overview_market_sizes.py",
+    "dashboard/native/market_size_view.py",
+    "tests/test_overview_afternoon_feedback.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -444,25 +441,25 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "247 final affected regressions passed in 54.683s; no skips; ResourceWarning as error. Eight 1920x1080/1536x864 offscreen views inspected, medium no page scroll; large scrolling retained. Real PowerShell one-click simulation and whitelist ZIP exercised. 8453 protected files/365738904 bytes match baseline SHA. Real company AUM coverage/updated displays and new shutdown performance remain pending.",
+  "current_validation": "267 final affected regressions passed in 53.505s; no skips; ResourceWarning as error. All 247 preceding tests plus 20 new feedback tests rerun after OI/price isolation fix. Eight 1920x1080/1536x864 offscreen medium views fit without scroll; overview annual effective font about 14.24 to 21.13 pixels. Actual viewport clicks, retained-basis labels, dual pies and internal strip labels checked. PowerShell AST and real one-click/whitelist ZIP rechecked after instruction text update. 8453 protected files/365647987 bytes match baseline SHA; backtest raw block preserved. Local synthetic verification is distinct from company new-feature acceptance.",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
-    "company actual three-month Wind AUM coverage and real two-period changes for current selected ETFs",
-    "company partial industry coverage/basket bars, 100/15 rolling updates and source-preserving cache recovery",
-    "company 1080p page scale and new safe shutdown duration after disabling routine constituent Parquet export",
-    "true past D observations remain incomplete; numerical 20/60 may use flagged derived zero placeholders; current D and real price/mapping/conflict rules retained",
-    "214 classifications, exact dated weights and verified intraday IOPV/share/PCF remain source dependent; do not invent values"
+    "company new release: all-four-index viewport navigation, larger medium card fonts, last complete basis retained during refresh and real 300/15 next-round-missing collection responses",
+    "company new dual pies: actual four-contract OI/price/multiplier/date/notional inputs and complete totals; old runtime packet omitted original OI values",
+    "two unreturned stocks 000831.SZ/688798.SH and 214 missing industry classifications remain genuine source gaps; original weight dates and IH rolled-reference provenance retained",
+    "true historical D remains incomplete: 428 flagged zero calculation placeholders despite all 16 numerical 20/60 windows; current actual D source 2026-11-06, no current-D zero substitution",
+    "verified intraday IOPV/share/PCF definitions still required; AUM does not identify shares or net creation"
   ],
   "company_feedback": "24 safe JSON files at company f345174 with consistent original config hash and D:/conda/envs/swhy_delta1/python.exe; Y Share complete, one matched workbook B1=2026-10-27, Import inserted 16 (store 16 to 32). All 16 20-day windows complete, 60-day incomplete with 556 missing D rows and no missing daily prices. Index membership complete 300/50/500/1000; IF/IC/IM weights missing 1/2/2 with mixed dates, IH reference 09-30; classification gaps 17/2/49/148. All 12 ETF NAV/unadjusted close pairs and Nav test complete; screenshot confirms 10-28 closing premiums -20.0/-19.8/-18.2 bp, intraday IOPV missing. User confirms window open, reports 60-120s close; new shutdown progress/time requires company retest.",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
-  "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes; default overview_stock_daily_enabled=false avoids all-stock daily/anchor DDB jobs. Stock previous close comes from HTTP yesterdayClosePrice. Optional old full stock mode retained; unrelated CLI/Excel/research untouched.",
+  "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes. Current 16 actual futures additionally require genuine latest-completed-day OI for notional comparison; already available prices stay usable while OI is missing, no repeated price-only OI progress. Complete side-cache bars replace missing-OI bars as whole coherent rows. Only actual gaps prepare existing DDB path. Default overview_stock_daily_enabled=false avoids all-stock daily/anchor jobs; stock previous close from HTTP yesterdayClosePrice. Optional full stock mode and unrelated CLI/Excel/research untouched.",
   "next_iteration": {
     "specification": "dashboard/docs/NEXT_OVERVIEW_IMPLEMENTATION.md",
     "implemented": true,
     "test_authorization": "User permits all necessary tests and company-run staged testing; offline Overview and manual realtime VPN policies retained",
     "runtime_features_unchanged": false,
     "phase1_implemented": true,
-    "remaining": "Final company retest via company_retest.cmd: actual AUM history/dates, partial industry displays, rolling progress/cache restoration, 1080p scaling and safe-close elapsed time. Real past D, classifications and IOPV/share/PCF definitions remain pending.",
+    "remaining": "Company one-click runtime retest of four-index clicks/fonts, 300/15 missing-first batches, stable retained display and actual ETF/futures notional inputs/totals. Baseline company dated AUM 720 points and same-run 7.422s shutdown verified. Two stock quotes, 214 classifications, true historical D and IOPV/share/PCF definitions remain incomplete.",
     "phase2_implemented": true,
     "phase3_implemented": true,
     "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md"
@@ -480,19 +477,21 @@
     "y_read_import": "verified_f345174",
     "current_D_16": "verified_2026-11-10_source_2026-11-06_actual_contracts",
     "history_20_slots": 16,
-    "history_60_slots": 0,
+    "history_60_slots": 16,
     "historical_D_missing_rows": 428,
     "etf_close_NAV_pairs": 12,
     "etf_closing_premium_screenshot": "verified_2026-10-28",
     "intraday_IOPV": "mapping_required",
     "net_creation": "mapping_required",
     "PCF": "mapping_required",
-    "new_shutdown": "verified_same_run_safe_complete_73.499s_performance_pending",
+    "new_shutdown": "verified_365fe84_same_run_complete_7.422s",
     "live_basis_excel_reconciliation": "16_same_input_company_realtime_rows_verified_user_may_have_compared_old_workbook",
-    "new_zero_estimate_and_ETF_UI": "pending_company_update",
-    "latest_display_resilience": "pending_final_company_retest",
-    "latest_aum_history": "pending_real_Wind_three_month_coverage",
-    "latest_shutdown_performance": "pending_new_company_run_old_safe_complete_73.499s_retained"
+    "new_zero_estimate_and_ETF_UI": "numerical_20_and_60_each_16_verified_365fe84; new_pies_and_font_update_pending",
+    "latest_display_resilience": "partial_industry_and_cache_verified_365fe84; new_basis_bundle_generation_and_viewport_clicks_pending_company",
+    "latest_aum_history": "verified_12_symbols_each_60_dated_points_total_720_2026-08-10_to_2026-11-09; latest_pair_source_AUM_equal",
+    "latest_shutdown_performance": "verified_365fe84_same_run_safe_complete_7.422s_sqlite_committed; no_auto_per_stock_Parquet",
+    "numerical_history_policy": "includes_428_flagged_derived_missing_D_zero_placeholders_not_complete_real_D_coverage",
+    "latest_market_sizes": "pending_company_update; notional_equals_OI_lots_times_price_times_multiplier; IF_IH_300_IC_IM_200; partial_no_false_zero"
   },
   "company_feedback_afternoon": {
     "package_sha256": "fb133dd757b9a6e23c5a0882ae294fd3f8daacf4f1b58e211adf3783127f2969",
@@ -1489,5 +1488,59 @@
     "shutdown_complete": true,
     "shutdown_seconds": 73.499,
     "new_patch_acceptance": "pending_company_update"
+  },
+  "company_feedback_20261110_afternoon": {
+    "package": "20261110_131148_048_safe_132420_204_4c19bc5e.zip",
+    "bytes": 110109,
+    "package_sha256": "efafad2fbdd5036683a68d1226592dc41a1cbd7e8c006e82f0cfbca413840aa2",
+    "json_files": 9,
+    "run_mode": "runtime",
+    "complete": true,
+    "missing_reports": [],
+    "commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+    "same_run_open_closed": true,
+    "shutdown_complete": true,
+    "shutdown_seconds": 7.422,
+    "shutdown_waiting": [],
+    "archive_status": "sqlite_committed",
+    "older_profile_runs_excluded_seconds": [
+      20.229,
+      76.312
+    ],
+    "wind_published": true,
+    "wind_warnings": 0,
+    "aum_symbols": 12,
+    "aum_each_points": 60,
+    "aum_total_points": 720,
+    "aum_dates": [
+      "2026-08-10",
+      "2026-11-09"
+    ],
+    "latest_AUM_pair_dates": [
+      "2026-11-06",
+      "2026-11-09"
+    ],
+    "latest_AUM_pair_source_values": "equal; source disclosure, not missing-history zero fill or proof of constant daily assets",
+    "stocks_received": 1798,
+    "stocks_expected": 1800,
+    "missing_stocks": [
+      "000831.SZ",
+      "688798.SH"
+    ],
+    "industry_classifications_missing": 214,
+    "covered_by_root": {
+      "IF": 300,
+      "IH": 50,
+      "IC": 499,
+      "IM": 999
+    },
+    "industry_preview_issue": "read stock snapshot newer than fixed calculation cutoff; fixed by generation freeze and ordering, pending new company preview",
+    "current_D_source_date": "2026-11-06",
+    "numerical_history_20_slots": 16,
+    "numerical_history_60_slots": 16,
+    "historical_D_zero_placeholders": 428,
+    "real_historical_D_complete": false,
+    "new_pies_actual_OI_values": "absent_from_this_old_runtime_packet; new_market_sizes_exports_inputs",
+    "company_update_pending": true
   }
 }

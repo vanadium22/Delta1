@@ -220,7 +220,7 @@ class EquitySamplerTests(unittest.TestCase):
                 requested.append(symbols)
                 return dict(status='success',received_at=NOW.isoformat(),response=dict(data={s:{**quote(10,100,100005),'securityId':s} for s in symbols}))
         with tempfile.TemporaryDirectory() as tmp:
-            sampler=EquitySampler(tmp,{},lambda:dict(allowed=True),Mock(),pause=lambda _:False)
+            sampler=EquitySampler(tmp,dict(overview_equity_batch_size=100),lambda:dict(allowed=True),Mock(),pause=lambda _:False)
             with RealtimeStore(Path(tmp)/'separate-observations') as store:
                 sampler.cycle(Client(),store,dict(data=value,version='v1'),1)
             result=json.loads((Path(tmp)/'overview_equities/latest.json').read_text())

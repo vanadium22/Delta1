@@ -117,10 +117,9 @@ class EtfUiTests(unittest.TestCase):
             self.assertIn('2026-10-23',card.closing_premium.text())
             self.assertIn('700',card.scale.styleSheet());self.assertIn('700',card.spread.styleSheet())
             self.assertEqual(card.spread.text(),'2.4');self.assertEqual(card.scale.text(),'5.00');self.assertEqual(card.share.text(),'20.0%')
-            self.assertEqual(page.flow_table.rowCount(),3)
-            self.assertIn('规模变化',page.flows.title.text());self.assertNotIn('净申购',page.flows.title.text())
-            self.assertTrue(all('全体' not in page.flow_table.item(i,0).text() for i in range(3)))
-            self.assertIn('1.00亿',page.flow_table.item(0,1).text());self.assertIn('2026-10-22',page.flow_table.item(0,2).text())
+            self.assertEqual(len(page.fund_cards),3)
+            self.assertIn('规模对比',page.capacity.title.text());self.assertIn('名义本金',page.futures_panel.title.text())
+            self.assertNotIn('净申购',page.capacity.title.text())
         finally:page.close();page.deleteLater();APP.processEvents()
 
     def test_summary_latest_dividend_date_is_visible_and_percentile_has_no_estimate_suffix(self):

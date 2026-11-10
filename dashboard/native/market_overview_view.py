@@ -193,5 +193,5 @@ class MarketOverviewPanel(OverviewSummary):
         self.state=state
         self.render_data(data)
         self.views['indices'].render(data.get('indices',[]),data.get('index_details'),data.get('reference'))
-        self.views['etfs'].render(data.get('etfs',[]),data.get('etf_groups'),data.get('reference'))
+        self.views['etfs'].render(data.get('etfs',[]),data.get('etf_groups'),data.get('reference'),data.get('market_sizes'))
         self.views['futures'].render(data.get('futures',[]),data.get('indices',[]),data.get('futures_details'))

@@ -69,11 +69,11 @@ def premium_pairs(symbol, iopv_id, observations, now):
     return current, sorted(series, key=lambda p: p['source_at'])
 
 
-def enrich(model, data, reference, now):
+def enrich(model, data, reference, now,*,equity_snapshot=None):
     source = reference['data']
     today = str(now.tz_convert('Asia/Shanghai').date())
     data['reference'] = dict(due=reference['due'], error=reference['error'], fetched_at=source.get('fetched_at'),issues=reference.get('issues',[]))
-    equity = read_equities(model.config, model.local_root) if hasattr(model, 'local_root') else {}
+    equity = equity_snapshot if equity_snapshot is not None else read_equities(model.config, model.local_root) if hasattr(model, 'local_root') else {}
     previous=data.get('previous_session')
     groups=source.get('indices',{})
     closed=False;tokens=[]

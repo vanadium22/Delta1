@@ -118,7 +118,7 @@ class RollingAndDisplayTests(unittest.TestCase):
         value=reference();value['indices']['IF']['rows']=[dict(symbol=f'{600000+i:06}.SH',weight_pct=100/205) for i in range(205)]
         calls=[]
         with tempfile.TemporaryDirectory() as tmp:
-            sampler=EquitySampler(tmp,{},lambda:dict(allowed=True),Mock(),pause=lambda _:False)
+            sampler=EquitySampler(tmp,dict(overview_equity_batch_size=100),lambda:dict(allowed=True),Mock(),pause=lambda _:False)
             class Client:
                 def fetch(self,symbols):
                     if calls:
@@ -226,7 +226,8 @@ class PagePolishTests(unittest.TestCase):
             image=widget.grab().toImage()
             self.assertEqual(image.pixelColor(10,25).name(),QColor(COLORS[2]).name())
             self.assertEqual(image.pixelColor(5,65).name(),QColor(COLORS[2]).name())
-            self.assertEqual(image.pixelColor(305,65).name(),QColor(COLORS[0]).name())
+            self.assertEqual(image.pixelColor(550,20).name(),QColor(COLORS[0]).name())
+            self.assertIn('季月 90.0%',widget.toolTip());self.assertIn('当月 10.0%',widget.toolTip())
         finally:widget.close();widget.deleteLater();APP.processEvents()
 
 

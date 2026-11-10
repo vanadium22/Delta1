@@ -207,13 +207,16 @@ class MarketOverviewEngine:
         from dashboard.marketdata.overview_dividends import DerivedCache,directory
         self.derived=DerivedCache(directory(model.config,model.local_root),writable=getattr(model,'overview_write_cache',False)) if hasattr(model,'local_root') else None
 
-    def snapshot(self, *, now=None):
+    def snapshot(self, *, now=None, equity_snapshot=None):
         from dashboard.refresh_evidence import begin, calculated
         model = self.model; trace = begin(model)
         def check_stop():
             if getattr(model,'overview_stop',None) is not None and model.overview_stop.is_set():raise InterruptedError()
         check_stop();explicit_now=now is not None
         now = pd.Timestamp(now or pd.Timestamp.now(tz='UTC'))
+        from dashboard.marketdata.overview_contributions import read_equities
+        if equity_snapshot is None:
+            equity_snapshot=read_equities(model.config,model.local_root) if hasattr(model,'local_root') else {}
         phase=market_phase(now.to_pydatetime())
         reference_mode=phase['phase'] not in ('morning','lunch','afternoon')
         day = str(now.tz_convert('Asia/Shanghai').date())
@@ -302,7 +305,9 @@ class MarketOverviewEngine:
         errors.extend(self.daily_errors)
         check_stop()
         # Cold history/dividend reads must not freeze the live receipt cutoff.
-        if not explicit_now:now=pd.Timestamp.now(tz='UTC');phase=market_phase(now.to_pydatetime())
+        if not explicit_now:
+            equity_snapshot=read_equities(model.config,model.local_root) if hasattr(model,'local_root') else {}
+            now=pd.Timestamp.now(tz='UTC');phase=market_phase(now.to_pydatetime())
         live=model._live(instruments,now)
         if not phase['continuous'] and hasattr(model,'local_root'):
             from .latest_snapshot import load as load_snapshot
@@ -370,11 +375,13 @@ class MarketOverviewEngine:
                                           basis_formula=FORMULA,dividend_version=self.dividends.version,dividend_reason=self.dividends.reason,dividend_latest_business_day=latest_dividend,
                                           dividend_policy=self.dividends.info.get('historical_policy'),slot_day=registry_day),
                      research_pages=None)
-        enrich(model, state['market_overview'], reference_data, now)
+        enrich(model, state['market_overview'], reference_data, now,equity_snapshot=equity_snapshot)
+        from .futures_overview import details
+        state['market_overview']['futures_details']=details(futures,indices,live,observations,now,dividends=self.dividends)
         from dashboard.marketdata.overview_display_cache import preserve
         preserve(model,state['market_overview'],now)
-        from .futures_overview import details
-        state['market_overview']['futures_details']=details(state['market_overview']['futures'],state['market_overview']['indices'],live,observations,now,dividends=self.dividends)
+        from dashboard.marketdata.overview_market_sizes import build as market_sizes
+        state['market_overview']['market_sizes']=market_sizes(reference_data['data'],state['market_overview']['futures'],self.daily,live,now,metadata,completed)
         return calculated(model, state, trace)
 
 

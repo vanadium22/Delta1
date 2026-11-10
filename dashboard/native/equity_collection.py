@@ -27,6 +27,8 @@ class EquitySampler:
         self.worker = None
         self.status = {'status': 'waiting_reference'}
         self.archive = {}
+        try:self.batch_size=max(100,min(500,int(config.get('overview_equity_batch_size',300))))
+        except (ValueError,TypeError):self.batch_size=300
 
     def state(self):
         return dict(self.status, worker_running=self.running(), archive=dict(self.archive))
@@ -43,12 +45,16 @@ class EquitySampler:
     def cycle(self, client, store, reference, poll):
         members={r['symbol'] for g in reference['data'].get('indices',{}).values() for r in g.get('rows',[])}
         indices={g['index_id'] for g in reference['data'].get('indices',{}).values() if g.get('rows')}
-        symbols=sorted(members|indices)
-        if not symbols:return None
+        if not members and not indices:return None
         started=datetime.now(timezone.utc).isoformat();value=None
         prior=read_equities(self.config,self.local_root)
         quotes={s:q for s,q in prior.get('quotes',{}).items() if s in members|indices}
-        failed=set();size=100;interval=15.;batches=(len(symbols)+size-1)//size
+        failed=set(prior.get('failed_symbols',[])) & (members|indices)
+        def priority(symbol):
+            q=quotes.get(symbol,{})
+            return (0 if symbol in failed else 1 if symbol not in quotes else 2,str(q.get('source_event_time') or ''),symbol)
+        symbols=sorted(indices)+sorted(members-indices,key=priority)
+        size=self.batch_size;interval=15.;batches=(len(symbols)+size-1)//size
         for offset in range(0,len(symbols),size):
             if self.stop_event.is_set() or not self.policy()['allowed']:return value
             batch=symbols[offset:offset+size];number=offset//size+1
@@ -59,6 +65,7 @@ class EquitySampler:
                     response={},missing_symbols=batch,error_type=type(exc).__name__)
             result.update(symbols=batch,poll=poll,batch=number,batch_count=batches)
             store.batch(result)
+            received=set()
             for row in store.last_rows:
                 if not finite(row.get('close')) or row['close']<=0 or not row.get('source_event_time'):continue
                 old=quotes.get(row['symbol'],{})
@@ -71,15 +78,21 @@ class EquitySampler:
                 compact['observed_at']=row['received_at']
                 if (not finite(compact.get('prev_close')) or compact['prev_close']<=0) and previous is not None and incoming.date()==previous.date() and finite(old.get('prev_close')) and old['prev_close']>0:
                     compact.update(prev_close=old['prev_close'],prev_close_source='saved_same_day_http')
-                quotes[row['symbol']]=compact;failed.discard(row['symbol'])
+                quotes[row['symbol']]=compact;failed.discard(row['symbol']);received.add(row['symbol'])
+            failed.update(set(batch)-received)
             failed.update(result.get('missing_symbols',[]));failed.update(result.get('failed_symbols',[]))
+            # A server may cap large responses. Retry missing codes next round
+            # using smaller batches, without a tight retry loop or faster cadence.
+            if len(batch)>=200 and len(received)<len(batch)*.7:self.batch_size=100
             value=dict(schema='overview-equities-v1',mode='rolling',snapshot_id=uuid.uuid4().hex,
                 reference_version=reference['version'],started_at=started,finished_at=datetime.now(timezone.utc).isoformat(),
                 quotes=quotes,requested_count=len(symbols),failed_symbols=sorted(failed),batch=number,batch_count=batches,
-                round_complete=number==batches,batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval),quote_max_age_seconds=360)
+                round_complete=number==batches,batch_size=size,next_batch_size=self.batch_size,pending_count=len(failed),
+                batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval),quote_max_age_seconds=360)
             _atomic_bytes(equity_path(self.config,self.local_root),_json_bytes(value))
             self.status=dict(status='sampled' if number==batches else 'sampling',snapshot_at=value['finished_at'],rows=len(quotes),
-                requested=len(symbols),batch=number,batch_count=batches,batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval))
+                requested=len(symbols),batch=number,batch_count=batches,batch_size=size,next_batch_size=self.batch_size,pending_count=len(failed),
+                batch_interval_seconds=interval,round_target_seconds=max(300,batches*interval))
             if number<batches and self.pause(interval):return value
         return value
 

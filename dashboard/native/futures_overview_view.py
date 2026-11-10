@@ -5,7 +5,7 @@ import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
 
 from .overview_pages import (ScrollPage, Panel, FlowGrid, Split, lab, put, numeric,
                              ink, clock, table, cell,source_label)
@@ -19,74 +19,88 @@ COLORS=(ACCENT,'#4c8fbc','#7bb3d3','#a7c9e0') if THEME=='public' else CHART_COLO
 
 
 class FuturesCard(Panel):
-    def __init__(self,parent):
+    def __init__(self,parent,*,compact=False):
         super().__init__(parent=parent);self.row={}
-        head=QHBoxLayout();self.heading=lab('',23,ACCENT,True);self.badge=lab('',16,ACCENT)
-        self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,2);self.box.addLayout(head)
-        self.price=lab('—',36,ACCENT,True);self.box.addWidget(self.price)
+        self.compact=compact;self.value_size=27 if compact else 29
+        self.box.setContentsMargins(12,8,12,8);self.box.setSpacing(3 if compact else 6)
+        head=QHBoxLayout();self.heading=lab('',21 if compact else 24,ACCENT,True);self.badge=lab('',13 if compact else 16,MUTED)
+        self.price=lab('—',34 if compact else 40,ACCENT,True)
+        if compact:
+            identity=QVBoxLayout();identity.setSpacing(1);identity.addWidget(self.heading);identity.addWidget(self.badge)
+            head.addLayout(identity,1);self.price.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.price,1)
+        else:
+            self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,2)
+        self.box.addLayout(head)
+        if not compact:self.box.addWidget(self.price)
         self.values=[];self.captions=[]
         for title in ('去分红基差','去分红年化基差','较昨日基差变化','20日年化分位','60日年化分位'):
-            line=QHBoxLayout();caption=lab(title,16,MUTED);value=lab('—',25,TEXT,True)
+            line=QHBoxLayout();caption=lab(title,15 if compact else 17,MUTED);value=lab('—',self.value_size,TEXT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
             self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
         self.basis_value,self.annual_value,self.previous_value,self.rank_value,self.rank60_value=self.values
-        self.dividend_note=lab('分红来源待核验',14,MUTED);self.box.addWidget(self.dividend_note)
-        self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(355)
+        self.dividend_note=lab('分红来源待核验',12 if compact else 14,MUTED);self.box.addWidget(self.dividend_note)
+        self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(222 if compact else 318)
 
     def render(self,row,position):
+        view=row.get('basis_display') or row
         self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(f'0{position} · '+SLOTS[position])
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
         self.price.setText(numeric(row.get('price')))
         for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2),(self.previous_value,'basis_change_previous','点',1)):
-            put(widget,numeric(row.get(key),digits,True,suffix),color=ink(row.get(key)),size=25,bold=True)
-            widget.setToolTip((row.get('basis_reason') or '待有效同步期现报价')+'\n'+input_summary(row))
-        self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(row.get('basis_prev_day') or '待核验'))
-        history=row.get('continuous_percentiles') or {}
+            put(widget,numeric(view.get(key),digits,True,suffix),color=ink(view.get(key)),size=self.value_size,bold=True)
+            widget.setToolTip((view.get('basis_reason') or '待有效同步期现报价')+'\n'+input_summary(view))
+        self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(view.get('basis_prev_day') or '待核验'))
+        history=view.get('continuous_percentiles') or {}
         for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),3):
             widget.show();self.captions[i].show()
             result=history.get('windows',{}).get(str(length),{});rank=result.get('percentile')
             missing=result.get('missing',[])
             label=(numeric(rank,1,suffix='%') if rank is not None else '缺映射' if any(r['reason']=='mapping_missing' for r in missing) else
-                '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else 'T<5' if row.get('days') is not None and row['days']<5 else '待年化行情')
+                '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else 'T<5' if view.get('days') is not None and view['days']<5 else '待年化行情')
             widget.setText(label)
             widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 去分红年化基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
-        source_day=row.get('dividend_snapshot');pricing_day=row.get('pricing_day')
+        source_day=view.get('dividend_snapshot');pricing_day=view.get('pricing_day')
         carried=bool(source_day and pricing_day and source_day<pricing_day)
-        self.dividend_note.setText('D '+numeric(row.get('dividend_points'),6)+'点 · '+
+        self.dividend_note.setText('D '+numeric(view.get('dividend_points'),6)+'点 · '+
             ('沿用 ' if carried else '表内 ')+str(source_day or '待核验'))
-        if row.get('display_saved'):self.dividend_note.setText('上次显示 '+stamp(row.get('source_at'))+' · '+self.dividend_note.text())
-        self.dividend_note.setToolTip(input_summary(row)+'\n来源合约 '+str(row.get('dividend_source_contract') or '—')+
-            '\n文件SHA '+str(row.get('dividend_file_sha256') or '—'))
+        if view.get('display_saved'):self.dividend_note.setText('上次显示 '+stamp(view.get('source_at'))+' · '+self.dividend_note.text())
+        if view.get('saved'):self.dividend_note.setText('基差沿用 '+clock(view.get('basis_source_at'))+' · '+self.dividend_note.text())
+        self.dividend_note.setToolTip(input_summary(view)+'\n来源合约 '+str(view.get('dividend_source_contract') or '—')+
+            '\n文件SHA '+str(view.get('dividend_file_sha256') or '—'))
         source=source_label(row)
         self.clock.setText(source)
-        self.setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
-            '\n分红 '+str(row.get('dividend_points'))+' 点；缓存日 '+str(row.get('dividend_snapshot') or '待核验')+
-            ('\n沿用 '+row['dividend_inherited_from'] if row.get('dividend_inherited_from') else '')+
-            '\n分红生效 '+str(row.get('dividend_effective_from') or '—')+'；精度 '+str(row.get('dividend_precision') or '—')+
-            '\n'+str(row.get('percentile_start') or '—')+' 至 '+str(row.get('percentile_end') or '—'))
+        self.setToolTip('价格源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+
+            '\n基差源 '+stamp(view.get('basis_source_at'))+
+            '\n分红 '+str(view.get('dividend_points'))+' 点；缓存日 '+str(view.get('dividend_snapshot') or '待核验')+
+            ('\n沿用 '+view['dividend_inherited_from'] if view.get('dividend_inherited_from') else '')+
+            '\n分红生效 '+str(view.get('dividend_effective_from') or '—')+'；精度 '+str(view.get('dividend_precision') or '—')+
+            '\n'+str(view.get('percentile_start') or '—')+' 至 '+str(view.get('percentile_end') or '—'))
 
 
 class VolumeDistribution(QWidget):
     def __init__(self):
         super().__init__();self.rows=[];self.reason='待四个到期合约的有效成交数据';self.setMinimumHeight(90)
     def render(self,rows,reason):
-        self.rows=rows;self.reason=reason;self.update()
+        self.rows=rows;self.reason=reason;self.setToolTip('\n'.join(SLOTS[r['slot']]+' '+numeric(r['share_pct'],1,suffix='%') for r in rows) or reason);self.update()
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if not self.rows:
             p.setPen(QColor(MUTED));p.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,self.reason);return
-        x=0;available=max(0,self.width()-9)
-        for i,row in enumerate(self.rows):
-            width=available*row['share_pct']/100
-            color=COLORS[row['slot']];p.setBrush(QColor(color));p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRectF(x,14,width,25),3,3);center=x+width/2;x+=width+3
-            legend_x=i*self.width()/len(self.rows)
-            p.setPen(pg.mkPen(color,width=1));p.drawLine(QPointF(center,40),QPointF(legend_x+6,55));p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(color));p.drawRoundedRect(QRectF(legend_x,59,12,12),2,2)
-            p.setPen(QColor(color));p.drawText(QRectF(legend_x+19,51,self.width()/len(self.rows)-19,30),Qt.AlignmentFlag.AlignVCenter,
-                SLOTS[row['slot']]+' '+numeric(row['share_pct'],1,suffix='%'))
+        x=0;available=max(0,self.width()-3*(len(self.rows)-1))
+        from PySide6.QtGui import QFont
+        for row in self.rows:
+            width=available*row['share_pct']/100;color=COLORS[row['slot']]
+            p.setBrush(QColor(color));p.setPen(Qt.PenStyle.NoPen);p.drawRoundedRect(QRectF(x,12,width,62),4,4)
+            if width>=20:
+                size=min(21,max(10,int((width-6)/2)))
+                font=QFont(p.font());font.setPixelSize(size);font.setBold(True);p.setFont(font)
+                p.setPen(QColor('#ffffff' if row['slot']<2 else ACCENT))
+                percentage=numeric(row['share_pct'],0 if width<70 else 1,suffix='%')
+                p.drawText(QRectF(x+2,14,max(0,width-4),58),Qt.AlignmentFlag.AlignCenter,SLOTS[row['slot']]+'\n'+percentage)
+            x+=width+3
+
 
 
 class FuturesOverviewPage(ScrollPage):

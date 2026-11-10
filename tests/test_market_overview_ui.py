@@ -227,7 +227,7 @@ class OverviewUiTests(unittest.TestCase):
         page.render(payload['market_overview']['etfs'],{},{});pump()
         self.assertTrue(all(c.badge.text()=='待排名' for c in page.fund_cards))
         self.assertTrue(all(c.premium.text()=='—' for c in page.fund_cards))
-        self.assertTrue(page.empty_plot.isVisible());self.assertFalse(page.plot.isVisible())
+        self.assertEqual(page.etf_pie.data,{});self.assertEqual(page.futures_pie.data,{})
 
 
 if __name__=='__main__':unittest.main()

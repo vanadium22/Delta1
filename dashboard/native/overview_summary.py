@@ -13,7 +13,7 @@ class ProductRow(QWidget):
         super().__init__()
         self.index = IndexCard(root, self)
         self.index.heading.setText(UNDERLYINGS[root][1])
-        self.futures = [FuturesCard(self) for _ in range(4)]
+        self.futures = [FuturesCard(self,compact=True) for _ in range(4)]
         self.flow = FlowGrid(self.futures, 4, 240, self)
         self.box = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
         self.box.setContentsMargins(0,0,0,0)

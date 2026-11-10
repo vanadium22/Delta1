@@ -28,13 +28,40 @@ def read(directory, name, identity, now):
 
 
 def compact_quote(row):
-    result=deepcopy({k:v for k,v in row.items() if k not in ('series','premium_series','display_saved')})
+    result=deepcopy({k:v for k,v in row.items() if k not in ('series','premium_series','display_saved','basis_display')})
     history=result.get('continuous_percentiles')
     if isinstance(history,dict):
         history.pop('rows',None)
         for window in history.get('windows',{}).values():
             for key in ('rows','zero_dividend_rows'):window.pop(key,None)
     return result
+
+
+def basis_bundle(row):
+    keys=('symbol','slot','root','expiry','days','pricing_day','pricing_at','annual_pct','raw_basis_points','continuous_percentiles')
+    return compact_quote({k:v for k,v in row.items() if k in keys or k.startswith(('basis_','dividend_','percentile_'))})
+
+
+def preserve_basis(row,old,now):
+    """Retain one complete priced bundle; never replace the raw current result."""
+    previous=old.get('_last_basis') or basis_bundle(old)
+    if (previous.get('symbol')!=row['symbol'] or previous.get('slot')!=row.get('slot') or
+        previous.get('expiry') and row.get('expiry') and previous['expiry']!=row['expiry']):previous={}
+    current=basis_bundle(row)
+    days=row.get('days')
+    excluded=days is not None and days<5
+    valid=finite(row.get('basis_points')) and (finite(row.get('annual_pct')) or excluded)
+    lost=any(finite(previous.get(k)) and not finite(current.get(k)) for k in ('basis_points','annual_pct','percentile_20','percentile_60'))
+    if valid and (not lost or excluded):return current
+    if finite(previous.get('basis_points')):
+        display=deepcopy(previous)
+        display.update(saved=True,current_reason=row.get('basis_reason'),current_source_at=row.get('source_at'))
+        if excluded:
+            display.update(days=days,annual_pct=None,percentile_20=None,percentile_60=None)
+            for window in display.get('continuous_percentiles',{}).get('windows',{}).values():
+                window.update(percentile=None,reason='当前剩余T<5，规则排除')
+        row['basis_display']=display
+    return previous if finite(previous.get('basis_points')) else current if valid else {}
 
 
 def preserve(model, data, now):
@@ -61,10 +88,20 @@ def preserve(model, data, now):
         for i,row in enumerate(data.get(kind,[])):
             old=saved.get(row['symbol'],{})
             if not finite(row.get('price')) and finite(old.get('price')):
-                value=deepcopy(old);value.update(display_saved=True,status='上次显示',display_kind='saved_display',
+                value=deepcopy({k:v for k,v in old.items() if k!='_last_basis'});value.update(display_saved=True,status='上次显示',display_kind='saved_display',
                     reason='当前缺行情，保留原始源时间的上次显示值',quality=dict(usable=False,status='上次显示',reason='待本轮重新核验'))
+                if kind=='futures' and old.get('slot')!=row.get('slot'):
+                    for key in basis_bundle(old):
+                        if key not in ('symbol','root'):value.pop(key,None)
+                    value.update(deepcopy(basis_bundle(row)))
                 data[kind][i]=value;restored.append(kind+':'+row['symbol'])
-            elif finite(row.get('price')):saved[row['symbol']]=compact_quote(row)
+            value=data[kind][i]
+            if kind=='futures':
+                basis=preserve_basis(value,old,now)
+                if value.get('basis_display'):restored.append('futures_basis:'+row['symbol'])
+            if finite(value.get('price')) and not value.get('display_saved'):
+                saved[row['symbol']]=compact_quote(value)
+                if kind=='futures' and basis:saved[row['symbol']]['_last_basis']=basis
         wanted={r['symbol'] for r in data.get(kind,[])}
         quotes[kind]={s:r for s,r in saved.items() if s in wanted}
     funds=deepcopy(sections['etfs'])
@@ -96,7 +133,7 @@ def preserve(model, data, now):
             try:
                 _atomic_bytes(directory/(name+'.json'),_json_bytes(dict(schema=SCHEMA,scope=identity,computed_at=now.isoformat(),data=value)))
                 model._display_tokens[name]=token;writes.append(name)
-            except OSError as exc:errors.append(dict(section=name,error_type=type(exc).__name__))
+            except (OSError,ValueError,TypeError) as exc:errors.append(dict(section=name,error_type=type(exc).__name__))
     model._display_sections=proposed
     data['display_cache']=dict(schema=SCHEMA,restored=restored,written=writes,errors=errors,
         writable=bool(getattr(model,'overview_write_cache',False)),source_times_preserved=True)

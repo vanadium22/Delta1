@@ -79,11 +79,12 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
         groups={}
         for symbol in sorted(day_symbols[day]):
             if symbol in metadata and not metadata[symbol]['listing_date']<=day<=metadata[symbol]['expiry_date']:continue
-            if symbol in saved:continue
+            need_oi=day==target and symbol in current
+            if symbol in saved and (not need_oi or finite(saved[symbol].get('oi')) and saved[symbol]['oi']>=0):continue
             info=identify(symbol);groups.setdefault(info['asset'],[]).append(symbol)
         for asset in ('index','future','etf','stock'):
             codes=groups.get(asset,[])
-            result.extend(dict(day=day,asset=asset,symbols=codes[i:i+100]) for i in range(0,len(codes),100))
+            result.extend(dict(day=day,asset=asset,symbols=codes[i:i+100],requires_oi=asset=='future' and day==target) for i in range(0,len(codes),100))
     # Show latest headline closes first, then the full stock universe and older anchors.
     result.sort(key=lambda r:(r['asset']=='stock',-date.fromisoformat(r['day']).toordinal(),('index','future','etf','stock').index(r['asset'])))
     return result
@@ -100,15 +101,21 @@ def merge_daily(frame,additions):
     if not rows:return pd.DataFrame()
     result=pd.DataFrame(rows)
     result['trade_date']=result.trade_date.astype(str).str[:10]
-    return result.drop_duplicates('trade_date',keep='first').sort_values('trade_date')
+    selected={}
+    for row in result.to_dict('records'):
+        day=row['trade_date'];old=selected.get(day)
+        if old is None or (not finite(old.get('open_interest')) and finite(row.get('open_interest')) and row['open_interest']>=0):selected[day]=row
+    return pd.DataFrame(selected.values()).sort_values('trade_date')
 
 
 def local_copy_plan(jobs,daily):
     """Classify cache absence without copying, connecting or assuming remote supply."""
     available={s:{str(r['trade_date'])[:10] for r in usable_records(f)} for s,f in daily.items()}
+    positions={s:{str(r['trade_date'])[:10] for r in usable_records(f) if finite(r.get('open_interest')) and r['open_interest']>=0} for s,f in daily.items()}
     local=[];remaining=[]
     for job in jobs:
-        codes=[s for s in job['symbols'] if job['asset'] in ('index','future') and job['day'] in available.get(s,set())]
+        codes=[s for s in job['symbols'] if job['asset'] in ('index','future') and job['day'] in available.get(s,set()) and
+            (not job.get('requires_oi') or job['day'] in positions.get(s,set()))]
         if codes:local.append(dict(job,symbols=codes))
         pending=[s for s in job['symbols'] if s not in codes]
         if pending:remaining.append(dict(job,symbols=pending))
@@ -118,10 +125,12 @@ def local_copy_plan(jobs,daily):
 
 def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False):
     """Build missing close cache from usable original bars before any network."""
-    jobs=requests(config,local_root,target,metadata);wanted={}
+    jobs=requests(config,local_root,target,metadata);wanted={};positions=set()
     for job in jobs:
         if job['asset'] in ('index','future'):
-            for symbol in job['symbols']:wanted.setdefault(symbol,set()).add(job['day'])
+            for symbol in job['symbols']:
+                wanted.setdefault(symbol,set()).add(job['day'])
+                if job.get('requires_oi'):positions.add((symbol,job['day']))
     pending={}
     for symbol,days in sorted(wanted.items()):
         if stop():break
@@ -130,6 +139,11 @@ def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False
         except ValueError:continue
         for row in usable_records(frame):
             day=str(row['trade_date'])[:10]
+            if (symbol,day) in positions and (not finite(row.get('open_interest')) or row['open_interest']<0):
+                # Preserve a newly available price independently of OI. Once
+                # cached, repeating a price-only row is not position progress.
+                existing=read_day(config,local_root,day).get('rows',{}).get(symbol,{})
+                if finite(existing.get('close')) and existing['close']>0:continue
             if day not in days:continue
             values={k:float(row[k]) if finite(row.get(k)) else None for k in ('open','high','low','close','volume')}
             values.update(amount=float(row['turnover']) if finite(row.get('turnover')) else None,
@@ -184,6 +198,7 @@ def fetch_batch(client,job,raw_root):
         if not row['low']<=min(row['open'],row['close'])<=max(row['open'],row['close'])<=row['high']:continue
         values={k:float(row[k]) if finite(row.get(k)) else None for k in
                 ('open','high','low','close','volume','amount','oi','source_prev_close','adjustment_factor')}
+        if job.get('requires_oi') and (values['oi'] is None or values['oi']<0):continue
         result[str(row['symbol'])]=dict(symbol=str(row['symbol']),trade_date=day,source_at=day+'T15:00:00+08:00',
             source='DDB '+source['table'],units=units(info),unit_factors=factors,is_final=True,**values)
     return result
