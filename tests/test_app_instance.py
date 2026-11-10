@@ -157,6 +157,24 @@ class AppInstanceTests(unittest.TestCase):
         second=self.lease(timeout=.1);self.addCleanup(second.close);self.assertTrue(second.acquire()['owned'])
         self.assertEqual(before,b'0');self.assertTrue((first.root/'active/writer.lock').exists())
 
+    def test_completed_old_sessions_skip_process_inspection_but_incomplete_do_not(self):
+        lease=self.lease();path=self.root/'runtime/app_sessions'/('a'*32)/'status.json'
+        path.parent.mkdir(parents=True)
+        report=dict(schema='app-update-evidence-v1',pid=123,local_root=str(self.root/'profile'),
+            paths=self.config,phase='closed',closing=True,collection_worker_running=False,history_worker_running=False,
+            shutdown=dict(complete=True,waiting=[]))
+        path.write_text(json.dumps(report))
+        with patch('dashboard.lock_processes.process_summary') as inspect:
+            self.assertTrue(lease._close_legacy(time.monotonic()+1))
+        inspect.assert_not_called()
+        for changed in (dict(phase='closing'),dict(shutdown=dict(complete=False,waiting=[])),
+                        dict(shutdown=dict(complete=True,waiting=['writer'])),dict(collection_worker_running=True),
+                        dict(history_worker_running=True),dict(closing=False),dict(schema='unknown')):
+            path.write_text(json.dumps({**report,**changed}))
+            with patch('dashboard.lock_processes.process_summary',return_value=dict(state='ok',items=[])) as inspect:
+                self.assertTrue(lease._close_legacy(time.monotonic()+1))
+            inspect.assert_called_once()
+
     @unittest.skipUnless(os.name=='nt','Windows legacy process identity')
     def test_legacy_close_accepts_cim_rounding_but_rejects_a_different_process(self):
         from datetime import datetime,timezone

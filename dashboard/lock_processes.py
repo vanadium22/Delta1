@@ -115,7 +115,7 @@ $items=@($all | Where-Object {
         $taskModule=$Matches[1]
     }
     $feedPath=$null;$stopFile=$null;$localRoot=$null
-    if ($taskModule -in @('dashboard.current','dashboard.native.editions_current','dashboard.native.app')) {
+    if ($taskModule -in @('dashboard.current','dashboard.native.editions_current','dashboard.native.app','dashboard.app_launch')) {
         if ($_.CommandLine -match '(?i)(?:^|\s)"?--local-root"?\s+(?:"([^"]+)"|(\S+))') {
             $localRoot=if($Matches[1]){$Matches[1]}else{$Matches[2]}
         }

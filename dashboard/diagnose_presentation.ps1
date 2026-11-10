@@ -18,7 +18,7 @@ try {
         $policy=Get-ItemProperty -LiteralPath $key -Name Enabled -ErrorAction SilentlyContinue
         if ($policy) { $report.script_host.policies[$key]=$policy.Enabled }
     }
-    foreach ($name in @('start_presentation.vbs','start_app.ps1','app_python.ps1','app_check.py','native/editions_current.py','native/market_overview.py')) {
+    foreach ($name in @('start_presentation.vbs','start_app.ps1','app_python.ps1','app_check.py','app_launch.py','native/editions_current.py','native/market_overview.py')) {
         $path=Join-Path $PSScriptRoot $name
         $report.files[$name]=@{exists=(Test-Path -LiteralPath $path -PathType Leaf)}
     }
@@ -31,7 +31,9 @@ try {
     if ($launch) {
         $value=Get-Content -LiteralPath $launch.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         $report.latest_launch=@{report=$launch.FullName;phase=$value.phase;python=$value.python;
-            exit_code=$value.exit_code;updated_at=$value.updated_at;error_type=$value.error_type;error_id=$value.error_id}
+            exit_code=$value.exit_code;updated_at=$value.updated_at;error_type=$value.error_type;error_id=$value.error_id;
+            startup_mode=$value.startup_mode;process_started_at=$value.process_started_at;
+            preflight_seconds=$value.preflight_seconds;app_entry_at=$value.app_entry_at}
     }
     . (Join-Path $PSScriptRoot 'app_python.ps1')
     $report.python=Get-AppPython $repository

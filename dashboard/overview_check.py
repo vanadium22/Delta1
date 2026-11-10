@@ -56,6 +56,9 @@ def app_reports(local_root, runtime_root=None):
                 'collection_worker_running','history_worker_running')}
             shutdown=value.get('shutdown') or {}
             entry['shutdown']={k:shutdown.get(k) for k in ('requested','complete','waiting','elapsed_seconds')}
+            startup=value.get('startup') or {}
+            entry['startup']={k:startup.get(k) for k in ('clock_scope','preflight_seconds','app_main_seconds',
+                'handover_seconds','window_shown_seconds','first_result_seconds')}
             entry.update(report_path=str(path.resolve()),same_profile=same,
                 collection={k:collection.get(k) for k in ('status','stage','polls','rows','last_success_at',
                     'last_failure_at','last_failure_status','received_at')},

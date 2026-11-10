@@ -51,23 +51,16 @@ try {
     . (Join-Path $PSScriptRoot 'app_python.ps1')
     $interpreter=Get-AppPython $repository
     $launchState.python=$interpreter;Save-LaunchState
-    $preflightArguments=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.app_check','--output',(Join-Path $runtime 'preflight.json'))
-    for ($i=0; $i -lt $AppArguments.Count; $i++) {
-        if ($AppArguments[$i] -eq '--local-root' -and $i+1 -lt $AppArguments.Count) {
-            $preflightArguments+=@('--local-root',$AppArguments[$i+1]);break
-        }
-    }
-    $preflightCode=Invoke-AppProcess $interpreter $preflightArguments 'preflight'
-    if ($preflightCode -ne 0) {
-        $launchState.phase='preflight_failed';$launchState.exit_code=$preflightCode;Save-LaunchState
-        exit $preflightCode
-    }
-    $launchState.phase='app_running';Save-LaunchState
-    $appParameters=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.native.editions_current','--edition',$Edition)
+    # Full preflight and the GUI reuse one interpreter and its imported DLLs.
+    # The child records each phase and keeps preflight output in separate logs.
+    $appParameters=@('-B','-s','-X','utf8','-X','faulthandler','-m','dashboard.app_launch','--runtime',$runtime,'--edition',$Edition)
     if ($Edition -eq 'presentation' -and $AppArguments -notcontains '--theme') { $appParameters+=@('--theme','public') }
     if ($null -ne $AppArguments) { $appParameters+=$AppArguments }
     $appCode=Invoke-AppProcess $interpreter $appParameters ('app-'+$PID)
-    $launchState.phase='app_exited';$launchState.exit_code=$appCode;Save-LaunchState
+    $childState=Get-Content -LiteralPath (Join-Path $runtime 'launcher.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($childState.phase -notin @('preflight_failed','app_failed','app_exited')) {
+        $launchState.phase='app_exited';$launchState.exit_code=$appCode;Save-LaunchState
+    }
     exit $appCode
 } catch {
     $launchState.phase='launcher_failed';$launchState.exit_code=1

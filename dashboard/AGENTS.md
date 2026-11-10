@@ -1,6 +1,6 @@
 # 看板开发与公司发布约定
 
-2026-11-10。遵循根AGENTS，统一分支 `codex/company-apps`。本轮交接见 [PROJECT_HANDOFF](PROJECT_HANDOFF.md)，公司操作统一见 [APP_COMPANY_TEST](APP_COMPANY_TEST.md)，精确发布清单见 [APP_RELEASE.json](APP_RELEASE.json)。本地通过不等于公司源或页面已验收。
+2026-11-10。新包b5746c7已核验16档OI金额与6.153秒安全关闭；用户其余ok，本轮仅启动提速/目录整理。遵循根AGENTS，统一分支 `codex/company-apps`。本轮交接见 [PROJECT_HANDOFF](PROJECT_HANDOFF.md)，公司操作统一见 [APP_COMPANY_TEST](APP_COMPANY_TEST.md)，精确发布清单见 [APP_RELEASE.json](APP_RELEASE.json)。本地通过不等于公司源或页面已验收。
 
 ## 业务口径
 

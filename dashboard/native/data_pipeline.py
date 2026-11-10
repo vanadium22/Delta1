@@ -362,7 +362,7 @@ class DataPipeline(QObject):
                           observed=sum(r.get('source_at') is not None for r in overview.get(key,[]))) for key in ('indices','etfs','futures')}
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
-            shutdown=self.shutdown_state(),
+            shutdown=self.shutdown_state(),startup=getattr(self.model,'startup_timing',{}),
             history_pid=self.history.process.pid if self.history.process else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,
             finite_probe=self.probe,collection=collection,history=history,applied=self.applied,

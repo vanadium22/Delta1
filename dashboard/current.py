@@ -3,9 +3,18 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import time
 
 
 def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,frozen=False,public=False):
+    started=time.monotonic();origin=started;startup=dict(clock_scope='app_main')
+    try:
+        candidate=float(os.environ.get('DELTA1_PROCESS_STARTED_MONOTONIC',''))
+        if 0<candidate<=started:
+            origin=candidate;startup.update(clock_scope='shared_interpreter_start',
+                preflight_seconds=float(os.environ['DELTA1_PREFLIGHT_SECONDS']))
+    except (ValueError,KeyError):pass
+    startup['app_main_seconds']=round(started-origin,6)
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--local-root',type=Path)
     parser.add_argument('--no-realtime',action='store_true',help='只读缓存，不运行任何网络或维护任务')
@@ -26,12 +35,15 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     from .native.branding import configure_windows_identity
     app=QApplication(sys.argv[:1]);configure_style(app);configure_windows_identity('presentation' if public else 'development')
     model=NativeModel(prepare_config(args.local_root));model.config['dashboard_mode']='nonregression'
+    model.startup_timing=startup
     model.realtime_verified=False
     instance=None
+    handover_started=time.monotonic()
     if not (quiet or args.no_realtime or frozen):
         from .app_instance import InstanceLease
         instance=InstanceLease(Path(__file__).parent/'runtime',model.config,model.local_root)
         instance.acquire()
+    startup['handover_seconds']=round(time.monotonic()-handover_started,6)
     window=(window_class or ResearchWindow)(model);window.setWindowTitle(title)
     window.instance_lease=instance
     if icon:window.setWindowIcon(icon())
@@ -62,6 +74,8 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
         nonlocal ready,saved
         if ready:return
         ready=True
+        startup['first_result_seconds']=round(time.monotonic()-origin,6)
+        pipeline.write_report()
         if args.capture:
             (window.timer if hasattr(window,'timer') else window.refresh_timer).stop()
             window.pending=False
@@ -77,6 +91,7 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
         elif args.startup_check:QTimer.singleShot(0,window.close)
     window.loaded.connect(loaded)
     window.show()
+    startup['window_shown_seconds']=round(time.monotonic()-origin,6)
     if quiet:QTimer.singleShot(180000,window.close)
     try:result=app.exec()
     finally:

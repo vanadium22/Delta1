@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-10-company-handoff-and-collection-notes",
+  "release": "2026-11-10-company-startup-feedback-and-organization",
   "branch": "codex/company-apps",
-  "base_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
-  "status": "documentation_handoff_complete_runtime_b5746c7_new_company_feedback_and_ideas_pending",
+  "base_commit": "c730d46c3b58c7cd9251bc3c807b504b43bb5489",
+  "status": "local_298_plus_9_verified_b5746c7_company_notional_and_6.153s_shutdown_verified_new_startup_company_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,33 +11,85 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
-    "scope": "Documentation-only next-dialogue prompt: receive new safe company feedback, incorporate user ideas, explain current implemented collection sources/cadence/retry/cache/shutdown from source. No runtime code, parameters, APIs, configurations or data changed; no new collection started.",
+    "base_commit": "c730d46c3b58c7cd9251bc3c807b504b43bb5489",
+    "runtime_base_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
+    "scope": "Verify latest company evidence; run full preflight and GUI in one interpreter without cached passes; skip CIM only for fully drained historical sessions; retain strict identity and safe replacement; record/export startup phases; common entry folder; verified local validation archive. Explain actual collection including enabled normal App off-session 60s HTTP snapshots versus offline Overview. No quote cadence, formulas or production data/config changes.",
     "files": [
+      "AGENTS.md",
       "COMPANY_SYNC.md",
+      "dashboard/AGENTS.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
+      "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md"
+      "dashboard/README.md",
+      "dashboard/app_instance.py",
+      "dashboard/app_launch.py",
+      "dashboard/current.py",
+      "dashboard/diagnose_presentation.ps1",
+      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+      "dashboard/docs/README.md",
+      "dashboard/lock_processes.py",
+      "dashboard/native/data_pipeline.py",
+      "dashboard/overview_check.py",
+      "dashboard/start_app.ps1",
+      "dashboard/常用入口/README.md",
+      "dashboard/常用入口/公司复测.cmd",
+      "dashboard/常用入口/打开看板.vbs",
+      "dashboard/打开方式.md",
+      "docs/PROJECT_STRUCTURE.md",
+      "docs/WORKSPACE_CLEANUP.md",
+      "tests/test_app_instance.py",
+      "tests/test_app_launcher.py",
+      "tests/test_lock_processes.py"
     ],
-    "runtime_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
-    "company_evidence_commit": "365fe84dad7f377dd76be1199f5e7a7788b41464",
+    "company_evidence_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
     "tests": {
-      "runtime_reference_commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
-      "previous_runtime_passed": 267,
-      "previous_runtime_seconds": 53.505,
-      "runtime_rerun": false,
-      "documentation_checks": [
-        "exact file list",
-        "local Markdown links",
-        "JSON syntax",
-        "backtest raw serialization",
-        "git diff whitespace",
-        "protected prompt hashes"
-      ]
+      "passed": 298,
+      "seconds": 73.884,
+      "skipped": 0,
+      "resource_warnings": "errors",
+      "supplementary_windows_passed": 9,
+      "supplementary_seconds": 1.195,
+      "supplementary_boundary": "2 initial sandbox Restart Manager access failures; authorized outside-sandbox rerun passed all 9",
+      "common_entry": "real VBS -> offscreen readonly synthetic App -> safe closed; startup fields exported"
+    },
+    "startup_benchmark": {
+      "scope": "local isolated empty config; real PowerShell launcher to first result and normal exit; offscreen/no realtime",
+      "before_seconds": [
+        3.5782,
+        3.3831,
+        3.4736
+      ],
+      "after_seconds": [
+        2.2771,
+        2.188,
+        2.1732
+      ],
+      "before_median": 3.4736,
+      "after_median": 2.188,
+      "company_measured": false
+    },
+    "cleanup": {
+      "archived_files": 122,
+      "archive_source_bytes": 296615,
+      "archive_bytes": 97155,
+      "bytecode_removed": 12,
+      "bytecode_bytes": 101834,
+      "freed_bytes": 301294
+    },
+    "protection": {
+      "files": 8453,
+      "bytes": 365652303,
+      "backtest_raw_block": "unchanged",
+      "four_protected_prompts": "unchanged",
+      "old_sha_archives": "unchanged"
     },
     "one_click": "dashboard/company_retest.cmd",
-    "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-    "company_acceptance": "new feedback package and user ideas not yet supplied; no new company acceptance inferred"
+    "common_entry": "dashboard/常用入口",
+    "validation": "dashboard/APP_VALIDATION.md",
+    "company_acceptance": "b5746c7 evidence verified and user says other items OK; new startup performance pending company"
   },
   "files": [
     ".gitattributes",
@@ -394,7 +446,11 @@
     "tests/test_overview_final_polish.py",
     "dashboard/marketdata/overview_market_sizes.py",
     "dashboard/native/market_size_view.py",
-    "tests/test_overview_afternoon_feedback.py"
+    "tests/test_overview_afternoon_feedback.py",
+    "dashboard/app_launch.py",
+    "dashboard/常用入口/README.md",
+    "dashboard/常用入口/公司复测.cmd",
+    "dashboard/常用入口/打开看板.vbs"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -413,16 +469,16 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "Runtime validation at b5746c7afcdc42c9b30c1c84fc31845ae3f54eed: 267 final affected regressions passed in 53.505s; no skips; ResourceWarning as error. All 247 preceding tests plus 20 new feedback tests rerun after OI/price isolation fix. Eight 1920x1080/1536x864 offscreen medium views fit without scroll; overview annual effective font about 14.24 to 21.13 pixels. Actual viewport clicks, retained-basis labels, dual pies and internal strip labels checked. PowerShell AST and real one-click/whitelist ZIP rechecked after instruction text update. 8453 protected files/365647987 bytes match baseline SHA; backtest raw block preserved. Local synthetic verification is distinct from company new-feature acceptance. Current update changes only handoff/release documents; runtime tests were not rerun or recounted.",
+  "current_validation": "298 regressions passed in 73.884s including load; no skips, ResourceWarning errors. Additional 9 Windows process/lock tests passed in 1.195s after sandbox access restriction was resolved. Real common VBS offscreen/read-only startup and safe close verified. Local isolated median launcher-to-first-result-and-exit 3.4736 to 2.1880 seconds; not company performance. See APP_VALIDATION for exact evidence and archive/protection.",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
-    "company new release: all-four-index viewport navigation, larger medium card fonts, last complete basis retained during refresh and real 300/15 next-round-missing collection responses",
-    "company new dual pies: actual four-contract OI/price/multiplier/date/notional inputs and complete totals; old runtime packet omitted original OI values",
-    "two unreturned stocks 000831.SZ/688798.SH and 214 missing industry classifications remain genuine source gaps; original weight dates and IH rolled-reference provenance retained",
-    "true historical D remains incomplete: 428 flagged zero calculation placeholders despite all 16 numerical 20/60 windows; current actual D source 2026-11-06, no current-D zero substitution",
-    "verified intraday IOPV/share/PCF definitions still required; AUM does not identify shares or net creation"
+    "company full-data startup timing and same-run shutdown after this shared-interpreter optimization",
+    "two stock quotes 000831.SZ/688798.SH and 214 industry classifications; original weight dates retained",
+    "428 derived historical-D zero placeholders; current D 2026-11-06; real historical observations remain incomplete",
+    "reliable intraday IOPV/share/PCF definitions; AUM is not shares or net creation",
+    "JSON has no actual click trail or triggered retained-basis sample; user reports other items OK; do not misstate automatic evidence"
   ],
-  "company_feedback": "24 safe JSON files at company f345174 with consistent original config hash and D:/conda/envs/swhy_delta1/python.exe; Y Share complete, one matched workbook B1=2026-10-27, Import inserted 16 (store 16 to 32). All 16 20-day windows complete, 60-day incomplete with 556 missing D rows and no missing daily prices. Index membership complete 300/50/500/1000; IF/IC/IM weights missing 1/2/2 with mixed dates, IH reference 09-30; classification gaps 17/2/49/148. All 12 ETF NAV/unadjusted close pairs and Nav test complete; screenshot confirms 10-28 closing premiums -20.0/-19.8/-18.2 bp, intraday IOPV missing. User confirms window open, reports 60-120s close; new shutdown progress/time requires company retest.",
+  "company_feedback": "Latest b5746c7 safe runtime ZIP verified: 9 JSON complete, same-run 6.153s safe shutdown, 16 actual OI/price/multiplier amounts from 2026-11-09 completed daily data, 300/15 constituent batches. User says other items OK; no click trace or triggered retained-basis event in packet.",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
   "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes. Current 16 actual futures additionally require genuine latest-completed-day OI for notional comparison; already available prices stay usable while OI is missing, no repeated price-only OI progress. Complete side-cache bars replace missing-OI bars as whole coherent rows. Only actual gaps prepare existing DDB path. Default overview_stock_daily_enabled=false avoids all-stock daily/anchor jobs; stock previous close from HTTP yesterdayClosePrice. Optional full stock mode and unrelated CLI/Excel/research untouched.",
   "next_iteration": {
@@ -431,14 +487,14 @@
     "test_authorization": "User permits all necessary tests and company-run staged testing; offline Overview and manual realtime VPN policies retained",
     "runtime_features_unchanged": false,
     "phase1_implemented": true,
-    "remaining": "Company one-click runtime retest of four-index clicks/fonts, 300/15 missing-first batches, stable retained display and actual ETF/futures notional inputs/totals. Baseline company dated AUM 720 points and same-run 7.422s shutdown verified. Two stock quotes, 214 classifications, true historical D and IOPV/share/PCF definitions remain incomplete.",
+    "remaining": "Company startup timing after this optimization; source gaps and acceptance limits in overview_data_pending.",
     "phase2_implemented": true,
     "phase3_implemented": true,
     "handoff": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
     "handoff_topics": [
-      "analyze_new_company_safe_feedback",
-      "incorporate_user_new_ideas",
-      "explain_current_collection_logic_from_code_and_reports"
+      "company_startup_retest",
+      "source_based_collection_explanation",
+      "preserve_ui_and_data"
     ]
   },
   "overview_dividend_policy": "Dated actual-contract revisions/SHA/effective times; historical rows use their own known D. Confirmed Y mapped source; only old built-in UNC migrates at runtime without saving personal config, custom/empty retained. Scheduler fingerprint includes effective source. AM/PM bounded metadata/content deduplication, B1-based window filtering without filename-date exclusion, raw/history retained. Explicit SourceDirectory for Share/Import or local InputFile for Import, mutually exclusive; actual configured/effective sources and per-contract provenance audited. Original Excel/research API preserved. User 2026-11-10 exception: missing historical D may use a flagged zero calculation placeholder, never a false store observation; import real historical dated records to re-key and recompute placeholders, do not apply today D to past. Current D, true conflicts, price/mapping gaps and paused research unchanged. Numeric labels have no estimate suffix; tooltip/diagnostic retain assumption dates/counts.",
@@ -461,14 +517,15 @@
     "intraday_IOPV": "mapping_required",
     "net_creation": "mapping_required",
     "PCF": "mapping_required",
-    "new_shutdown": "verified_365fe84_same_run_complete_7.422s",
+    "new_shutdown": "verified_b5746c7_same_run_complete_6.153s",
     "live_basis_excel_reconciliation": "16_same_input_company_realtime_rows_verified_user_may_have_compared_old_workbook",
-    "new_zero_estimate_and_ETF_UI": "numerical_20_and_60_each_16_verified_365fe84; new_pies_and_font_update_pending",
-    "latest_display_resilience": "partial_industry_and_cache_verified_365fe84; new_basis_bundle_generation_and_viewport_clicks_pending_company",
+    "new_zero_estimate_and_ETF_UI": "16_numerical_20_and_60_verified_b5746c7; user_says_other_items_ok; no_UI_click_trace_in_JSON",
+    "latest_display_resilience": "user_reports_other_items_ok; b5746c7_preview_basis_display_not_triggered; local_regressions_passed",
     "latest_aum_history": "verified_12_symbols_each_60_dated_points_total_720_2026-08-10_to_2026-11-09; latest_pair_source_AUM_equal",
-    "latest_shutdown_performance": "verified_365fe84_same_run_safe_complete_7.422s_sqlite_committed; no_auto_per_stock_Parquet",
+    "latest_shutdown_performance": "verified_b5746c7_same_run_closed_complete_waiting_empty_6.153s_sqlite_committed",
     "numerical_history_policy": "includes_428_flagged_derived_missing_D_zero_placeholders_not_complete_real_D_coverage",
-    "latest_market_sizes": "pending_company_update; notional_equals_OI_lots_times_price_times_multiplier; IF_IH_300_IC_IM_200; partial_no_false_zero"
+    "latest_market_sizes": "verified_b5746c7_16_actual_OI_price_multiplier_rows_and_4_totals; completed_daily_2026-11-09_not_11-10_realtime",
+    "latest_startup": "new_shared_interpreter_optimization_local_verified_company_pending"
   },
   "company_feedback_afternoon": {
     "package_sha256": "fb133dd757b9a6e23c5a0882ae294fd3f8daacf4f1b58e211adf3783127f2969",
@@ -1577,5 +1634,43 @@
     },
     "company_acceptance": "365fe84 runtime evidence verified; this release actual notional amounts and interactions require company update; no original OI quantities in old packet",
     "commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed"
+  },
+  "collection_session_policy": "Continuous headline/equity collectors only in verified trading-day 09:29<=t<15:01 (including lunch); enabled normal App can perform bounded off-session HTTP snapshots with about 60s retry in a separate cache, not realtime. Default Overview diagnostics, --no-realtime and paused mode remain offline. This update documents existing behavior without changing cadence.",
+  "company_feedback_20261110_retest": {
+    "package": "20261110_142427_690_safe_143549_135_03c08120.zip",
+    "bytes": 114425,
+    "package_sha256": "1c17773aa98f36d317a53b466a7be6612b0bab329fea54393f911476c122f4aa",
+    "json_files": 9,
+    "run_mode": "runtime",
+    "complete": true,
+    "missing_reports": [],
+    "commit": "b5746c7afcdc42c9b30c1c84fc31845ae3f54eed",
+    "same_run_open_closed": true,
+    "shutdown_seconds": 6.153,
+    "shutdown_complete": true,
+    "shutdown_waiting": [],
+    "archive_status": "sqlite_committed",
+    "older_runs_excluded_seconds": [
+      7.422,
+      20.229
+    ],
+    "stocks_received": 1798,
+    "stocks_expected": 1800,
+    "batch_size": 300,
+    "next_batch_size": 300,
+    "batch_count": 7,
+    "pending_count": 2,
+    "notional_rows_verified": 16,
+    "notional_source": "completed_daily",
+    "notional_date": "2026-11-09",
+    "notional_formula": "OI_lots * price * multiplier; IF/IH300 IC/IM200",
+    "numerical_history_20_slots": 16,
+    "numerical_history_60_slots": 16,
+    "historical_D_zero_placeholders": 428,
+    "current_D_source_date": "2026-11-06",
+    "user_ui_feedback": "other items OK",
+    "automatic_ui_application_verified": false,
+    "basis_display_triggered": false,
+    "startup_new_optimization_company_verified": false
   }
 }

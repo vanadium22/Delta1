@@ -1,6 +1,6 @@
 # 市场概览当前口径
 
-2026-11-10。接续365fe84公司9份JSON：Wind三个月720条规模已取到，行业1798/1800可部分算，同次安全关闭7.422秒。按最新反馈修复四指数点击、卡内字号、300只分批、基差显示稳定和ETF/期货名义规模双饼图；新功能待公司更新验收。命令只维护在[APP_COMPANY_TEST](APP_COMPANY_TEST.md)，交接和证据见[PROJECT_HANDOFF](PROJECT_HANDOFF.md)、[APP_VALIDATION](APP_VALIDATION.md)。
+2026-11-10。新公司9份JSON已运行b5746c7：16档持仓名义本金输入/总额复算一致（11-09日线）、300分批已运行、同次安全关闭6.153秒。用户确认其余ok，追加启动提速和目录整理；本轮不改界面、公式或采集参数。命令只维护在[APP_COMPANY_TEST](APP_COMPANY_TEST.md)，交接和证据见[PROJECT_HANDOFF](PROJECT_HANDOFF.md)、[APP_VALIDATION](APP_VALIDATION.md)。
 
 ## 页面与计算
 
@@ -46,6 +46,24 @@ ETF为每指数规模前三；同日未复权close/NAV形成收盘折溢价。�
 
 默认Overview离线。App历史维护本地标准日线优先，真实价格缺口和当前16合约最近完成日OI缺口才按原政策准备DDB；已有价格先保存、OI独立补、完整侧缓存整行替换缺OI行，不混修订、不重复冒报持仓进展，不补全体成分/研究分钟。实时VPN手动，HTTP失败不切DDB。正常入口核验身份后关闭同范围旧看板并排空，超时只读，不强杀/删锁。成分每批raw/SQLite持久化，App日常不自动逐股Parquet导出，旧归档/显式归档器保留。显示按indices/etfs/quotes持续原子保存到LocalRoot/overview_display，缺组保留上次及原源时，新有效部分优先。当前期现配对/部分派生暂缺时，basis_display沿用上次完整基差/年化/分位和旧F/S/D/T，明确“基差沿用”及源时，现价独立更新；raw当前计算仍如实缺项，不跨slot/到期修订复用，T<5仍排除。计算/审计冻结同一成分代次，不重新读取晚于计算截止的新快照。
 
-前序33份公司JSON已证Y三表/最新11-06、16实际合约D映射与实时同输入公式。本次9份runtime JSON又证16个20/60分位都有数值，但428条历史缺D零占位仍在，真实D覆盖未齐；当前D仍11-06，不冒称重跑Share/Import。最新公司Wind已正常发布12只各60条、8-10至11-09共720条，最近两期源AUM相同不是缺历史补0。1798/1800报价、IF/IH/IC/IM覆盖300/50/499/999，214只分类缺失、旧权重日期保留。用户确认中比例可全卡；同次最终安全关闭7.422秒，旧20.229/76.312秒不混入。此包无OI原值，新双饼图真实金额/新点击/字体/300回包/稳定沿用仍待更新验收。IOPV/份额/PCF仍待可靠定义，原数据及32/A02/其他研究模块保留。
+新包HEAD b5746c7已证16档OI×价格×乘数及四组双饼图金额一致，来源2026-11-09完成日线；同次安全关闭6.153秒。1798/1800成分、214分类缺失，20/60可算但428历史D零占位仍在，当前D11-06。用户其余ok为现场使用反馈，JSON没有点击轨迹或basis_display沿用触发；最新启动优化公司待测。详细证据见APP_VALIDATION。
 
 旧长文及十项原规格只保留于 [2026-10-29唯一归档](../docs/archive/2026-10-29/README.md)，其中旧地址和阶段限制不用于当前操作。
+
+
+## 按源码核对的采集流程
+
+以下是当前代码及本次报告的对应关系，不把默认值、配置覆盖、本地模拟和公司实际返回混为一谈。
+
+| 环节 | 来源、频率与失败处理 | 源码 |
+|---|---|---|
+| 启动 | 每次完整离线预检，成功后同解释器启动GUI以复用依赖；窗口后台检查本地概览缺口，必要维护后有限HTTP验证，再采集。已排空旧会话不查CIM，未完成会话仍身份核验/安全等待；不会强杀写入者。 | [app_launch](app_launch.py)、[current](current.py)、[data_pipeline](native/data_pipeline.py)、[app_instance](app_instance.py) |
+| 主报价 | 既有HTTP客户端，4指数+16实际期货+每组前三ETF（正常12只），实际HTTP约32标的。00–03每轮解析实际合约，ETF资料更新后下一轮调整。3秒调度、连接/读取超时1/2秒、上限100；耗时超间隔跳过调度点，不重叠补跑；失败保留原缓存/源时，不切DDB实时价。初次有限验证失败约30秒后再试。 | [collection](native/collection.py)、[collector](../index_strategy/instant_dld/collector.py) |
+| 时段外快照 | 09:29≤时间<15:01的已核验交易日允许持续采集（含午休，显示口径另判）。正常App启用后台时，时段外会进入单次HTTP快照路径，任务结束后约60秒再试，覆盖指数/ETF/有效期货，单独保存overview_snapshots并标非实时；失败保留旧值，日期未认证则明确推定。此前交接“其余仅本地读取”遗漏了这条路径。本轮没有改变行为。默认Overview诊断、--no-realtime和暂停不走网络。 | [时段](session_clock.py)、[有限快照](native/latest_snapshot.py)、[编排](native/data_pipeline.py) |
+| 成分股 | 同一HTTP源的独立客户端/线程；四指数去重股票再加指数。本次1800股票+4指数，300一批共7批，完成一批请求/落库后等待15秒；轮次从开始计约300秒，超时则延后，不叠加。每只股票通常约5分钟更新，并非全部股票15秒更新。overview_equity_batch_size覆盖默认300且限100–500。指数先，随后失败/缺项，其他按原源时旧者先；缺项保留原值/原时。大批≥200且有效回包<70%时后续轮次降100，当轮仍原批次、不紧密重试、不自动逐轮恢复；重启按配置初始化。 | [equity_collection](native/equity_collection.py) |
+| Wind资料 | 成分/行业/权重/同指数ETF全集规模周度复核，缺项或过旧资料每日有界修复；前三ETF的NAV与同日未复权收盘及近三个月AUM按最新完成日有界更新。使用已有WindPy、已核验规模字段，带源日期、不前填。失败保留已发布资料和原日期；只读能力诊断不发布，正常任务验证后发布。 | [overview_reference_job](native/overview_reference_job.py)、[overview_windpy](marketdata/overview_windpy.py) |
+| Y盘分红 | 已确认Y路径，按Sheet1!B1业务日和实际合约解析。默认上海09:00/15:30各有界检查；App运行且任务获准才检查，成功时段不重复，失败最多3次/至少5分钟间隔。元数据/SHA增量，保留raw与版本；晚于成功检查到达的表需手动更新或显式Import。自定义时点/源路径按配置，下载目录不自动扫描。 | [overview_dividend_job](native/overview_dividend_job.py)、[overview_dividend_sync](marketdata/overview_dividend_sync.py) |
+| DDB日线 | 概览及连续20/60实际日线价格缺口、当前16合约最近完成日OI缺口；本地标准历史/侧缓存优先，仍缺才已有DDB流程。启动、完成日/日期边界及显式一键维护触发；一键先Wind再历史。价格可先保存、OI独立补，不重复宣称进度。默认overview_stock_daily_enabled=false，不补全体成分日线或研究分钟；HTTP失败不触发DDB重连。 | [overview_daily](marketdata/overview_daily.py)、[history_maintenance](native/history_maintenance.py)、[data_pipeline](native/data_pipeline.py) |
+| 昨收 | 主报价与个股优先HTTP yesterdayClosePrice。成分同日新包缺昨收可保留同日已核验HTTP昨收，不每轮查DDB全体股票。主卡源昨收缺失时，只回退准确上一交易日已完成close；历史收盘参考也要求该收盘日准确前一交易日，不跳缺口、不拿昨结算代替。期货较昨日基差按同实际合约历史F/S/D另算。 | [quote_card](native/market_overview.py)、[equity_collection](native/equity_collection.py) |
+| 缓存与刷新 | 主报价raw/SQLite；成分每批先raw/SQLite提交再原子发布latest。indices/etfs/quotes显示组保存在LocalRoot/overview_display。页面另有3秒计算，不代表源更新；临时缺派生可basis_display保留旧完整F/S/D/T、基差/年化/分位和源时，现价独立更新，raw仍缺项，不跨slot/到期修订。成分360秒预算独立，期现30秒/3秒配对不放宽。 | [equity_observations](marketdata/equity_observations.py)、[overview_display_cache](marketdata/overview_display_cache.py)、[editions_current](native/editions_current.py) |
+| 正常关闭 | 先请求停止，再等自有HTTP请求、计算、写入、正式发布安全结束；保存closed/complete/等待队列及总耗时。成分日常不在关闭时逐股导出Parquet，旧Parquet与显式归档保留。状态文件是有时间的证据，不能当当前进程活着；不强杀/删锁。 | [data_pipeline](native/data_pipeline.py)、[collection](native/collection.py)、[equity_collection](native/equity_collection.py) |

@@ -16,7 +16,7 @@ class AppLauncherTests(unittest.TestCase):
         root=Path(tmp.name)/"中文 space' $literal";dashboard=root/'dashboard';native=dashboard/'native'
         native.mkdir(parents=True)
         source=Path(__file__).resolve().parents[1]/'dashboard'
-        for name in ('start_app.ps1','app_python.ps1'):shutil.copyfile(source/name,dashboard/name)
+        for name in ('start_app.ps1','app_python.ps1','app_launch.py'):shutil.copyfile(source/name,dashboard/name)
         (dashboard/'__init__.py').touch();(native/'__init__.py').touch()
         (dashboard/'app_check.py').write_text(
             'import sys\nprint("benign preflight warning",file=sys.stderr,flush=True)\n'
@@ -79,6 +79,30 @@ class AppLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode,23);self.assertTrue((root/'completed.json').is_file())
         self.assertEqual(json.loads((root/'completed.json').read_text())['argv'],['--edition','presentation','--theme','public'])
         self.assertEqual(report['phase'],'app_exited');self.assertEqual(report['exit_code'],23)
+
+    def test_preflight_and_app_share_process_and_imported_dependencies(self):
+        root,dashboard=self.fixture()
+        (dashboard/'shared_fixture.py').write_text('marker=object()\n',encoding='utf8')
+        (dashboard/'app_check.py').write_text('import os,json\nfrom pathlib import Path\n'
+            'from dashboard import shared_fixture\n'
+            'Path("preflight-process.json").write_text(json.dumps([os.getpid(),id(shared_fixture.marker)]))\n',encoding='utf8')
+        (dashboard/'native/editions_current.py').write_text('import os,json\nfrom pathlib import Path\n'
+            'from dashboard import shared_fixture\n'
+            'Path("app-process.json").write_text(json.dumps([os.getpid(),id(shared_fixture.marker)]))\n',encoding='utf8')
+        result,run,report=self.launch(dashboard)
+        self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        self.assertEqual((root/'preflight-process.json').read_text(),(root/'app-process.json').read_text())
+        self.assertEqual(report['startup_mode'],'shared_interpreter')
+        self.assertGreaterEqual(report['preflight_seconds'],0)
+
+    def test_unhandled_app_error_keeps_failure_phase_without_retry(self):
+        root,dashboard=self.fixture()
+        (dashboard/'native/editions_current.py').write_text('raise ValueError("PRIVATE_CANARY")\n',encoding='utf8')
+        result,run,report=self.launch(dashboard)
+        self.assertEqual(result.returncode,1)
+        self.assertEqual(report['phase'],'app_failed')
+        self.assertEqual(report['error_type'],'ValueError')
+        self.assertNotIn('PRIVATE_CANARY',json.dumps(report))
 
     def test_console_hidden_without_hiding_first_gui_window(self):
         root,dashboard=self.fixture()

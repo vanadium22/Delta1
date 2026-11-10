@@ -4,6 +4,7 @@
 
 | 分类 | 文件 |
 |---|---|
+| 日常打开/复测 | [常用入口](../常用入口/README.md)，原脚本和桌面入口仍可使用 |
 | 当前交接与下一对话 | [PROJECT_HANDOFF](../PROJECT_HANDOFF.md)、[可复制新提示词](NEXT_COMPANY_RETEST_PROMPT.md) |
 | 公司完整操作 | [一键复测CMD](../company_retest.cmd)、[APP_COMPANY_TEST](../APP_COMPANY_TEST.md)：更新、Y盘/指定文件分红、行业/ETF、开窗/关闭后Overview、安全JSON ZIP |
 | 发布与本地验证 | [APP_RELEASE精确文件清单](../APP_RELEASE.json)、[APP_VALIDATION](../APP_VALIDATION.md)、[统一更新](../../COMPANY_SYNC.md) |
@@ -17,4 +18,4 @@
 
 AGENTS、PROJECT_HANDOFF、APP_RELEASE、APP_COMPANY_TEST等固定入口保留。归档的ROOT_AGENTS/DASHBOARD_AGENTS不是当前指令入口；旧UNC、旧固定分红情景和阶段限制不覆盖最新用户要求。不重复制作多套旧说明。项目总体目录见 [分类索引](../../docs/PROJECT_STRUCTURE.md)。
 
-2026-11-10：接续365fe84。公司已证720条ETF三个月规模、部分行业和7.422秒安全关闭；本轮修复真实点击/卡内字号、300分批补缺、完整基差显示沿用和ETF/期货名义规模双饼图。267项本地回归通过；完整/一键命令见公司测试，新图实际金额与新交互以公司反馈为准。历史D真实覆盖独立审计，七份旧说明唯一归档不动。
+2026-11-10：新包b5746c7已核验16档持仓名义金额、300分批与6.153秒安全关闭，用户其余ok；本轮启动提速/目录整理，298项回归通过，详见交接和验证。采集逐项来源/频率/失败处理见市场口径；默认Overview离线，正常App时段外有限快照行为已补充说明。

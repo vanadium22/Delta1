@@ -1,8 +1,8 @@
 # Delta1 公司蓝白展示版
 
-日常入口为 [start_presentation.vbs](start_presentation.vbs)，命令行兼容入口为 [start_presentation.cmd](start_presentation.cmd)，使用 `public` 主题。统一分支 `codex/company-apps`，公司原 Git 根目录执行一次 `git pull --ff-only`，再通过原入口重开。
+日常建议打开[常用入口文件夹](常用入口/README.md)，只放“打开看板”和“公司复测”。原入口为 [start_presentation.vbs](start_presentation.vbs)，命令行兼容入口为 [start_presentation.cmd](start_presentation.cmd)，使用 `public` 主题。统一分支 `codex/company-apps`，公司原 Git 根目录执行一次 `git pull --ff-only`，再通过原入口重开。
 
-2026-11-10：最新9份公司JSON确认Wind三个月ETF规模720条、行业1798/1800可部分计算、同次安全关闭7.422秒；当前分红表11-06，16个20/60分位已有数值但428条历史缺D仍暂0。按新反馈修复四指数真实点击，默认300只/15秒且仍5分钟一轮、缺项优先/下一轮自动降100；中比例1080p全卡并放大卡内数字，期货粗条标签内嵌；刷新暂缺时保留上次完整基差/年化/分位及源时，现价独立更新。ETF下半页改为前三+其它及四期货持仓名义本金双饼图，原三个月历史保留；实际OI/价格缺口本地优先且仅当前16合约，未齐不伪0。267项最终回归通过，见APP_VALIDATION；新图和交互公司复测用company_retest.cmd。
+2026-11-10：已核验b5746c7公司新包，16档持仓金额复算一致（11-09日线），同次安全关闭6.153秒，成分300分批已运行。用户确认其余ok，本轮优化启动为完整预检和GUI同解释器复用导入，并整理旧验证产物；298项回归通过，本机隔离启动中位3.474→2.188秒，公司新启动仍待测。当前两只股票、214行业分类和428历史D零占位继续如实保留。
 
 ## 现在从哪里看
 

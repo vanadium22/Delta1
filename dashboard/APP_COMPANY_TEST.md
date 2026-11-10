@@ -1,6 +1,6 @@
 # 公司完整复测命令（2026-11-10）
 
-接续365fe84，检查四指数真实点击、较大卡内字号、300只分批补缺、期货稳定沿用、内嵌量仓条及ETF/期货名义规模双饼图。最新9份公司JSON已确认ETF三个月720条历史、行业部分可算和同次安全关闭7.422秒；新交互与真实持仓金额待公司更新复测。公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。Wind保持登录，实时VPN手动，所有关闭等窗口自行退出，不强杀/删锁。
+已核验b5746c7新包：16档OI/价格/乘数金额一致（11-09日线），300分批及同次安全关闭6.153秒；用户其余ok。本次更新只优化启动和整理入口，重点复测首屏/首轮结果耗时及正常关闭。可从dashboard/常用入口打开看板或公司复测；原入口与以下流程不变。公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。Wind保持登录，实时VPN手动，所有关闭等窗口自行退出，不强杀/删锁。
 
 ## 0. 推荐：一键Runtime复测
 
@@ -141,6 +141,10 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮最终本地结果见[APP_VALIDATION](APP_VALIDATION.md)：267项通过，53.505秒，无跳过，ResourceWarning作为错误。含20项新反馈回归及原247项，覆盖分红迁移/导入、连续20/60、300分批/缺项优先、冻结成分代次、真实缩放点击/字号、完整基差显示沿用、规模双饼图/持仓缺口和真实PowerShell安全打包；本机模拟不替代公司验收。当前公司同次关闭已证7.422秒，73.499秒是旧运行；Y/16实际D/实时公式在前序包已核验，不盲改公式。
+本轮[APP_VALIDATION](APP_VALIDATION.md)为298项回归通过，73.884秒，无跳过、ResourceWarning作为错误。原267项及启动/接管/维护测试均重跑。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
 
-新Overview的data_gaps.page_calculation_preview.market_sizes导出各档OI手数、价格、乘数、金额、日期及来源；futures[].basis_display导出沿用结果的原输入和源时。期货名义本金=持仓手数×价格×乘数（IF/IH300，IC/IM200），按源持仓计一次；优先同步HTTP有效持仓/价格，否则使用同日已完成持仓/收盘，缺档只展示已知n/4，完整总额留空。若OI待补，点一次“DDB一键补齐”并等待；仅当前16合约最近完成日实际OI缺口，已有价格先保存、本地优先，不下载全体成分/研究分钟。ETF分母仍同日完整同指数全集；旧三个月规模历史保留，已证12只各60条、2026-08-10至11-09。原包无真实OI值，不能直接复算新饼图金额。份额/净申赎/IOPV/PCF仍缺可靠定义，不以规模替代。默认runtime即可，无须重复已通过的Y/Wind全阶段。
+新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
+
+Overview的data_gaps.page_calculation_preview.market_sizes保留OI手数、价格、乘数、金额、日期/来源。已回传16档为11-09完成日线，IF/IH300、IC/IM200，已复算通过；不是11-10实时持仓。未齐只展示已知n/4，完整总额留空，不能以成交量/伪0代替。仅实际OI缺口才按原一键维护补齐，不需为复测重复下载全体成分/研究分钟。
+
+默认Overview诊断仍不联网。正常App启用后台时，接入时段外会每约60秒获取一次有限HTTP快照并标非实时；--no-realtime或暂停不请求。Wind/Y/DDB参数、逐日D/连续20与60/简单年化保持，研究32/A02继续暂停。

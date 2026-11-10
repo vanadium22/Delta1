@@ -35,3 +35,14 @@
 11项离线维护回归通过，覆盖归档还原、源变化保留、配置新引用、路径越界、依赖保护、重解析点、归档损坏、只读测试包及可重建字节码。原配置的离线 App 预检通过，所有 UI 依赖可导入；无可见窗口、真实接口或 VPN 操作。原桌面快捷方式和源配置哈希不变。
 
 恢复时先把 ZIP 解压到单独空目录，按原路径/哈希清单取所需文件，避免覆盖当前工作；工具与默认只盘点命令见 [tools/README.md](../tools/README.md)。公司只需通常的 git pull 更新文档及工具；本轮未在公司电脑删除任何文件。看板实际接口及持续运行仍按 [APP_COMPANY_TEST.md](../dashboard/APP_COMPANY_TEST.md) 验收。
+
+
+## 2026-11-10 看板范围续整理
+
+用户明确要求启动提速并整理当前目录。复用维护工具，审核计划后仅选择.deps/numeric_launcher_regression、overview_implementation、overview_repair_20261027、overview_report3_20261027；其他模块验证/字节码、看板backtest、运行状态和数据均保留。
+
+122文件/296615字节压缩至97155字节，ZIP内逐项SHA核验后移除旧副本；另清理有已跟踪源码可重建的12个看板字节码/101834字节。净减少301294字节，失败/遗留0。原件保护基线与计划无交集，所有路径先核验属于本工作区，无递归强删或跨shell移动。
+
+归档：local_artifacts/archives/validation/20261110-151205-d2c28e45/validation.zip；同目录source_manifest.json/result.json保存原相对路径与SHA，local_artifacts/LATEST_CLEANUP.json指向本次。审核计划与证据在local_artifacts/validation/company_20261110_startup。恢复先解压到独立空目录并按清单查找，不覆盖现有工作。
+
+新增dashboard/常用入口集中两个日常操作；原脚本、桌面链接、固定文档及四份受保护提示词不搬动。此次为本地目录整理，不随git pull在公司自动删除文件。工具11项回归包含在本轮298项完整回归内。

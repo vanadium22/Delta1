@@ -2,6 +2,7 @@
 
 | 分类 | 路径 | 用途与维护边界 |
 |---|---|---|
+| 看板日常入口 | dashboard/常用入口/ | 只放打开看板、公司复测及简短说明；委托原脚本，配置/工作目录不迁移 |
 | 日常应用 | dashboard/、securities_lending/、script_making/、statistics_app/、index_futures_basis/ | 正式源码、原启动入口、各自交接 |
 | 独立回测项目 | dashboard/backtest/ | 大表回测、临期强平、连续档位因子/CTA 及数据/成交接口；真实输入与输出仅本机 |
 | 基础采集与兼容工具 | index_strategy/ | 历史/实时 SDK 与采集、旧桌面/前端兼容 |

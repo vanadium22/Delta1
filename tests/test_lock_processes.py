@@ -105,6 +105,7 @@ class LockProcessTests(unittest.TestCase):
             ('python.exe','python.exe -m dashboard.numeric_excel --feed "https://SECRET" --stop-file relative_SECRET','dashboard.numeric_excel'),
             ('python.exe','python.exe "-m" "dashboard.native.editions_current" "--local-root" "C:\\profile space\\app" --token SECRET','dashboard.native.editions_current'),
             ('python.exe','python.exe -m dashboard.current --local-root https://SECRET','dashboard.current'),
+            ('python.exe','python.exe "-m" "dashboard.app_launch" "--runtime" "C:\\runtime" "--local-root" "C:\\profile space\\app" --token SECRET','dashboard.app_launch'),
         ]
         captured=[]
         def run_fixture(command,**kwargs):
@@ -122,6 +123,7 @@ class LockProcessTests(unittest.TestCase):
         self.assertEqual([row['module'] for row in result['items']],[f[2] for f in fixtures])
         self.assertEqual(result['items'][6]['local_root'],'C:\\profile space\\app')
         self.assertIsNone(result['items'][7]['local_root'])
+        self.assertEqual(result['items'][8]['local_root'],'C:\\profile space\\app')
         self.assertEqual(result['items'][0]['feed_path'],'C:\\space path\\workbook.json')
         self.assertEqual(result['items'][0]['stop_file'],'C:\\space path\\stop')
         self.assertEqual(result['active_pids'],list(range(1,len(fixtures)+1)))

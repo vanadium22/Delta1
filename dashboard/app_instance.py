@@ -22,7 +22,7 @@ from dashboard.marketdata.bars import _writer_lock, _atomic_bytes, _json_bytes
 from dashboard.process_lifetime import LauncherLifetime
 
 
-APP_MODULES = {'dashboard.current', 'dashboard.native.editions_current', 'dashboard.native.app'}
+APP_MODULES = {'dashboard.current', 'dashboard.native.editions_current', 'dashboard.native.app', 'dashboard.app_launch'}
 
 
 def normalized(path):
@@ -152,9 +152,22 @@ class InstanceLease:
         dashboard = self.local_root.parent.parent if self.local_root.name in ('app','numeric_excel') else self.local_root.parent
         old = dashboard/'runtime/app_sessions'
         if old not in roots:roots.append(old)
-        reports = [p for r in roots for p in r.glob('*/status.json')
-                   if read(p).get('pid') != os.getpid()
-                   and same_data(self.scope,data_scope(read(p).get('paths') or {},read(p).get('local_root')))]
+        reports = []
+        for root in roots:
+            for path in root.glob('*/status.json'):
+                report = read(path)
+                shutdown = report.get('shutdown') or {}
+                # A completed cooperative shutdown has already drained writers.
+                # Historical records must not trigger a fresh CIM process scan.
+                if (report.get('schema') == 'app-update-evidence-v1' and report.get('phase') == 'closed'
+                        and report.get('closing') is True and shutdown.get('complete') is True
+                        and shutdown.get('waiting') == []
+                        and report.get('collection_worker_running') is False
+                        and report.get('history_worker_running') is False):
+                    continue
+                if (report.get('pid') != os.getpid()
+                        and same_data(self.scope, data_scope(report.get('paths') or {}, report.get('local_root')))):
+                    reports.append(path)
         if not reports:return True
         snapshot = process_summary()
         if snapshot.get('state') != 'ok':
