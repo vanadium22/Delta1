@@ -1,52 +1,43 @@
 # 看板当前验证与公司验收边界
 
-2026-11-10。本轮基线c730d46，运行基线b5746c7；统一codex/company-apps。范围为新包核验、启动提速、目录整理和源码说明，精确清单见[APP_RELEASE](APP_RELEASE.json)。
+2026-11-11。基线d4c2b9b，统一codex/company-apps；范围为DDB端点、数据更新页布局、日期来源与失败阶段。精确文件见[APP_RELEASE](APP_RELEASE.json)，公司操作见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)。
 
-## 本轮最终回归
+## 最终回归
 
-**298项通过，73.884秒（含加载；unittest执行72.497秒），无跳过、无失败，ResourceWarning作为错误。** 原267项全部重跑，另含启动器、离线预检、安全接管和维护工具测试。专项42项/28.244秒仅属中间结果，最终以298项为准。
+**388项通过，103.581秒（含加载；unittest执行102.020秒），无失败、无跳过，ResourceWarning作为错误。** 前轮298项全部重跑，加入历史/凭据/VPN/数字版兼容与12项本轮回归。中间测试夹具的空history_roots及清理后Mock参数断言已修正，最终结果不沿用中间失败。
 
-入口仍为标准unittest加载/执行，项目内临时目录及Windows多进程main保护。完整日志local_artifacts/validation/company_20261110_startup/full_final.txt；复用前次run_tests.py加载器，未把前次结果当本次。命令：
+标准unittest加载器：local_artifacts/validation/company_20261111_ddb_layout/run_tests.py；完整日志full_final.txt，临时文件均在本轮tmp内。等价命令：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
 $env:DELTA1_THEME='public'
-& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning local_artifacts/validation/company_20261110_afternoon/run_tests.py tests.test_app_collection tests.test_app_pipeline tests.test_company_safe_return tests.test_dividend_check_input tests.test_futures_overview tests.test_market_overview tests.test_market_overview_ui tests.test_overview_afternoon_feedback tests.test_overview_audit tests.test_overview_capabilities tests.test_overview_company_feedback tests.test_overview_data tests.test_overview_dated tests.test_overview_details tests.test_overview_etf_display tests.test_overview_final_polish tests.test_overview_percentiles tests.test_overview_resilience tests.test_overview_revision tests.test_overview_wind_evidence tests.test_overview_zero_dividends tests.test_percentile_audit tests.test_realtime_store tests.test_app_launcher tests.test_app_preflight tests.test_app_instance tests.test_workspace_cleanup
+& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning local_artifacts/validation/company_20261111_ddb_layout/run_tests.py tests.test_app_collection tests.test_app_pipeline tests.test_company_safe_return tests.test_dividend_check_input tests.test_futures_overview tests.test_market_overview tests.test_market_overview_ui tests.test_overview_afternoon_feedback tests.test_overview_audit tests.test_overview_capabilities tests.test_overview_company_feedback tests.test_overview_data tests.test_overview_dated tests.test_overview_details tests.test_overview_etf_display tests.test_overview_final_polish tests.test_overview_percentiles tests.test_overview_resilience tests.test_overview_revision tests.test_overview_wind_evidence tests.test_overview_zero_dividends tests.test_percentile_audit tests.test_realtime_store tests.test_app_launcher tests.test_app_preflight tests.test_app_instance tests.test_workspace_cleanup tests.test_app_history tests.test_app_vpn tests.test_history_maintenance tests.test_history_credentials tests.test_numeric_view tests.test_numeric_vpn tests.test_overview_ddb_refresh
 ```
 
-新增3项重点验证预检与App实际同PID/同导入对象、未处理异常保持安全失败阶段、不完整旧会话仍检查而已排空会话跳过CIM。既有实际PowerShell测试覆盖带中文/空格/特殊字符路径、stdout/stderr同时排空、预检失败不启动、退出码、控制台隐藏但不隐藏首个GUI；实际双Qt实例测试仍验证写入后安全接管、不强杀/删锁。
+12项新增验证：发布端点和显式覆盖、原连接对象/加密文件与TLS选项保留、TCP和SDK会话使用新端点/同账号密码、11-11盘前目标11-10、同端点准备数据网络、失败不假报完整、三尺寸窗口和按钮/输入框、仅保存地址不读写凭据、无效输入不写、旧密码解密失败不覆盖、价格日与Y盘分红日区分、混合源日期不声称全部最新。
 
-267项原回归继续覆盖逐日D/历史零占位/连续20与60、价格与OI隔离、真实viewport四指数点击、字号/比例、300分批与缺项优先、冻结代次、完整基差沿用及换slot/T<5、双饼图、Wind三个月规模、原始存储和PowerShell安全打包。公式、采集频率和暂停研究边界未改。
+## UI实测
 
-## 启动速度与目录核验
+修改前更新页展开后的最小窗口高度1264像素，超过1080p；与用户填写框挤压现象一致。新页整体滚动、分组设置及可收起诊断，输入框40像素、行距12像素。
 
-相同隔离空配置、真实PowerShell启动器、离屏/只读；测量从启动到首轮结果并正常退出，包含完整预检及退出开销：
+| 请求尺寸 | 实际尺寸 | 最小输入框高度 | 展开后垂直滚动最大值 |
+|---|---|---:|---:|
+| 1920×1080 | 1920×1080 | 40 | 996 |
+| 1536×864 | 1536×864 | 40 | 1212 |
+| 860×620 | 860×620 | 40 | 1506 |
 
-| 版本 | 三次耗时（秒） | 中位（秒） |
-|---|---|---:|
-| 修改前 | 3.5782 / 3.3831 / 3.4736 | 3.4736 |
-| 修改后 | 2.2771 / 2.1880 / 2.1732 | 2.1880 |
+before/after_settings_*及布局JSON保留于本轮证据目录，采用合成空配置/离屏检查，无可见窗口或真实VPN操作。原概览真实viewport点击、字号、双饼图及20卡布局回归仍通过。实际主入口另以隔离配置离屏/只读打开设置页并捕获settings_production_entry.png，安全退出且配置字节未变；公司新页需更新后现场核验。
 
-减少约37.0%。新版共享解释器起点至window.show返回1.39–1.46秒，首轮结果1.60–1.68秒；测量不含真实网络/完整历史/旧写入者排空。公司尚未运行新优化，不能承诺相同速度。新startup字段可在下一次安全ZIP中核验这些阶段。
+## 新DDB地址与源端验证边界
 
-仅已知旧验证目录4项、122文件/296615字节先归档并逐文件SHA核验，再移除旧副本；12个可重建看板字节码/101834字节清理。归档97155字节，净减少301294字节。其他模块/回测字节码、原运行状态与依赖不处理。路径与恢复见[整理记录](../docs/WORKSPACE_CLEANUP.md)。新增常用入口只委托原启动/复测链。
+本机实际凭据引用P:/project/swhy/project/dolphindb_data/config/connection.local.json已是192.168.198.77:8904，TLS及DPAPI配置保留，已有历史Python具备DDB SDK。这是本机配置事实，不证明公司忽略配置已改。
 
-## 新公司反馈证据
+2026-11-11 09:36上海时间，既有数据范围互斥锁内进行有界只读验证：沙箱内TCP被10013拒绝；获准沙箱外复测为3秒TCP超时。尚未建立数据库会话或查询11-10，source_query=false、vpn_changed=false、config_changed=false。因此未验证新源11-10实际供给，不能把超时归因公司VPN或声称源端没有昨日数据。安全证据ddb_source_probe.json，不导出原异常文本或账号密码。
 
-包20261110_142427_690_safe_143549_135_03c08120.zip：114425字节，SHA256=1c17773aa98f36d317a53b466a7be6612b0bab329fea54393f911476c122f4aa。ZIP CRC、9JSON、IncludedFiles、runtime/Complete=true、无MissingReports、两诊断与git同b5746c7、配置SHA一致且未变化。Overview本身没有启动App、Wind、网络或VPN动作。
+本地模拟证明新端点同时用于App数据网络与数据库会话、账号密码/TLS沿用原提供器，11-11盘前目标正确为11-10，失败保留旧缓存。默认Overview诊断仍离线；其connection字段是配置说明，不是连接成功证据。maintenance.matches_current_target区分旧任务，运行中history_update包含安全阶段。11-06若标“最新分红表”，来源Y盘B1；真实价格停旧日仍需公司同次报告判断原因。
 
-同一会话62ac23d34dea43e2834e4b1001f2148b开窗collecting→closed，shutdown.complete=true、waiting=[]、**6.153秒**，sqlite_committed。7.422/20.229秒均是开始前旧运行，不计本次。没有完整启动计时，不能用开窗取样反推启动速度。
+## 公司既有证据与保护
 
-32个主报价开窗样本间源时推进；成分1798/1800，300只/15秒、7批、轮目标300秒，pending=2；仍缺000831.SZ、688798.SH，没有低回包降100或缺项后来补齐的现场证据。四指数有效覆盖300/50/499/999，214行业分类仍缺、旧权重日期保留。
+最近公司包仍HEAD b5746c7、9JSON完整、同一运行安全关闭6.153秒，16档OI×价格×乘数复算一致且使用11-09日线。当前D11-06、428历史D零占位、1798/1800股票及214分类缺失不因本轮测试变成齐备。本轮没有新公司ZIP或Share/Import证据。
 
-两份Overview共32条期货名义本金输入按Decimal独立复算，16个实际合约各有真实OI与价格，IF/IH300、IC/IM200、计一次。全部为2026-11-09同日完成日线，ETF全集分母、前三+其它、四档总额及比值一致。金额汇总见交接；不冒称11-10实时OI。两次各16档F/S/D/T年化复算一致；20/60各16项，但历史D零占位428、当前D11-06仍保留。ETF历史仍12只×60=720条。
-
-用户“其余ok”记为现场使用反馈；JSON仅记medium偏好、数值和计算预览，不提供实际点击轨迹/截图。两次basis_display都未触发，故不把该包当沿用路径的独立实证。12只ETF标准历史层ValueError提示保留，同日NAV/close及规模仍可用；源端是否缺数据未重新联网测试。本轮没有Share/Import，不冒称重新公盘验收。
-
-## 原件与发布保护
-
-编辑前冻结8453个现存文件、365652303字节：原行情/分红/缓存/配置/凭据/Excel/运行依赖、四受保护提示词、新ZIP、七份唯一SHA归档和MANIFEST。前次13:11 ZIP原路径在开始前已不存在，absent_before.json单列；不恢复、不算本轮丢失。APP_RELEASE.backtest对象及原序列化块保留。最终核对见本轮protected_after.json。
-
-原ZIP/JSON/性能记录/归档清单只留本机忽略目录，不进入Git。无可见测试窗口、真实行情源/VPN/Y操作；研究32/A02和其他模块/worktree保留。最终提交按精确白名单，远端核验后报告。
-
-补充Windows锁/进程识别9项通过，1.195秒，包含新app_launch命令行身份及隐私白名单；最初沙箱中两项Restart Manager读取被拒绝，已在获准沙箱外复测全部通过。新增VBS常用入口已实际离屏/只读启动至安全关闭，原合成配置未变，启动时序也已通过Overview白名单读取。
+编辑前冻结8454文件/365652979字节，包括原行情/分红/缓存/配置/凭据/Excel/依赖、四提示词、ZIP及七份唯一SHA归档/MANIFEST；最终逐项大小/SHA一致。原DDB账号密码文件不重写；APP_RELEASE.backtest对象与原序列化块不变。真实报告、截图、探测证据仅local_artifacts/validation/company_20261111_ddb_layout，均不进入Git；其他模块/worktree保留。

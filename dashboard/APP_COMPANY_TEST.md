@@ -1,6 +1,17 @@
-# 公司完整复测命令（2026-11-10）
+# 公司完整复测命令（2026-11-11）
 
-已核验b5746c7新包：16档OI/价格/乘数金额一致（11-09日线），300分批及同次安全关闭6.153秒；用户其余ok。本次更新只优化启动和整理入口，重点复测首屏/首轮结果耗时及正常关闭。可从dashboard/常用入口打开看板或公司复测；原入口与以下流程不变。公司Git根D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard，LocalRoot为其下dashboard/localsetting/app。Wind保持登录，实时VPN手动，所有关闭等窗口自行退出，不强杀/删锁。
+本轮DDB新地址为192.168.198.77:8904，原账号密码/TLS沿用。更新页已改为滚动分组，并区分价格日、DDB目标和Y盘分红日。本机直连新地址3秒超时，未查询11-10；公司新连接和布局待现场核验。原公司Git根/LocalRoot/完整复测链保持。
+
+## 本次更新后的简短核验
+
+正常关闭旧看板并等待排空后，在公司原Git根执行git pull --ff-only，再通过原入口重开。进入“数据更新/设置”：
+
+1. 确认DDB生效地址192.168.198.77、端口8904；新版App直接采用发布地址并沿用原凭据引用，无需重填账号密码。显式history_ddb_host/history_ddb_port优先；确需自定义时，使用“保存地址和端口”，只保存非秘密地址，不改原凭据文件。
+2. 11月11日盘前目标收盘应为2026-11-10。价格数据日取卡片真实源时间；“最新分红表（Y盘）”即使仍11-06，也不能单凭它判断DDB断开。
+3. 点一次“DDB一键补齐”并等待完成，查看上次DDB阶段/错误及价格日是否到11-10；未成功时保留旧缓存。设置页展开后用右侧滚动条访问全部字段，原账号/密码高级设置仍保留。
+4. 默认Overview可离线回传data_gaps.ddb.connection、maintenance及app_reports.matching_profile[].history_update；connection只是配置，maintenance中的目标/阶段才是实际任务证据，旧目标不可混入本次。
+
+下方原一键流程可自动完成安全ZIP。实时VPN仍手动，不强杀写入者或重新映射Y。
 
 ## 0. 推荐：一键Runtime复测
 
@@ -141,7 +152,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮[APP_VALIDATION](APP_VALIDATION.md)为298项回归通过，73.884秒，无跳过、ResourceWarning作为错误。原267项及启动/接管/维护测试均重跑。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
+本轮[APP_VALIDATION](APP_VALIDATION.md)为388项回归通过，103.581秒，无跳过、ResourceWarning作为错误，含DDB端点/日期/凭据与滚动表单新增验证。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
 
 新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
 

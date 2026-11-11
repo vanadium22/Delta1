@@ -10,6 +10,22 @@ def at(value):
         return None
 
 
+def data_dates(data,completed_target=None):
+    rows=[*data.get('indices',[]),*data.get('futures',[])]
+    days=sorted({str(at(r['source_at']).tz_convert('Asia/Shanghai').date()) for r in rows
+        if r.get('price') is not None and at(r.get('source_at')) is not None})
+    return dict(price_days=days,completed_target=data.get('completed_session') or completed_target,
+        dividend_day=data.get('dividend_latest_business_day') or max(
+            (r['dividend_snapshot'] for r in data.get('futures',[]) if r.get('dividend_snapshot')),default=None))
+
+
+def dates_text(value):
+    days=value.get('price_days') or []
+    prices='待核验' if not days else days[0] if len(days)==1 else days[0]+'～'+days[-1]
+    return ('价格数据日：'+prices+' · DDB目标收盘：'+str(value.get('completed_target') or '待核验')+
+        ' · 最新分红表（Y盘）：'+str(value.get('dividend_day') or '待核验'))
+
+
 def status(data, pipeline=None, *, now=None):
     if pipeline is not None and getattr(pipeline,'closing',False):
         return pipeline.shutdown_message(),'等待已有请求、计算和写入安全结束'

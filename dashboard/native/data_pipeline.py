@@ -10,7 +10,7 @@ import time
 import uuid
 
 from PySide6.QtCore import QObject,QThreadPool,QTimer,Signal
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QPlainTextEdit
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QLabel,QPushButton,QPlainTextEdit,QScrollArea,QGridLayout,QLayout
 
 from dashboard.refresh_evidence import utc_now
 from dashboard.marketdata.bars import _atomic_bytes,_json_bytes
@@ -358,11 +358,16 @@ class DataPipeline(QObject):
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
+        from .overview_status import data_dates
+        from dashboard.marketdata.ddb_connection import app_endpoint
+        try:ddb_connection=app_endpoint(config)
+        except (ValueError,TypeError):ddb_connection=dict(source='invalid_app_setting',error_type='InvalidEndpoint')
         coverage={key:dict(total=len(overview.get(key,[])),valid=sum(bool(r.get('quality',{}).get('usable')) for r in overview.get(key,[])),
                           observed=sum(r.get('source_at') is not None for r in overview.get(key,[]))) for key in ('indices','etfs','futures')}
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
             shutdown=self.shutdown_state(),startup=getattr(self.model,'startup_timing',{}),
+            ddb_connection=ddb_connection,data_dates=data_dates(overview,self.completed_target),
             history_pid=self.history.process.pid if self.history.process else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,
             finite_probe=self.probe,collection=collection,history=history,applied=self.applied,
@@ -431,16 +436,35 @@ class DataPipeline(QObject):
 
 class PipelinePage(QWidget):
     def __init__(self,pipeline):
-        super().__init__();self.pipeline=pipeline;layout=QVBoxLayout(self);row=QHBoxLayout()
+        super().__init__();self.pipeline=pipeline;layout=QVBoxLayout(self)
+        self.scroll_area=QScrollArea();self.scroll_area.setWidgetResizable(True);layout.addWidget(self.scroll_area)
+        content=QWidget();body=QVBoxLayout(content);body.setSpacing(16)
+        body.setContentsMargins(18,18,18,18);body.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self.scroll_area.setWidget(content);self.actions=QGridLayout();self.actions.setSpacing(10);body.addLayout(self.actions)
+        self.buttons=[];self.action_columns=None
         for title,fn in [('DDB一键补齐',pipeline.one_click),('更新分红',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
-            button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());row.addWidget(button)
-        layout.addLayout(row)
-        self.head=QLabel();self.head.setWordWrap(True);layout.addWidget(self.head)
+            button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());self.buttons.append(button)
+        self.arrange_actions()
+        self.head=QLabel();self.head.setWordWrap(True);body.addWidget(self.head)
         from .inline_settings import InlineSettings
-        self.settings=InlineSettings(pipeline);layout.addWidget(self.settings)
-        self.details=QPlainTextEdit();self.details.setReadOnly(True);layout.addWidget(self.details,1)
+        self.settings=InlineSettings(pipeline);body.addWidget(self.settings)
+        details_toggle=QPushButton('展开 / 收起详细诊断');body.addWidget(details_toggle)
+        self.details=QPlainTextEdit();self.details.setReadOnly(True);self.details.setFixedHeight(220);self.details.hide();body.addWidget(self.details)
+        details_toggle.clicked.connect(lambda:self.details.setVisible(not self.details.isVisible()))
+        body.addStretch()
         pipeline.changed.connect(self.refresh);self.refresh()
+
+    def arrange_actions(self):
+        columns=2 if self.width()<1050 else 3
+        if columns==self.action_columns:return
+        for button in self.buttons:self.actions.removeWidget(button)
+        for i,button in enumerate(self.buttons):self.actions.addWidget(button,i//columns,i%columns)
+        for i in range(3):self.actions.setColumnStretch(i,1 if i<columns else 0)
+        self.action_columns=columns
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event);self.arrange_actions()
 
     def export(self):
         try:path=self.pipeline.export();self.head.setText('诊断已保存：'+str(path))
@@ -448,5 +472,11 @@ class PipelinePage(QWidget):
 
     def refresh(self):
         p=self.pipeline;report=p.report()
-        self.head.setText(p.message+'\n'+p.quick.get('message','日期快检进行中；不阻塞现有数据显示'))
+        from .overview_status import dates_text
+        endpoint=report.get('ddb_connection') or {};history=p.history.state()
+        failure=(history.get('ddb_connection') or {}).get('stage')
+        summary='DDB生效地址 '+str(endpoint.get('host') or '待核验')+':'+str(endpoint.get('port') or '—')
+        if failure:summary+=' · 上次DDB阶段 '+str(failure)
+        self.head.setText(summary+'\n'+dates_text(report.get('data_dates') or {})+'\n'+p.message+
+            ('\n'+history['message'] if history.get('message') else ''))
         self.details.setPlainText(json.dumps(report,ensure_ascii=False,indent=2,default=str))

@@ -215,6 +215,15 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             plan_note='先逐行核验可用标准收盘再分类；本诊断不复制或补库，剩余仍是本地依赖缺口，不证明远端供给')
         result['ddb']['last_job']={k:v for k,v in result['ddb']['last_job'].items() if k in
             ('schema','target','inserted','pending_rows','pending_batches','status','error_types','updated_at')}
+        from .ddb_connection import connection_summary
+        result['ddb']['connection']=connection_summary(config)
+        maintenance=read_object(directory(config,local_root)/'maintenance/status.json')
+        result['ddb']['maintenance']={k:maintenance.get(k) for k in
+            ('state','target','updated_at','message','error_type','error_code','inserted')}
+        connection=maintenance.get('ddb_connection') or {}
+        result['ddb']['maintenance']['connection']={k:connection.get(k) for k in
+            ('host','port','source','stage','authenticated','error_type')}
+        result['ddb']['maintenance']['matches_current_target']=maintenance.get('target')==target
     except (OSError,ValueError,TypeError,KeyError) as exc:result['ddb']=dict(status='unavailable',error_type=type(exc).__name__)
     from .quote_quality import quote_quality
     quotes=snapshot.get('quotes',{})

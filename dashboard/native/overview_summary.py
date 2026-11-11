@@ -51,8 +51,9 @@ class OverviewSummary(ScrollPage):
         self.visible_rows = []
 
     def render_data(self, data):
-        latest=data.get('dividend_latest_business_day') or max((r['dividend_snapshot'] for r in data.get('futures',[]) if r.get('dividend_snapshot')),default=None)
-        self.dividend_source.setText('最新分红表：'+str(latest or '待核验'))
+        from .overview_status import data_dates,dates_text
+        self.dividend_source.setText(dates_text(data_dates(data)))
+        self.dividend_source.setToolTip('价格日取卡片真实源时间；DDB目标是最近已完成交易日；分红业务日取Y盘表内B1，三者独立。')
         indices = {r['root']:r for r in data.get('indices', [])}
         futures = {(r['root'],r.get('slot')):r for r in data.get('futures', [])}
         self.cards = {}

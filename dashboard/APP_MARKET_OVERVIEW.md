@@ -1,6 +1,6 @@
 # 市场概览当前口径
 
-2026-11-10。新公司9份JSON已运行b5746c7：16档持仓名义本金输入/总额复算一致（11-09日线）、300分批已运行、同次安全关闭6.153秒。用户确认其余ok，追加启动提速和目录整理；本轮不改界面、公式或采集参数。命令只维护在[APP_COMPANY_TEST](APP_COMPANY_TEST.md)，交接和证据见[PROJECT_HANDOFF](PROJECT_HANDOFF.md)、[APP_VALIDATION](APP_VALIDATION.md)。
+2026-11-11。本轮接续d4c2b9b，App概览DDB发布地址192.168.198.77:8904，账户密码/TLS复用原文件；更新页分组滚动，价格日/DDB目标/Y盘分红日独立。388项本地回归通过，新端点真实11-10源返回及公司布局仍待现场核验。公司操作见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)，证据见[APP_VALIDATION](APP_VALIDATION.md)。
 
 ## 页面与计算
 
@@ -13,6 +13,14 @@
 年化悬浮/详情显示同一次计算的F/S/D/T、定价日与分红表业务日；Overview另留两腿源时、D生效版本和文件SHA。对账应使用相同输入，Excel文件名或RTD价格更新不代表G列分红已更新。
 
 四张实际合约卡分别对应当前00/01/02/03连续月份档位。分位按各历史日真实挂牌/到期映射，20与60交易日同时计算，排除当前定价日，已知T<5另列规则排除；缺价/映射不跳过，不向前多找样本凑数。历史缺D暂用0计算，分位数值不加“估”后缀，悬浮/诊断列明补零天数和日期；冲突的真实D仍阻断，当前D不补0。研究A02的原具体合约口径独立保留，32项研究服务暂停。
+
+## DDB地址与页面日期
+
+App概览更新默认采用2026-11-11用户确认的192.168.198.77:8904。账号、密码及TLS选项仍从原凭据文件读取，不重写该文件；App显式history_ddb_host/history_ddb_port可覆盖地址。数据VPN路由验证和数据库会话使用同一生效端点，避免只在一个环节改地址。原独立Excel/研究入口的无覆盖调用保持原语义。代码见[端点策略](marketdata/ddb_connection.py)、[概览维护](marketdata/history_maintenance.py)。
+
+11-11盘前最近完成日为11-10。价格数据日来自各卡片实际source_at，混合旧日期显示范围；DDB目标来自完成交易日日历；分红表日来自Y盘Sheet1!B1，三者分别显示。分红11-06不代表价格只有11-06，也不能作为DDB连接失败证据。
+
+更新页使用整体滚动，地址/端口常驻，路径/分红/Wind/VPN/账号分组展开，输入框至少40像素。只保存地址无需读取或改写密码。DDB真实任务报告区分tcp、session、authentication、sdk、query/partial与目标日；失败保留已有缓存，不改源时。默认Overview只读导出端点/维护元数据，不隐含联网，其network_tested=false不能当连接成功。
 
 ## 逐日分红与公盘
 
@@ -63,7 +71,7 @@ ETF为每指数规模前三；同日未复权close/NAV形成收盘折溢价。�
 | 成分股 | 同一HTTP源的独立客户端/线程；四指数去重股票再加指数。本次1800股票+4指数，300一批共7批，完成一批请求/落库后等待15秒；轮次从开始计约300秒，超时则延后，不叠加。每只股票通常约5分钟更新，并非全部股票15秒更新。overview_equity_batch_size覆盖默认300且限100–500。指数先，随后失败/缺项，其他按原源时旧者先；缺项保留原值/原时。大批≥200且有效回包<70%时后续轮次降100，当轮仍原批次、不紧密重试、不自动逐轮恢复；重启按配置初始化。 | [equity_collection](native/equity_collection.py) |
 | Wind资料 | 成分/行业/权重/同指数ETF全集规模周度复核，缺项或过旧资料每日有界修复；前三ETF的NAV与同日未复权收盘及近三个月AUM按最新完成日有界更新。使用已有WindPy、已核验规模字段，带源日期、不前填。失败保留已发布资料和原日期；只读能力诊断不发布，正常任务验证后发布。 | [overview_reference_job](native/overview_reference_job.py)、[overview_windpy](marketdata/overview_windpy.py) |
 | Y盘分红 | 已确认Y路径，按Sheet1!B1业务日和实际合约解析。默认上海09:00/15:30各有界检查；App运行且任务获准才检查，成功时段不重复，失败最多3次/至少5分钟间隔。元数据/SHA增量，保留raw与版本；晚于成功检查到达的表需手动更新或显式Import。自定义时点/源路径按配置，下载目录不自动扫描。 | [overview_dividend_job](native/overview_dividend_job.py)、[overview_dividend_sync](marketdata/overview_dividend_sync.py) |
-| DDB日线 | 概览及连续20/60实际日线价格缺口、当前16合约最近完成日OI缺口；本地标准历史/侧缓存优先，仍缺才已有DDB流程。启动、完成日/日期边界及显式一键维护触发；一键先Wind再历史。价格可先保存、OI独立补，不重复宣称进度。默认overview_stock_daily_enabled=false，不补全体成分日线或研究分钟；HTTP失败不触发DDB重连。 | [overview_daily](marketdata/overview_daily.py)、[history_maintenance](native/history_maintenance.py)、[data_pipeline](native/data_pipeline.py) |
+| DDB日线 | App使用当前发布地址192.168.198.77:8904（显式App地址优先），复用原账户/密码/TLS；概览及连续20/60实际日线价格缺口、当前16合约最近完成日OI缺口；本地标准历史/侧缓存优先，仍缺才已有DDB流程。启动、完成日/日期边界及显式一键维护触发；一键先Wind再历史。价格可先保存、OI独立补，不重复宣称进度。默认overview_stock_daily_enabled=false，不补全体成分日线或研究分钟；HTTP失败不触发DDB重连。 | [overview_daily](marketdata/overview_daily.py)、[history_maintenance](native/history_maintenance.py)、[data_pipeline](native/data_pipeline.py) |
 | 昨收 | 主报价与个股优先HTTP yesterdayClosePrice。成分同日新包缺昨收可保留同日已核验HTTP昨收，不每轮查DDB全体股票。主卡源昨收缺失时，只回退准确上一交易日已完成close；历史收盘参考也要求该收盘日准确前一交易日，不跳缺口、不拿昨结算代替。期货较昨日基差按同实际合约历史F/S/D另算。 | [quote_card](native/market_overview.py)、[equity_collection](native/equity_collection.py) |
 | 缓存与刷新 | 主报价raw/SQLite；成分每批先raw/SQLite提交再原子发布latest。indices/etfs/quotes显示组保存在LocalRoot/overview_display。页面另有3秒计算，不代表源更新；临时缺派生可basis_display保留旧完整F/S/D/T、基差/年化/分位和源时，现价独立更新，raw仍缺项，不跨slot/到期修订。成分360秒预算独立，期现30秒/3秒配对不放宽。 | [equity_observations](marketdata/equity_observations.py)、[overview_display_cache](marketdata/overview_display_cache.py)、[editions_current](native/editions_current.py) |
 | 正常关闭 | 先请求停止，再等自有HTTP请求、计算、写入、正式发布安全结束；保存closed/complete/等待队列及总耗时。成分日常不在关闭时逐股导出Parquet，旧Parquet与显式归档保留。状态文件是有时间的证据，不能当当前进程活着；不强杀/删锁。 | [data_pipeline](native/data_pipeline.py)、[collection](native/collection.py)、[equity_collection](native/equity_collection.py) |

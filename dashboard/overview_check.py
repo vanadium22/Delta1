@@ -59,6 +59,14 @@ def app_reports(local_root, runtime_root=None):
             startup=value.get('startup') or {}
             entry['startup']={k:startup.get(k) for k in ('clock_scope','preflight_seconds','app_main_seconds',
                 'handover_seconds','window_shown_seconds','first_result_seconds')}
+            connection=value.get('ddb_connection') or {};dates=value.get('data_dates') or {}
+            entry['ddb_connection']={k:connection.get(k) for k in ('host','port','source','error_type')}
+            entry['data_dates']={k:dates.get(k) for k in ('price_days','completed_target','dividend_day')}
+            history=value.get('history') or {};history_connection=history.get('ddb_connection') or {}
+            entry['history_update']={k:history.get(k) for k in
+                ('state','target','updated_at','message','error_type','error_code','inserted')}
+            entry['history_update']['ddb_connection']={k:history_connection.get(k) for k in
+                ('host','port','source','stage','authenticated','error_type')}
             entry.update(report_path=str(path.resolve()),same_profile=same,
                 collection={k:collection.get(k) for k in ('status','stage','polls','rows','last_success_at',
                     'last_failure_at','last_failure_status','received_at')},

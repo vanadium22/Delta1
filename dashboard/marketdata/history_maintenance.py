@@ -44,6 +44,9 @@ MESSAGES = {
 
 class Stopped(Exception):pass
 class CredentialsUnavailable(Exception):pass
+class DDBConnectionError(ConnectionError):
+    def __init__(self,stage):
+        super().__init__(stage);self.stage=stage
 class SourceConflict(ValueError):pass
 class SourcePending(Exception):pass
 
@@ -167,16 +170,19 @@ def plan(coverage, metadata, days, start, end):
 def job_key(job):return '|'.join(job[k] for k in ('symbol','frequency','day'))
 
 
-def open_direct(config_path):
+def open_direct(config_path,*,endpoint=None):
     """Reuse query transforms, never call Client.__init__/VPN connection_scope."""
     from index_strategy.history.credentials import load_config
     from index_strategy.history.downloader import Client
     try:
         config=load_config(config_path)
     except Exception:raise CredentialsUnavailable() from None
+    if endpoint is not None:
+        from .ddb_connection import with_endpoint
+        config=with_endpoint(config,endpoint)
     try:
         with socket.create_connection((config['host'],int(config['port'])),timeout=3):pass
-    except OSError:raise ConnectionError('existing_route_unavailable') from None
+    except OSError:raise DDBConnectionError('tcp') from None
     import dolphindb as ddb
     client=Client.__new__(Client)
     client.config=config;client._closed=False;client._vpn_entered=False
@@ -191,7 +197,7 @@ def open_direct(config_path):
         text=str(exc).lower()
         if isinstance(exc,CredentialsUnavailable) or any(s in text for s in ('password','authentication','login failed','用户名','密码')):
             raise CredentialsUnavailable() from None
-        raise ConnectionError() from None
+        raise DDBConnectionError('session') from None
     return client
 
 
@@ -268,6 +274,8 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
     state=dict(scope='overview_completed_closes_only',research_downloads_enabled=False,inserted=0,
         network_policy='auto_ddb_manual_realtime' if vpn_mode=='auto' else 'existing_route_only_no_vpn_change',
         unknown_groups=prior.get('unknown_groups'),scan_complete=False,ddb_vpn=dict(state='not_needed',mode=None))
+    from .ddb_connection import app_endpoint,connection_summary,with_endpoint
+    state['ddb_connection']=connection_summary(config)
     def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(local_root/'history_control.json').get('paused',False)
     def report(name,message,**values):
         state.update(state=name,message=message,updated_at=now_iso(),**values)
@@ -297,10 +305,12 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                     '概览收盘已齐；历史分钟完整性沿用原审计，未重新深核' if not distribution['mapping_gaps'] else '连续档位历史映射待补；无已知价格缺口')
             from dashboard.app_config import connection_path,vpn_profile
             connection_file=connection_path(config)
+            endpoint=app_endpoint(config)
+            state['ddb_connection']['stage']='route'
             if vpn_mode=='auto':
                 from . import ddb_vpn
                 from index_strategy.history.credentials import load_config
-                connection=load_config(connection_file)
+                connection=with_endpoint(load_config(connection_file),endpoint)
                 try:
                     if not all(connection.get(k) for k in ('host','port','username','password')):raise CredentialsUnavailable()
                     profile=vpn_profile(config,local_root);report('connecting_vpn','已确认概览收盘缺口，按原策略准备DDB网络')
@@ -309,19 +319,29 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                 finally:connection.clear()
             if stopped():raise Stopped()
             report('downloading','仅补概览缺少的日线；不下载研究分钟历史')
-            client=direct_factory(connection_file)
+            client=direct_factory(connection_file,endpoint=endpoint) if direct_factory is open_direct else direct_factory(connection_file)
+            state['ddb_connection'].update(stage='query',authenticated=True)
             result=fill(client,config,local_root,target,metadata,stop=stopped,budget=min(45,budget))
             state['overview_daily']={**result,'seeded_local':seeded};state['inserted']=result.get('inserted',0)
             if stopped():raise Stopped()
             pending=result.get('pending_rows',0)
+            state['ddb_connection']['stage']='complete' if not pending else 'query_partial'
             return report('partial' if pending else 'waiting_reference' if distribution['mapping_gaps'] else 'complete',
                 '概览日线仍有缺口，保留待补清单' if pending else '概览日线已齐；未下载或重新核验研究分钟历史',
                 next_retry=time.time()+(5 if state['inserted'] else 300) if pending else None)
         except Stopped:return report('stopped','概览补齐已安全停止；已发布缓存保留')
         except Exception as exc:
             from .ddb_vpn import VPNCancelled,VPNError
+            stage=getattr(exc,'stage',None) or ('authentication' if isinstance(exc,CredentialsUnavailable) else
+                'sdk' if isinstance(exc,ModuleNotFoundError) else state['ddb_connection'].get('stage','local_validation'))
+            state['ddb_connection'].update(stage=stage,error_type=type(exc).__name__)
             if isinstance(exc,VPNCancelled):return report('stopped','已取消概览数据VPN准备；原数据保留')
             if isinstance(exc,VPNError):return report('waiting_vpn','DDB数据VPN未就绪；保留已有数据',error_type=type(exc).__name__,error_code=exc.code)
+            if isinstance(exc,ModuleNotFoundError):return report('waiting_sdk',
+                '历史Python缺少DDB SDK；请在设置中选择已有DDB环境，原价格缓存保留',error_type=type(exc).__name__)
+            if isinstance(exc,ConnectionError):return report('waiting_network',
+                'DDB连接未完成（'+stage+'）；目标 '+str(state.get('target') or '待核验')+'，沿用已有价格；分红日期由Y盘独立更新',
+                error_type=type(exc).__name__)
             return report('waiting_calendar' if isinstance(exc,CalendarUnavailable) else 'waiting_credentials' if isinstance(exc,CredentialsUnavailable) else 'failed',
                 '概览补齐未完成，保留已有数据；错误类型见诊断',error_type=type(exc).__name__)
         finally:
