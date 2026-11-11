@@ -1,8 +1,9 @@
 {
-  "release": "2026-11-11-company-http-session-corroboration-ddb-preserved",
+  "release": "2026-11-11-company-indicator-proposal-handoff",
   "branch": "codex/company-apps",
-  "base_commit": "596839df99579382c86a58b2e1abb37339ce8f97",
-  "status": "local_438_verified_http_session_and_recovered_company_ddb_pending",
+  "runtime_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
+  "base_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
+  "status": "proposal_only_runtime_b7d5d55_company_http_ddb_retest_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -10,7 +11,7 @@
   "network_policy": "auto_ddb_manual_realtime",
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
-  "latest_update": {
+  "last_runtime_update": {
     "base_commit": "596839df99579382c86a58b2e1abb37339ce8f97",
     "scope": "HTTP缺显式交易日时，仅在连续交易时段用两次已归档行情交叉核验：同实际代码/稳定昨收、真实市场字段变化、源时钟随接收时间推进且新鲜；通过后按交易日历补准确前一日close，并明确标注corroborated_live_session/日期推定，不能声称交易所认证日期。盘前/午休/盘后、静止或陈旧快照、冲突日期及换日/换时段证据不放行。",
     "ddb_policy": "用户最新要求DDB不暂停，继续原自动数据VPN/历史补齐；已手动连接且新地址192.168.198.77:8904可达时复用现有隧道，不重复登录。实时VPN仍手动，原DDB/VPN配置、账户密码和原文件不改。",
@@ -56,6 +57,48 @@
       "backtest_raw_block": "unchanged"
     }
   },
+  "latest_update": {
+    "base_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
+    "scope": "仅指标页分析、模拟交互示意和新对话交接；无运行代码修改、正式新页或新公司验收。用户确认四项统计统一t_z、均值/中位数虚线跨t_w、跨期分母同日指数S。",
+    "files": [
+      "COMPANY_SYNC.md",
+      "dashboard/APP_RELEASE.json",
+      "dashboard/APP_VALIDATION.md",
+      "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
+      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+      "dashboard/docs/README.md"
+    ],
+    "proposal": "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
+    "next_prompt": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
+    "production_tests_rerun": false,
+    "runtime_validation": {
+      "commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
+      "passed": 438,
+      "seconds": 103.831,
+      "skipped": 0,
+      "resource_warnings": "errors"
+    },
+    "proposal_checks": {
+      "javascript_syntax": "passed",
+      "simulated_formula_and_windows": "passed",
+      "primary_controls": "passed",
+      "svg_geometry_offline_widths": [
+        320,
+        736,
+        1024
+      ],
+      "browser_rendering_inspected": false,
+      "real_market_data_used": false
+    },
+    "company_acceptance": "b7d5d55会话推定HTTP昨收及恢复后的公司DDB尚待新安全包；保持DDB自动、不暂停、新地址192.168.198.77:8904及既有手动数据隧道复用。",
+    "protection": {
+      "files": 8455,
+      "bytes": 365780841,
+      "changed": 0,
+      "backtest_object_and_raw": "unchanged"
+    }
+  },
   "files": [
     ".gitattributes",
     ".gitignore",
@@ -97,6 +140,7 @@
     "dashboard/diagnose_presentation.ps1",
     "dashboard/dividend_check.py",
     "dashboard/docs/DATA_CAPABILITIES.md",
+    "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
     "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
     "dashboard/docs/NEXT_OVERVIEW_IMPLEMENTATION.md",
     "dashboard/docs/README.md",
@@ -441,14 +485,16 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。 Synthetic baseline replay verifies the rejected-close path; no real DDB source success inferred.",
+  "current_validation": "运行b7d5d55：438项独立完整回归通过，103.831秒，无跳过、ResourceWarning作为错误。本次仅文档/模拟示意，公式/窗口/交互和SVG几何离线检查通过，未重跑运行回归、未验收正式新页或公司现场。",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
-    "Company new endpoint: actual authentication, Nov10 source rows and completed price cache after update; current development route TCP timed out",
+    "Company b7d5d55 HTTP two-witness inferred session dates, exact Nov10 actual-contract closes and existing 20/60 percentiles",
+    "Company 192.168.198.77:8904 existing-tunnel reuse, actual SDK authentication/query and remaining historical gaps",
     "Company scrollable settings and three separate dates after update",
+    "Proposed indicator page layout feedback, separate variable t_z calculations, warm-start history and Qt implementation",
     "Two stock quotes, 214 classifications, true historical D and IOPV/share/PCF definitions remain incomplete"
   ],
-  "company_feedback": "Latest b5746c7 safe runtime ZIP verified: 9 JSON complete, same-run 6.153s safe shutdown, 16 actual OI/price/multiplier amounts from 2026-11-09 completed daily data, 300/15 constituent batches. User says other items OK; no click trace or triggered retained-basis event in packet.",
+  "company_feedback": "最新已审公司包为596839d：9JSON完整、同次关闭6.494秒，HTTP20标的source_trade_date_missing补入0，11-10四指数和16期货缺close，DDB停route/waiting_vpn/login汇总代码。b7d5d55及用户恢复后的DDB待新包。",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
   "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes. Current 16 actual futures additionally require genuine latest-completed-day OI for notional comparison; already available prices stay usable while OI is missing, no repeated price-only OI progress. Complete side-cache bars replace missing-OI bars as whole coherent rows. Only actual gaps prepare existing DDB path. Default overview_stock_daily_enabled=false avoids all-stock daily/anchor jobs; stock previous close from HTTP yesterdayClosePrice. Optional full stock mode and unrelated CLI/Excel/research untouched.",
   "next_iteration": {

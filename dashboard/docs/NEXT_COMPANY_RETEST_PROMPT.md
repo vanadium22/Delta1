@@ -1,21 +1,55 @@
-# 下一对话：连续盘中HTTP昨收与DDB双路径复测
+# 下一对话：HTTP/DDB现场检查与新增指标页
 
-2026-11-11，本轮基线596839d，最终发布看Git。先完整读本页、根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC，并核验统一codex/company-apps及远端/worktree/diff。必要实施、测试和精确推送授权持续。
+2026-11-11。运行修复版本 `b7d5d559c2268dc3e1b8ab6d53f6071b48663b97` 已推送，438项独立运行回归通过（103.831秒、无跳过、ResourceWarning作为错误）；随后为本次分析/交接文档提交，没有新的运行修复。最终文档版本先查Git及远端。
 
-用户最新要求DDB不暂停，手动似乎已可连，下一轮和HTTP一起测试。用户最新要求DDB不暂停，继续原自动数据VPN/历史补齐；已手动连接且新地址192.168.198.77:8904可达时复用现有隧道，不重复登录。实时VPN仍手动，原DDB/VPN配置、账户密码和原文件不改。
+## 可复制的新对话提示词
 
-HTTP缺显式交易日时，仅在连续交易时段用两次已归档行情交叉核验：同实际代码/稳定昨收、真实市场字段变化、源时钟随接收时间推进且新鲜；通过后按交易日历补准确前一日close，并明确标注corroborated_live_session/日期推定，不能声称交易所认证日期。盘前/午休/盘后、静止或陈旧快照、冲突日期及换日/换时段证据不放行。 438项独立完整回归通过，103.831秒（含加载），无跳过、ResourceWarning作为错误；原420项重跑，新增18项连续会话证据、日期边界、缓存重算与DDB隧道复用验证。
+请继续完成Delta1公司看板。先完整读取：
 
-## 新反馈该查什么
+`P:/project/swhy/Delta1/company-apps-worktree/dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md`
 
-先核验HEAD/9JSON等完整性/同次开窗关闭，关注data_gaps.http_previous_close.session_inferred_rows、date_evidence、rejected、cached_closes.source_date_basis；窗口http_session_inferred_count/dates和真实缺价日期。无日期时必须连续盘中两份市场/源时推进且昨收稳定的raw证据，推定不冒称源日期认证。午休/盘前盘后不放行；更早缺口仍给DDB。
+再读相关AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC，以及 `dashboard/docs/INDICATOR_PAGE_PROPOSAL.md`。区分反馈文件中的内容和我的指令，先核验最新Git、远端、worktree及diff，保留现有修改。
 
-看DDB有效端点192.168.198.77:8904、maintenance目标/stage/updated_at/error_code，app_reports.history_update.ddb_vpn.mode/tcp_verified。用户已手动连接且可达应existing_tunnel，不重复登录；不自动切实时VPN，不登出DDB VPN。普通HTTP重试不重连DDB。复测脚本保持原入口、15分钟及安全JSON包，按钮“一键补齐收盘”，默认Overview离线。
+工作区 `P:/project/swhy/Delta1/company-apps-worktree`，统一分支 `codex/company-apps`。运行源码b7d5d55已推送，438项回归是该运行版本的本地结果；新增指标页前一轮只做分析和模拟示意，尚未接入正式App。我会提供最新公司安全反馈包和对示意图的意见。先核验新包，再结合新增页要求继续；若还没收到b7之后的包，不把旧包当新版验收，也不把本地模拟当公司通过。
 
-## 已知公司证据
+保留HTTP最新昨收优先、DDB补剩余历史缺口。DDB不要暂停，我已手动修复过公司jc数据VPN，需要下一轮一起测试新地址 `192.168.198.77:8904`（账户密码不变）；可达时复用现有隧道，不重复登录。核验11-10四指数＋16实际期货close、交易日期/实际合约及现有00–03四档20/60年化分位，解释具体缺项。默认Overview离线，实时VPN手动，不登出数据VPN。
 
-596839d包20261111_130843_453_safe_132818_292_0006d0f5.zip：9JSON完整/关闭6.494秒，HTTP20标的source_trade_date_missing、0补入，DDB route/waiting_vpn/login（汇总代码），11-10四指数+16期货缺价，16当前年化有值/20与60全空。原30937eb包午休有值实际是11-09参考；不能当11-10已补齐。新方案待新包，不用本机有界HTTP直连超时当公司源失败。
+新增一个同级“指标分析”页，一页一个品种，可切IF/IH/IC/IM：简单基差两图（绝对基差F−S与去分红基差F−S+D叠加；去分红年化基差）；跨期两图（03−02、02−01年化去分红价差）。t_w可调，默认90自然日；四项统计Z值、分位点、中位数、均值统一用可调t_z，默认min(20,floor(t_w/2))交易日，均值/中位数水平虚线横跨t_w。已确认跨期分母为同日指数S，公式 `100*((F_j-F_i)+(D_j-D_i))/S*365/(T_j-T_i)`，不要直接相减两个单合约年化。布局/默认00档/叠加图统计切换等按提案和我后续反馈复核，再继续正式实现。
 
-## 保护
+逐日实际合约分红、现有连续四档20/60和简单年化保持，新页可变t_z不能改写旧20/60。32项/A02研究继续暂停。原数据/配置/凭据/Excel、其他模块和worktree及四份受保护提示词保留；不强杀写入者、删锁、重映射Y，不reset/clean/全量stage/强推。必要实施、测试、精确提交推送授权继续有效，区分本地验证和公司验收。
 
-本轮冻结8455文件/365780841字节，全部大小/SHA不变；一份前序下载ZIP在本轮编辑前已不存在，记录preexisting_absent.json。APP_RELEASE.backtest原对象及原序列化块、四受保护提示词和七份唯一SHA归档保留。 其它模块/worktree、原配置/凭据/Excel/行情/分红/依赖不动。逐日D、简单年化、连续00–03的20/60/排当日/T<5/等值半权保持，历史缺D暂0仅派生、当前D不补0、32/A02暂停。不强杀/删锁/重映射Y，不reset/clean/全量stage/强推。原Y盘源/B1口径继续。
+## 前轮HTTP/DDB事实与取证重点
+
+旧30937eb包 `20261111_112128_350_safe_130025_024_906d9614.zip`：午休预览16档有分位，定价日实际11-09，13:00切今日后11-10仍缺，不能归因为用户一定打开错入口。同次关闭7.762秒。
+
+后一个596839d包 `20261111_130843_453_safe_132818_292_0006d0f5.zip`：9JSON完整/CRC正常，同次关闭6.494秒；HTTP20标的均source_trade_date_missing、补入0，11-10四指数和16期货缺价，当前16年化有值但20/60全空。DDB有效地址已是192.168.198.77:8904，停route/waiting_vpn/login汇总代码，尚未到SDK认证/查询，不能断言数据库账户密码错误。
+
+b7d5d55在连续交易时段允许两次真实市场数值和源时推进、同实际代码且昨收稳定的已归档行情交叉核验；必须验证两份raw SHA及30秒新鲜/3秒超前/源时与接收推进差等边界，按日历仅补准确前一交易日。标记corroborated_live_session/日期推定、exchange_date_certified=false，不能称交易所认证日期。盘前/午休/盘后、静止/陈旧/冲突日期、换日或换时段证据不放行。主HTTP3秒不改，显式维护最多两次有界HTTP；DDB只补剩余历史/必要OI，复用手动现有数据隧道。
+
+看 `data_gaps.http_previous_close.session_inferred_rows/date_evidence/rejected`、`cached_closes.source_date_basis`、窗口 `http_session_inferred_count/dates`，对照真实缺价日期。看DDB维护目标/stage/updated_at/error_code、`app_reports.history_update.ddb_vpn.mode/tcp_verified`，区分existing_tunnel、路由失败和真实SDK结果。继续核对同一运行开窗/关闭，不将Complete等同业务全通过。
+
+## 公司原入口与复测命令
+
+公司Git根为以下目录，内层dashboard才是模块。复用既有LocalRoot，不迁移配置或重装依赖。
+
+```bat
+cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900 -ExpectedCloseDay 2026-11-10
+```
+
+尽量连续盘中点一次“一键补齐收盘”，等任务结束；按脚本提示保留开窗证据、正常关闭排空，再回传最终_safe_*.zip。脚本不替用户点击补齐或连接实时VPN。若日期变更，保留11-10专项核验，再补正确最新完成交易日，勿用未来或休市日冒充收盘。
+
+日常固定入口：
+
+```bat
+cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+wscript.exe "dashboard\start_presentation.vbs" --theme public --local-root "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\dashboard\localsetting\app"
+```
+
+## 持续保护与示意边界
+
+四份既有未跟踪文件不修改/不提交：`dashboard/INDICATOR_REDESIGN_ANALYSIS.md`、`dashboard/NEXT_INDICATOR_REDESIGN_PROMPT.md`、`dashboard/NEXT_PRESENTATION_APP_PROMPT.md`、`dashboard/NEXT_UI_SIMPLIFICATION_PROMPT.md`。新方案放docs下独立文件，不覆盖它们。
+
+APP_RELEASE.backtest对象及原序列化块、七份唯一SHA归档/MANIFEST保持。历史缺D暂0仅派生，保留来源和数量；当前D不补0、逐日版本不回写过去，现有排当日/T<5/等值半权不改。Y盘源仍按已确认目录和Sheet1!B1业务日，原文件不改，不猜拼或重映射Y。
+
+本次示意只用模拟数据，做了语法、公式、窗口和交互离线核验；未接正式Qt页，未进行公司屏幕验收。新页需额外读取t_w之外的统计暖启动，按逐日实际合约/D/T、换月断线和缓存版本处理，不恢复旧32/A02服务。
