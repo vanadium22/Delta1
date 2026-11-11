@@ -327,7 +327,8 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             pending=result.get('pending_rows',0)
             state['ddb_connection']['stage']='complete' if not pending else 'query_partial'
             return report('partial' if pending else 'waiting_reference' if distribution['mapping_gaps'] else 'complete',
-                '概览日线仍有缺口，保留待补清单' if pending else '概览日线已齐；未下载或重新核验研究分钟历史',
+                ('概览待补：收盘 '+str(result.get('pending_close_rows','待核验'))+' 条、持仓 '+str(result.get('pending_oi_rows','待核验'))+
+                 ' 条；缺持仓不阻断有效收盘分位') if pending else '概览日线已齐；未下载或重新核验研究分钟历史',
                 next_retry=time.time()+(5 if state['inserted'] else 300) if pending else None)
         except Stopped:return report('stopped','概览补齐已安全停止；已发布缓存保留')
         except Exception as exc:

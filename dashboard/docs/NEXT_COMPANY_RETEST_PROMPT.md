@@ -1,11 +1,15 @@
 # 下一对话：新DDB端点、更新页与盘前日期
 
-2026-11-11。先完整读本页，再核验根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC与Git/远端/worktree/diff。当前基线d4c2b9b，最终发布号看Git。
+用户已澄清：11-06疑问实际指期货年化分位显示“缺收盘”，应核验20/60窗口的具体期货/指数收盘，不能按顶部Y盘分红日期处理。
+
+本轮追加修复：DDB返回有效OHLC但OI缺失时仍保存收盘，持仓缺口独立保留，不假补0；相同行不重复归档或计作持仓进展。单批ValueError/KeyError/TypeError校验失败保留安全失败明细并继续其他有界任务，网络/SDK错误仍结束本轮。分位悬浮列缺失日期/标的，更新页汇总去重后的收盘缺口。 395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。 最新交接基线b1d1f44，最终提交看Git。优先核验continuous_annual.daily_missing、分位窗口missing及收盘/持仓分别待补；不把旧D表日期当价格缺口，也不冒称公司已补齐。
+
+2026-11-11。先完整读本页，再核验根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC与Git/远端/worktree/diff。本轮追加基线b1d1f44，最终发布号看Git。
 
 ## 可复制接续提示词
 
 ```text
-请继续Delta1公司看板，工作区P:/project/swhy/Delta1/company-apps-worktree，统一codex/company-apps。本轮用户确认DDB新地址192.168.198.77:8904、账号密码不变，并要求修复更新页填写框挤压及盘前11-06日期疑问。
+请继续Delta1公司看板，工作区P:/project/swhy/Delta1/company-apps-worktree，统一codex/company-apps。本轮用户确认DDB新地址192.168.198.77:8904、账号密码不变，并澄清期货年化分位显示“缺收盘”，须核验历史窗口的期货/指数具体收盘缺项。
 
 本机原DDB配置已经是新地址，但忽略配置不随git pull传播。新版App把非秘密端点和原凭据引用分离，默认使用发布的新地址，显式history_ddb_host/history_ddb_port优先；VPN路由验证和数据库会话使用同端点，原账号/密码/TLS文件不重写。更新页可只保存地址，表单分组滚动/输入框40像素，原账号编辑保留。
 

@@ -61,6 +61,13 @@ class FuturesCard(Panel):
             widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 去分红年化基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
+            if missing:
+                details=['\n缺项日期/标的：']
+                for item in missing[:8]:
+                    symbols=item.get('missing_symbols') or [item.get('symbol') or '待映射']
+                    details.append(str(item.get('day') or '待日期')+'  '+', '.join(str(s) for s in symbols))
+                if len(missing)>8:details.append('其余 '+str(len(missing)-8)+' 日见导出诊断')
+                widget.setToolTip(widget.toolTip()+'\n'+'\n'.join(details))
         source_day=view.get('dividend_snapshot');pricing_day=view.get('pricing_day')
         carried=bool(source_day and pricing_day and source_day<pricing_day)
         self.dividend_note.setText('D '+numeric(view.get('dividend_points'),6)+'点 · '+

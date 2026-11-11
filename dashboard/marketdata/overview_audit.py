@@ -214,7 +214,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             local_copy_performed=False,
             plan_note='先逐行核验可用标准收盘再分类；本诊断不复制或补库，剩余仍是本地依赖缺口，不证明远端供给')
         result['ddb']['last_job']={k:v for k,v in result['ddb']['last_job'].items() if k in
-            ('schema','target','inserted','pending_rows','pending_batches','status','error_types','updated_at')}
+            ('schema','target','inserted','pending_rows','pending_batches','pending_close_rows','pending_oi_rows','status','error_types','failed_batches','updated_at')}
         from .ddb_connection import connection_summary
         result['ddb']['connection']=connection_summary(config)
         maintenance=read_object(directory(config,local_root)/'maintenance/status.json')

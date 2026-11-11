@@ -1,6 +1,7 @@
 import os
 os.environ['QT_QPA_PLATFORM']='offscreen'
 import tempfile
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -182,17 +183,25 @@ class RefreshQueueTests(unittest.TestCase):
     def test_rapid_selection_drops_old_result_but_applies_latest(self):
         for cls in (PresentationWindow,DeveloperWindow):
             with self.subTest(edition=cls.__name__):
-                delivered=[];calls=[]
+                delivered=[];calls=[];started=threading.Event();release=threading.Event()
                 def capture(*a,**kw):
-                    number=len(calls);calls.append(number);time.sleep(.06);return number
+                    number=len(calls);calls.append(number)
+                    if number==0:started.set();release.wait(5)
+                    return number
                 target='dashboard.native.market_overview.capture'
                 with patch(target,side_effect=capture):
                     w=self.window(cls);w.render=delivered.append
-                    w.refresh();pump(.01)
-                    for _ in range(12):w.selection_changed()
-                    pump(.2)
-                    self.assertNotIn(0,delivered);self.assertTrue(delivered)
-                    self.assertLessEqual(len(calls),3);w.close();pump(.1)
+                    try:
+                        w.refresh()
+                        deadline=time.monotonic()+2
+                        while not started.is_set() and time.monotonic()<deadline:pump(.003)
+                        self.assertTrue(started.is_set())
+                        for _ in range(12):w.selection_changed()
+                        release.set();pump(.2)
+                        self.assertNotIn(0,delivered);self.assertTrue(delivered)
+                        self.assertLessEqual(len(calls),3)
+                    finally:
+                        release.set();w.close();pump(.1)
 
     def test_failure_clears_busy_and_latest_retry_runs(self):
         for cls in (PresentationWindow,DeveloperWindow):

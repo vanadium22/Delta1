@@ -2,7 +2,13 @@
 
 本轮DDB新地址为192.168.198.77:8904，原账号密码/TLS沿用。更新页已改为滚动分组，并区分价格日、DDB目标和Y盘分红日。本机直连新地址3秒超时，未查询11-10；公司新连接和布局待现场核验。原公司Git根/LocalRoot/完整复测链保持。
 
-## 本次更新后的简短核验
+## 本次分位“缺收盘”核验
+
+用户已澄清：11-06疑问实际指期货年化分位显示“缺收盘”，应核验20/60窗口的具体期货/指数收盘，不能按顶部Y盘分红日期处理。 更新后悬浮20/60分位查看缺失日期/实际期货及对应指数代码，再执行一次DDB一键补齐。该任务覆盖连续窗口需要的历史收盘，兼顾最新完成日；不只是拉一次昨天。
+
+有效收盘先保存，缺OI单列；更新状态的pending_close_rows与pending_oi_rows分别对应收盘/持仓，failed_batches为有界校验失败明细。只有持仓缺口时，已有收盘分位可继续计算；分位仍缺时回传Overview中的continuous_annual.daily_missing和futures[].continuous_percentiles.windows。未连通时仍保留缺项，不能认作已修复源数据。
+
+## 前序地址/布局核验
 
 正常关闭旧看板并等待排空后，在公司原Git根执行git pull --ff-only，再通过原入口重开。进入“数据更新/设置”：
 
@@ -152,7 +158,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮[APP_VALIDATION](APP_VALIDATION.md)为388项回归通过，103.581秒，无跳过、ResourceWarning作为错误，含DDB端点/日期/凭据与滚动表单新增验证。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
+本轮[APP_VALIDATION](APP_VALIDATION.md)：395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
 
 新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
 

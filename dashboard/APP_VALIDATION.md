@@ -1,20 +1,32 @@
 # 看板当前验证与公司验收边界
 
-2026-11-11。基线d4c2b9b，统一codex/company-apps；范围为DDB端点、数据更新页布局、日期来源与失败阶段。精确文件见[APP_RELEASE](APP_RELEASE.json)，公司操作见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)。
+2026-11-11。本轮追加基线b1d1f44，统一codex/company-apps；范围为期货分位缺收盘修复，兼容前序DDB端点、数据更新页布局、日期来源与失败阶段。精确文件见[APP_RELEASE](APP_RELEASE.json)，公司操作见[APP_COMPANY_TEST](APP_COMPANY_TEST.md)。
 
 ## 最终回归
 
-**388项通过，103.581秒（含加载；unittest执行102.020秒），无失败、无跳过，ResourceWarning作为错误。** 前轮298项全部重跑，加入历史/凭据/VPN/数字版兼容与12项本轮回归。中间测试夹具的空history_roots及清理后Mock参数断言已修正，最终结果不沿用中间失败。
+**395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。** 前序端点/滚动表单/凭据及全部既有回归保持。
 
-标准unittest加载器：local_artifacts/validation/company_20261111_ddb_layout/run_tests.py；完整日志full_final.txt，临时文件均在本轮tmp内。等价命令：
+标准unittest加载器：local_artifacts/validation/company_20261111_percentile_closes/run_tests.py；完整日志local_artifacts/validation/company_20261111_percentile_closes/full_final.txt，临时文件均在本轮tmp内。等价命令：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
 $env:DELTA1_THEME='public'
-& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning local_artifacts/validation/company_20261111_ddb_layout/run_tests.py tests.test_app_collection tests.test_app_pipeline tests.test_company_safe_return tests.test_dividend_check_input tests.test_futures_overview tests.test_market_overview tests.test_market_overview_ui tests.test_overview_afternoon_feedback tests.test_overview_audit tests.test_overview_capabilities tests.test_overview_company_feedback tests.test_overview_data tests.test_overview_dated tests.test_overview_details tests.test_overview_etf_display tests.test_overview_final_polish tests.test_overview_percentiles tests.test_overview_resilience tests.test_overview_revision tests.test_overview_wind_evidence tests.test_overview_zero_dividends tests.test_percentile_audit tests.test_realtime_store tests.test_app_launcher tests.test_app_preflight tests.test_app_instance tests.test_workspace_cleanup tests.test_app_history tests.test_app_vpn tests.test_history_maintenance tests.test_history_credentials tests.test_numeric_view tests.test_numeric_vpn tests.test_overview_ddb_refresh
+& 'P:/code_content/anaconda/install/python.exe' -B -X utf8 -W error::ResourceWarning local_artifacts/validation/company_20261111_percentile_closes/run_tests.py tests.test_app_collection tests.test_app_pipeline tests.test_company_safe_return tests.test_dividend_check_input tests.test_futures_overview tests.test_market_overview tests.test_market_overview_ui tests.test_overview_afternoon_feedback tests.test_overview_audit tests.test_overview_capabilities tests.test_overview_company_feedback tests.test_overview_data tests.test_overview_dated tests.test_overview_details tests.test_overview_etf_display tests.test_overview_final_polish tests.test_overview_percentiles tests.test_overview_resilience tests.test_overview_revision tests.test_overview_wind_evidence tests.test_overview_zero_dividends tests.test_percentile_audit tests.test_realtime_store tests.test_app_launcher tests.test_app_preflight tests.test_app_instance tests.test_workspace_cleanup tests.test_app_history tests.test_app_vpn tests.test_history_maintenance tests.test_history_credentials tests.test_numeric_view tests.test_numeric_vpn tests.test_overview_ddb_refresh tests.test_overview_percentile_close_repair
 ```
 
 12项新增验证：发布端点和显式覆盖、原连接对象/加密文件与TLS选项保留、TCP和SDK会话使用新端点/同账号密码、11-11盘前目标11-10、同端点准备数据网络、失败不假报完整、三尺寸窗口和按钮/输入框、仅保存地址不读写凭据、无效输入不写、旧密码解密失败不覆盖、价格日与Y盘分红日区分、混合源日期不声称全部最新。
+
+## 分位缺收盘：追加复现
+
+用户已澄清：11-06疑问实际指期货年化分位显示“缺收盘”，应核验20/60窗口的具体期货/指数收盘，不能按顶部Y盘分红日期处理。
+
+本轮追加修复：DDB返回有效OHLC但OI缺失时仍保存收盘，持仓缺口独立保留，不假补0；相同行不重复归档或计作持仓进展。单批ValueError/KeyError/TypeError校验失败保留安全失败明细并继续其他有界任务，网络/SDK错误仍结束本轮。分位悬浮列缺失日期/标的，更新页汇总去重后的收盘缺口。
+
+同一合成回包（IF2611.CFE、2026-11-10、有效收盘4000、OI为空），b1d1f44接受0行，修复后保留1行/收盘4000，raw均保留。独立测试从缺11-10收盘的窗口出发，补收盘后20/60均恢复数值，OI仍pending；重复相同价格返回inserted=0且不重归档，后续真实OI=0才解除持仓缺口。另验证坏ETF批次不挡后续期货日期，而连接失败仍停止后续请求。分位悬浮和更新页说明具体缺项，不调整窗口/公式或用0填价格。
+
+7项新增测试与close_oi_reproduction.json仅本地模拟证据；公司是否缺11-10还是其他历史日、是否命中OI或批次路径，仍需新公司Overview，不能冒称公司已补齐。
+
+首次全量复验在旧刷新队列测试的固定sleep等待上偶发提前交付；独立重查通过，随后改用事件同步确保先切换选择再释放模拟结果。最终395项已完整重跑通过，不修改业务队列或放宽原断言。
 
 ## UI实测
 

@@ -479,4 +479,12 @@ class PipelinePage(QWidget):
         if failure:summary+=' · 上次DDB阶段 '+str(failure)
         self.head.setText(summary+'\n'+dates_text(report.get('data_dates') or {})+'\n'+p.message+
             ('\n'+history['message'] if history.get('message') else ''))
+        gaps=set()
+        data=(getattr(p.window,'state',None) or {}).get('market_overview') or {}
+        for row in data.get('futures',[]):
+            for window in (row.get('continuous_percentiles') or {}).get('windows',{}).values():
+                for item in window.get('missing',[]):
+                    if item.get('reason') in ('future_close_missing','index_close_missing'):
+                        gaps.update((str(s),str(item.get('day') or '待日期')) for s in item.get('missing_symbols') or [item.get('symbol')])
+        if gaps:self.head.setText(self.head.text()+'\n分位历史缺收盘：'+str(len(gaps))+' 个标的/交易日，最近 '+max(day for _,day in gaps)+'；具体代码和日期见分位悬浮/导出诊断。')
         self.details.setPlainText(json.dumps(report,ensure_ascii=False,indent=2,default=str))

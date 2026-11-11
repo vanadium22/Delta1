@@ -198,26 +198,43 @@ def fetch_batch(client,job,raw_root):
         if not row['low']<=min(row['open'],row['close'])<=max(row['open'],row['close'])<=row['high']:continue
         values={k:float(row[k]) if finite(row.get(k)) else None for k in
                 ('open','high','low','close','volume','amount','oi','source_prev_close','adjustment_factor')}
-        if job.get('requires_oi') and (values['oi'] is None or values['oi']<0):continue
+        # Valid OHLC remains useful to percentiles even if OI is unavailable.
+        # requests() independently retains the position gap for the size pie.
+        if values['oi'] is not None and values['oi']<0:values['oi']=None
         result[str(row['symbol'])]=dict(symbol=str(row['symbol']),trade_date=day,source_at=day+'T15:00:00+08:00',
             source='DDB '+source['table'],units=units(info),unit_factors=factors,is_final=True,**values)
     return result
 
 
 def fill(client,config,local_root,target,metadata,*,stop=lambda:False,budget=45,fetcher=fetch_batch):
-    root=directory(config,local_root);deadline=time.monotonic()+budget;inserted=0;errors=[]
+    root=directory(config,local_root);deadline=time.monotonic()+budget;inserted=0;errors=[];failed=[]
     jobs=requests(config,local_root,target,metadata)
     for job in jobs:
         if stop() or time.monotonic()>=deadline:break
         try:
             rows=fetcher(client,job,root/'downloads')
+            saved=read_day(config,local_root,job['day']).get('rows',{})
+            # Repeating an unchanged price-only row is not OI progress and must
+            # not create endless five-second retries or duplicate revisions.
+            keys=('symbol','trade_date','source_at','source','is_final','open','high','low','close','volume','amount','oi','source_prev_close','adjustment_factor','units','unit_factors')
+            rows={s:r for s,r in rows.items() if any(r.get(k)!=saved.get(s,{}).get(k) for k in keys)}
             if rows:publish_day(config,local_root,job['day'],rows);inserted+=len(rows)
         except Exception as exc:
-            errors.append(type(exc).__name__);break
+            errors.append(type(exc).__name__)
+            failed.append(dict(day=job['day'],asset=job['asset'],symbols=job['symbols'],error_type=type(exc).__name__))
+            # A rejected dated batch must not block unrelated valid closes.
+            # Transport/SDK failures still stop this bounded connection cycle.
+            if not isinstance(exc,(ValueError,KeyError,TypeError)):break
     remaining=requests(config,local_root,target,metadata)
+    close_gaps=oi_gaps=0
+    for job in remaining:
+        saved=read_day(config,local_root,job['day']).get('rows',{})
+        close_gaps+=sum(s not in saved for s in job['symbols'])
+        oi_gaps+=sum(not finite(saved.get(s,{}).get('oi')) or saved[s]['oi']<0 for s in job['symbols']) if job.get('requires_oi') else 0
     value=dict(schema='overview-daily-status-v1',target=target,inserted=inserted,
         pending_batches=len(remaining),pending_rows=sum(len(r['symbols']) for r in remaining),
-        status='complete' if not remaining else 'partial',error_types=errors,
+        status='complete' if not remaining else 'partial',error_types=errors,failed_batches=failed,
+        pending_close_rows=close_gaps,pending_oi_rows=oi_gaps,
         updated_at=datetime.now(timezone.utc).isoformat())
     _atomic_bytes(root/'status.json',_json_bytes(value));return value
 
