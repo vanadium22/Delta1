@@ -382,6 +382,15 @@ class MarketOverviewEngine:
         preserve(model,state['market_overview'],now)
         from dashboard.marketdata.overview_market_sizes import build as market_sizes
         state['market_overview']['market_sizes']=market_sizes(reference_data['data'],state['market_overview']['futures'],self.daily,live,now,metadata,completed)
+        request=getattr(model,'indicator_analysis_request',None)
+        if request:
+            from .indicator_analysis import IndicatorAnalysisEngine
+            if not hasattr(self,'indicator_analysis'):self.indicator_analysis=IndicatorAnalysisEngine(model)
+            try:
+                state['indicator_analysis']=self.indicator_analysis.snapshot(dict(request),now=now,completed=completed,
+                    metadata=metadata,dividends=self.dividends,repo=repo,frozen=frozen,refresh_clock=not explicit_now)
+            except (OSError,ValueError,KeyError,TypeError) as exc:
+                state['indicator_analysis']=dict(selection=dict(request),error='本地日线/日历/映射缺项（'+type(exc).__name__+'）')
         return calculated(model, state, trace)
 
 

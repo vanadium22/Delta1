@@ -1,14 +1,15 @@
 # 公司完整复测命令（2026-11-11）
 
-本轮基线596839d。HTTP兼容实际公司缺tradeDate的回包，新增连续盘中双证据日期推定；DDB按用户最新要求不暂停，仍复用原配置自动准备数据VPN。若你已手动连接jc且新地址可达，直接复用现有隧道。下方命令继续完成更新、开窗/关闭后Overview和安全ZIP。
+本次在39760f0后正式实现“指标分析”，最终运行提交见Git HEAD；469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 b7d5d55新公司包已确认11-10四指数/16期货昨收及16档20/60恢复、新端点DDB认证/query_partial/existing_tunnel、同次关闭2.731秒。仍缺16期货OI与12 ETF收盘，不当业务全通过。
 
 ## 本轮重点
 
-1. 尽量在09:30–11:30或13:00–15:00运行，便于HTTP积累两次新行情。正常关闭旧看板等排空，新窗口点一次“一键补齐收盘”。确认生效DDB为192.168.198.77:8904；无需重填DDB/VPN账号密码。实时VPN仍手动。
-2. HTTP先最多两批（间隔至少2.1秒）；无显式日期时必须同实际代码、昨收不变、市场数值及源时钟真正推进，源时贴近接收时且处于同一连续时段。正常主采集积累时还会每10秒复用一批。静止/旧报价/午休/盘前盘后不以电脑日期放行。新日期依据在悬浮/诊断标“日期推定”，不是源端认证交易日。
-3. 重点核验2026-11-10四指数及16实际期货收盘、四品种每个00–03档20/60分位。查看data_gaps.http_previous_close的inserted、session_inferred_rows、date_evidence、rejected和cached_closes.source_date_basis；窗口另列http_session_inferred_count/dates，当前数值旁不加“估”。OI缺口独立，不影响完整价格分位。
-4. DDB保持自动；已连通时history_update.ddb_vpn.mode应为existing_tunnel，未连通才原自动登录流程。看同次target/updated_at、maintenance.connection.stage、error_code、ddb_vpn.mode/tcp_verified；若已到query/complete才说明数据库阶段推进。旧配置文件地址不同不等于本次生效地址错误。HTTP失败本身不额外启动DDB。
-5. 等补齐任务结束后保持开窗，按脚本回车存Overview；再正常关闭等待排空/回车自动安全打包。15分钟结束任务未完可继续等，失败也完成打包。只回传最后打印的_safe_*.zip；脚本不代替页面点击，不强杀/删锁或重映射Y。
+1. 正常关闭旧看板等排空，原Git根更新后执行下方一键复测。默认入口、LocalRoot、依赖、配置及账号密码继续复用；DDB不暂停、可达时复用既有jc数据隧道，实时VPN手动。
+2. 新同级“指标分析”：切换IF/IH/IC/IM；基差默认00，可选01/02/03，只影响左两图。右两图始终03−02、02−01。看叠加图统计去分红/绝对切换，四图/基差/跨期查看切换。
+3. t_w默认90自然日、10–365可调；t_z默认min(20,floor(t_w/2))交易日、2–120可调。关闭自动后手动t_z不随t_w改变。确认四项统计统一t_z、均值/中位数水平虚线横跨t_w。悬浮查看具体合约/F/S/D/T、缺项、临期排除、历史D暂0和HTTP日期推定，不把断口补成连续线。
+4. 需要历史时在指标页点一次“补齐所选窗口”，等原Wind→本地→HTTP最新昨收→DDB剩余日线流程结束；不反复点击、不恢复研究分钟/32项/A02。真实缺价/映射/冲突留空，当前D不补0；非连续时段看标明日期的完成收盘参考，不拿昨天价冒充今日。
+5. 1080p/125%最大化检查四图同屏；窄窗口单列/统计移到图下并可滚动。最终保持指标页打开，等一轮计算后按脚本回车保存开窗Overview；正常关闭等排空，再回车保存关闭后Overview并回传最后_safe_*.zip。app_reports.matching_profile[].indicator_analysis有本次应用选择、当前值/统计/样本缺项白名单，未在该页时可为空；不以离线计算预览冒充屏幕验收。
+6. 保留11-10专项核验。若测试时已进入后续已完成日，另外核验正确最新完成日，不把11-10缓存当更晚收盘。15:10前11-11尚未纳入完成日；之后HTTP yesterdayClosePrice仍是11-10，只能由真实11-11收盘来源补11-11。期货OI/ETF收盘继续按真实缺口判断。
 
 ## 0. 推荐：一键Runtime复测
 
@@ -150,7 +151,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮[APP_VALIDATION](APP_VALIDATION.md)：438项独立完整回归通过，103.831秒（含加载），无跳过、ResourceWarning作为错误；原420项重跑，新增18项连续会话证据、日期边界、缓存重算与DDB隧道复用验证。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
+本轮[APP_VALIDATION](APP_VALIDATION.md)：469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 最新已审b7d5d55公司包同次关闭2.731秒，11-10四指数/16期货昨收及全部原20/60分位恢复；新指标页仍待公司更新验收。
 
 新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
 

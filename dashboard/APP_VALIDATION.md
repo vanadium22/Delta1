@@ -1,5 +1,28 @@
 # 看板当前验证与公司验收边界
 
+## 11月11日正式指标页与新公司包
+
+实施基线39760f0，运行版本见Git HEAD。469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。
+
+39模块，标准unittest加载器去重；完整模块、全文及计时见local_artifacts/validation/company_20261111_indicator_page/full_modules.json、full_final.txt、full_result.json。新增31项包括公式、窗口、图外历史、真实逐日映射/断线、缺D/冲突/缺价隔离、缓存重算、实时新鲜与三腿3秒配对、所选日线维护参数不保存配置、白名单证据及主Qt窗口/冻结快照。两项原导航断言按新增同级页更新，研究Service仍未构造。
+
+100%/125%实际Qt主入口离屏截图各三尺寸已检查；1536×864逻辑尺寸/125%对应1920×1080像素，四图完整可见、无横纵滚动，输入框39逻辑像素。860×620单列、统计移到图下并正常滚动。测试均隔离合成输入，未打开可见测试窗口，不当公司屏幕验收。统计参考线两端等于t_w边界，线值等于t_z均值/中位数，换合约/缺项连接掩码验证通过。新模块/测试Ruff F及改动Python未定义名检查通过。
+
+新公司安全包20261111_141737_345_safe_143604_770_d37cd87a.zip已核验：b7d5d55、9份JSON/CRC完整，11-10四指数＋16实际期货close齐备，16档原20/60年化分位全部恢复；HTTP日期依据为corroborated_live_session（推定，非交易所认证）。DDB在192.168.198.77:8904复用existing_tunnel、tcp_verified=true、authenticated=true，已到query_partial；当前仍待16合约OI及12只ETF收盘。同次运行安全关闭2.731秒，waiting为空，成分sqlite_committed。
+
+包119408字节，SHA256 4bd430f9185aba8faf62412f436898fd80bc65290397db3c5ddc417b5dc3e874；同run_path、9JSON、Complete=true/MissingReports=[]。20缓存日期均11-10、身份匹配、source_date_basis均corroborated_live_session。维护首轮18项，两项源时未推进被拒后在主采集补齐。包没有原始双raw，因此只核验安全报告保留的推定依据，不声称独立检验了未回传raw。
+
+开窗及关闭后页面引擎预览均16年化/16个20日/16个60日分位可用，F/S/D/T公式复算一致；原历史专用诊断的percentile为空不等于页面为空。当前D来源11-06，20日暂0为0，60日暂0共412样本行，真实旧D仍缺。最终28个计划行=16期货OI+12 ETF close；14:18:09的pending_close_rows=14早于另外两项HTTP补入，不能反推16期货当前仍缺close。7.623秒旧运行排除；本次f80a70e关闭complete、waiting=[]、2.731秒。
+
+本机2026-11-11 15:06的新端点TCP仅3秒超时，source_query=false、vpn_changed=false、config_changed=false；没有额外登录或打印秘密，不覆盖公司已认证query_partial证据。新页真实市场及公司屏幕仍待验收。
+
+冻结8456文件/365900249字节，四提示词、原数据/配置/凭据/Excel/依赖/ZIP和七份唯一归档按大小/SHA检查；APP_RELEASE.backtest对象及原序列化块不变，最终结果见本轮protection_result.json。真实报告/截图/探测仅本机忽略目录，不入发布。
+
+## 前序记录
+
+以下为b7d5d55及更早提交当时的记录，测试数量、旧包缺项和“尚未实现”仅描述对应历史阶段；当前结论以上文为准。
+
+
 ## 11月11日指标页方案交接（仅文档）
 
 运行源码为b7d5d55，下面438项结果属于该版本；本次未改运行代码、未重跑或增加正式App回归。新增页仍处分析/模拟示意阶段，四项统计统一t_z、均值/中位数虚线跨t_w，跨期分母同日指数S已确认。要求见docs/INDICATOR_PAGE_PROPOSAL.md。

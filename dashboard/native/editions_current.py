@@ -44,6 +44,8 @@ def freeze_window(state):
     payload=freeze_state(state)
     if state.get('market_overview'):
         payload['snapshots'][0]['market_overview']=state['market_overview']
+    if state.get('indicator_analysis'):
+        payload['snapshots'][0]['indicator_analysis']=state['indicator_analysis']
     if state.get('research_v6'):
         payload['research_v6']=state['research_v6']
     if state.get('research_pages'):
@@ -95,6 +97,16 @@ class PresentationWindow(QMainWindow):
             self.quotes.index_clicked.connect(self.open_index)
         self.research_pages={}
         self.query_page=None
+        self.indicator_page=None
+        frozen_indicators=self.frozen_payload['snapshots'][0].get('indicator_analysis') if self.frozen_payload else None
+        if self.market_mode and (not self.frozen_payload or frozen_indicators):
+            from .indicator_analysis_view import IndicatorAnalysisPage
+            self.indicator_page=IndicatorAnalysisPage(model)
+            self.pages.addTab(self.indicator_page,'指标分析')
+            if frozen_indicators:self.indicator_page.freeze(frozen_indicators)
+            else:
+                self.indicator_page.changed.connect(self.selection_changed)
+                self.indicator_page.history_requested.connect(self.indicator_history)
         if self.market_mode and not self.frozen_payload:
             from .market_analysis_view import MarketAnalysisPage
             self.query_page=MarketAnalysisPage(model)
@@ -160,8 +172,14 @@ class PresentationWindow(QMainWindow):
         self.task.signals.failed.connect(self.failed);self.pool.start(self.task)
 
     def selection_changed(self,*_):
+        if self.indicator_page is not None:
+            self.indicator_page.set_active(self.pages.currentWidget() is self.indicator_page)
         self.generation+=1
         self.refresh()
+
+    def indicator_history(self,request):
+        self.model.indicator_history_request=dict(request)
+        if hasattr(self,'pipeline'):self.pipeline.one_click()
 
     def completed(self,state,generation):
         self.busy=False
@@ -184,6 +202,7 @@ class PresentationWindow(QMainWindow):
         render_pages(self,state.get('research_pages'))
         # QuotePanel accepts the same overview data as the research window.
         self.quotes.render({**state,'quotes':state.get('quotes',[])})
+        if self.indicator_page is not None:self.indicator_page.render(state.get('indicator_analysis'))
         for c in state['overview']:
             product_card=self.quotes.cards[c['root']]
             if c.get('display_kind'):

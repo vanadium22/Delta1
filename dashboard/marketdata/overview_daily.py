@@ -67,6 +67,10 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
     from .overview_percentiles import requirements
     for item in requirements(metadata,target)['rows']:
         day_symbols.setdefault(item['day'],set()).add(item['symbol'])
+    if config.get('_indicator_analysis_request'):
+        from .indicator_analysis import maintenance_rows
+        for item in maintenance_rows(target,config['_indicator_analysis_request'],metadata):
+            day_symbols.setdefault(item['day'],set()).add(item['symbol'])
     for group in reference.get('indices',{}).values():
         if not config.get('overview_stock_daily_enabled',False):continue
         anchor=group.get('as_of')
@@ -137,7 +141,8 @@ def seed_local(repo,frozen,config,local_root,target,metadata,*,stop=lambda:False
     pending={}
     for symbol,days in sorted(wanted.items()):
         if stop():break
-        try:frame=repo.read_window(symbol,'1d',count=65,as_of=pd.Timestamp(target+'T23:59:59+08:00'),
+        count=max(65,(date.fromisoformat(target)-date.fromisoformat(min(days))).days+2) if config.get('_indicator_analysis_request') else 65
+        try:frame=repo.read_window(symbol,'1d',count=count,as_of=pd.Timestamp(target+'T23:59:59+08:00'),
             fields=('open','high','low','close','volume','turnover','open_interest'),frozen=frozen)
         except ValueError:continue
         for row in usable_records(frame):

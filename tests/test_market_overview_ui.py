@@ -103,7 +103,7 @@ class OverviewUiTests(unittest.TestCase):
 
     def test_twenty_card_summary_and_flat_navigation_keep_clear_large_cards(self):
         w=self.window();summary=w.quotes
-        self.assertEqual([w.pages.tabText(i) for i in range(w.pages.count())],['概览','指数','ETF','股指期货','行情分析'])
+        self.assertEqual([w.pages.tabText(i) for i in range(w.pages.count())],['概览','指数','ETF','股指期货','指标分析','行情分析'])
         self.assertEqual(len(summary.index_cards),4);self.assertEqual(len(summary.cards),16)
         self.assertEqual(w.pages.currentIndex(),0)
         for width,height in ((860,620),(1440,900),(1920,1080)):

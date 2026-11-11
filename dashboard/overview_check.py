@@ -89,6 +89,8 @@ def app_reports(local_root, runtime_root=None):
                 timing=value.get(name) or {}
                 entry[name]={k:timing.get(k) for k in ('calculation_started_at','calculation_finished_at','calculation_seconds',
                     'realtime_sequence','ui_applied_at','ui_apply_seconds','selection_generation','active_workers','pending_requests')}
+            from dashboard.marketdata.indicator_analysis import summary as indicator_summary
+            entry['indicator_analysis']=indicator_summary(value.get('indicator_analysis'))
             target=matching if same else others
             if len(target)<3:target.append(entry)
         except (OSError,ValueError,TypeError,AttributeError):

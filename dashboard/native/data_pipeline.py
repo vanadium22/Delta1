@@ -360,6 +360,7 @@ class DataPipeline(QObject):
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
         from .overview_status import data_dates
         from dashboard.marketdata.ddb_connection import app_endpoint
+        from dashboard.marketdata.indicator_analysis import summary as indicator_summary
         try:ddb_connection=app_endpoint(config)
         except (ValueError,TypeError):ddb_connection=dict(source='invalid_app_setting',error_type='InvalidEndpoint')
         coverage={key:dict(total=len(overview.get(key,[])),valid=sum(bool(r.get('quality',{}).get('usable')) for r in overview.get(key,[])),
@@ -367,6 +368,7 @@ class DataPipeline(QObject):
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
             shutdown=self.shutdown_state(),startup=getattr(self.model,'startup_timing',{}),
+            indicator_analysis=indicator_summary((getattr(self.window,'state',None) or {}).get('indicator_analysis')),
             ddb_connection=ddb_connection,data_dates=data_dates(overview,self.completed_target),
             history_pid=self.history.process.pid if self.history.process else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,

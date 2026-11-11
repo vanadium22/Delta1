@@ -360,8 +360,11 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                 except Exception:pass
 
 
-def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None,overview_only=False):
+def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None,overview_only=False,indicator_request=None):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
+    if indicator_request:
+        from .indicator_analysis import selection
+        config['_indicator_analysis_request']=selection(**indicator_request)
     if reference_file:config['reference_file']=str(reference_file)
     if overview_only:return _run_overview_cycle(local_root,config,budget=budget,stop_file=stop_file,direct_factory=direct_factory,
         lifetime=lifetime,vpn_mode=vpn_mode,include_completed_today=include_completed_today,now=now)
@@ -600,6 +603,10 @@ def main():
     parser.add_argument('--include-completed-today',action='store_true',help='App may include today only after 15:10, never an unfinished session')
     parser.add_argument('--overview-daily',action='store_true',help='Fill separate ETF/constituent completed-close cache')
     parser.add_argument('--overview-only',action='store_true',help='App-only completed-close cache; no research minute downloads or shared audit rewrite')
+    parser.add_argument('--indicator-root',choices=('IF','IH','IC','IM'))
+    parser.add_argument('--indicator-slot',type=int,default=0)
+    parser.add_argument('--indicator-window',type=int,default=90)
+    parser.add_argument('--indicator-stats',type=int,default=20)
     parser.add_argument('--owner-pid',type=int)
     parser.add_argument('--reference-file',type=Path)
     parser.add_argument('--vpn-mode',choices=('auto','manual'),default='manual')
@@ -609,7 +616,8 @@ def main():
         with LauncherLifetime(args.owner_pid,stop_file=args.stop_file) as lifetime:
             result=run_cycle(args.local_root,force=args.force,stop_file=args.stop_file,preserve_existing=args.preserve_existing,
                              incremental=args.incremental,lifetime=lifetime,reference_file=args.reference_file,vpn_mode=args.vpn_mode,
-                             include_completed_today=args.include_completed_today,overview_daily=args.overview_daily,overview_only=args.overview_only)
+                             include_completed_today=args.include_completed_today,overview_daily=args.overview_daily,overview_only=args.overview_only,
+                             indicator_request=dict(root=args.indicator_root,slot=args.indicator_slot,window=args.indicator_window,stats=args.indicator_stats) if args.indicator_root else None)
         print(json.dumps({k:result.get(k) for k in ('state','target','pending_symbol_days','inserted')},ensure_ascii=False))
         return 0 if result.get('state') in ('complete','date_checked') else 2
     except OSError:

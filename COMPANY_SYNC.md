@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-11正式指标分析页，基线39760f0：一品种/四图、可调t_w/t_z、均值中位数虚线跨图、跨期同日S分母；逐日合约/D/T和图外历史、版本LRU、冻结快照及所选品种有界日线维护接入，原20/60与32/A02暂停保持。469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 100%/125%三尺寸离屏截图核验，1536×864/125%四图无滚动。b7新公司包9JSON完整，11-10四指数+16期货昨收及原20/60恢复，DDB新端点复用隧道并认证查询、仍缺16 OI/12ETF close，同次关闭2.731秒。新页公司现场仍待[复测](dashboard/APP_COMPANY_TEST.md)；[实现](dashboard/docs/INDICATOR_PAGE_PROPOSAL.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
+
 - 2026-11-11指标页方案与接续交接：运行源码仍为已推送b7d5d55，本轮仅文档/模拟示意，没有运行代码变更或新公司验收。新增一品种可切换的基差两图＋03−02/02−01跨期两图；四项统计统一t_z，均值/中位数虚线跨t_w，跨期分母同日指数S已获用户确认。正式页尚未实现，32/A02继续暂停；DDB不暂停，HTTP会话推定/192.168.198.77:8904及11-10/原20与60仍待新安全包。[分析](dashboard/docs/INDICATOR_PAGE_PROPOSAL.md)、[新对话提示词](dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md)、[交接](dashboard/PROJECT_HANDOFF.md)。
 
 - 2026-11-11 HTTP连续会话核验，基线596839d：HTTP缺显式交易日时，仅在连续交易时段用两次已归档行情交叉核验：同实际代码/稳定昨收、真实市场字段变化、源时钟随接收时间推进且新鲜；通过后按交易日历补准确前一日close，并明确标注corroborated_live_session/日期推定，不能声称交易所认证日期。盘前/午休/盘后、静止或陈旧快照、冲突日期及换日/换时段证据不放行。 用户最新要求DDB不暂停，继续原自动数据VPN/历史补齐；已手动连接且新地址192.168.198.77:8904可达时复用现有隧道，不重复登录。实时VPN仍手动，原DDB/VPN配置、账户密码和原文件不改。 438项独立完整回归通过，103.831秒（含加载），无跳过、ResourceWarning作为错误；原420项重跑，新增18项连续会话证据、日期边界、缓存重算与DDB隧道复用验证。 公司596839d包已证HTTP20个标的全因source_trade_date_missing补入0，DDB停route/waiting_vpn/login，11-10四指数+16期货收盘缺失。本轮新会话推定方案与用户修复后的DDB连接仍待新公司包，不以本地模拟代替源端验收。 [公司复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。

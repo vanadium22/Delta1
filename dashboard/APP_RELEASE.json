@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-11-company-indicator-proposal-handoff",
+  "release": "2026-11-11-company-indicator-page",
   "branch": "codex/company-apps",
-  "runtime_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
-  "base_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
-  "status": "proposal_only_runtime_b7d5d55_company_http_ddb_retest_pending",
+  "runtime_commit": "see_git_HEAD_after_this_release",
+  "base_commit": "39760f090ef7c17700c474474e9385bbdfb4a904",
+  "status": "indicator_page_local_validated_company_new_page_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -58,43 +58,106 @@
     }
   },
   "latest_update": {
-    "base_commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
-    "scope": "仅指标页分析、模拟交互示意和新对话交接；无运行代码修改、正式新页或新公司验收。用户确认四项统计统一t_z、均值/中位数虚线跨t_w、跨期分母同日指数S。",
+    "base_commit": "39760f090ef7c17700c474474e9385bbdfb4a904",
+    "scope": "正式Qt指标页及独立可调统计/历史规划；核验b7公司新包，原HTTP/DDB和固定20/60口径保持。",
     "files": [
+      "AGENTS.md",
       "COMPANY_SYNC.md",
+      "dashboard/AGENTS.md",
+      "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
       "dashboard/PROJECT_HANDOFF.md",
+      "dashboard/README.md",
       "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-      "dashboard/docs/README.md"
+      "dashboard/docs/README.md",
+      "dashboard/marketdata/history_maintenance.py",
+      "dashboard/marketdata/indicator_analysis.py",
+      "dashboard/marketdata/overview_daily.py",
+      "dashboard/native/data_pipeline.py",
+      "dashboard/native/editions_current.py",
+      "dashboard/native/history_maintenance.py",
+      "dashboard/native/indicator_analysis.py",
+      "dashboard/native/indicator_analysis_view.py",
+      "dashboard/native/market_overview.py",
+      "dashboard/overview_check.py",
+      "tests/test_indicator_analysis.py",
+      "tests/test_indicator_analysis_ui.py",
+      "tests/test_market_overview_ui.py",
+      "tests/test_overview_revision.py"
     ],
-    "proposal": "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
-    "next_prompt": "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-    "production_tests_rerun": false,
-    "runtime_validation": {
+    "previous_runtime": {
       "commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
-      "passed": 438,
-      "seconds": 103.831,
+      "passed": 438
+    },
+    "tests": {
+      "passed": 469,
+      "seconds": 105.841,
       "skipped": 0,
+      "new_tests": 31,
       "resource_warnings": "errors"
     },
-    "proposal_checks": {
-      "javascript_syntax": "passed",
-      "simulated_formula_and_windows": "passed",
-      "primary_controls": "passed",
-      "svg_geometry_offline_widths": [
-        320,
-        736,
-        1024
+    "indicator": {
+      "implemented": true,
+      "roots": [
+        "IF",
+        "IH",
+        "IC",
+        "IM"
       ],
-      "browser_rendering_inspected": false,
-      "real_market_data_used": false
+      "default_slot": 0,
+      "channels": [
+        "raw_and_adjusted",
+        "adjusted_simple_annual",
+        "03-02_annual",
+        "02-01_annual"
+      ],
+      "calendar_denominator": "same_day_spot",
+      "window_natural_days": [
+        10,
+        365
+      ],
+      "stats_trading_days": [
+        2,
+        120
+      ],
+      "default_window": 90,
+      "default_stats": "min(20,floor(t_w/2))",
+      "std_ddof": 1,
+      "mean_median": "latest_t_z_horizontal_over_t_w",
+      "history_cache_entries": 4,
+      "owned_history_daily_only": true
     },
-    "company_acceptance": "b7d5d55会话推定HTTP昨收及恢复后的公司DDB尚待新安全包；保持DDB自动、不暂停、新地址192.168.198.77:8904及既有手动数据隧道复用。",
+    "layout": {
+      "renderer": "production_Qt_offscreen_synthetic_only",
+      "scales": [
+        1,
+        1.25
+      ],
+      "logical_sizes": [
+        [
+          1920,
+          1080
+        ],
+        [
+          1536,
+          864
+        ],
+        [
+          860,
+          620
+        ]
+      ],
+      "wide_four_chart_scroll": false,
+      "narrow_scroll": true,
+      "min_control_height": 39
+    },
+    "company_acceptance": "b7 HTTP/原20与60/DDB现有隧道和认证查询/同次2.731s关闭已证；本轮新指标页及长窗口真实覆盖待新公司包。",
     "protection": {
-      "files": 8455,
-      "bytes": 365780841,
+      "files": 8456,
+      "bytes": 365900249,
       "changed": 0,
       "backtest_object_and_raw": "unchanged"
     }
@@ -466,7 +529,12 @@
     "dashboard/marketdata/overview_http_closes.py",
     "tests/test_overview_http_closes.py",
     "dashboard/marketdata/overview_http_session.py",
-    "tests/test_overview_http_session.py"
+    "tests/test_overview_http_session.py",
+    "dashboard/marketdata/indicator_analysis.py",
+    "dashboard/native/indicator_analysis.py",
+    "dashboard/native/indicator_analysis_view.py",
+    "tests/test_indicator_analysis.py",
+    "tests/test_indicator_analysis_ui.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -485,16 +553,15 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "运行b7d5d55：438项独立完整回归通过，103.831秒，无跳过、ResourceWarning作为错误。本次仅文档/模拟示意，公式/窗口/交互和SVG几何离线检查通过，未重跑运行回归、未验收正式新页或公司现场。",
+  "current_validation": "469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 正式Qt新页100%/125%三尺寸离屏核验；新页真实公司使用仍待验收。",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
-    "Company b7d5d55 HTTP two-witness inferred session dates, exact Nov10 actual-contract closes and existing 20/60 percentiles",
-    "Company 192.168.198.77:8904 existing-tunnel reuse, actual SDK authentication/query and remaining historical gaps",
-    "Company scrollable settings and three separate dates after update",
-    "Proposed indicator page layout feedback, separate variable t_z calculations, warm-start history and Qt implementation",
-    "Two stock quotes, 214 classifications, true historical D and IOPV/share/PCF definitions remain incomplete"
+    "Company new indicator page actual root/slot/window switching, long-window coverage, real snapshot values and screen acceptance",
+    "16 actual futures latest completed-day OI and 12 selected ETF closes remain absent in reviewed Nov10 cache",
+    "True historical D: reviewed 60-day windows contain 412 zero-placeholder sample rows; 20-day windows zero count 0",
+    "Two stock quotes, 214 classifications, IOPV/share/PCF field definitions remain incomplete"
   ],
-  "company_feedback": "最新已审公司包为596839d：9JSON完整、同次关闭6.494秒，HTTP20标的source_trade_date_missing补入0，11-10四指数和16期货缺close，DDB停route/waiting_vpn/login汇总代码。b7d5d55及用户恢复后的DDB待新包。",
+  "company_feedback": "新公司安全包20261111_141737_345_safe_143604_770_d37cd87a.zip已核验：b7d5d55、9份JSON/CRC完整，11-10四指数＋16实际期货close齐备，16档原20/60年化分位全部恢复；HTTP日期依据为corroborated_live_session（推定，非交易所认证）。DDB在192.168.198.77:8904复用existing_tunnel、tcp_verified=true、authenticated=true，已到query_partial；当前仍待16合约OI及12只ETF收盘。同次运行安全关闭2.731秒，waiting为空，成分sqlite_committed。",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
   "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes. Current 16 actual futures additionally require genuine latest-completed-day OI for notional comparison; already available prices stay usable while OI is missing, no repeated price-only OI progress. Complete side-cache bars replace missing-OI bars as whole coherent rows. Only actual gaps prepare existing DDB path. Default overview_stock_daily_enabled=false avoids all-stock daily/anchor jobs; stock previous close from HTTP yesterdayClosePrice. Optional full stock mode and unrelated CLI/Excel/research untouched.",
   "next_iteration": {
@@ -527,24 +594,26 @@
     "current_D_16": "verified_2026-11-10_source_2026-11-06_actual_contracts",
     "history_20_slots": 16,
     "history_60_slots": 16,
-    "historical_D_missing_rows": 428,
+    "historical_D_missing_rows": 412,
     "etf_close_NAV_pairs": 12,
     "etf_closing_premium_screenshot": "verified_2026-10-28",
     "intraday_IOPV": "mapping_required",
     "net_creation": "mapping_required",
     "PCF": "mapping_required",
-    "new_shutdown": "verified_b5746c7_same_run_complete_6.153s",
+    "new_shutdown": "verified_b7d5d55_same_run_2.731s",
     "live_basis_excel_reconciliation": "16_same_input_company_realtime_rows_verified_user_may_have_compared_old_workbook",
     "new_zero_estimate_and_ETF_UI": "16_numerical_20_and_60_verified_b5746c7; user_says_other_items_ok; no_UI_click_trace_in_JSON",
     "latest_display_resilience": "user_reports_other_items_ok; b5746c7_preview_basis_display_not_triggered; local_regressions_passed",
     "latest_aum_history": "verified_12_symbols_each_60_dated_points_total_720_2026-08-10_to_2026-11-09; latest_pair_source_AUM_equal",
-    "latest_shutdown_performance": "verified_b5746c7_same_run_closed_complete_waiting_empty_6.153s_sqlite_committed",
-    "numerical_history_policy": "includes_428_flagged_derived_missing_D_zero_placeholders_not_complete_real_D_coverage",
+    "latest_shutdown_performance": "verified_b7d5d55_same_run_2.731s_complete_waiting_empty_sqlite_committed",
+    "numerical_history_policy": "reviewed_b7d5d55_60_day_412_flagged_D_zero_sample_rows_20_day_zero_count_0_not_complete_true_D",
     "latest_market_sizes": "verified_b5746c7_16_actual_OI_price_multiplier_rows_and_4_totals; completed_daily_2026-11-09_not_11-10_realtime",
-    "latest_startup": "new_shared_interpreter_optimization_local_verified_company_pending",
-    "latest_ddb_endpoint": "published_192.168.198.77:8904_original_credentials_retained_company_pending",
+    "latest_startup": "b7d5d55_same_run_shared_interpreter_window_shown_3.598s_first_result_9.324s_not_source_arrival",
+    "latest_ddb_endpoint": "verified_b7d5d55_192.168.198.77:8904_existing_tunnel_tcp_authenticated_query_partial",
     "latest_preopen_price": "Nov11 target Nov10 tested locally; actual source not queried due current-machine TCP timeout; Nov6 dividend is Y source",
-    "latest_settings_layout": "local_three_sizes_scroll_40px_verified_company_pending"
+    "latest_settings_layout": "local_three_sizes_scroll_40px_verified_company_pending",
+    "indicator_page": "implemented_local_469_tests_and_Qt_layout_verified_company_pending",
+    "latest_previous_close": "verified_b7d5d55_2026-11-10_four_indices_16_actual_futures_HTTP_inferred_session_dates_not_exchange_certified"
   },
   "company_feedback_afternoon": {
     "package_sha256": "fb133dd757b9a6e23c5a0882ae294fd3f8daacf4f1b58e211adf3783127f2969",
@@ -1727,5 +1796,40 @@
     "current_annual_available": 16,
     "percentile20_available": 0,
     "percentile60_available": 0
+  },
+  "company_feedback_20261111_session": {
+    "package": "20261111_141737_345_safe_143604_770_d37cd87a.zip",
+    "sha256": "4bd430f9185aba8faf62412f436898fd80bc65290397db3c5ddc417b5dc3e874",
+    "bytes": 119408,
+    "commit": "b7d5d559c2268dc3e1b8ab6d53f6071b48663b97",
+    "json_files": 9,
+    "complete": true,
+    "missing_reports": [],
+    "same_run_open_closed": true,
+    "shutdown_seconds": 2.731,
+    "archive": "sqlite_committed",
+    "http_initial_inserted": 18,
+    "http_final_cached": 20,
+    "cached_day": "2026-11-10",
+    "cached_basis": "corroborated_live_session",
+    "exchange_date_certified": false,
+    "raw_witness_files_in_safe_package": false,
+    "current_annual": 16,
+    "percentile20": 16,
+    "percentile60": 16,
+    "history_D_zero_sample_rows_20": 0,
+    "history_D_zero_sample_rows_60": 412,
+    "ddb": {
+      "host": "192.168.198.77",
+      "port": 8904,
+      "mode": "existing_tunnel",
+      "tcp_verified": true,
+      "authenticated": true,
+      "stage": "query_partial",
+      "inserted": 0,
+      "pending_future_oi": 16,
+      "pending_etf_close": 12
+    },
+    "new_indicator_page_in_this_packet": false
   }
 }
