@@ -56,7 +56,8 @@ function Invoke-CompanyRetest {
     Write-Host '保持新看板打开约10分钟，检查各页和大/中/小比例。中在1080p完整显示卡片。'
     Write-Host '进入数据更新/设置，确认DDB为192.168.198.77:8904；点一次“一键补齐收盘”并等待结束：先本地/HTTP昨收，再DDB历史缺口。'
     if ($ExpectedDay) { Write-Host ('本轮重点核验收盘日期：'+$ExpectedDay+'；核对期货实际合约及对应指数。') }
-    Write-Host '检查四品种四档20/60日年化分位；HTTP缺源交易日会拒绝入库，缺项日期/代码见悬浮和诊断。'
+    Write-Host '检查四品种四档20/60日年化分位；无显式交易日时，HTTP需连续盘中两次行情真实推进且昨收稳定，诊断标会话日期推定。'
+    Write-Host 'DDB自动流程保持；你手动连接的数据VPN若已能到新地址，会直接复用隧道。补齐结束后实时VPN仍由你手动切换。'
     Write-Host '同时检查四指数点击、卡内字号/基差沿用、ETF与期货名义规模双饼图和粗条标签。'
     for ($remaining=$Seconds;$remaining -gt 0;$remaining-=[Math]::Min(30,$remaining)) {
         Write-Progress -Activity '保持看板打开取样' -Status ('剩余约 '+$remaining+' 秒') -PercentComplete (100*(1-$remaining/[Math]::Max(1,$Seconds)))

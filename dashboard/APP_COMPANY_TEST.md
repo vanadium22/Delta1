@@ -1,14 +1,14 @@
 # 公司完整复测命令（2026-11-11）
 
-本轮基线30937eb，新版按钮“一键补齐收盘”依次核验本地、HTTP最新昨收，再用DDB补剩余历史缺口。DDB生效地址192.168.198.77:8904，原账号密码/TLS不变。HTTP没有明确源交易日时会拒绝写入，不按电脑日期猜；公司实际返回仍需本次反馈包核验。
+本轮基线596839d。HTTP兼容实际公司缺tradeDate的回包，新增连续盘中双证据日期推定；DDB按用户最新要求不暂停，仍复用原配置自动准备数据VPN。若你已手动连接jc且新地址可达，直接复用现有隧道。下方命令继续完成更新、开窗/关闭后Overview和安全ZIP。
 
 ## 本轮重点
 
-1. 正常关闭旧看板并等排空，再执行下方CMD。新看板“数据更新/设置”确认DDB地址/端口；只改端点无需重填账户密码。
-2. 点一次“一键补齐收盘”并等待任务结束。核对2026-11-10实际期货及对应指数收盘、四品种每个00–03档的20/60日年化分位。11-11当前交易日的合格HTTP昨收才可落到11-10；只有时分秒/旧源日期时，诊断会列source_trade_date_missing/source_trade_date_not_current，真实缺口继续交DDB。盘后也不把昨收写成当天。
-3. 分位悬浮查看仍缺的日期/代码；Y盘分红日即使11-06也不能当价格日。缺OI独立显示，只有OI待补时不应阻断已有完整收盘分位。公式、逐日D和连续20/60窗口不变。
-4. Overview新增data_gaps.http_previous_close（状态、拒绝原因、cached_closes源日/实际身份），app_reports.matching_profile[].history_update/collection/overview_runtime亦列HTTP证据。DDB维护记录仍看目标/同次stage，端点配置不等于连接成功。若无历史缺口，stage=not_needed，不读凭据或启动SDK。
-5. 等补齐任务完成后再按脚本提示回车保存开窗Overview，然后正常关闭/等排空、回车生成关闭后Overview与安全ZIP。15分钟取样结束时任务未结束可以继续等；失败也完成打包。脚本不代替你点击页面按钮。
+1. 尽量在09:30–11:30或13:00–15:00运行，便于HTTP积累两次新行情。正常关闭旧看板等排空，新窗口点一次“一键补齐收盘”。确认生效DDB为192.168.198.77:8904；无需重填DDB/VPN账号密码。实时VPN仍手动。
+2. HTTP先最多两批（间隔至少2.1秒）；无显式日期时必须同实际代码、昨收不变、市场数值及源时钟真正推进，源时贴近接收时且处于同一连续时段。正常主采集积累时还会每10秒复用一批。静止/旧报价/午休/盘前盘后不以电脑日期放行。新日期依据在悬浮/诊断标“日期推定”，不是源端认证交易日。
+3. 重点核验2026-11-10四指数及16实际期货收盘、四品种每个00–03档20/60分位。查看data_gaps.http_previous_close的inserted、session_inferred_rows、date_evidence、rejected和cached_closes.source_date_basis；窗口另列http_session_inferred_count/dates，当前数值旁不加“估”。OI缺口独立，不影响完整价格分位。
+4. DDB保持自动；已连通时history_update.ddb_vpn.mode应为existing_tunnel，未连通才原自动登录流程。看同次target/updated_at、maintenance.connection.stage、error_code、ddb_vpn.mode/tcp_verified；若已到query/complete才说明数据库阶段推进。旧配置文件地址不同不等于本次生效地址错误。HTTP失败本身不额外启动DDB。
+5. 等补齐任务结束后保持开窗，按脚本回车存Overview；再正常关闭等待排空/回车自动安全打包。15分钟结束任务未完可继续等，失败也完成打包。只回传最后打印的_safe_*.zip；脚本不代替页面点击，不强杀/删锁或重映射Y。
 
 ## 0. 推荐：一键Runtime复测
 
@@ -150,7 +150,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮[APP_VALIDATION](APP_VALIDATION.md)：420项独立回归通过，117.339秒（含加载），无跳过、ResourceWarning作为错误；原395项重跑，新增25项HTTP昨收、日期/合约/路由与页面缓存回归。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
+本轮[APP_VALIDATION](APP_VALIDATION.md)：438项独立完整回归通过，103.831秒（含加载），无跳过、ResourceWarning作为错误；原420项重跑，新增18项连续会话证据、日期边界、缓存重算与DDB隧道复用验证。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
 
 新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
 

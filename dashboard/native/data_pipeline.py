@@ -354,7 +354,7 @@ class DataPipeline(QObject):
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
             'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous',
-            'scope','research_downloads_enabled','http_previous_close','ddb_connection')}
+            'scope','research_downloads_enabled','http_previous_close','ddb_connection','updated_at','error_code')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
@@ -483,8 +483,11 @@ class PipelinePage(QWidget):
         http=max(candidates,key=lambda r:r['updated_at'],default={})
         if http:
             summary+='\nHTTP昨收：目标 '+str(http.get('target') or '—')+'，本次补入 '+str(http.get('inserted',0))+' 条'
+            if http.get('session_inferred_rows'):summary+='（连续盘中核验 '+str(http['session_inferred_rows'])+' 条）'
             rejected=http.get('rejected') or []
             if rejected:summary+='；未通过校验 '+str(len(rejected))+' 条（交易日/实际合约/价格原因见详细诊断）'
+            from dashboard.marketdata.overview_http_closes import SESSION_PENDING
+            if any(r.get('reason') in SESSION_PENDING for r in rejected):summary+='；等待下一批盘中新行情核验'
         self.head.setText(summary+'\n'+dates_text(report.get('data_dates') or {})+'\n'+p.message+
             ('\n'+history['message'] if history.get('message') else ''))
         gaps=set()

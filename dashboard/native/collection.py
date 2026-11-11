@@ -194,6 +194,9 @@ class CollectionJob:
                                     raw_root=Path(root),raw_reference=record.get('raw_response_reference'),stop=self.stop_event.is_set)
                             except (OSError,ValueError,TypeError,KeyError) as exc:
                                 captured=dict(status='unavailable',inserted=0,error_type=type(exc).__name__)
+                            from dashboard.marketdata.overview_http_closes import SESSION_PENDING
+                            if any(r.get('reason') in SESSION_PENDING for r in captured.get('rejected',[])):
+                                previous_close_due=time.monotonic()+10
                             with self.lock:self.status['http_previous_close']=captured
                         with self.lock:
                             good=record.get("status") in {"success", "partial"}

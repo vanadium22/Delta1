@@ -67,6 +67,9 @@ def app_reports(local_root, runtime_root=None):
                 ('state','target','updated_at','message','error_type','error_code','inserted')}
             entry['history_update']['ddb_connection']={k:history_connection.get(k) for k in
                 ('host','port','source','stage','authenticated','error_type')}
+            history_vpn=history.get('ddb_vpn') or {}
+            entry['history_update']['ddb_vpn']={k:history_vpn.get(k) for k in
+                ('state','mode','tcp_verified','tls_pin_verified')}
             from dashboard.marketdata.overview_http_closes import safe_status
             entry['history_update']['http_previous_close']=safe_status(history.get('http_previous_close'))
             entry.update(report_path=str(path.resolve()),same_profile=same,

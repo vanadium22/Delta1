@@ -70,6 +70,7 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
         if item['reason']:continue
         if symbol not in tables:tables[symbol]=final_rows(daily.get(symbol))
         f=tables[symbol].get(item['day'],{});s=spot.get(item['day'],{})
+        item['http_session_inferred']=any(r.get('source_date_basis')=='corroborated_live_session' for r in (f,s))
         record=historical_dividend(dividends,symbol,item['day']);dividend=record.get('points')
         item['dividend_points']=dividend
         item['dividend_estimated_zero']=record['estimated_zero']
@@ -103,6 +104,7 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
         missing=[r for r in rows if not r['excluded'] and r['annual_pct'] is None]
         good=[r for r in rows if not r['excluded'] and r['annual_pct'] is not None]
         estimated=[r for r in rows if not r['excluded'] and r.get('dividend_estimated_zero')]
+        inferred=[r for r in good if r.get('http_session_inferred')]
         values=[raw(r['annual_pct']) for r in good]
         available=len(rows)==length and not missing and len(values)>=2
         pct=None
@@ -115,11 +117,13 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
                 current_reason or '当前年化基差不可用' if current.value is None else
                 '有效年化样本不足' if not available else '前'+str(length)+'交易日窗口；排除当前日，等值半权，已知T<5日另列排除')
         if estimated:reason+='；历史缺分红暂按0估算 '+str(len(estimated))+'日'
+        if inferred:reason+='；HTTP连续盘中核验昨收 '+str(len(inferred))+'日（日期推定）'
         output['windows'][str(length)]=dict(percentile=pct,samples=len(good),calendar_days=length,
             expected_eligible=length-len(excluded),excluded=len(excluded),complete=available,
             estimated=bool(estimated),zero_dividend_count=len(estimated),
             zero_dividend_dates=[r['day'] for r in estimated],
             zero_dividend_rows=[dict(day=r['day'],symbol=r['symbol']) for r in estimated],
+            http_session_inferred_count=len(inferred),http_session_inferred_dates=[r['day'] for r in inferred],
             dividend_observations_complete=not estimated and not any(r['reason']=='dividend_missing' for r in missing),
             start=rows[0]['day'] if rows else None,end=rows[-1]['day'] if rows else None,reason=reason,
             missing_counts=counts,

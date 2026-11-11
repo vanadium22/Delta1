@@ -227,11 +227,12 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         from .overview_http_closes import status as http_previous_close_status
         http=http_previous_close_status(config,local_root)
         http={k:v for k,v in http.items() if k in ('schema','status','target','inserted','already_present','examined',
-            'rejected','source_trade_dates','date_policy','received_at','updated_at','reason','error_type','network_requested','maintenance_target')}
+            'rejected','source_trade_dates','date_policy','received_at','updated_at','reason','error_type','network_requested','maintenance_target',
+            'session_inferred_rows','explicit_date_rows','date_evidence','network_requests')}
         http['matches_current_target']=http.get('target')==target
         from dashboard.native.market_overview import previous_session
         http['cached_closes']=[{k:r.get(k) for k in ('symbol','trade_date','close','source','source_at','source_trade_date',
-            'source_quote_time','source_security_id','date_evidence_fields','received_at')}
+            'source_quote_time','source_security_id','date_evidence_fields','received_at','source_date_basis')}
             for day in (target,previous_session(target)) for r in read_day(config,local_root,day).get('rows',{}).values()
             if r.get('acquisition')=='http_previous_close']
         result['http_previous_close']=http

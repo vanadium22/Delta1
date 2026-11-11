@@ -1,11 +1,13 @@
-"""Promote explicitly dated HTTP previous closes into the overview daily cache.
+"""Promote dated or corroborated live-session HTTP previous closes into daily cache.
 
 The existing network owner calls this module; it never prepares a VPN, loads
-credentials, queries historical HTTP dates, or uses receipt dates as source dates.
+credentials or queries historical HTTP dates. A time-only session date requires
+two archived live-market witnesses and remains explicitly labelled as inferred.
 Only the current source session's exact previous trading day may be filled.
 """
 from datetime import date
 import re
+import time
 import uuid
 
 import pandas as pd
@@ -18,6 +20,8 @@ from .overview_reference import ROOTS
 from .overview_sessions import latest_completed_session
 
 DATE_FIELDS=('tradeDate','tradingDate','tradingDay')
+SESSION_PENDING=frozenset(('live_session_evidence_pending','live_session_clock_not_advanced',
+    'market_values_not_advanced','previous_close_changed_during_session','prior_session_witness_unavailable'))
 
 
 def _clock(value=None):
@@ -80,22 +84,26 @@ def status(config,local_root):
 def safe_status(value):
     if not isinstance(value,dict):return {}
     result={k:v for k,v in value.items() if k in ('schema','status','target','inserted','already_present','examined',
-        'source_trade_dates','date_policy','received_at','updated_at','reason','error_type','network_requested','maintenance_target')}
+        'source_trade_dates','date_policy','received_at','updated_at','reason','error_type','network_requested','maintenance_target',
+        'session_inferred_rows','explicit_date_rows','date_evidence','network_requests')}
     result['rejected']=[{k:r[k] for k in ('symbol','reason') if k in r}
         for r in value.get('rejected',[])[:20] if isinstance(r,dict)]
+    result['date_evidence']=[{k:r[k] for k in ('symbol','basis','witness_count','exchange_date_certified') if k in r}
+        for r in value.get('date_evidence',[])[:20] if isinstance(r,dict)]
     return result
 
 
 def ingest(record,config,local_root,metadata,*,now=None,target=None,raw_root=None,raw_reference=None,wanted=None,stop=lambda:False):
     """Fill absent prices only. Keep HTTP date/identity/raw evidence on every row.
 
-    No current OI, OHLC, settlement price or calendar-inferred date is copied into
+    No current OI, OHLC, settlement price or uncorroborated receipt date enters
     the prior day's close. One bad quote leaves other independently valid legs usable.
     """
     clock=_clock(now)
     value=dict(schema='overview-http-previous-close-v1',status='unavailable',target=target,
         inserted=0,already_present=0,examined=0,rejected=[],source_trade_dates=[],
-        date_policy='explicit_source_trade_date_only',updated_at=clock.isoformat())
+        date_policy='explicit_date_or_corroborated_live_session',session_inferred_rows=0,explicit_date_rows=0,
+        date_evidence=[],updated_at=clock.isoformat())
     try:today,expected=_session(clock)
     except ValueError as exc:
         value.update(status='not_applicable',reason=str(exc));return _save(config,local_root,value)
@@ -119,6 +127,17 @@ def ingest(record,config,local_root,metadata,*,now=None,target=None,raw_root=Non
     candidates=sorted(requested if wanted is None else requested&set(wanted))
     saved=read_day(config,local_root,expected).get('rows',{})
     rows={};capture_id=uuid.uuid4().hex
+    from .overview_http_session import SessionBook
+    session=SessionBook(config,local_root,today)
+    evidence=None
+    def archive():
+        nonlocal evidence,raw_reference,raw_root
+        if evidence is not None:return evidence
+        if raw_reference is None:
+            raw_root=directory(config,local_root)/'http_previous_close'
+            raw_reference=publish_raw_batch(raw_root,capture_id,record)
+        evidence=dict(root=str(raw_root),**{key:raw_reference.get(key) for key in ('path','sha256','body_sha256','body_representation')})
+        return evidence
     for symbol in candidates:
         # ETF/stock prev-close adjustment conventions are outside this policy.
         if symbol not in ROOTS.values() and not symbol.endswith('.CFE'):continue
@@ -128,17 +147,29 @@ def ingest(record,config,local_root,metadata,*,now=None,target=None,raw_root=Non
             quote=data.get(symbol)
             if not isinstance(quote,dict):raise ValueError('quote_missing')
             if quote.get('securityId')!=symbol:raise ValueError('security_id_mismatch')
-            source_day=_source_day(quote)
-            if source_day!=today:raise ValueError('source_trade_date_not_current')
+            if symbol in saved:
+                value['already_present']+=1;continue
             market_time=source_time(quote.get('quoteTimestamp'))
             if market_time is None:raise ValueError('source_time_missing')
-            if pd.Timestamp(source_day+'T'+market_time+'+08:00')>received+pd.Timedelta(seconds=3):
+            source=pd.Timestamp(today+'T'+market_time+'+08:00')
+            if source>received+pd.Timedelta(seconds=3):
                 raise ValueError('source_time_in_future')
             close=price_number(quote.get('yesterdayClosePrice'))
             if close is None:raise ValueError('previous_close_invalid')
+            try:
+                source_day=_source_day(quote)
+                if source_day!=today:raise ValueError('source_trade_date_not_current')
+                proof=dict(basis='explicit_source_trade_date',exchange_date_certified=False,source_trade_date_explicit=True,session_day=source_day,
+                    witness_count=1,fields=[key for key in DATE_FIELDS if quote.get(key) is not None])
+                value['explicit_date_rows']+=1
+            except ValueError as exc:
+                if str(exc)!='source_trade_date_missing':raise
+                if config.get('overview_http_session_evidence_enabled',True) is False:raise
+                proof=session.observe(symbol,quote,source,received,clock,close,archive())
+                source_day=today;value['session_inferred_rows']+=1
             if source_day not in value['source_trade_dates']:value['source_trade_dates'].append(source_day)
-            if symbol in saved:
-                value['already_present']+=1;continue
+            value['date_evidence'].append(dict(symbol=symbol,basis=proof['basis'],witness_count=proof['witness_count'],
+                exchange_date_certified=proof['exchange_date_certified']))
             ref=metadata.get(symbol,{})
             rows[symbol]=dict(symbol=symbol,trade_date=expected,close=close,is_final=True,
                 source_at=expected+'T15:00:00+08:00',source='HTTP yesterdayClosePrice',
@@ -147,16 +178,15 @@ def ingest(record,config,local_root,metadata,*,now=None,target=None,raw_root=Non
                 source_trade_date=source_day,source_quote_time=market_time,received_at=received.isoformat(),
                 date_evidence_fields=[key for key in DATE_FIELDS if quote.get(key) is not None],
                 source_security_id=symbol,listing_date=ref.get('listing_date'),expiry_date=ref.get('expiry_date'),
+                date_evidence=proof,source_date_basis=proof['basis'],
                 open=None,high=None,low=None,volume=None,amount=None,oi=None,
                 units={'close':'index_point'},unit_factors={})
         except ValueError as exc:value['rejected'].append(dict(symbol=symbol,reason=str(exc)))
+    if not stop():session.save()
     if rows and not stop():
         try:
-            if raw_reference is None:
-                raw_root=directory(config,local_root)/'http_previous_close'
-                raw_reference=publish_raw_batch(raw_root,capture_id,record)
-            evidence={key:raw_reference.get(key) for key in ('path','sha256','body_sha256','body_representation')}
-            for row in rows.values():row['raw_response']=dict(root=str(raw_root),**evidence)
+            evidence=archive()
+            for row in rows.values():row['raw_response']=evidence
             published=publish_day(config,local_root,expected,rows,missing_only=True)
             value['inserted']=sum(published.get('rows',{}).get(s,{}).get('http_capture_id')==capture_id for s in rows)
         except (OSError,ValueError,TypeError) as exc:
@@ -166,11 +196,20 @@ def ingest(record,config,local_root,metadata,*,now=None,target=None,raw_root=Non
     return _save(config,local_root,value)
 
 
-def collect(config,local_root,target,metadata,*,jobs,now=None,client_factory=None,stop=lambda:False):
-    """One bounded HTTP attempt before DDB; caller already holds network lease."""
+def _pause(seconds,stop):
+    deadline=time.monotonic()+seconds
+    while time.monotonic()<deadline:
+        if stop():return False
+        time.sleep(min(.1,max(0,deadline-time.monotonic())))
+    return not stop()
+
+
+def collect(config,local_root,target,metadata,*,jobs,now=None,client_factory=None,stop=lambda:False,pause=_pause):
+    """At most two bounded HTTP batches before DDB; same network lease owner."""
     clock=_clock(now)
+    started=time.monotonic()
     value=dict(schema='overview-http-previous-close-v1',status='not_needed',target=target,maintenance_target=target,inserted=0,
-        updated_at=clock.isoformat(),date_policy='explicit_source_trade_date_only',network_requested=False)
+        updated_at=clock.isoformat(),date_policy='explicit_date_or_corroborated_live_session',network_requested=False)
     try:today,expected=_session(clock)
     except ValueError as exc:
         value.update(status='not_applicable',reason=str(exc));return _save(config,local_root,value)
@@ -185,17 +224,29 @@ def collect(config,local_root,target,metadata,*,jobs,now=None,client_factory=Non
         if stop():value['status']='cancelled'
         return _save(config,local_root,value)
     from index_strategy.instant_dld.client import MarketDataClient
-    client=None
+    client=None;result=value;inserted=explicit=inferred=0;proofs=[]
     try:
         client=(client_factory or MarketDataClient)(connect_timeout=1,read_timeout=2)
-        record=client.fetch(symbols)
-        record.update(symbols=symbols,requested_symbols=symbols)
-        result=ingest(record,config,local_root,metadata,now=clock,target=expected,wanted=symbols,stop=stop)
-        result.update(network_requested=True,maintenance_target=target)
+        for attempt in range(2):
+            if stop():break
+            record=client.fetch(symbols)
+            record.update(symbols=symbols,requested_symbols=symbols)
+            current=ingest(record,config,local_root,metadata,now=clock+pd.Timedelta(seconds=time.monotonic()-started),
+                target=expected,wanted=symbols,stop=stop)
+            inserted+=current.get('inserted',0);explicit+=current.get('explicit_date_rows',0);inferred+=current.get('session_inferred_rows',0)
+            proofs+=current.get('date_evidence',[])
+            result=dict(current,inserted=inserted,explicit_date_rows=explicit,session_inferred_rows=inferred,date_evidence=proofs,
+                network_requested=True,network_requests=attempt+1,maintenance_target=target)
+            if inserted:result['status']='saved'
+            pending=[r['symbol'] for r in current.get('rejected',[]) if r['reason'] in SESSION_PENDING]
+            if attempt or not pending or time.monotonic()-started>6 or not pause(2.1,stop):break
+            symbols=pending
+        if stop():result['status']='cancelled'
         return _save(config,local_root,result)
     except Exception as exc:
-        value.update(status='unavailable',reason='http_request_failed',network_requested=True,error_type=type(exc).__name__)
-        return _save(config,local_root,value)
+        result.update(status='saved_partial' if inserted else 'unavailable',reason='http_request_failed',network_requested=True,
+            inserted=inserted,error_type=type(exc).__name__)
+        return _save(config,local_root,result)
     finally:
         if client is not None:
             try:client.close()

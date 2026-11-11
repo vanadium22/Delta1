@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-11-company-http-previous-close-first",
+  "release": "2026-11-11-company-http-session-corroboration-ddb-preserved",
   "branch": "codex/company-apps",
-  "base_commit": "30937ebfef379c9fc3495474623c003e044029e3",
-  "status": "local_420_verified_http_date_capability_and_company_closes_pending",
+  "base_commit": "596839df99579382c86a58b2e1abb37339ce8f97",
+  "status": "local_438_verified_http_session_and_recovered_company_ddb_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,8 +11,9 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "30937ebfef379c9fc3495474623c003e044029e3",
-    "scope": "本地日线优先，再用HTTP yesterdayClosePrice补源交易日的准确上一交易日，重新核验缺口后DDB仅补剩余历史收盘及最近完成日OI。HTTP必须带明确且一致的tradeDate/tradingDate/tradingDay、匹配实际securityId，并核验两日挂牌/到期和交易日历；只有时分秒或盘前旧快照不入日线。盘后昨收仍写前一交易日，不写当天；昨结算/当前价/当前OI不代替昨日数据。",
+    "base_commit": "596839df99579382c86a58b2e1abb37339ce8f97",
+    "scope": "HTTP缺显式交易日时，仅在连续交易时段用两次已归档行情交叉核验：同实际代码/稳定昨收、真实市场字段变化、源时钟随接收时间推进且新鲜；通过后按交易日历补准确前一日close，并明确标注corroborated_live_session/日期推定，不能声称交易所认证日期。盘前/午休/盘后、静止或陈旧快照、冲突日期及换日/换时段证据不放行。",
+    "ddb_policy": "用户最新要求DDB不暂停，继续原自动数据VPN/历史补齐；已手动连接且新地址192.168.198.77:8904可达时复用现有隧道，不重复登录。实时VPN仍手动，原DDB/VPN配置、账户密码和原文件不改。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -27,37 +28,31 @@
       "dashboard/docs/README.md",
       "dashboard/company_retest.ps1",
       "dashboard/overview_check.py",
-      "dashboard/marketdata/history_maintenance.py",
       "dashboard/marketdata/overview_audit.py",
-      "dashboard/marketdata/overview_daily.py",
       "dashboard/marketdata/overview_http_closes.py",
+      "dashboard/marketdata/overview_http_session.py",
+      "dashboard/marketdata/overview_percentiles.py",
       "dashboard/native/collection.py",
       "dashboard/native/data_pipeline.py",
-      "dashboard/native/editions_current.py",
-      "dashboard/native/inline_settings.py",
-      "dashboard/native/latest_snapshot.py",
-      "tests/test_app_history.py",
-      "tests/test_overview_ddb_refresh.py",
-      "tests/test_overview_http_closes.py"
+      "tests/test_overview_http_closes.py",
+      "tests/test_overview_http_session.py"
     ],
     "tests": {
-      "passed": 420,
-      "executions": 435,
-      "seconds": 117.339,
+      "passed": 438,
+      "seconds": 103.831,
       "skipped": 0,
       "resource_warnings": "errors",
-      "new_tests": 25
+      "new_tests": 18,
+      "duplicate_test_ids": 0
     },
-    "date_policy": "explicit current source tradeDate/tradingDate/tradingDay; exact prior trading day; both-day actual listing and securityId; no inferred date",
-    "provenance": "HTTP close-only rows, raw SHA, source day/time, receipt, actual identity; shared publication lock; existing valid prices retained",
-    "diagnostics": "data_gaps.http_previous_close and same-profile app_reports history_update/collection/overview_runtime; no new network in Overview",
-    "company_acceptance": "公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。",
     "validation": "dashboard/APP_VALIDATION.md",
+    "company_acceptance": "公司596839d包已证HTTP20个标的全因source_trade_date_missing补入0，DDB停route/waiting_vpn/login，11-10四指数+16期货收盘缺失。本轮新会话推定方案与用户修复后的DDB连接仍待新公司包，不以本地模拟代替源端验收。",
     "protection": {
-      "files": 8454,
-      "bytes": 365652979,
+      "files": 8455,
+      "bytes": 365780841,
       "changed": 0,
       "missing": 0,
+      "prior_downloads_already_absent": 1,
       "backtest_raw_block": "unchanged"
     }
   },
@@ -425,7 +420,9 @@
     "tests/test_overview_ddb_refresh.py",
     "tests/test_overview_percentile_close_repair.py",
     "dashboard/marketdata/overview_http_closes.py",
-    "tests/test_overview_http_closes.py"
+    "tests/test_overview_http_closes.py",
+    "dashboard/marketdata/overview_http_session.py",
+    "tests/test_overview_http_session.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -1554,8 +1551,8 @@
     "company_update_pending": true
   },
   "last_runtime_update": {
-    "base_commit": "b1d1f44fef9bd29ca477a7209fef77cf6f134a7e",
-    "scope": "Follow clarified futures annual-percentile missing-close report: retain valid DDB OHLC when OI is missing, preserve independent OI gaps; deduplicate unchanged rows and progress; isolate dated validation errors within existing budget while stopping connection/SDK errors; show missing dates/identities and separate close/OI pending counts.",
+    "base_commit": "30937ebfef379c9fc3495474623c003e044029e3",
+    "scope": "本地日线优先，再用HTTP yesterdayClosePrice补源交易日的准确上一交易日，重新核验缺口后DDB仅补剩余历史收盘及最近完成日OI。HTTP必须带明确且一致的tradeDate/tradingDate/tradingDay、匹配实际securityId，并核验两日挂牌/到期和交易日历；只有时分秒或盘前旧快照不入日线。盘后昨收仍写前一交易日，不写当天；昨结算/当前价/当前OI不代替昨日数据。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -1568,23 +1565,33 @@
       "dashboard/README.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
-      "dashboard/marketdata/overview_daily.py",
+      "dashboard/company_retest.ps1",
+      "dashboard/overview_check.py",
       "dashboard/marketdata/history_maintenance.py",
       "dashboard/marketdata/overview_audit.py",
+      "dashboard/marketdata/overview_daily.py",
+      "dashboard/marketdata/overview_http_closes.py",
+      "dashboard/native/collection.py",
       "dashboard/native/data_pipeline.py",
-      "dashboard/native/futures_overview_view.py",
-      "tests/test_app_pipeline.py",
-      "tests/test_overview_percentile_close_repair.py"
+      "dashboard/native/editions_current.py",
+      "dashboard/native/inline_settings.py",
+      "dashboard/native/latest_snapshot.py",
+      "tests/test_app_history.py",
+      "tests/test_overview_ddb_refresh.py",
+      "tests/test_overview_http_closes.py"
     ],
     "tests": {
-      "passed": 395,
-      "seconds": 110.116,
+      "passed": 420,
+      "executions": 435,
+      "seconds": 117.339,
       "skipped": 0,
       "resource_warnings": "errors",
-      "new_tests": 7
+      "new_tests": 25
     },
-    "reproduction": "b1d1f44 rejected valid close 4000 with null OI; patched code retains close and both percentile windows recover while OI remains pending; synthetic source only",
-    "company_acceptance": "actual company missing symbols/dates and root cause not yet confirmed; current-machine TCP timeout from prior check still not company proof",
+    "date_policy": "explicit current source tradeDate/tradingDate/tradingDay; exact prior trading day; both-day actual listing and securityId; no inferred date",
+    "provenance": "HTTP close-only rows, raw SHA, source day/time, receipt, actual identity; shared publication lock; existing valid prices retained",
+    "diagnostics": "data_gaps.http_previous_close and same-profile app_reports history_update/collection/overview_runtime; no new network in Overview",
+    "company_acceptance": "公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。",
     "validation": "dashboard/APP_VALIDATION.md",
     "protection": {
       "files": 8454,
@@ -1593,7 +1600,7 @@
       "missing": 0,
       "backtest_raw_block": "unchanged"
     },
-    "commit": "30937ebfef379c9fc3495474623c003e044029e3"
+    "commit": "596839df99579382c86a58b2e1abb37339ce8f97"
   },
   "collection_session_policy": "Continuous headline/equity collectors only in verified trading-day 09:29<=t<15:01 (including lunch); enabled normal App can perform bounded off-session HTTP snapshots with about 60s retry in a separate cache, not realtime. Default Overview diagnostics, --no-realtime and paused mode remain offline. This update documents existing behavior without changing cadence.",
   "company_feedback_20261110_retest": {
@@ -1655,5 +1662,24 @@
     "actual_old_date_location_not_confirmed": false,
     "clarification": "Futures annual percentile displays missing close; not a reference to the Y dividend date",
     "missing_company_close_dates_confirmed": false
+  },
+  "company_feedback_20261111_http": {
+    "commit": "596839df99579382c86a58b2e1abb37339ce8f97",
+    "package": "20261111_130843_453_safe_132818_292_0006d0f5.zip",
+    "bytes": 116909,
+    "sha256": "7c2f6f6f2ffdd82794abd8684da089f667a7aade7e820a4e3eda0fb32ca918de",
+    "json_files": 9,
+    "complete": true,
+    "shutdown_seconds": 6.494,
+    "http_inserted": 0,
+    "http_date_missing": 20,
+    "ddb_stage": "route",
+    "ddb_state": "waiting_vpn",
+    "ddb_code": "login",
+    "missing_close_day": "2026-11-10",
+    "missing_price_legs": 20,
+    "current_annual_available": 16,
+    "percentile20_available": 0,
+    "percentile60_available": 0
   }
 }

@@ -1,28 +1,34 @@
 # 看板当前验证与公司验收边界
 
-2026-11-11，基线30937eb，统一codex/company-apps。范围为HTTP昨收优先补最新前一交易日日线、历史缺口重新路由及安全诊断。源码及精确发布文件见APP_RELEASE，操作见APP_COMPANY_TEST。
+2026-11-11，基线596839d，统一codex/company-apps。用户要求修复HTTP，并追加DDB不暂停、下轮一起测；源文件、完整发布清单及命令见APP_RELEASE/APP_COMPANY_TEST。
 
 ## 最终回归
 
-**420项独立回归通过，117.339秒（含加载），无跳过、ResourceWarning作为错误；原395项重跑，新增25项HTTP昨收、日期/合约/路由与页面缓存回归。**
+**438项独立完整回归通过，103.831秒（含加载），无跳过、ResourceWarning作为错误；原420项重跑，新增18项连续会话证据、日期边界、缓存重算与DDB隧道复用验证。**
 
-沿用前序完整模块清单并增加tests.test_overview_http_closes，标准unittest加载器，离屏/隔离临时目录，不启动可见窗口或操作真实VPN。runner/full_final.txt位于local_artifacts/validation/company_20261111_http_closes。最终执行435次，包括误重复加载的15项RealtimeStore测试，420个不同测试ID全部通过；新增25项独立测试2.181秒。首轮旧适配器无reference_file属性令采集提前退出，补上原参考路径回退后原并发断言和全量重跑均通过，不调整采集间隔或放宽断言。
+标准unittest加载器，37个模块去重执行，无重复计数。完整模块清单full_modules.json、run_tests.py/full_final.txt均在local_artifacts/validation/company_20261111_http_session；离屏、隔离临时目录。针对性96项/13.103秒先通过，最终以438项完整重跑为准。Ruff对新模块/新测试的F检查，以及全部受改Python的F821/F822/F823检查通过，源码不写字节码。
 
-## HTTP补缺验证
+## 公司已证事实
 
-同一合成日线窗口去掉11-10的IF2611.CFE和000300.SH，20/60均缺收盘；导入带11-11明确源日期的HTTP昨收后，两窗口恢复50%。同一MarketOverviewEngine实例也因缓存文件版本变化重算恢复，未重启或绕过缓存。更早11-09缺口仍明确缺项，不从最新HTTP倒推。
+新包20261111_130843_453_safe_132818_292_0006d0f5.zip，116909字节，SHA256 7c2f6f6f2ffdd82794abd8684da089f667a7aade7e820a4e3eda0fb32ca918de：596839d、9JSON完整、CRC正常，同次开窗/关闭、排空6.494秒。HTTP20标的全部source_trade_date_missing，inserted=0/cached_closes为空；DDB有效端点192.168.198.77:8904，stage=route、waiting_vpn、汇总login码，未到SDK认证/查询。四指数+16期货缺11-10，16当前年化有值但20/60全空。login汇总代码不能直接认定VPN密码错误。用户随后说手动已可连通，需新一轮验证。
 
-源日期缺失/冲突/旧日/未来、仅映射日期、坏源时/接收时、无效价格/结算替代均拒绝；周一/国庆后用准确上一交易日。盘后昨收仍落昨天，不写当天。securityId不符、别名、已到期和刚挂牌合约拒绝；源端实际键与挂牌两日共同核验。旧有效收盘及其原字节保留，重复不重归档；OI/其他OHLC不复制当前值，持仓仍独立待补；写入锁冲突不覆盖数据。
+前一30937eb包9JSON完整、同次关闭7.762秒：12:58午休计算预览有16档分位，定价日实际11-09；13:00切到今日后11-10缺价仍阻断。不能把旧收盘参考或包Complete当昨日已补齐。这两包核验结果分别保留在company_20261111_previous_feedback和company_20261111_http_feedback。
 
-显式维护先用一个有界HTTP请求，完成后才启动DDB；已有收盘或仅缺OI不重复请求HTTP。HTTP已补齐时无凭据/SDK/VPN调用；有更早缺口时DDB只收到重算后清单，无日期证据时原缺口保留。正常collector和盘前快照复用同一回包，无额外HTTP；安全报告剔除原始响应/凭据/原异常。完整回归包括实际Windows白名单JSON打包、同次开窗/关闭以及全部既有UI/公式/关闭规则。
+## HTTP新逻辑的本地验证
 
-公司复测脚本另用隔离的Git/开窗/关闭适配器走完真实PowerShell流程及原白名单打包器：9份JSON，Complete=true、MissingReports为空、ZIP CRC通过，原配置秘密未入包；ExpectedCloseDay参数传递及ff-only更新已核验。未打开真实App或操作VPN。该参数仅指定本轮重点核验日，不修改交易日历或数据日期。
+真实公司接口常见的缺显式日期/createTime=updateTime=0形状，经两次市场数值和源时钟推进且昨收稳定的合成回包，首次不保存，第二次才落11-10 F/S。两个raw文件SHA留证，交易日仍标会话推定且exchange_date_certified=false。补价后20/60均50%，同一MarketOverviewEngine缓存失效后亦恢复；推定数量/日期进入窗口原因，不在数字旁加“估”。更早缺口不从HTTP倒推，当前OHLC/OI不搬到昨天。
 
-本轮没有新的公司包或真实HTTP/DDB价格查询结果。公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。
+静止内容/只改服务元数据、冻结/倒退/错误速率时钟、源时陈旧、非连续时段、明确旧日/冲突日期、坏实际身份均拒绝。跨日/跨午休及120秒过期重新积累；昨收变化需重新两次稳定，缺失/篡改第一份raw SHA不放行；损坏证据文件安全重建。最多两次请求、协作取消、显式仅源日期开关、正常原缓存不覆盖和安全白名单亦通过。
+
+DDB未停用。集成测试在HTTP两批之后仅把残余历史/OI交DDB，原数据VPNauto仍执行；模拟新地址已可达时mode=existing_tunnel且不调用登录器，再建立DDB会话并安全关闭。原端点/凭据/SSL、VPN互斥/实时手动、32/A02暂停、公式/逐日D/四档20与60及全部前序回归保持。
+
+本机一次有界HTTP直连复测在沙箱外超时，未读账号密码或操作VPN、未写原行情；http_probe_direct.json只有本机网络证据。此次没有新公司接受的HTTP/DDB收盘结果，不把合成证据当公司修复成功。
+
+公司复测PowerShell另以隔离的Git/开窗/正常关闭适配器走完原打包器：9JSON、Complete=true、MissingReports为空、ZIP CRC正常，配置秘密未入包；未打开真实App或操作VPN。当前脚本提示同时核验HTTP会话推定和DDB现有隧道复用。
 
 ## 原件保护
 
-原8454文件/365652979字节（行情、分红、缓存、配置、凭据、Excel、依赖、四提示词、ZIP与七份唯一SHA归档/MANIFEST）逐项大小/SHA保持；APP_RELEASE.backtest原对象及原序列化块保持。证据和合成产物仅本机忽略目录，不发布真实数据/配置。
+本轮冻结8455文件/365780841字节，全部大小/SHA不变；一份前序下载ZIP在本轮编辑前已不存在，记录preexisting_absent.json。APP_RELEASE.backtest原对象及原序列化块、四受保护提示词和七份唯一SHA归档保留。 两份本轮回传ZIP也已纳入保护，完整产物只放本机忽略目录。
 
 ## 前序UI与端点证据（本轮未重复联网）
 

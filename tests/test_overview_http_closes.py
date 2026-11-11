@@ -218,6 +218,7 @@ class HttpRoutingTests(unittest.TestCase):
         ref=reference_file(root,metadata());config=dict(reference_file=str(ref),history_roots=[str(root/'history')])
         events=[];source=record((SPOT,))
         if missing_date:source['response']['data'][SPOT].pop('tradeDate')
+        config['overview_http_session_evidence_enabled']=not missing_date
         class Client:
             def __init__(self,**kw):events.append('http_open')
             def fetch(self,symbols):events.append('http_fetch');return deepcopy(source)
