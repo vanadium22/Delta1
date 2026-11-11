@@ -1,23 +1,14 @@
 # 公司完整复测命令（2026-11-11）
 
-本轮DDB新地址为192.168.198.77:8904，原账号密码/TLS沿用。更新页已改为滚动分组，并区分价格日、DDB目标和Y盘分红日。本机直连新地址3秒超时，未查询11-10；公司新连接和布局待现场核验。原公司Git根/LocalRoot/完整复测链保持。
+本轮基线30937eb，新版按钮“一键补齐收盘”依次核验本地、HTTP最新昨收，再用DDB补剩余历史缺口。DDB生效地址192.168.198.77:8904，原账号密码/TLS不变。HTTP没有明确源交易日时会拒绝写入，不按电脑日期猜；公司实际返回仍需本次反馈包核验。
 
-## 本次分位“缺收盘”核验
+## 本轮重点
 
-用户已澄清：11-06疑问实际指期货年化分位显示“缺收盘”，应核验20/60窗口的具体期货/指数收盘，不能按顶部Y盘分红日期处理。 更新后悬浮20/60分位查看缺失日期/实际期货及对应指数代码，再执行一次DDB一键补齐。该任务覆盖连续窗口需要的历史收盘，兼顾最新完成日；不只是拉一次昨天。
-
-有效收盘先保存，缺OI单列；更新状态的pending_close_rows与pending_oi_rows分别对应收盘/持仓，failed_batches为有界校验失败明细。只有持仓缺口时，已有收盘分位可继续计算；分位仍缺时回传Overview中的continuous_annual.daily_missing和futures[].continuous_percentiles.windows。未连通时仍保留缺项，不能认作已修复源数据。
-
-## 前序地址/布局核验
-
-正常关闭旧看板并等待排空后，在公司原Git根执行git pull --ff-only，再通过原入口重开。进入“数据更新/设置”：
-
-1. 确认DDB生效地址192.168.198.77、端口8904；新版App直接采用发布地址并沿用原凭据引用，无需重填账号密码。显式history_ddb_host/history_ddb_port优先；确需自定义时，使用“保存地址和端口”，只保存非秘密地址，不改原凭据文件。
-2. 11月11日盘前目标收盘应为2026-11-10。价格数据日取卡片真实源时间；“最新分红表（Y盘）”即使仍11-06，也不能单凭它判断DDB断开。
-3. 点一次“DDB一键补齐”并等待完成，查看上次DDB阶段/错误及价格日是否到11-10；未成功时保留旧缓存。设置页展开后用右侧滚动条访问全部字段，原账号/密码高级设置仍保留。
-4. 默认Overview可离线回传data_gaps.ddb.connection、maintenance及app_reports.matching_profile[].history_update；connection只是配置，maintenance中的目标/阶段才是实际任务证据，旧目标不可混入本次。
-
-下方原一键流程可自动完成安全ZIP。实时VPN仍手动，不强杀写入者或重新映射Y。
+1. 正常关闭旧看板并等排空，再执行下方CMD。新看板“数据更新/设置”确认DDB地址/端口；只改端点无需重填账户密码。
+2. 点一次“一键补齐收盘”并等待任务结束。核对2026-11-10实际期货及对应指数收盘、四品种每个00–03档的20/60日年化分位。11-11当前交易日的合格HTTP昨收才可落到11-10；只有时分秒/旧源日期时，诊断会列source_trade_date_missing/source_trade_date_not_current，真实缺口继续交DDB。盘后也不把昨收写成当天。
+3. 分位悬浮查看仍缺的日期/代码；Y盘分红日即使11-06也不能当价格日。缺OI独立显示，只有OI待补时不应阻断已有完整收盘分位。公式、逐日D和连续20/60窗口不变。
+4. Overview新增data_gaps.http_previous_close（状态、拒绝原因、cached_closes源日/实际身份），app_reports.matching_profile[].history_update/collection/overview_runtime亦列HTTP证据。DDB维护记录仍看目标/同次stage，端点配置不等于连接成功。若无历史缺口，stage=not_needed，不读凭据或启动SDK。
+5. 等补齐任务完成后再按脚本提示回车保存开窗Overview，然后正常关闭/等排空、回车生成关闭后Overview与安全ZIP。15分钟取样结束时任务未结束可以继续等；失败也完成打包。脚本不代替你点击页面按钮。
 
 ## 0. 推荐：一键Runtime复测
 
@@ -25,11 +16,12 @@
 
 ```bat
 cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
-git pull --ff-only
-call dashboard\company_retest.cmd
+git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900 -ExpectedCloseDay 2026-11-10
 ```
 
-脚本检查codex/company-apps并ff-only更新，记录新HEAD/本轮时间/Y映射，打开正常看板，默认保持10分钟供约5分钟成分轮询和Wind规模历史更新。按提示保持开窗保存Overview，再正常关闭、等排空、关闭后Overview及安全打包。只回传最后打印的ZIP。脚本不操作VPN、不重新映射Y、不强杀；无本轮开窗或最终同运行安全关闭时仍生成明确缺项包。Git错误保留现场，不reset/clean。
+脚本检查codex/company-apps并ff-only更新，记录新HEAD/本轮时间/Y映射，打开正常看板，本次命令保持15分钟（默认不传参数为10分钟）供约5分钟成分轮询和Wind规模历史更新。按提示保持开窗保存Overview，再正常关闭、等排空、关闭后Overview及安全打包。只回传最后打印的ZIP。脚本不操作VPN、不重新映射Y、不强杀；无本轮开窗或最终同运行安全关闭时仍生成明确缺项包。Git错误保留现场，不reset/clean。
+
+ExpectedCloseDay仅指定本轮重点核验日，不修改日历或伪造数据日期。安全包完整不等于价格/分位已全部补齐，仍需核对Overview里的实际缺项与来源。
 
 非默认LocalRoot可在PowerShell调用：
 
@@ -119,7 +111,7 @@ ETF能力测试总预算90秒，close_nav查看同日有效配对数；IOPV/净�
 & "$env:WINDIR\System32\wscript.exe" '.\dashboard\start_presentation.vbs' --theme public --local-root $deltaLocalRoot
 ```
 
-保持看板打开10–15分钟，实时VPN仍手动。**正常任务才会发布行业/ETF资料**；需要立即复核时，在“数据更新/设置”点一次“DDB一键补齐”：先复核Wind资料，再按实际缺口补概览日线，本地标准历史优先复用，等待结束，勿反复点击。缺项资料有每日有界修复，成分独立默认300只/15秒、仍约5分钟一轮，缺项下轮优先，大批回包不足70%时下一轮降100，每批保存；主报价仍3秒，个股昨收用HTTP，不每轮DDB取全体成分。App日常不再关闭时逐股Parquet导出。
+保持看板打开10–15分钟，实时VPN仍手动。**正常任务才会发布行业/ETF资料**；需要立即复核时，在“数据更新/设置”点一次“一键补齐收盘”：先复核Wind资料，再本地标准历史/经日期核验的HTTP昨收，重新计划后才用DDB补历史缺口，等待结束，勿反复点击。缺项资料有每日有界修复，成分独立默认300只/15秒、仍约5分钟一轮，缺项下轮优先，大批回包不足70%时下一轮降100，每批保存；主报价仍3秒，个股昨收用HTTP，不每轮DDB取全体成分。App日常不再关闭时逐股Parquet导出。
 
 检查概览顶部“最新分红表”日期、20卡/16期货20与60分位、逐卡较昨日变化、行业覆盖/缺项、ETF无盘中值时主位的带日收盘溢价、加重的规模/占比/买卖价差，以及ETF/期货规模双饼图、四指数真实点击、1080p中比例全卡/卡内较大数字和期货粗条内嵌标签、午休/盘前盘后参考及切页/滚动；可选验证行情分析查询、取消和CSV。研究32项/A02继续暂停。然后**保持窗口开着**，回到同一PowerShell执行：
 
@@ -158,7 +150,7 @@ if ($deltaReturnMode -eq 'full') { ./dashboard/diagnose_presentation.cmd -LocalR
 
 默认自动缓存为 `<LocalRoot>/overview_dividends`，实际位置看audit.sources.store_directory；raw按业务日/SHA归档，records.sqlite保存版本，derived.sqlite保存计算缓存。09:00/15:30上海检查，成功时段不重复，失败有限退避；首次按20/60历史加缓冲窗口筛选B1，后续增量并保留旧记录。文件晚于成功检查产生时手动更新，或按实际产出时间调整设置，不持续轮询下载目录。
 
-本轮[APP_VALIDATION](APP_VALIDATION.md)：395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
+本轮[APP_VALIDATION](APP_VALIDATION.md)：420项独立回归通过，117.339秒（含加载），无跳过、ResourceWarning作为错误；原395项重跑，新增25项HTTP昨收、日期/合约/路由与页面缓存回归。公司最新b5746c7包同次安全关闭6.153秒；7.422和73.499秒为更早运行，不能混算。
 
 新启动器仍每次完整离线预检，成功后同Python解释器打开窗口。diagnosis.latest_launch增加startup_mode、preflight_seconds、process_started_at、app_entry_at；Overview.app_reports.matching_profile[].startup包含clock_scope、preflight_seconds、app_main_seconds、handover_seconds、window_shown_seconds、first_result_seconds。后两项分别为window.show返回和首轮结果，不代表实时行情首达；共享解释器时钟不包含外层VBS/PowerShell创建开销。按同一run_path比较，不混旧会话。本机空配置速度不替代公司完整数据量实测。
 

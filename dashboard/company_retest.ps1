@@ -1,6 +1,7 @@
 ﻿param(
     [string]$LocalRoot,
     [ValidateRange(0,1800)][int]$SampleSeconds=600,
+    [ValidatePattern('^$|^\d{4}-\d{2}-\d{2}$')][string]$ExpectedCloseDay='',
     [switch]$NoPause
 )
 $ErrorActionPreference='Stop'
@@ -31,7 +32,7 @@ function Read-DeltaRun {
     catch { return $null }
 }
 function Invoke-CompanyRetest {
-    param([string]$Repository,[string]$Profile,[int]$Seconds=600)
+    param([string]$Repository,[string]$Profile,[int]$Seconds=600,[string]$ExpectedDay='')
     Set-Location -LiteralPath $Repository
     Write-Host '请先正常关闭旧看板，等待窗口自行退出。保留Wind终端登录；实时VPN仍由你手动连接。'
     [void](Read-Host '旧看板已退出后按回车，开始更新与复测')
@@ -53,13 +54,16 @@ function Invoke-CompanyRetest {
     Write-Host ('本轮报告：'+$reports)
     Open-DeltaPresentation $Repository $Profile
     Write-Host '保持新看板打开约10分钟，检查各页和大/中/小比例。中在1080p完整显示卡片。'
-    Write-Host '检查四指数点击、卡内字号/基差沿用、ETF与期货名义规模双饼图和粗条标签；OI待补时点一次DDB一键补齐并等待。'
+    Write-Host '进入数据更新/设置，确认DDB为192.168.198.77:8904；点一次“一键补齐收盘”并等待结束：先本地/HTTP昨收，再DDB历史缺口。'
+    if ($ExpectedDay) { Write-Host ('本轮重点核验收盘日期：'+$ExpectedDay+'；核对期货实际合约及对应指数。') }
+    Write-Host '检查四品种四档20/60日年化分位；HTTP缺源交易日会拒绝入库，缺项日期/代码见悬浮和诊断。'
+    Write-Host '同时检查四指数点击、卡内字号/基差沿用、ETF与期货名义规模双饼图和粗条标签。'
     for ($remaining=$Seconds;$remaining -gt 0;$remaining-=[Math]::Min(30,$remaining)) {
         Write-Progress -Activity '保持看板打开取样' -Status ('剩余约 '+$remaining+' 秒') -PercentComplete (100*(1-$remaining/[Math]::Max(1,$Seconds)))
         Start-Sleep -Seconds ([Math]::Min(30,$remaining))
     }
     Write-Progress -Activity '保持看板打开取样' -Completed
-    [void](Read-Host '保持窗口开着；确认已查看各页、实时采集正在运行后按回车，保存开窗Overview')
+    [void](Read-Host '保持窗口开着；确认收盘补齐任务已结束、已查看20/60分位和各页后按回车，保存开窗Overview')
     Invoke-DeltaDiagnosis $Repository $Profile $reports
     $openRecord=$null
     foreach ($dir in @(Get-ChildItem -LiteralPath $reports -Directory -Filter 'diagnosis-*' | Sort-Object Name -Descending)) {
@@ -87,7 +91,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     try {
         $repository=Split-Path $PSScriptRoot -Parent
         if (-not $LocalRoot) { $LocalRoot=Join-Path $PSScriptRoot 'localsetting/app' }
-        $code=Invoke-CompanyRetest -Repository $repository -Profile ([IO.Path]::GetFullPath($LocalRoot)) -Seconds $SampleSeconds
+        $code=Invoke-CompanyRetest -Repository $repository -Profile ([IO.Path]::GetFullPath($LocalRoot)) -Seconds $SampleSeconds -ExpectedDay $ExpectedCloseDay
         if (-not $NoPause) { [void](Read-Host '结果已保留，按回车退出') }
         exit $code
     } catch {

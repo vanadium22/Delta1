@@ -1,25 +1,19 @@
-# 下一对话：新DDB端点、更新页与盘前日期
+# 下一对话：HTTP昨收优先与20/60收盘复测
 
-用户已澄清：11-06疑问实际指期货年化分位显示“缺收盘”，应核验20/60窗口的具体期货/指数收盘，不能按顶部Y盘分红日期处理。
+2026-11-11，本轮基线30937eb，最终发布看Git。先完整读本页，再读根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC，核验分支codex/company-apps、远端/worktree/diff。实施、测试及精确提交推送授权持续。
 
-本轮追加修复：DDB返回有效OHLC但OI缺失时仍保存收盘，持仓缺口独立保留，不假补0；相同行不重复归档或计作持仓进展。单批ValueError/KeyError/TypeError校验失败保留安全失败明细并继续其他有界任务，网络/SDK错误仍结束本轮。分位悬浮列缺失日期/标的，更新页汇总去重后的收盘缺口。 395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。 最新交接基线b1d1f44，最终提交看Git。优先核验continuous_annual.daily_missing、分位窗口missing及收盘/持仓分别待补；不把旧D表日期当价格缺口，也不冒称公司已补齐。
+本地日线优先，再用HTTP yesterdayClosePrice补源交易日的准确上一交易日，重新核验缺口后DDB仅补剩余历史收盘及最近完成日OI。HTTP必须带明确且一致的tradeDate/tradingDate/tradingDay、匹配实际securityId，并核验两日挂牌/到期和交易日历；只有时分秒或盘前旧快照不入日线。盘后昨收仍写前一交易日，不写当天；昨结算/当前价/当前OI不代替昨日数据。 420项独立回归通过，117.339秒（含加载），无跳过、ResourceWarning作为错误；原395项重跑，新增25项HTTP昨收、日期/合约/路由与页面缓存回归。
 
-2026-11-11。先完整读本页，再核验根/dashboard AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE、COMPANY_SYNC与Git/远端/worktree/diff。本轮追加基线b1d1f44，最终发布号看Git。
+## 下一轮要核验
 
-## 可复制接续提示词
+公司按APP_COMPANY_TEST运行一键更新复测。新按钮“一键补齐收盘”，本地→一批HTTP→重新算缺口→DDB；主报价60秒复用回包、盘前快照复用原请求，只有明确源日期/正确实际身份可入日线。只带HHMMSS的现有源不能保证有认证日期，拒绝时保留缺口，不能冒称已补好。盘后11-11的昨收仍写11-10，不写当天。OHLC/OI不从今天搬到昨天。
 
-```text
-请继续Delta1公司看板，工作区P:/project/swhy/Delta1/company-apps-worktree，统一codex/company-apps。本轮用户确认DDB新地址192.168.198.77:8904、账号密码不变，并澄清期货年化分位显示“缺收盘”，须核验历史窗口的期货/指数具体收盘缺项。
+收到包先看HEAD/完整性/同次开窗关闭，重点data_gaps.http_previous_close（rejected/cached_closes及源日期/身份）、continuous_annual.daily_missing、futures窗口missing，app_reports.history_update/collection/overview_runtime的HTTP证据，以及data_gaps.ddb.connection/maintenance目标与stage。配置地址不等于本轮连通，原缺口剩余才入DDB；OI缺口不挡分位。复核11-10 F/S及四品种四档20/60，不用Y分红11-06解释缺收盘。
 
-本机原DDB配置已经是新地址，但忽略配置不随git pull传播。新版App把非秘密端点和原凭据引用分离，默认使用发布的新地址，显式history_ddb_host/history_ddb_port优先；VPN路由验证和数据库会话使用同端点，原账号/密码/TLS文件不重写。更新页可只保存地址，表单分组滚动/输入框40像素，原账号编辑保留。
+公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。
 
-11月11日盘前最近完成交易日是11-10。价格日取卡片实际源时，DDB目标取交易日历，最新分红表取Y盘B1；分红11-06不能用来判断价格或DDB断开。新版两个页面和Overview报告区分三日期及维护阶段。若实际价格仍11-06，按同次目标/生效地址/tcp或session或认证/SDK/查询阶段和源时核验，不用旧成功状态推断本次。
+## 保留事实与约束
 
-本机09:36有界只读检查：新地址3秒TCP超时，未登录/未查询11-10，未操作VPN。不能把本机超时当公司失败或源端无11-10。388项本地回归通过，12项新增含端点/凭据/盘前目标/布局/日期；公司新端点和布局验收仍等现场。最近公司ZIP仍为b5746c7的9JSON包，同次6.153秒安全关闭，16档OI金额用11-09日线复算通过。
+本机原DDB配置已是192.168.198.77:8904，原DPAPI/TLS不变；显式App地址优先，地址与凭据引用分离。前序本机3秒TCP超时未查询11-10，不代表公司失败。最近已核验公司包仍b5746c7、9JSON完整、同次关闭6.153秒、16档OI金额来源11-09；1798/1800股票、214分类缺失、428历史D占位及当前D11-06未被本轮测试补齐。
 
-收到新反馈先核验HEAD/完整性/同次运行；看data_gaps.ddb.connection与maintenance（区分matches_current_target）、app_reports.history_update和实际价格源时。默认Overview离线；公司命令只维护APP_COMPANY_TEST。实施、必要测试和精确提交推送授权继续有效。
-
-保留原数据/配置/凭据/Excel、四受保护旧提示词、七份唯一SHA归档/MANIFEST、APP_RELEASE.backtest原对象/序列化、其他模块/worktree。逐日D/连续20与60/简单年化、T<5、排当前日、等值半权、历史缺D暂0仅派生/当前D不补0、数字不加“估”及32/A02暂停保持。实时VPN手动，不强杀/删锁、不重映射Y，不reset/clean/全量stage/强推。
-```
-
-本轮证据仅local_artifacts/validation/company_20261111_ddb_layout；原DDB凭据文件及8454个原件的大小/SHA保留。Y源仍Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026、业务日B1。当前D11-06、428历史D零占位、2只股票/214分类缺失继续如实列明，不冒称新源已补齐。
+保留原数据/缓存/native配置/凭据/Excel及四受保护提示词、七唯一SHA归档/MANIFEST和APP_RELEASE.backtest原对象/原序列化、其他模块/worktree。8454原件大小/SHA不变。逐日D、00–03连续20/60、简单年化、排当前日/T<5/等值半权保持，历史无D暂0仅派生、当前D不补0；32/A02暂停。默认Overview离线、实时VPN手动，不强杀/删锁、重映射Y或reset/clean/全量stage/强推。公盘Y路径与B1规则继续。

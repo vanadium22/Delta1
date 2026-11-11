@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-11-company-percentile-close-and-oi-isolation",
+  "release": "2026-11-11-company-http-previous-close-first",
   "branch": "codex/company-apps",
-  "base_commit": "b1d1f44fef9bd29ca477a7209fef77cf6f134a7e",
-  "status": "local_395_verified_actual_company_missing_close_evidence_pending",
+  "base_commit": "30937ebfef379c9fc3495474623c003e044029e3",
+  "status": "local_420_verified_http_date_capability_and_company_closes_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -11,8 +11,8 @@
   "verification": "dashboard/APP_VALIDATION.md",
   "company_test": "dashboard/APP_COMPANY_TEST.md",
   "latest_update": {
-    "base_commit": "b1d1f44fef9bd29ca477a7209fef77cf6f134a7e",
-    "scope": "Follow clarified futures annual-percentile missing-close report: retain valid DDB OHLC when OI is missing, preserve independent OI gaps; deduplicate unchanged rows and progress; isolate dated validation errors within existing budget while stopping connection/SDK errors; show missing dates/identities and separate close/OI pending counts.",
+    "base_commit": "30937ebfef379c9fc3495474623c003e044029e3",
+    "scope": "本地日线优先，再用HTTP yesterdayClosePrice补源交易日的准确上一交易日，重新核验缺口后DDB仅补剩余历史收盘及最近完成日OI。HTTP必须带明确且一致的tradeDate/tradingDate/tradingDay、匹配实际securityId，并核验两日挂牌/到期和交易日历；只有时分秒或盘前旧快照不入日线。盘后昨收仍写前一交易日，不写当天；昨结算/当前价/当前OI不代替昨日数据。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -25,23 +25,33 @@
       "dashboard/README.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
-      "dashboard/marketdata/overview_daily.py",
+      "dashboard/company_retest.ps1",
+      "dashboard/overview_check.py",
       "dashboard/marketdata/history_maintenance.py",
       "dashboard/marketdata/overview_audit.py",
+      "dashboard/marketdata/overview_daily.py",
+      "dashboard/marketdata/overview_http_closes.py",
+      "dashboard/native/collection.py",
       "dashboard/native/data_pipeline.py",
-      "dashboard/native/futures_overview_view.py",
-      "tests/test_app_pipeline.py",
-      "tests/test_overview_percentile_close_repair.py"
+      "dashboard/native/editions_current.py",
+      "dashboard/native/inline_settings.py",
+      "dashboard/native/latest_snapshot.py",
+      "tests/test_app_history.py",
+      "tests/test_overview_ddb_refresh.py",
+      "tests/test_overview_http_closes.py"
     ],
     "tests": {
-      "passed": 395,
-      "seconds": 110.116,
+      "passed": 420,
+      "executions": 435,
+      "seconds": 117.339,
       "skipped": 0,
       "resource_warnings": "errors",
-      "new_tests": 7
+      "new_tests": 25
     },
-    "reproduction": "b1d1f44 rejected valid close 4000 with null OI; patched code retains close and both percentile windows recover while OI remains pending; synthetic source only",
-    "company_acceptance": "actual company missing symbols/dates and root cause not yet confirmed; current-machine TCP timeout from prior check still not company proof",
+    "date_policy": "explicit current source tradeDate/tradingDate/tradingDay; exact prior trading day; both-day actual listing and securityId; no inferred date",
+    "provenance": "HTTP close-only rows, raw SHA, source day/time, receipt, actual identity; shared publication lock; existing valid prices retained",
+    "diagnostics": "data_gaps.http_previous_close and same-profile app_reports history_update/collection/overview_runtime; no new network in Overview",
+    "company_acceptance": "公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。",
     "validation": "dashboard/APP_VALIDATION.md",
     "protection": {
       "files": 8454,
@@ -413,7 +423,9 @@
     "dashboard/常用入口/打开看板.vbs",
     "dashboard/marketdata/ddb_connection.py",
     "tests/test_overview_ddb_refresh.py",
-    "tests/test_overview_percentile_close_repair.py"
+    "tests/test_overview_percentile_close_repair.py",
+    "dashboard/marketdata/overview_http_closes.py",
+    "tests/test_overview_http_closes.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -1542,8 +1554,8 @@
     "company_update_pending": true
   },
   "last_runtime_update": {
-    "base_commit": "d4c2b9b1851cb918edd10889474fe1554663a529",
-    "scope": "Use confirmed App DDB endpoint with unchanged original credentials/TLS and explicit per-App override; route and SDK endpoint consistency; structured safe maintenance stages; scrollable settings and readable 40px fields; separate actual price day, completed DDB target and Y dividend date. Preserve generic Excel/research calls, source timestamps, formulas and safe draining.",
+    "base_commit": "b1d1f44fef9bd29ca477a7209fef77cf6f134a7e",
+    "scope": "Follow clarified futures annual-percentile missing-close report: retain valid DDB OHLC when OI is missing, preserve independent OI gaps; deduplicate unchanged rows and progress; isolate dated validation errors within existing budget while stopping connection/SDK errors; show missing dates/identities and separate close/OI pending counts.",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -1556,52 +1568,24 @@
       "dashboard/README.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
-      "dashboard/marketdata/ddb_connection.py",
+      "dashboard/marketdata/overview_daily.py",
       "dashboard/marketdata/history_maintenance.py",
       "dashboard/marketdata/overview_audit.py",
       "dashboard/native/data_pipeline.py",
-      "dashboard/native/inline_settings.py",
-      "dashboard/native/overview_status.py",
-      "dashboard/native/overview_summary.py",
-      "dashboard/overview_check.py",
-      "tests/test_overview_ddb_refresh.py"
+      "dashboard/native/futures_overview_view.py",
+      "tests/test_app_pipeline.py",
+      "tests/test_overview_percentile_close_repair.py"
     ],
     "tests": {
-      "passed": 388,
-      "seconds": 103.581,
-      "unittest_seconds": 102.02,
+      "passed": 395,
+      "seconds": 110.116,
       "skipped": 0,
-      "failures": 0,
-      "errors": 0,
       "resource_warnings": "errors",
-      "new_tests": 12
+      "new_tests": 7
     },
-    "endpoint": {
-      "host": "192.168.198.77",
-      "port": 8904,
-      "policy": "published_App_endpoint; explicit history_ddb_host/port wins; original credential file untouched"
-    },
-    "live_probe": {
-      "machine": "current development machine only",
-      "at": "2026-11-11T09:36:35.213776+08:00",
-      "stage": "tcp",
-      "result": "3-second timeout; no authentication or source query",
-      "source_query": false,
-      "vpn_changed": false,
-      "config_changed": false,
-      "company_acceptance": false
-    },
-    "ui": {
-      "sizes": [
-        "1920x1080",
-        "1536x864",
-        "860x620"
-      ],
-      "before_minimum_height": 1264,
-      "after_minimum_input_height": 40,
-      "scrolling": true,
-      "company_acceptance": false
-    },
+    "reproduction": "b1d1f44 rejected valid close 4000 with null OI; patched code retains close and both percentile windows recover while OI remains pending; synthetic source only",
+    "company_acceptance": "actual company missing symbols/dates and root cause not yet confirmed; current-machine TCP timeout from prior check still not company proof",
+    "validation": "dashboard/APP_VALIDATION.md",
     "protection": {
       "files": 8454,
       "bytes": 365652979,
@@ -1609,10 +1593,7 @@
       "missing": 0,
       "backtest_raw_block": "unchanged"
     },
-    "validation": "dashboard/APP_VALIDATION.md",
-    "one_click": "dashboard/company_retest.cmd",
-    "company_acceptance": "new endpoint actual Nov10 source and settings layout pending company; no new feedback ZIP",
-    "commit": "b1d1f44fef9bd29ca477a7209fef77cf6f134a7e"
+    "commit": "30937ebfef379c9fc3495474623c003e044029e3"
   },
   "collection_session_policy": "Continuous headline/equity collectors only in verified trading-day 09:29<=t<15:01 (including lunch); enabled normal App can perform bounded off-session HTTP snapshots with about 60s retry in a separate cache, not realtime. Default Overview diagnostics, --no-realtime and paused mode remain offline. This update documents existing behavior without changing cadence.",
   "company_feedback_20261110_retest": {

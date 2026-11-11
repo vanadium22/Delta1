@@ -178,9 +178,23 @@ class CollectionJob:
                 client.fetch=guarded_fetch
                 with DualIdentityStore(Path(root)) as store:
                     original=store.batch
+                    previous_close_due=0
                     def batch(record):
+                        nonlocal previous_close_due
+                        http_record=dict(record)
                         started=time.perf_counter();self.status['stage']='validation_and_storage'
                         original(record)
+                        if auto_roll and time.monotonic()>=previous_close_due and not self.stop_event.is_set():
+                            previous_close_due=time.monotonic()+60
+                            from dashboard.marketdata.overview_http_closes import ingest
+                            from dashboard.marketdata.contract_reference import latest_contracts
+                            try:
+                                metadata=latest_contracts(ReferenceBook(getattr(resolver,'reference_file',reference_file)).data)
+                                captured=ingest(http_record,config or {},self.local_root,metadata,
+                                    raw_root=Path(root),raw_reference=record.get('raw_response_reference'),stop=self.stop_event.is_set)
+                            except (OSError,ValueError,TypeError,KeyError) as exc:
+                                captured=dict(status='unavailable',inserted=0,error_type=type(exc).__name__)
+                            with self.lock:self.status['http_previous_close']=captured
                         with self.lock:
                             good=record.get("status") in {"success", "partial"}
                             self.status.update(status="running" if good else "disconnected",rows=self.status["rows"]+len(store.last_rows),

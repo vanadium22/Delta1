@@ -77,7 +77,7 @@ class PresentationWindow(QMainWindow):
             if saved.get('page_scale') in ('large','medium','small'):mode=saved['page_scale']
         except (OSError,ValueError,AttributeError):pass
         self.page_scale.setCurrentIndex(self.page_scale.findData(mode));row.addWidget(self.page_scale)
-        for text,fn in [('更新报价',lambda:self.start_collection(False)),('DDB一键补齐',lambda:self.pipeline.one_click()),('暂停',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
+        for text,fn in [('更新报价',lambda:self.start_collection(False)),('一键补齐收盘',lambda:self.pipeline.one_click()),('暂停',lambda:self.pipeline.readonly()),('导出快照',self.export)]:
             b=QPushButton(text);b.clicked.connect(fn);row.addWidget(b)
             if self.frozen_payload and text!='导出快照':b.hide()
         layout.addLayout(row)

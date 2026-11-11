@@ -28,6 +28,7 @@ class AppHistoryTests(unittest.TestCase):
         c=self.fixture();c.cycle();fetch=Mock(side_effect=AssertionError('No legacy minute fetch'))
         with patch('dashboard.marketdata.overview_percentiles.requirements',return_value=dict(start='2026-07-01',end='2026-10-16',mapping_gaps=[])),\
              patch('dashboard.marketdata.overview_daily.seed_local',return_value=0),\
+             patch('dashboard.marketdata.overview_http_closes.collect',return_value=dict(status='no_verified_closes',inserted=0)),\
              patch('dashboard.marketdata.overview_daily.requests',return_value=[dict(day='2026-10-16',asset='index',symbols=['000300.SH'])]),\
              patch('dashboard.marketdata.overview_daily.fill',return_value=dict(inserted=1,pending_rows=0,pending_batches=0,status='complete')) as daily:
             result=hm.run_cycle(c.local,overview_only=True,direct_factory=lambda _:c.client,fetcher=fetch,now='2026-10-19T10:00:00+08:00')

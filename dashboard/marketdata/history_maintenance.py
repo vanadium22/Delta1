@@ -297,12 +297,21 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             repo=MarketDataRepository(config.get('history_roots',[]),allow_unverified=config.get('allow_unverified',False),publication=shared/'publication.json')
             seeded=seed_local(repo,repo.freeze(),config,local_root,target,metadata,stop=stopped)
             jobs=requests(config,local_root,target,metadata)
+            if stopped():raise Stopped()
+            from .overview_http_closes import collect as collect_previous_closes
+            report('http_previous_close','先核验HTTP最新昨收的交易日和实际合约；仅补最新一天，历史缺口稍后复核')
+            http=collect_previous_closes(config,local_root,target,metadata,jobs=jobs,now=clock,stop=stopped)
+            state['http_previous_close']=http
+            # Re-plan after HTTP publication, before credentials, VPN or DDB SDK.
+            jobs=requests(config,local_root,target,metadata)
             state['overview_daily']=dict(target=target,status='pending' if jobs else 'complete',inserted=0,seeded_local=seeded,
+                seeded_http=http.get('inserted',0),
                 pending_rows=sum(len(j['symbols']) for j in jobs),pending_batches=len(jobs))
             if stopped():raise Stopped()
             if not jobs:
+                state['ddb_connection']['stage']='not_needed'
                 return report('waiting_reference' if distribution['mapping_gaps'] else 'complete',
-                    '概览收盘已齐；历史分钟完整性沿用原审计，未重新深核' if not distribution['mapping_gaps'] else '连续档位历史映射待补；无已知价格缺口')
+                    '本地/HTTP已补齐概览日线；无需DDB，研究分钟未重新深核' if not distribution['mapping_gaps'] else '连续档位历史映射待补；无已知价格缺口')
             from dashboard.app_config import connection_path,vpn_profile
             connection_file=connection_path(config)
             endpoint=app_endpoint(config)
@@ -313,7 +322,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                 connection=with_endpoint(load_config(connection_file),endpoint)
                 try:
                     if not all(connection.get(k) for k in ('host','port','username','password')):raise CredentialsUnavailable()
-                    profile=vpn_profile(config,local_root);report('connecting_vpn','已确认概览收盘缺口，按原策略准备DDB网络')
+                    profile=vpn_profile(config,local_root);report('connecting_vpn','本地/HTTP核验后仍有历史收盘或完成日持仓缺口，按原策略准备DDB网络')
                     outcome=ddb_vpn.ensure_connected(connection,profile['config'],profile['trust'],stop_file=stopped,interpreter=profile['powershell'])
                     state['ddb_vpn']={k:outcome.get(k) for k in ('state','mode','tcp_verified','tls_pin_verified')}
                 finally:connection.clear()
@@ -322,7 +331,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             client=direct_factory(connection_file,endpoint=endpoint) if direct_factory is open_direct else direct_factory(connection_file)
             state['ddb_connection'].update(stage='query',authenticated=True)
             result=fill(client,config,local_root,target,metadata,stop=stopped,budget=min(45,budget))
-            state['overview_daily']={**result,'seeded_local':seeded};state['inserted']=result.get('inserted',0)
+            state['overview_daily']={**result,'seeded_local':seeded,'seeded_http':http.get('inserted',0)};state['inserted']=result.get('inserted',0)
             if stopped():raise Stopped()
             pending=result.get('pending_rows',0)
             state['ddb_connection']['stage']='complete' if not pending else 'query_partial'

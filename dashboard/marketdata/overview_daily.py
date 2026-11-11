@@ -1,4 +1,4 @@
-"""Dated DDB close cache for overview ETFs/constituents, separate from bar stores.
+"""Audited dated close cache, separate from the original bar stores.
 
 The caller owns the existing DDB network lease/session. No credentials, VPN or
 connections here. Raw selected rows and previous cache revisions are retained.
@@ -13,7 +13,7 @@ from functools import lru_cache
 
 import pandas as pd
 
-from .bars import _atomic_bytes,_json_bytes
+from .bars import _atomic_bytes,_json_bytes,_writer_lock
 from .overview_reference import load as reference_load,finite,ROOTS
 
 
@@ -39,17 +39,20 @@ def read_day(config,local_root,day):
     except (OSError,ValueError,TypeError):return {}
 
 
-def publish_day(config,local_root,day,rows):
+def publish_day(config,local_root,day,rows,*,missing_only=False):
     root=directory(config,local_root);path=root/'days'/(day+'.json')
-    prior=read_day(config,local_root,day)
-    value=dict(schema='overview-daily-v1',trade_date=day,source='DDB audited daily catalog',
-        fetched_at=datetime.now(timezone.utc).isoformat(),rows={**prior.get('rows',{}),**rows})
-    if path.exists():
-        raw=path.read_bytes();digest=hashlib.sha256(raw).hexdigest()[:16]
-        archive=root/'archive'/(day+'-'+digest+'.json')
-        if not archive.exists():_atomic_bytes(archive,raw)
-    _atomic_bytes(path,_json_bytes(value))
-    return value
+    with _writer_lock(root/'publication'):
+        prior=read_day(config,local_root,day)
+        if missing_only:rows={s:r for s,r in rows.items() if s not in prior.get('rows',{})}
+        if not rows:return prior
+        value=dict(schema='overview-daily-v1',trade_date=day,source='audited daily closes; individual row sources retained',
+            fetched_at=datetime.now(timezone.utc).isoformat(),rows={**prior.get('rows',{}),**rows})
+        if path.exists():
+            raw=path.read_bytes();digest=hashlib.sha256(raw).hexdigest()[:16]
+            archive=root/'archive'/(day+'-'+digest+'.json')
+            if not archive.exists():_atomic_bytes(archive,raw)
+        _atomic_bytes(path,_json_bytes(value))
+        return value
 
 
 def requests(config,local_root,target,metadata,*,reference_data=None):

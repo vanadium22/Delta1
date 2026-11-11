@@ -113,7 +113,7 @@ class InlineSettings(QWidget):
             self.notice.setText('地址或端口无效；地址只填主机/IP，端口为1–65535。');return
         candidate=deepcopy(self.pipeline.model.config)
         candidate.update(history_ddb_host=endpoint['host'],history_ddb_port=endpoint['port'])
-        self.save_config(candidate,'DDB地址已保存，原账号密码未改；点击“DDB一键补齐”重试昨日数据。')
+        self.save_config(candidate,'DDB地址已保存，原账号密码未改；点击“一键补齐收盘”，先核验HTTP昨收，再补历史缺口。')
 
     def save_paths(self):
         if not self.idle():return
@@ -121,7 +121,7 @@ class InlineSettings(QWidget):
         candidate.update({k:self.fields[k].text().strip() for k in ('reference_file','realtime_root','dividend_root','overview_dividend_file','overview_dividend_source_dir','overview_dividend_pattern','overview_dividend_check_am','overview_dividend_check_pm','history_python','history_connection_file',
                          'history_vpn_config','history_vpn_trust','history_vpn_powershell','overview_wind_python')})
         candidate['history_roots']=[s.strip() for s in self.paths.toPlainText().splitlines() if s.strip()]
-        self.save_config(candidate,'路径已保存；可点击“DDB一键补齐”或验证实时。')
+        self.save_config(candidate,'路径已保存；可点击“一键补齐收盘”或验证实时。')
 
     def load_credentials(self):
         from index_strategy.history.credentials import load_config
@@ -152,4 +152,4 @@ class InlineSettings(QWidget):
             value.update(**endpoint,username=username,password=password or value.get('password',''))
             if not value['password']:raise ValueError('missing_password')
             value.setdefault('enable_ssl',True);module.save_config(path,value);value.clear()
-        self.save_config(candidate,'数据库凭据已按原保护方式保存；可点击“DDB一键补齐”。',before=save)
+        self.save_config(candidate,'数据库凭据已按原保护方式保存；可点击“一键补齐收盘”。',before=save)

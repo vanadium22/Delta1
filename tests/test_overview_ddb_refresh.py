@@ -64,6 +64,7 @@ class DdbEndpointTests(unittest.TestCase):
             stack.enter_context(patch('dashboard.marketdata.repository.MarketDataRepository'))
             stack.enter_context(patch('dashboard.marketdata.overview_percentiles.requirements',return_value=dict(start='2026-08-10',end='2026-11-09',mapping_gaps=[])))
             stack.enter_context(patch('dashboard.marketdata.overview_daily.seed_local',return_value=0))
+            stack.enter_context(patch('dashboard.marketdata.overview_http_closes.collect',return_value=dict(status='no_verified_closes',inserted=0)))
             stack.enter_context(patch('dashboard.marketdata.overview_daily.requests',return_value=[dict(day='2026-11-10',asset='future',symbols=['IF2611.CFE'],requires_oi=True)]))
             fill=stack.enter_context(patch('dashboard.marketdata.overview_daily.fill',return_value=dict(status='complete',target='2026-11-10',inserted=1,pending_rows=0,pending_batches=0)))
             stack.enter_context(patch('index_strategy.history.credentials.load_config',return_value=secret))

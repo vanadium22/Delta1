@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-11 HTTP昨收优先，基线30937eb：本地日线优先，再用HTTP yesterdayClosePrice补源交易日的准确上一交易日，重新核验缺口后DDB仅补剩余历史收盘及最近完成日OI。HTTP必须带明确且一致的tradeDate/tradingDate/tradingDay、匹配实际securityId，并核验两日挂牌/到期和交易日历；只有时分秒或盘前旧快照不入日线。盘后昨收仍写前一交易日，不写当天；昨结算/当前价/当前OI不代替昨日数据。 420项独立回归通过，117.339秒（含加载），无跳过、ResourceWarning作为错误；原395项重跑，新增25项HTTP昨收、日期/合约/路由与页面缓存回归。 公司真实HTTP是否提供可认证交易日、11-10两腿收盘、全部四档20/60分位和新DDB端点仍待新安全反馈包；不把本地合成测试当公司已补齐。 [公司复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
 - 2026-11-11追加，基线b1d1f44：用户澄清为期货年化分位“缺收盘”。DDB有效收盘先保存、缺OI独立补；相同价格不重复计进展/归档。独立校验错误保留安全明细后继续其他有界任务，网络/SDK失败仍停止；分位悬浮与更新页显示具体缺项，收盘/持仓待补分列。395项完整回归通过，110.116秒（含加载），无跳过、ResourceWarning作为错误；原388项全部重跑，新增7项价格/OI隔离、分位恢复、批次隔离和缺口解释回归。 同一模拟回包复现旧版丢收盘，新版20/60恢复且OI仍缺；实际公司根因/新源11-10待反馈。[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 - 2026-11-11看板DDB与更新页，基线d4c2b9b：App使用发布端点192.168.198.77:8904（显式App设置优先），数据网络/会话一致，原账号密码/TLS文件不重写。更新页整体滚动、分组、40像素输入框；概览/设置区分价格日、DDB目标及Y盘分红日，诊断导出维护阶段和目标。388项回归通过。本机3秒直连超时、未查询11-10，不作公司失败证据；公司更新后按[测试步骤](dashboard/APP_COMPANY_TEST.md)核验。原数据/配置/Excel/四提示词/唯一归档保护，公式和32/A02暂停保持。[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。

@@ -204,7 +204,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             stock_daily_enabled=bool(config.get('overview_stock_daily_enabled',False)),
             close_cache_missing_rows=sum(j['missing_count'] for j in batches),
             equity_universe_known=bool(equity_universe),all_four_equity_universes_known=all_members_known,
-            source_availability='not_tested',note='这是缓存待补清单；已有可用标准历史先本地复制，仍缺才请求DDB；不证明远端源表没有数据',
+            source_availability='not_tested',note='缓存待补清单；先本地，再经交易日/实际合约核验的HTTP最新昨收，DDB只补剩余历史缺口；不证明远端无数据',
             last_job=read_object(directory(config,local_root)/'status.json'))
         plan=local_copy_plan(jobs,daily)
         result['ddb'].update(local_copy_available_rows=plan['local_copy_rows'],
@@ -224,6 +224,17 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         result['ddb']['maintenance']['connection']={k:connection.get(k) for k in
             ('host','port','source','stage','authenticated','error_type')}
         result['ddb']['maintenance']['matches_current_target']=maintenance.get('target')==target
+        from .overview_http_closes import status as http_previous_close_status
+        http=http_previous_close_status(config,local_root)
+        http={k:v for k,v in http.items() if k in ('schema','status','target','inserted','already_present','examined',
+            'rejected','source_trade_dates','date_policy','received_at','updated_at','reason','error_type','network_requested','maintenance_target')}
+        http['matches_current_target']=http.get('target')==target
+        from dashboard.native.market_overview import previous_session
+        http['cached_closes']=[{k:r.get(k) for k in ('symbol','trade_date','close','source','source_at','source_trade_date',
+            'source_quote_time','source_security_id','date_evidence_fields','received_at')}
+            for day in (target,previous_session(target)) for r in read_day(config,local_root,day).get('rows',{}).values()
+            if r.get('acquisition')=='http_previous_close']
+        result['http_previous_close']=http
     except (OSError,ValueError,TypeError,KeyError) as exc:result['ddb']=dict(status='unavailable',error_type=type(exc).__name__)
     from .quote_quality import quote_quality
     quotes=snapshot.get('quotes',{})

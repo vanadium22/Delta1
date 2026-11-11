@@ -32,7 +32,7 @@ def fingerprint(quote):
 def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
     from dashboard.session_guard import network_lease
     from dashboard.marketdata.repository import ReferenceBook
-    from dashboard.marketdata.contract_reference import active_contracts
+    from dashboard.marketdata.contract_reference import active_contracts,latest_contracts
     from index_strategy.instant_dld.client import MarketDataClient
     from index_strategy.instant_dld.reader import RealtimeReader
     now=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai'))
@@ -41,7 +41,10 @@ def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
     reference=load_reference(config,local_root,now=now.to_pydatetime())
     registry=quote_registry(config,reference['data'],day)
     symbols=sorted(set(registry)|{v[0] for v in UNDERLYINGS.values()})
-    try:symbols=sorted(set(symbols)|set(active_contracts(ReferenceBook(config.get('reference_file')).data,day)))
+    metadata={}
+    try:
+        book=ReferenceBook(config.get('reference_file')).data;metadata=latest_contracts(book)
+        symbols=sorted(set(symbols)|set(active_contracts(book,day)))
     except (OSError,ValueError):pass
     if len(symbols)>100:raise ValueError('概览快照代码超过100个')
     before=load(local_root);previous=before.get('quotes',{}).copy();known={}
@@ -60,6 +63,10 @@ def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
         result.update(symbols=symbols,poll=1,batch=1,batch_count=1)
         root=Path(local_root)/'overview_snapshots'
         evidence=publish_raw_batch(root,uuid.uuid4().hex,result)
+        from dashboard.marketdata.overview_http_closes import ingest
+        try:http=ingest(result,config,local_root,metadata,now=now,raw_root=root,raw_reference=evidence,stop=stop)
+        except (OSError,ValueError,TypeError,KeyError) as exc:
+            http=dict(status='unavailable',inserted=0,error_type=type(exc).__name__)
         if result.get('status') not in ('success','partial'):
             return dict(status='unavailable',response_status=result.get('status'),received_at=result.get('received_at'),raw=evidence)
         data=(result.get('response') or {}).get('data',{});received=0
@@ -91,4 +98,5 @@ def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
         if received and not stop():_atomic_bytes(root/'latest.json',_json_bytes(value))
         return dict(status='snapshot_received' if received else 'no_valid_quotes',symbols=len(symbols),observations=len(previous),received_quotes=received,
                     received_at=result['received_at'],expected_completed_session=day,
+                    http_previous_close=http,
                     note='盘前盘后最新获取快照，非实时；源日期依据逐值保留')

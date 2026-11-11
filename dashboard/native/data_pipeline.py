@@ -109,7 +109,7 @@ class DataPipeline(QObject):
             self.request_history(force=force_history);return
         self.action='reference_before_history';self.force=force_history;self.reference_started=False
         self.force_reference=force_reference
-        self.set_state('reference_before_history','先复核Wind低频成分/权重及ETF规模，再用DDB补齐最近收盘；现有数据保持可读')
+        self.set_state('reference_before_history','先复核Wind资料，再用本地/HTTP昨收补最新一天，DDB只补剩余历史缺口；现有数据保持可读')
 
     def request_realtime(self,once=False,*,force_reference=False):
         if self.closing or not self.instance_ready():return
@@ -350,11 +350,11 @@ class DataPipeline(QObject):
         collection={k:state.get(k) for k in ('status','stage','polls','rows','data_sequence','valid_rows','validation_status',
             'invalid_symbols','request_started_at','request_seconds','received_at','storage_finished_at','storage_seconds',
             'last_result','missing_symbols','diagnostics','last_success_at','last_failure_at','last_failure_status',
-            'interval_seconds','request_timeouts','equities')}
+            'interval_seconds','request_timeouts','equities','http_previous_close')}
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
             'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous',
-            'scope','research_downloads_enabled')}
+            'scope','research_downloads_enabled','http_previous_close','ddb_connection')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
@@ -442,7 +442,7 @@ class PipelinePage(QWidget):
         body.setContentsMargins(18,18,18,18);body.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.scroll_area.setWidget(content);self.actions=QGridLayout();self.actions.setSpacing(10);body.addLayout(self.actions)
         self.buttons=[];self.action_columns=None
-        for title,fn in [('DDB一键补齐',pipeline.one_click),('更新分红',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
+        for title,fn in [('一键补齐收盘',pipeline.one_click),('更新分红',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
             button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());self.buttons.append(button)
         self.arrange_actions()
@@ -477,6 +477,14 @@ class PipelinePage(QWidget):
         failure=(history.get('ddb_connection') or {}).get('stage')
         summary='DDB生效地址 '+str(endpoint.get('host') or '待核验')+':'+str(endpoint.get('port') or '—')
         if failure:summary+=' · 上次DDB阶段 '+str(failure)
+        snapshot=(report.get('overview_runtime') or {}).get('latest_snapshot') or {}
+        candidates=[r for r in (history.get('http_previous_close'),(report.get('collection') or {}).get('http_previous_close'),
+            snapshot.get('http_previous_close')) if isinstance(r,dict) and r.get('updated_at')]
+        http=max(candidates,key=lambda r:r['updated_at'],default={})
+        if http:
+            summary+='\nHTTP昨收：目标 '+str(http.get('target') or '—')+'，本次补入 '+str(http.get('inserted',0))+' 条'
+            rejected=http.get('rejected') or []
+            if rejected:summary+='；未通过校验 '+str(len(rejected))+' 条（交易日/实际合约/价格原因见详细诊断）'
         self.head.setText(summary+'\n'+dates_text(report.get('data_dates') or {})+'\n'+p.message+
             ('\n'+history['message'] if history.get('message') else ''))
         gaps=set()

@@ -67,6 +67,8 @@ def app_reports(local_root, runtime_root=None):
                 ('state','target','updated_at','message','error_type','error_code','inserted')}
             entry['history_update']['ddb_connection']={k:history_connection.get(k) for k in
                 ('host','port','source','stage','authenticated','error_type')}
+            from dashboard.marketdata.overview_http_closes import safe_status
+            entry['history_update']['http_previous_close']=safe_status(history.get('http_previous_close'))
             entry.update(report_path=str(path.resolve()),same_profile=same,
                 collection={k:collection.get(k) for k in ('status','stage','polls','rows','last_success_at',
                     'last_failure_at','last_failure_status','received_at')},
@@ -77,6 +79,9 @@ def app_reports(local_root, runtime_root=None):
             entry['collection']['equities']={k:equities.get(k) for k in ('status','worker_running','rows','requested','snapshot_at','error_type')}
             entry['collection']['equities']['archive']={k:archive.get(k) for k in ('status','symbols_total','symbols_finished',
                 'parts_published','rows_published','elapsed_seconds','updated_at','error_type')}
+            entry['collection']['http_previous_close']=safe_status(collection.get('http_previous_close'))
+            snapshot=runtime.get('latest_snapshot') or {}
+            entry['overview_runtime']['http_previous_close']=safe_status(snapshot.get('http_previous_close'))
             for name in ('calculation','applied'):
                 timing=value.get(name) or {}
                 entry[name]={k:timing.get(k) for k in ('calculation_started_at','calculation_finished_at','calculation_seconds',
