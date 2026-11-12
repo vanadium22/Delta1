@@ -14,7 +14,7 @@ def check(local_root=None):
     for name in ('pandas','numpy','pyarrow','requests','openpyxl','PySide6.QtWidgets','pyqtgraph'):
         try:module=importlib.import_module(name);checks[name]=dict(ok=True,version=getattr(module,'__version__',None))
         except Exception as exc:checks[name]=dict(ok=False,error_type=type(exc).__name__)
-    from .app_config import prepare_config,credential_state,history_python
+    from .app_config import prepare_config,credential_state,history_python,rebase_local_profiles
     from .marketdata.history_quick import quick_check
     # Inspection does not create the App configuration copy.
     base=Path(__file__).parent/'localsetting'
@@ -22,6 +22,9 @@ def check(local_root=None):
     profile_error=None
     try:config=json.loads(selected.read_text(encoding='utf-8-sig')) if selected and selected.is_file() else {}
     except (OSError,ValueError) as exc:config={};profile_error=type(exc).__name__
+    if selected is None or not selected.is_file():
+        config['history_connection_file']=str((Path(local_root) if local_root is not None else base/'app')/'ddb.connection.local.json')
+    config=rebase_local_profiles(config,selected.parent if selected else Path(local_root) if local_root is not None else base/'app')
     try:quick=quick_check(config)
     except Exception as exc:quick=dict(error_type=type(exc).__name__,message='历史快检失败；主窗口内查看配置与诊断')
     return dict(python=sys.executable,checks=checks,profile=str(selected) if selected else None,

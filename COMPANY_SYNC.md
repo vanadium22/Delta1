@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-12期限结构与同事配置，基线da2aca5：两处曲线沿用同合约有效旧点并标源时，新增本机VPN账号表单、Python选择与隔离补齐、公盘UNC及可搬运数据路径。537项完整回归通过，135.572秒（含加载），无跳过，ResourceWarning作为错误。 本轮未生成分发ZIP，独立Python/离线wheelhouse与公司验收留待后续；[配置](dashboard/PORTABLE_SETUP.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
+
 - 2026-11-12行业变化补全，基线a628472：完整历史优先，缺项时展示部分配对或基于真实权重与行情的估算，显式样本和基准日期。510项完整回归通过，130.731秒（含加载），无跳过，ResourceWarning作为错误；较上版新增14项。 公司a628472包确认约30秒定时重绘、DDB隧道认证、同次关闭7.247秒；新图公司验收待更新。[复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 

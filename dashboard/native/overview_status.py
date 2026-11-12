@@ -23,7 +23,7 @@ def dates_text(value):
     days=value.get('price_days') or []
     prices='待核验' if not days else days[0] if len(days)==1 else days[0]+'～'+days[-1]
     return ('价格数据日：'+prices+' · DDB目标收盘：'+str(value.get('completed_target') or '待核验')+
-        ' · 最新分红表（Y盘）：'+str(value.get('dividend_day') or '待核验'))
+        ' · 最新分红表（公盘）：'+str(value.get('dividend_day') or '待核验'))
 
 
 def status(data, pipeline=None, *, now=None):

@@ -98,7 +98,7 @@ class OverviewSummary(ScrollPage):
     def render_data(self, data):
         from .overview_status import data_dates,dates_text
         self.dividend_source.setText(dates_text(data_dates(data)))
-        self.dividend_source.setToolTip('价格日取卡片真实源时间；DDB目标是最近已完成交易日；分红业务日取Y盘表内B1，三者独立。')
+        self.dividend_source.setToolTip('价格日取卡片真实源时间；DDB目标是最近已完成交易日；分红业务日取公盘表内B1，三者独立。')
         indices = {r['root']:r for r in data.get('indices', [])}
         futures = {(r['root'],r.get('slot')):r for r in data.get('futures', [])}
         self.cards = {}

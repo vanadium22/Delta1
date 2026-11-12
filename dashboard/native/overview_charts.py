@@ -1,7 +1,5 @@
 """Four compact, same-input term and volume/position overview charts."""
-import math
 import numpy as np
-import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QPainter, QFont
@@ -10,6 +8,7 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QSizePolicy
 from .overview_pages import Panel,lab,numeric
 from .futures_overview_view import COLORS
 from .theme import ACCENT,MUTED,PANEL,TEXT
+from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip
 
 
 class CompactDistribution(QWidget):
@@ -62,30 +61,17 @@ class ProductCharts(Panel):
 
     def render(self,rows,group):
         self.curve.clear();self.curve_points=[]
-        candidates=[]
-        for row in sorted(rows,key=lambda r:r.get('slot',99)):
-            if row.get('display_saved'):continue
-            value=row.get('annual_pct');days=row.get('days')
-            if not isinstance(value,(int,float)) or not math.isfinite(value) or not isinstance(days,(int,float)):continue
-            try:
-                times=[pd.Timestamp(row[k]) for k in ('basis_future_source_at','basis_spot_source_at')]
-                if any(pd.isna(t) or t.tzinfo is None for t in times):continue
-            except (KeyError,TypeError,ValueError):continue
-            candidates.append((row,times))
-        identities={(r.get('pricing_day'),r.get('basis_kind')) for r,_ in candidates}
-        times=[t for _,pair in candidates for t in pair]
-        coherent=len(identities)<=1 and (not times or (max(times)-min(times)).total_seconds()<=3)
-        if coherent:
-            for row,_ in candidates:self.curve_points.append(dict(symbol=row['symbol'],slot=row['slot'],days=row['days'],annual_pct=row['annual_pct']))
+        self.curve_points=term_points(rows)
         if self.curve_points:
             xs=[r['days'] for r in self.curve_points];ys=[r['annual_pct'] for r in self.curve_points]
             connect=np.array([self.curve_points[i+1]['slot']==r['slot']+1 if i+1<len(self.curve_points) else False
                               for i,r in enumerate(self.curve_points)],dtype=bool)
-            self.curve.plot(xs,ys,connect=connect,pen=pg.mkPen(ACCENT,width=2),symbol='o',symbolSize=6,symbolBrush=ACCENT)
+            brushes=[pg.mkBrush(None if r['saved'] else ACCENT) for r in self.curve_points]
+            pens=[pg.mkPen(MUTED if r['saved'] else ACCENT,width=2) for r in self.curve_points]
+            self.curve.plot(xs,ys,connect=connect,pen=pg.mkPen(ACCENT,width=2),symbol='o',symbolSize=6,symbolBrush=brushes,symbolPen=pens)
             self.curve.getAxis('bottom').setTicks([[(r['days'],'0'+str(r['slot'])) for r in self.curve_points]])
             span=max(max(xs)-min(xs),30);self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
-            pricing,kind=next(iter(identities));self.term_note.setText(('实时 ' if kind=='realtime' else '参考 ')+str(pricing)+' · 年化有效 '+str(len(xs))+'/4')
-        else:self.term_note.setText('期现时间不一致' if candidates and not coherent else '等待有效同日期现年化')
+        self.term_note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         self.volume.render(group.get('distribution',[]),group.get('distribution_reason') or '等待四档成交')
         self.position.render(group.get('position_distribution',[]),group.get('position_reason') or '等待同日持仓')
         self.position_note.setText(group.get('position_reason','') if group.get('position_distribution') else '')

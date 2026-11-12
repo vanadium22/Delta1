@@ -54,7 +54,8 @@ class HistoryMaintenance:
                   '--indicator-window',str(request['window']),'--indicator-stats',str(request['stats'])]
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'BELOW_NORMAL_PRIORITY_CLASS',0)
         try:
-            self.process=subprocess.Popen(cmd,cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,
+            from dashboard.python_environment import child_environment
+            self.process=subprocess.Popen(cmd,env=child_environment(interpreter),cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=flags)
             self.started=time.monotonic();self.error=None;return True
         except OSError as exc:

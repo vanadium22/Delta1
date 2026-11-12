@@ -16,14 +16,16 @@ from .dividends import digest, read_snapshot
 
 TZ = ZoneInfo('Asia/Shanghai')
 PARSER_VERSION = 'contract-dividends-v2'
-DEFAULT_SOURCE = r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+DEFAULT_SOURCE = r'\\192.168.91.230\FTPServer\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 LEGACY_DEFAULT_SOURCE = r'\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+MAPPED_DEFAULT_SOURCE = r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 
 
 def source_directory(config):
-    """Use the user-confirmed mapped drive; retain unrelated custom/empty paths."""
+    """Resolve only known old defaults to the confirmed share; preserve custom paths."""
     selected=config.get('overview_dividend_source_dir',DEFAULT_SOURCE)
-    if str(selected).replace('/','\\').rstrip('\\').casefold()==LEGACY_DEFAULT_SOURCE.casefold():return DEFAULT_SOURCE
+    if str(selected).replace('/','\\').rstrip('\\').casefold() in {
+            LEGACY_DEFAULT_SOURCE.casefold(),MAPPED_DEFAULT_SOURCE.casefold()}:return DEFAULT_SOURCE
     return selected
 
 

@@ -1,6 +1,7 @@
 """Four expiry cards, term structure and pricing changes from the approved sketch."""
 import math
 
+import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QRectF, QPointF
@@ -13,6 +14,7 @@ from .instruments import UNDERLYINGS
 from .card_views import stamp
 from .theme import ACCENT, ACCENT_BACKGROUND, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
 from dashboard.marketdata.overview_basis import input_summary
+from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip
 
 SLOTS=('当月','次月','季月','远季')
 COLORS=(ACCENT,'#4c8fbc','#7bb3d3','#a7c9e0') if THEME=='public' else CHART_COLORS
@@ -203,19 +205,20 @@ class FuturesOverviewPage(ScrollPage):
         for i,card in enumerate(self.contract_cards):
             row=by_slot.get(i,{});card.render(row,i)
             if row.get('symbol'):self.cards[row['symbol']]=card
-        self.curve.clear();self.curve_points=[];xs=[];ys=[];ticks=[]
-        for row in rows:
-            days=row.get('days');value=row.get('annual_pct')
-            if days is None:continue
-            xs.append(days);ys.append(value if value is not None else float('nan'))
-            ticks.append((days,SLOTS[min(3,row.get('slot',0))]+' · '+str(days)+'天'))
-            if value is not None:self.curve_points.append(dict(symbol=row['symbol'],days=days,annual_pct=value))
+        self.curve.clear();self.curve_points=term_points(rows)
         if self.curve_points:
-            self.curve.plot(xs,ys,pen=pg.mkPen(ACCENT,width=3),symbol='o',symbolSize=7,symbolBrush=ACCENT,symbolPen=ACCENT,connect='finite')
+            xs=[r['days'] for r in self.curve_points];ys=[r['annual_pct'] for r in self.curve_points]
+            ticks=[(r['days'],SLOTS[min(3,r['slot'])]+' · '+str(r['days'])+'天') for r in self.curve_points]
+            connect=np.array([self.curve_points[i+1]['slot']==r['slot']+1 if i+1<len(self.curve_points) else False
+                              for i,r in enumerate(self.curve_points)],dtype=bool)
+            brushes=[pg.mkBrush(None if r['saved'] else ACCENT) for r in self.curve_points]
+            pens=[pg.mkPen(MUTED if r['saved'] else ACCENT,width=2) for r in self.curve_points]
+            self.curve.plot(xs,ys,pen=pg.mkPen(ACCENT,width=3),symbol='o',symbolSize=7,symbolBrush=brushes,symbolPen=pens,connect=connect)
             self.curve.getAxis('bottom').setTicks([ticks]);self.curve.enableAutoRange(axis='y')
             span=max(max(xs)-min(xs),30)
             self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
         self.curve.setVisible(bool(self.curve_points));self.empty_curve.setVisible(not self.curve_points)
+        self.term.note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         group=self.groups.get(root,{})
         self.changes.title.setText('盘中定价变化' if group.get('basis_kind')=='realtime' else '参考定价变化')
         for widget,key in zip(self.change_values,('calendar_points','basis_change_5m')):

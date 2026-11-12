@@ -48,9 +48,9 @@ function Invoke-CompanyRetest {
     [pscustomobject]@{ LocalRoot=$Profile;Branch=$branch;Commit=(Invoke-DeltaGit -GitArguments @('rev-parse','HEAD')).Trim();
         Status=@(Invoke-DeltaGit -GitArguments @('status','--short','--branch'));StartedAt=$started.ToString('o') } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $reports 'git.json') -Encoding UTF8
-    $drive=Get-PSDrive -Name Y -ErrorAction SilentlyContinue
-    [pscustomobject]@{ Mapped=[bool]$drive;Name=$drive.Name;Root=$drive.Root;DisplayRoot=$drive.DisplayRoot;ExpectedServer='192.168.91.230' } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reports 'drive_y.json') -Encoding UTF8
+    [pscustomobject]@{ Schema='overview-share-v1';DefaultSource='\\192.168.91.230\FTPServer\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026';
+        NetworkRequested=$false;EffectiveSource='见Overview分红来源诊断' } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reports 'share_source.json') -Encoding UTF8
     Write-Host ('本轮报告：'+$reports)
     Open-DeltaPresentation $Repository $Profile
     Write-Host '保持新看板打开约10分钟，检查各页和大/中/小比例。中在1080p完整显示卡片。'

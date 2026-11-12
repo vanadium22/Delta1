@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -68,6 +69,18 @@ class DataPackageTests(unittest.TestCase):
         self.assertEqual(original.read_bytes(),raw)
         self.assertEqual(self.wind.read_bytes(),b'company Wind data')
         self.assertNotEqual((local/'native.json').read_bytes(),raw)
+
+    def test_moved_package_rebases_only_its_own_paths_and_preserves_overrides(self):
+        dp.install_package(self.archive,self.destination)
+        local=self.root/'company-local';local.mkdir()
+        original=dp.activate_config({},local,self.destination)
+        moved=self.root/'moved-data';shutil.copytree(self.destination,moved)
+        rebased=dp.activate_config(original,local,moved)
+        self.assertTrue(rebased['history_roots'][0].startswith(str(moved)))
+        self.assertTrue(rebased['reference_file'].startswith(str(moved)))
+        self.assertTrue(Path(original['history_roots'][0]).exists())
+        custom={**original,'history_roots':[str(self.store.root)]}
+        self.assertEqual(dp.activate_config(custom,local,moved),custom)
 
     def test_conflict_rejects_before_activation(self):
         with zipfile.ZipFile(self.archive) as archive:

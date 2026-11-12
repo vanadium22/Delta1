@@ -12,7 +12,8 @@ def run_readonly_worker(command,request,stop_file,*,timeout=180):
     """Cancel only our private SDK reader, never the publisher/history writer."""
     if Path(stop_file).exists():raise InterruptedError()
     payload=json.dumps(request,ensure_ascii=False);started=time.monotonic()
-    with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+    from dashboard.python_environment import child_environment
+    with subprocess.Popen(command,env=child_environment(command[0]),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
         text=True,encoding='utf8',errors='replace',creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)) as process:
         try:
             while True:
@@ -82,7 +83,9 @@ def refresh(config,local_root,old,*,now,stop_file=None,stage='all',requested_day
         try:
             command=[executable(config,local_root),'-B','-X','utf8',str(worker)]
             if stop_file is not None:result=run_readonly_worker(command,request,stop_file)
-            else:result=subprocess.run(command,
+            else:
+                from dashboard.python_environment import child_environment
+                result=subprocess.run(command,env=child_environment(command[0]),
                 input=json.dumps(request,ensure_ascii=False),capture_output=True,text=True,encoding='utf8',errors='replace',
                 timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         except InterruptedError as exc:
@@ -112,8 +115,9 @@ def setup(config,local_root):
     result=dict(provider='WindPy',python=selected,python_exists=Path(selected).is_file(),credentials_read=False,connection_attempted=False)
     if not result['python_exists']:return dict(result,status='python_missing',module_available=False)
     try:
+        from dashboard.python_environment import child_environment
         process=subprocess.run([selected,'-B','-X','utf8',str(Path(__file__).with_name('wind_terminal_worker.py')),'--check'],
-            stdin=subprocess.DEVNULL,capture_output=True,text=True,encoding='utf8',errors='replace',timeout=10,
+            env=child_environment(selected),stdin=subprocess.DEVNULL,capture_output=True,text=True,encoding='utf8',errors='replace',timeout=10,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         value=json.loads(process.stdout)
         return dict(result,**{k:value[k] for k in ('module_available','user_site_enabled') if k in value},status='inspected_module_only')

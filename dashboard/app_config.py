@@ -1,6 +1,7 @@
 """Resolve existing local profiles without rewriting data paths or credentials."""
 import json
 from pathlib import Path
+import re
 
 MODULE_ROOT=Path(__file__).resolve().parent
 
@@ -40,6 +41,24 @@ def connection_path(config):
             if path.is_file() and path not in candidates:candidates.append(path)
     # A unique known legacy installation is a reference, never a credential copy.
     return candidates[0] if len(candidates)==1 else default
+
+
+def rebase_local_profiles(config,local_root):
+    """Rebase only our own versioned local credentials after moving a folder."""
+    value=dict(config);root=Path(local_root)
+    rules=(('history_connection_file','ddb_profiles',r'ddb-[a-f0-9]{32}\.local\.json'),
+           ('history_vpn_config','vpn_profiles',r'ddb-vpn-[a-f0-9]{32}\.local\.json'),
+           ('history_vpn_trust','vpn_profiles',r'ddb-vpn-[a-f0-9]{32}\.trust\.local\.json'))
+    for key,folder,pattern in rules:
+        old=Path(str(value.get(key) or ''))
+        if old.parent.name!=folder or not re.fullmatch(pattern,old.name):continue
+        candidate=root/folder/old.name
+        if candidate.is_file():value[key]=str(candidate.resolve())
+    old=Path(str(value.get('history_connection_file') or ''))
+    if old.name=='ddb.connection.local.json' and old.parent.name=='app':
+        candidate=root/old.name
+        if candidate.is_file():value['history_connection_file']=str(candidate.resolve())
+    return value
 
 
 def history_python(config):

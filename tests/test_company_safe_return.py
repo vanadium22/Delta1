@@ -64,6 +64,13 @@ class SafeReturnTests(unittest.TestCase):
         self.assertTrue(manifest['Complete']);self.assertEqual(manifest['MissingReports'],[])
         self.assertEqual(len(values),9);self.assertNotIn('CANARY',json.dumps(values))
 
+    def test_unc_source_report_needs_no_mapped_drive(self):
+        (self.report/'drive_y.json').unlink()
+        self.write(self.report/'share_source.json',dict(Schema='overview-share-v1',NetworkRequested=False))
+        self.diagnosis('diagnosis-open');self.diagnosis('diagnosis-closed',closed=True)
+        manifest,values=self.pack()
+        self.assertTrue(manifest['Complete']);self.assertTrue(any(n.endswith('/share_source.json') for n in values))
+
     def test_metadata_only_package_is_created_with_explicit_missing_evidence(self):
         manifest,values=self.pack()
         self.assertFalse(manifest['Complete']);self.assertEqual(len(values),3)

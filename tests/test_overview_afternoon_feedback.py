@@ -228,6 +228,16 @@ class RetainedBasisTests(unittest.TestCase):
             current=self.data();current['futures'][0].update(expiry='2026-11-19',basis_points=None,annual_pct=None)
             preserve(model,current,NOW+pd.Timedelta(seconds=1));self.assertNotIn('basis_display',current['futures'][0])
 
+    def test_missing_price_cannot_revive_changed_expiry_or_near_expiry_annual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model=SimpleNamespace(local_root=Path(tmp),config={},overview_write_cache=True);preserve(model,self.data(),NOW)
+            changed=self.data();changed['futures'][0].update(price=None,expiry='2026-11-19',basis_points=None,annual_pct=None)
+            preserve(model,changed,NOW+pd.Timedelta(seconds=1))
+            self.assertIsNone(changed['futures'][0]['annual_pct']);self.assertNotIn('basis_display',changed['futures'][0])
+            near=self.data();near['futures'][0].update(price=None,days=4,basis_points=None,annual_pct=None)
+            preserve(model,near,NOW+pd.Timedelta(seconds=2))
+            self.assertIsNone(near['futures'][0]['annual_pct']);self.assertEqual(near['futures'][0]['days'],4)
+
 
 class ViewportTests(unittest.TestCase):
     def test_click_all_four_indices_through_transformed_viewport_and_summary(self):

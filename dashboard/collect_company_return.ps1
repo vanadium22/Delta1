@@ -34,9 +34,12 @@ function Copy-DeltaJson {
     if ($null -eq (Read-DeltaJson $Target)) { throw '复制后的JSON无效，停止打包并保留目录。' }
     return $true
 }
-$required=@('git.json','drive_y.json')
+$required=@('git.json')
+if (Test-Path -LiteralPath (Join-Path $reportRoot 'share_source.json')) { $required+='share_source.json' }
+elseif (Test-Path -LiteralPath (Join-Path $reportRoot 'drive_y.json')) { $required+='drive_y.json' }
+else { $required+='share_source.json' }
 if ($RunMode -eq 'full') { $required+=@('dividend_before.json','dividend_share.json','dividend_import.json','dividend_after.json','etf_local.json','etf_capabilities.json') }
-foreach ($name in @('git.json','drive_y.json','dividend_before.json','dividend_share.json','dividend_import.json','dividend_after.json','dividend_downloaded.json','etf_local.json','etf_capabilities.json')) {
+foreach ($name in @('git.json','share_source.json','drive_y.json','dividend_before.json','dividend_share.json','dividend_import.json','dividend_after.json','dividend_downloaded.json','etf_local.json','etf_capabilities.json')) {
     $source=Join-Path $reportRoot $name
     if ((Test-Path -LiteralPath $source) -or $name -in $required) {
         if (-not (Copy-DeltaJson $source (Join-Path $safe $name))) { $missing+=$name }

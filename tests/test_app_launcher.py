@@ -73,6 +73,14 @@ class AppLauncherTests(unittest.TestCase):
         arguments=json.loads((root/'preflight-argv.json').read_text())
         self.assertEqual(arguments[arguments.index('--local-root')+1],local)
 
+    def test_setup_offer_switch_is_not_forwarded_to_the_app(self):
+        root,dashboard=self.fixture()
+        result,run,report=self.launch(dashboard,'-OfferPythonSetup')
+        self.assertEqual(result.returncode,0)
+        finished=json.loads((root/'completed.json').read_text())
+        self.assertEqual(finished['argv'],['--edition','presentation','--theme','public'])
+        self.assertEqual(report['phase'],'app_exited')
+
     def test_real_child_failure_is_logged_and_not_restarted(self):
         root,dashboard=self.fixture(app_code=23)
         result,run,report=self.launch(dashboard)

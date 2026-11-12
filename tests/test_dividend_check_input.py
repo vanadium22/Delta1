@@ -20,7 +20,7 @@ from tests.test_overview_percentiles import metadata,DAY
 
 class DividendInputTests(unittest.TestCase):
     def test_confirmed_y_source_replaces_only_old_builtin_default_and_retains_custom_or_disabled(self):
-        expected=r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+        expected=r'\\192.168.91.230\FTPServer\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
         self.assertEqual(DEFAULT_SOURCE,expected)
         config=dict(overview_dividend_source_dir=LEGACY_DEFAULT_SOURCE,password='retained');before=dict(config)
         self.assertEqual(source_directory(config),expected);self.assertEqual(config,before)

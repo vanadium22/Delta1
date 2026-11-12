@@ -50,6 +50,11 @@ def preserve_basis(row,old,now):
     current=basis_bundle(row)
     days=row.get('days')
     excluded=days is not None and days<5
+    if excluded:
+        row.update(annual_pct=None,percentile_20=None,percentile_60=None)
+        for window in ((row.get('continuous_percentiles') or {}).get('windows') or {}).values():
+            window.update(percentile=None,reason='当前剩余T<5，规则排除')
+        current=basis_bundle(row)
     valid=finite(row.get('basis_points')) and (finite(row.get('annual_pct')) or excluded)
     lost=any(finite(previous.get(k)) and not finite(current.get(k)) for k in ('basis_points','annual_pct','percentile_20','percentile_60'))
     if valid and (not lost or excluded):return current
@@ -90,7 +95,8 @@ def preserve(model, data, now):
             if not finite(row.get('price')) and finite(old.get('price')):
                 value=deepcopy({k:v for k,v in old.items() if k!='_last_basis'});value.update(display_saved=True,status='上次显示',display_kind='saved_display',
                     reason='当前缺行情，保留原始源时间的上次显示值',quality=dict(usable=False,status='上次显示',reason='待本轮重新核验'))
-                if kind=='futures' and old.get('slot')!=row.get('slot'):
+                if kind=='futures' and row.get('days') is not None:value['days']=row['days']
+                if kind=='futures' and (old.get('slot')!=row.get('slot') or old.get('expiry')!=row.get('expiry')):
                     for key in basis_bundle(old):
                         if key not in ('symbol','root'):value.pop(key,None)
                     value.update(deepcopy(basis_bundle(row)))

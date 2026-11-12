@@ -144,11 +144,31 @@ def activate_config(config,local_root,data_root):
     value=json.loads(active.read_text(encoding='utf8'));identifier=value.get('package_id','')
     safe_relative(identifier)
     if value.get('schema')!=SCHEMA or '/' in identifier:raise ValueError('Invalid active data package')
-    if config.get('history_package_id')==identifier:return config
     def resolve(relative):
         safe_relative(relative);path=(root/relative).resolve()
         if not path.is_relative_to(root/BASE/'imports'/identifier) or not path.exists():raise ValueError('Incomplete imported data package')
         return str(path)
+    if config.get('history_package_id')==identifier:
+        def matches(path,relative):
+            actual=str(path or '').replace('\\','/').rstrip('/').casefold()
+            suffix='/'+str(relative).replace('\\','/').strip('/').casefold()
+            return actual.endswith(suffix)
+        old_roots=config.get('history_roots') or []
+        if (len(old_roots)!=len(value['history_roots']) or
+                not all(matches(old,rel) for old,rel in zip(old_roots,value['history_roots'])) or
+                not matches(config.get('reference_file'),value['reference_file'])):
+            return config  # An explicit user override is not a portable path.
+        candidate={**config,'history_roots':[resolve(p) for p in value['history_roots']],
+                   'reference_file':resolve(value['reference_file'])}
+        if matches(config.get('dividend_root'),value['dividend_root']):candidate['dividend_root']=resolve(value['dividend_root'])
+        notes=value.get('quality_notes_file')
+        if notes and matches(config.get('history_quality_notes'),notes):candidate['history_quality_notes']=resolve(notes)
+        if matches(config.get('realtime_root'),BASE+'/realtime'):candidate['realtime_root']=str(root/BASE/'realtime')
+        if candidate==config:return config
+        local=Path(local_root);path=local/'native.json'
+        backup=local/('native.before-package-'+identifier+'.json')
+        if path.exists() and not backup.exists():_atomic_bytes(backup,path.read_bytes())
+        _atomic_bytes(path,_json_bytes(candidate));return candidate
     roots=[resolve(p) for p in value['history_roots']]
     for path in roots:BarDataset(path).snapshot()
     candidate={**config,'history_roots':roots,'reference_file':resolve(value['reference_file']),
@@ -159,7 +179,8 @@ def activate_config(config,local_root,data_root):
         candidate['dividend_root']=resolve(value['dividend_root'])
     if not config.get('realtime_root') or not Path(config['realtime_root']).exists():candidate['realtime_root']=str(root/BASE/'realtime')
     local=Path(local_root);path=local/'native.json'
-    if path.exists():_atomic_bytes(local/('native.before-package-'+identifier+'.json'),path.read_bytes())
+    backup=local/('native.before-package-'+identifier+'.json')
+    if path.exists() and not backup.exists():_atomic_bytes(backup,path.read_bytes())
     _atomic_bytes(path,_json_bytes(candidate));return candidate
 
 

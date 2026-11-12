@@ -94,7 +94,7 @@ class DdbEndpointTests(unittest.TestCase):
         result,fill,vpn,_=self.run_gap(factory)
         self.assertEqual(result['state'],'waiting_network');self.assertEqual(result['target'],'2026-11-10')
         self.assertEqual(result['ddb_connection']['stage'],'tcp');self.assertEqual(result['inserted'],0)
-        self.assertIn('Y盘独立更新',result['message']);fill.assert_not_called();vpn.assert_not_called()
+        self.assertIn('公盘独立更新',result['message']);fill.assert_not_called();vpn.assert_not_called()
 
 
 class SettingsLayoutTests(unittest.TestCase):
@@ -169,7 +169,7 @@ class DataDateTests(unittest.TestCase):
         value=data_dates(data)
         self.assertEqual(value,dict(price_days=['2026-11-10'],completed_target='2026-11-10',dividend_day='2026-11-06'))
         self.assertIn('价格数据日：2026-11-10',dates_text(value))
-        self.assertIn('最新分红表（Y盘）：2026-11-06',dates_text(value))
+        self.assertIn('最新分红表（公盘）：2026-11-06',dates_text(value))
 
     def test_mixed_price_days_and_invalid_clocks_do_not_claim_all_current(self):
         data=dict(indices=[dict(price=4000,source_at='2026-11-06T15:00:00+08:00'),dict(price=4001,source_at='2026-11-10T15:00:00+08:00'),
@@ -186,7 +186,7 @@ class DataDateTests(unittest.TestCase):
         for row in [*data['indices'],*data['futures']]:row['source_at']='2026-11-10T15:00:00+08:00'
         widget.render_data(data)
         self.assertIn('价格数据日：2026-11-10',widget.dividend_source.text())
-        self.assertIn('最新分红表（Y盘）：2026-11-06',widget.dividend_source.text())
+        self.assertIn('最新分红表（公盘）：2026-11-06',widget.dividend_source.text())
 
 
 if __name__=='__main__':unittest.main()

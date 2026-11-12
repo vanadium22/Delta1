@@ -41,6 +41,11 @@ class NativeModel:
             "dividend_missing_policy":"previous_contract"}
         if self.path.exists():
             self.config.update(json.loads(self.path.read_text(encoding="utf-8")))
+        else:
+            # A first-time portable profile must not discover another app's account.
+            self.config['history_connection_file']=str(self.local_root/'ddb.connection.local.json')
+        from dashboard.app_config import rebase_local_profiles
+        self.config=rebase_local_profiles(self.config,self.local_root)
         from dashboard.data_package import activate_config
         from dashboard.marketdata.paths import DATA_ROOT
         self.config=activate_config(self.config,self.local_root,DATA_ROOT)

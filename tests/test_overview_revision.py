@@ -213,7 +213,7 @@ class OverviewRevisionTests(unittest.TestCase):
                 collection=SimpleNamespace(running=lambda:False),task=None,window=SimpleNamespace(busy=False),
                 overview_reference=SimpleNamespace(running=lambda:True),readonly=Mock())
             settings=InlineSettings(pipeline)
-            self.assertFalse(settings.idle());pipeline.readonly.assert_called_once();settings.deleteLater();APP.processEvents()
+            self.assertFalse(settings.idle());pipeline.readonly.assert_not_called();settings.deleteLater();APP.processEvents()
 
 
 if __name__=='__main__':unittest.main()

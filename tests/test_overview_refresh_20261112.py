@@ -208,7 +208,7 @@ class OverviewGraphsAndEtfTests(unittest.TestCase):
         self.assertEqual([r['share_pct'] for r in group['position_distribution']],[10,20,30,40])
         self.assertEqual(group['position_mode'],'completed_daily');self.assertIn('2026-10-23',group['position_reason'])
 
-    def test_term_chart_requires_coherent_pricing_time_and_skips_missing_slot(self):
+    def test_term_chart_keeps_valid_points_when_one_pair_is_missing_or_misaligned(self):
         chart=ProductCharts('IF','沪深300')
         rows=[dict(symbol='IF'+str(i),slot=i,days=10+30*i,annual_pct=float(i),pricing_day='2026-10-26',basis_kind='realtime',
                    basis_future_source_at=NOW.isoformat(),basis_spot_source_at=NOW.isoformat()) for i in range(4)]
@@ -217,7 +217,7 @@ class OverviewGraphsAndEtfTests(unittest.TestCase):
             self.assertEqual([r['slot'] for r in chart.curve_points],[0,2,3])
             curve=chart.curve.listDataItems()[0];self.assertEqual(list(curve.opts['connect']),[False,True,False])
             rows[3]['basis_future_source_at']=(NOW-pd.Timedelta(seconds=4)).isoformat();chart.render(rows,{})
-            self.assertEqual(chart.curve_points,[]);self.assertIn('不一致',chart.term_note.text())
+            self.assertEqual([r['slot'] for r in chart.curve_points],[0,2])
         finally:chart.close();chart.deleteLater();APP.processEvents()
 
     def test_distribution_labels_do_not_overlap_their_bars(self):

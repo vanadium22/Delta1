@@ -5,6 +5,7 @@
 | 文件 | 用途 |
 |---|---|
 | [打开看板.vbs](打开看板.vbs) | 双击打开公司看板，沿用原配置；实时 VPN 手动连接。 |
+| [Python环境设置.vbs](Python环境设置.vbs) | 选择 Python、检查依赖，并按需一键安装到看板专用目录。 |
 | [公司复测.cmd](公司复测.cmd) | 按提示更新、运行、正常关闭并生成安全反馈 ZIP。 |
 
 关闭时等待窗口自行退出和写入结束。[详细操作](../APP_COMPANY_TEST.md)、[数据口径](../APP_MARKET_OVERVIEW.md)、[目录分类](../../docs/PROJECT_STRUCTURE.md)。

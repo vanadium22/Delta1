@@ -24,7 +24,7 @@ class InlineSettings(QWidget):
         database.addRow(self.endpoint_save);self.endpoint_save.clicked.connect(self.save_endpoint)
         info=QLabel('当前发布地址 192.168.198.77:8904；原数据库配置只用于复用账号、密码和连接选项。')
         info.setWordWrap(True);database.addRow(info)
-        self.notice=QLabel('价格日、DDB补齐目标和Y盘分红日分别显示；更新地址无需重新输入账号密码。')
+        self.notice=QLabel('价格日、DDB补齐目标和公盘分红日分别显示；更新地址无需重新输入账号密码。')
         self.notice.setWordWrap(True);layout.addWidget(self.notice)
         toggle=QPushButton('展开 / 收起路径、分红、Wind、VPN与账号设置');layout.addWidget(toggle)
         self.body=QWidget();layout.addWidget(self.body);advanced=QVBoxLayout(self.body)
@@ -37,10 +37,12 @@ class InlineSettings(QWidget):
         forms={
             'reference_file':local,'realtime_root':local,'history_python':local,'history_connection_file':local,
         }
-        dividends=self.group(advanced,'Y盘分红')
+        dividends=self.group(advanced,'公盘分红')
         for key in ('dividend_root','overview_dividend_file','overview_dividend_source_dir','overview_dividend_pattern',
                     'overview_dividend_check_am','overview_dividend_check_pm'):forms[key]=dividends
         forms['overview_wind_python']=self.group(advanced,'Wind终端')
+        environment=QPushButton('选择 Python / 检查并补齐依赖');local.addRow(environment)
+        environment.clicked.connect(self.python_setup)
         vpn_form=self.group(advanced,'DDB数据VPN')
         for key in ('history_vpn_config','history_vpn_trust','history_vpn_powershell'):forms[key]=vpn_form
         vpn=vpn_profile(config,pipeline.model.local_root)
@@ -69,6 +71,17 @@ class InlineSettings(QWidget):
         self.fields['password'].setEchoMode(QLineEdit.EchoMode.Password)
         load=QPushButton('读取已有账号（密码不回显）');account.addRow(load);load.clicked.connect(self.load_credentials)
         save=QPushButton('保存本机数据库凭据');account.addRow(save);save.clicked.connect(self.save_credentials)
+        vpn_account=self.group(advanced,'配置本机 DDB 数据 VPN')
+        from dashboard.vpn_profile_settings import metadata as vpn_metadata
+        meta=vpn_metadata(vpn['config'],vpn['trust'])
+        for key,title,value in [('vpn_gateway','VPN HTTPS 网关',meta.get('gateway','')),
+                                ('vpn_fingerprint','网关证书 SHA256 指纹',meta.get('fingerprint','')),
+                                ('vpn_username','VPN 账号',''),('vpn_password','VPN 密码','')]:
+            vpn_account.addRow(title,self.field(key,value))
+        self.fields['vpn_password'].setEchoMode(QLineEdit.EchoMode.Password)
+        help_text=QLabel('填写经核验的网关和证书指纹；仅在本机加密保存。已有可达数据隧道继续复用，实时 VPN 仍由您手动切换。')
+        help_text.setWordWrap(True);vpn_account.addRow(help_text)
+        save_vpn=QPushButton('保存本机 VPN 凭据');vpn_account.addRow(save_vpn);save_vpn.clicked.connect(self.save_vpn)
 
     def field(self,key,value):
         field=QLineEdit(value);field.setMinimumHeight(40);field.setMinimumWidth(160)
@@ -82,18 +95,22 @@ class InlineSettings(QWidget):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows);layout.addWidget(box)
         return form
 
-    def idle(self):
+    def idle(self,*,credentials_only=False):
         p=self.pipeline
         if getattr(p,'closing',False):return False
+        if credentials_only:
+            if p.task is not None or p.window.busy:
+                self.notice.setText('设置正在保存，请等待本轮结束后再次操作。');return False
+            return True
         reference=getattr(p,'overview_reference',None)
         dividends=getattr(p,'overview_dividends',None)
         if dividends is not None and dividends.running():
-            p.readonly();self.notice.setText('已请求停止分红任务；等待本地发布结束后再次保存。');return False
+            self.notice.setText('分红任务正在运行，请等待本地发布结束后再次保存。');return False
         if p.history.process is not None or p.collection.running() or p.task is not None or p.window.busy or reference is not None and reference.running():
-            p.readonly();self.notice.setText('已请求安全停止；等待后台结束后再次保存。');return False
+            self.notice.setText('后台任务正在运行，请等待本轮结束后再次保存。');return False
         return True
 
-    def save_config(self,candidate,message,before=None):
+    def save_config(self,candidate,message,before=None,after=None):
         p=self.pipeline;p.window.busy=True
         def work():
             if before is not None:before()
@@ -101,6 +118,7 @@ class InlineSettings(QWidget):
         def done(result):
             p.window.busy=False
             self.notice.setText('保存失败：'+result.get('error_type','') if result.get('failed') else message)
+            if not result.get('failed') and after is not None:after()
             p.window.refresh()
         if not p.submit(work,done):
             p.window.busy=False;self.notice.setText('后台尚未就绪，请等待当前任务结束。')
@@ -133,23 +151,62 @@ class InlineSettings(QWidget):
         except Exception as exc:self.notice.setText('本机凭据不可读取：'+type(exc).__name__+'；确认引用和当前Windows用户。')
 
     def save_credentials(self):
-        if not self.idle():return
+        if not self.idle(credentials_only=True):return
+        import uuid
         from index_strategy.history.credentials import provider
+        from index_strategy.history.protected_config import save_config as protect_local
         from dashboard.marketdata.ddb_connection import validate_endpoint
         try:endpoint=validate_endpoint(self.fields['host'].text(),self.fields['port'].text())
         except (ValueError,TypeError):
             self.notice.setText('请核对DDB地址和端口。');return
-        path=Path(self.fields['history_connection_file'].text().strip());module=provider()
+        source=self.fields['history_connection_file'].text().strip()
+        path=Path(source) if source else self.pipeline.model.local_root/'ddb.connection.local.json'
+        destination=self.pipeline.model.local_root/'ddb_profiles'/('ddb-'+uuid.uuid4().hex+'.local.json')
+        module=provider()
         username=self.fields['username'].text().strip();password=self.fields['password'].text()
         self.fields['password'].clear()
         if not username:
             self.notice.setText('请先读取已有账号或填写数据库账号。');return
         candidate=deepcopy(self.pipeline.model.config)
-        candidate.update(history_ddb_host=endpoint['host'],history_ddb_port=endpoint['port'])
+        candidate.update(history_ddb_host=endpoint['host'],history_ddb_port=endpoint['port'],history_connection_file=str(destination))
         def save():
             # An unreadable protected password must never be replaced with blank.
             value=module.load_config(path) if path.exists() else {}
             value.update(**endpoint,username=username,password=password or value.get('password',''))
             if not value['password']:raise ValueError('missing_password')
-            value.setdefault('enable_ssl',True);module.save_config(path,value);value.clear()
-        self.save_config(candidate,'数据库凭据已按原保护方式保存；可点击“一键补齐收盘”。',before=save)
+            value.setdefault('enable_ssl',True);protect_local(destination,value);value.clear()
+        self.save_config(candidate,'数据库凭据已在本机保护保存，原有凭据文件保留。',before=save,
+                         after=lambda:self.fields['history_connection_file'].setText(str(destination)))
+
+    def save_vpn(self):
+        if not self.idle(credentials_only=True):return
+        from dashboard.marketdata.ddb_vpn import normalize_gateway,VPNError
+        from dashboard.vpn_profile_settings import prepare
+        import re
+        try:
+            gateway=normalize_gateway(self.fields['vpn_gateway'].text())
+            fingerprint=self.fields['vpn_fingerprint'].text().replace(':','').replace(' ','').strip().upper()
+            if not re.fullmatch(r'[A-F0-9]{64}',fingerprint):raise ValueError()
+        except (ValueError,TypeError,VPNError):
+            self.notice.setText('VPN 网关或证书指纹无效，请填写已核验的 HTTPS 地址及 SHA256 指纹。');return
+        username=self.fields['vpn_username'].text().strip();password=self.fields['vpn_password'].text()
+        self.fields['vpn_password'].clear()
+        if not username or not password:
+            self.notice.setText('请填写 VPN 账号和密码。');return
+        candidate=deepcopy(self.pipeline.model.config);saved={}
+        def save():
+            saved.update(prepare(self.pipeline.model.local_root,gateway,fingerprint,username,password))
+            candidate.update(saved)
+        def apply():
+            for key in ('history_vpn_config','history_vpn_trust'):self.fields[key].setText(saved[key])
+        self.save_config(candidate,'VPN 凭据已在本机加密保存；原有配置保留。',before=save,after=apply)
+
+    def python_setup(self):
+        import subprocess
+        script=Path(__file__).resolve().parents[1]/'configure_python.ps1'
+        try:
+            subprocess.Popen(['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+                '-File',str(script),'-FromApp'],cwd=str(script.parent.parent),stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            self.notice.setText('Python 环境设置已打开；更改将在正常重启看板后生效。')
+        except OSError:self.notice.setText('无法打开 Python 环境设置，请从常用入口打开。')

@@ -1,4 +1,5 @@
 param([ValidateSet('presentation','development')][string]$Edition='presentation',
+      [switch]$OfferPythonSetup,
       [Parameter(ValueFromRemainingArguments=$true)][string[]]$AppArguments)
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
@@ -61,6 +62,9 @@ try {
     if ($childState.phase -notin @('preflight_failed','app_failed','app_exited')) {
         $launchState.phase='app_exited';$launchState.exit_code=$appCode;Save-LaunchState
     }
+    if ($OfferPythonSetup -and $childState.phase -eq 'preflight_failed' -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'configure_python.ps1'))) {
+        & (Join-Path $PSScriptRoot 'configure_python.ps1')
+    }
     exit $appCode
 } catch {
     $launchState.phase='launcher_failed';$launchState.exit_code=1
@@ -68,5 +72,8 @@ try {
     $launchState.error_id=$_.FullyQualifiedErrorId
     Save-LaunchState
     $_.Exception.GetType().FullName | Out-File -LiteralPath (Join-Path $runtime 'launcher-error.log') -Encoding utf8
+    if ($OfferPythonSetup -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'configure_python.ps1'))) {
+        & (Join-Path $PSScriptRoot 'configure_python.ps1')
+    }
     exit 1
 }

@@ -1,4 +1,4 @@
 @echo off
 setlocal
-powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0start_app.ps1" -Edition presentation %*
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0start_app.ps1" -Edition presentation -OfferPythonSetup %*
 exit /b %errorlevel%

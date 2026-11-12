@@ -350,7 +350,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             if isinstance(exc,ModuleNotFoundError):return report('waiting_sdk',
                 '历史Python缺少DDB SDK；请在设置中选择已有DDB环境，原价格缓存保留',error_type=type(exc).__name__)
             if isinstance(exc,ConnectionError):return report('waiting_network',
-                'DDB连接未完成（'+stage+'）；目标 '+str(state.get('target') or '待核验')+'，沿用已有价格；分红日期由Y盘独立更新',
+                'DDB连接未完成（'+stage+'）；目标 '+str(state.get('target') or '待核验')+'，沿用已有价格；分红日期由公盘独立更新',
                 error_type=type(exc).__name__)
             return report('waiting_calendar' if isinstance(exc,CalendarUnavailable) else 'waiting_credentials' if isinstance(exc,CredentialsUnavailable) else 'failed',
                 '概览补齐未完成，保留已有数据；错误类型见诊断',error_type=type(exc).__name__)
@@ -362,6 +362,8 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
 
 def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None, direct_factory=open_direct, fetcher=fetch_job, today=None, preserve_existing=False, incremental=False, lifetime=None,reference_file=None,vpn_mode='manual',include_completed_today=False,overview_daily=False,now=None,overview_only=False,indicator_request=None):
     local_root=Path(local_root);config=read_json(local_root/'native.json')
+    from dashboard.app_config import rebase_local_profiles
+    config=rebase_local_profiles(config,local_root)
     if indicator_request:
         from .indicator_analysis import selection
         config['_indicator_analysis_request']=selection(**indicator_request)

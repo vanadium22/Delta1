@@ -137,12 +137,13 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
     if ok and not phase['continuous']:
         ok, reason = False, '午休，仅展示保存行情' if phase['phase']=='lunch' else '盘前盘后，仅展示保存行情或同日收盘参考'
     expiry = metadata.get(symbol, {}).get('expiry_date')
+    day = str(now.tz_convert('Asia/Shanghai').date())
+    known_days=(date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
     row.update(expiry=expiry, basis_points=None, raw_basis_points=None,log_basis_bp=None, annual_pct=None,dividend_points=None,
                percentile=None, percentile_samples=0, basis_reason=reason,
                percentile_reason='需要当前同步期现报价和此前20个完整交易日', basis_source_at=None,
                basis_future_price=None,basis_spot_price=None,basis_future_source_at=None,basis_spot_source_at=None,dividend_carried_forward=False,
-               basis_kind=None,pricing_day=None,days=None,percentile_start=None,percentile_end=None)
-    day = str(now.tz_convert('Asia/Shanghai').date())
+               basis_kind=None,pricing_day=None,days=known_days,percentile_start=None,percentile_end=None)
     mode='realtime'
     at=max(pd.Timestamp(q['source_event_time']),pd.Timestamp(s['source_event_time'])) if ok else now
     if not ok:
