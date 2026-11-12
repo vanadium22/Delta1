@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-12-company-feedback-single-page",
+  "release": "2026-11-12-company-industry-partial-estimate",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "base_commit": "da50685864f1c61d51889126d64aa6bfa29e0877",
-  "status": "local_validated_company_new_layout_and_timer_evidence_pending",
+  "base_commit": "a628472af8eb79e3e2f2b5c53bf6f171f8c2c2da",
+  "status": "local_validated_company_industry_chart_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -58,8 +58,8 @@
     }
   },
   "latest_update": {
-    "base_commit": "da50685864f1c61d51889126d64aa6bfa29e0877",
-    "scope": "2026-11-12公司复测续改，统一codex/company-apps，实施基线da50685，最终运行版本以Git HEAD/远端为准。概览将每个指数、四个期货卡及该品种期限/成交/持仓图合为一行，1080p/125%中比例无需滚动；小窗口可滚动以保持可读。ETF总览增加蓝色表头、交替底色、涨跌/折溢价颜色并放大字号；指标图最新点加大。行业变化缺项显示可比失败原因，并在安全报告中保留每品种判断摘要；不把缺失权重伪造为零。",
+    "base_commit": "a628472af8eb79e3e2f2b5c53bf6f171f8c2c2da",
+    "scope": "2026-11-12行业变化补全，统一codex/company-apps，实施基线a628472，最终运行版本以Git HEAD及远端为准。完整同口径历史比较优先；历史不全时按成分代码及真实权重日期配对，或在行情样本覆盖更高时按现有权重和有效成分涨跌估算。标题明确“部分成分”或“涨跌估算”，显示样本数、基准日期、缓存状态和百分点；缺项不补零、未知行业保留“待分类”。无可信权重或行情时仍显示真实缺项原因；公司新图效果待更新后验收。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -71,41 +71,29 @@
       "dashboard/PROJECT_HANDOFF.md",
       "dashboard/README.md",
       "dashboard/company_retest.ps1",
-      "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
-      "dashboard/marketdata/indicator_analysis.py",
       "dashboard/marketdata/overview_audit.py",
+      "dashboard/marketdata/overview_contributions.py",
       "dashboard/marketdata/overview_industry_changes.py",
-      "dashboard/native/data_pipeline.py",
-      "dashboard/native/futures_overview_view.py",
-      "dashboard/native/indicator_analysis_view.py",
-      "dashboard/native/overview_charts.py",
+      "dashboard/native/overview_details.py",
       "dashboard/native/overview_pages.py",
-      "dashboard/native/overview_summary.py",
-      "dashboard/overview_check.py",
-      "tests/test_company_feedback_20261112.py"
+      "tests/test_industry_partial_20261112.py"
     ],
     "tests": {
-      "passed": 496,
-      "seconds": 136.744,
+      "passed": 510,
+      "seconds": 130.731,
       "skipped": 0,
-      "new_tests": 6,
+      "new_tests": 14,
       "resource_warnings": "errors"
     },
-    "layout": {
-      "overview": "four product rows each with index, four contract cards and their chart",
-      "wide": "1536x864 logical at 125% has all cards and charts on one screen",
-      "narrow": "scroll for legibility",
-      "etf": "12 rows, larger font, alternating backgrounds"
-    },
-    "indicator_evidence": "precise 30-second actual GUI timer draws; last three bounded safe summaries with source time and values",
-    "industry_evidence": "per root current/previous availability, archive diagnostic counts, classification coverage; no fabricated zero",
-    "company_acceptance": "da50685 same-run shutdown and one live Z/percentile snapshot verified; continuous redraw and new UI pending next packet",
+    "industry_method": "估算公式：以真实基准权重w、同快照成分涨跌ri、同快照指数涨跌R计算w*(1+ri/100)/(1+R/100)-w，单位百分点。指数涨跌缺失时使用已覆盖成分按原权重的加权涨跌作为分母并明确标注；未匹配的成分不纳入，不伪造权重或行情，也不称官方完整变化。旧基准权重保留原日期，估算并不保证等于真实昨日权重。历史配对逐成分校验同指数、同来源、同分类口径、真实且先后的权重日期；分类变更成分排除，分类未知归入待分类。",
+    "layout": "本地PySide6主窗口用合成数据在1536×864逻辑像素、125%缩放离屏检查了中证500涨跌估算变化图、样本数及基准日期；同时核查860×620布局。合成截图不等于公司实际数据或公司新版本验收。",
+    "company_acceptance": "a628472 timer, DDB authentication and same-run shutdown verified; new industry chart company acceptance pending",
     "protection": {
-      "files": 8454,
-      "bytes": 365660069,
-      "preexisting_absent": 4,
+      "files": 8455,
+      "bytes": 365790526,
+      "preexisting_absent": 0,
       "changed": 0,
       "backtest_raw": "unchanged"
     }
@@ -486,7 +474,8 @@
     "dashboard/marketdata/overview_industry_changes.py",
     "dashboard/native/overview_charts.py",
     "tests/test_overview_refresh_20261112.py",
-    "tests/test_company_feedback_20261112.py"
+    "tests/test_company_feedback_20261112.py",
+    "tests/test_industry_partial_20261112.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -505,15 +494,16 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "496项独立完整回归通过，136.744秒（含加载），无跳过，ResourceWarning作为错误；原490项重跑，新增6项。 Qt 125%合成同屏与安全证据本地通过，公司新界面和连续定时绘图待新包。",
+  "current_validation": "510项完整回归通过，130.731秒（含加载），无跳过，ResourceWarning作为错误；较上版新增14项。 本地PySide6主窗口用合成数据在1536×864逻辑像素、125%缩放离屏检查了中证500涨跌估算变化图、样本数及基准日期；同时核查860×620布局。合成截图不等于公司实际数据或公司新版本验收。",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
-    "Company actual repeated 30-second indicator redraw and values across time for the same selection",
-    "Company IC/IM previous compatible industry-weight evidence and actual new single-page layout",
-    "Company latest DDB OI and ETF/other close gaps; maintenance at 10:07 recorded 24 closes and 16 OI pending",
-    "Real historical dividends: 396 zero-placeholder sample rows in current 60-day windows; not complete true D"
+    "Company IC/IM new partial or estimated industry chart, actual coverage and anchor date",
+    "Company actual single-page overview and ETF layout at the target display size",
+    "Company continuous intraday indicator values beyond the verified lunch-transition timer frames",
+    "Company latest DDB close and open-interest gaps",
+    "Real historical dividends: prior 60-day window sample contained 396 flagged zero placeholders; not complete true D"
   ],
-  "company_feedback": "公司安全包20261112_100603_500_safe_103108_772_2f9c3359.zip，121515字节，SHA256 faa33f5818c8f3fbfabeeabb6a76cc0197ddbf2061d7d2ad0bcf2486fcbdcc6f，运行da50685；9份JSON/CRC正常、Complete=true/MissingReports=[]，同一f12c8a运行开窗、正常关闭3.355秒、waiting=[]，成分sqlite_committed。两次Overview与preflight均退出0、stderr为空。 开窗10:27:34应用了IC 03、t_w=90/t_z=20的盘中快照，F/S/D/T源时10:27:31。绝对基差/去分红/年化/03−02/02−01的Z分别为0.2756/0.5718/0.6992/0.6894/1.0607，分位分别为60/55/65/55/90%；用包内同输入复算各公式及Z一致。两次只读采样有32个行情源时推进，但运行指标摘要只有一个时点，因此不能从本包断言Z/分位持续变化或30秒实际重绘；分位按样本排序离散，不要求每笔行情均变化。 本次DDB维护有效端点192.168.198.77:8904、existing_tunnel/tcp_verified/authenticated、query_partial，插入0；10:07维护记录待补收盘24条和期货OI 16条，不等于最终四指数与16期货都缺收盘。HTTP缓存已核验11-11四指数及16实际期货共20条，均为corroborated_live_session日期推定；页面计算预览16个年化、16个20日及16个60日分位有值。20日历史D暂0为0行，60日396样本行暂0，不能称真实历史D已全。 包内IC/IM当前权重均存在、权重日期10-30，成分中分别49/148只缺行业分类；安全包未记录上次可比权重决策或归档内容，不能证明这两项缺分类就是图不显示的原因。新版本在运行报告与离线预览中记录比较状态、当前/前次日期、来源口径、归档扫描/不兼容计数及未分类数；仅对同口径可比快照计算，保留“待分类”，无可比数据留空。",
+  "company_feedback": "公司安全包20261112_111531_749_safe_113124_158_68fd3bf7.zip，130457字节，SHA256 1e80ae4ff4d06748b8688e90c9bfef746296063321ec7a7e2da08f6cfadd101a，运行a628472；9份JSON、CRC正常、Complete=true、MissingReports=[]。同一515050c运行正常关闭7.247秒、waiting=[]，成分sqlite_committed。两次Overview及preflight退出0、stderr为空。 IM02同一选择在11:30:00.911、11:30:30.922、11:31:00.911实际绘图，相隔30.011秒、29.989秒。第一帧为11-12 11:29:56盘中行情，年化Z约0.0694、分位45%；后两帧为11-11收盘参考，年化Z约0.8326、分位75%；变动跨午休定价模式，不能据此宣称连续多个盘中tick均改变Z/分位，分位也不保证每个tick都变。 本包DDB为192.168.198.77:8904，复用existing_tunnel，TCP和认证成功，query_partial、插入0；11:16维护时仍有收盘和持仓缺项记录，该记录不是最终全品种结果。DDB不暂停，实时VPN仍手动。 本包归档读取23份，IC/IM各22组中17组重复、5组上期权重不完整或不可比，是旧变化图为空的直接原因；当前权重日期10-30，500只中49只、1000只中148只缺行业分类，二者属于另行统计的分类缺项。",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
   "overview_history_policy": "App-only local-first completed headline/ETF/futures daily cache for continuous 20/60 and prior closes. Current 16 actual futures additionally require genuine latest-completed-day OI for notional comparison; already available prices stay usable while OI is missing, no repeated price-only OI progress. Complete side-cache bars replace missing-OI bars as whole coherent rows. Only actual gaps prepare existing DDB path. Default overview_stock_daily_enabled=false avoids all-stock daily/anchor jobs; stock previous close from HTTP yesterdayClosePrice. Optional full stock mode and unrelated CLI/Excel/research untouched.",
   "next_iteration": {
@@ -552,21 +542,22 @@
     "intraday_IOPV": "mapping_required",
     "net_creation": "mapping_required",
     "PCF": "mapping_required",
-    "new_shutdown": "verified_da50685_same_run_3.355s",
+    "new_shutdown": "verified_a628472_same_run_7.247s",
     "live_basis_excel_reconciliation": "16_same_input_company_realtime_rows_verified_user_may_have_compared_old_workbook",
     "new_zero_estimate_and_ETF_UI": "16_numerical_20_and_60_verified_b5746c7; user_says_other_items_ok; no_UI_click_trace_in_JSON",
     "latest_display_resilience": "user_reports_other_items_ok; b5746c7_preview_basis_display_not_triggered; local_regressions_passed",
     "latest_aum_history": "verified_12_symbols_each_60_dated_points_total_720_2026-08-10_to_2026-11-09; latest_pair_source_AUM_equal",
-    "latest_shutdown_performance": "verified_da50685_same_run_3.355s_complete_waiting_empty_sqlite_committed",
+    "latest_shutdown_performance": "verified_a628472_same_run_7.247s_waiting_empty_sqlite_committed",
     "numerical_history_policy": "reviewed_da50685_60_day_396_flagged_D_zero_sample_rows_20_day_zero_count_0_not_complete_true_D",
     "latest_market_sizes": "verified_b5746c7_16_actual_OI_price_multiplier_rows_and_4_totals; completed_daily_2026-11-09_not_11-10_realtime",
     "latest_startup": "b7d5d55_same_run_shared_interpreter_window_shown_3.598s_first_result_9.324s_not_source_arrival",
-    "latest_ddb_endpoint": "verified_da50685_192.168.198.77:8904_existing_tunnel_tcp_authenticated_query_partial",
+    "latest_ddb_endpoint": "verified_a628472_192.168.198.77:8904_existing_tunnel_tcp_authenticated_query_partial",
     "latest_preopen_price": "Nov11 target Nov10 tested locally; actual source not queried due current-machine TCP timeout; Nov6 dividend is Y source",
     "latest_settings_layout": "local_three_sizes_scroll_40px_verified_company_pending",
-    "indicator_page": "da50685_one_live_IC03_snapshot_all_five_Z_percentile_formula_verified_continuity_pending",
+    "indicator_page": "a628472_IM02_three_actual_timer_draws_30_seconds_live_to_lunch_reference_not_multiple_live_ticks",
     "latest_previous_close": "verified_da50685_2026-11-11_four_indices_16_actual_futures_HTTP_corroborated_session_date_inferred",
-    "latest_feedback": "da50685_complete_same_run_shutdown_3.355s_sqlite_committed_ddb_existing_tunnel_authenticated_query_partial"
+    "latest_feedback": "a628472_complete_same_run_shutdown_7.247s_ddb_existing_tunnel_authenticated_query_partial",
+    "industry_change": "local_partial_or_return_estimate_verified_new_company_view_pending"
   },
   "company_feedback_afternoon": {
     "package_sha256": "fb133dd757b9a6e23c5a0882ae294fd3f8daacf4f1b58e211adf3783127f2969",
@@ -1854,5 +1845,61 @@
     },
     "industry_comparison_reason_in_packet": false,
     "zero_dividend_samples_60": 396
+  },
+  "company_feedback_20261112_industry": {
+    "package": "20261112_111531_749_safe_113124_158_68fd3bf7.zip",
+    "bytes": 130457,
+    "sha256": "1e80ae4ff4d06748b8688e90c9bfef746296063321ec7a7e2da08f6cfadd101a",
+    "commit": "a628472af8eb79e3e2f2b5c53bf6f171f8c2c2da",
+    "json_files": 9,
+    "crc_valid": true,
+    "complete": true,
+    "same_run_id": "515050c462ec400299b8e93c6b03485b",
+    "shutdown_seconds": 7.247,
+    "shutdown_waiting": [],
+    "archive": "sqlite_committed",
+    "overview_exit_codes": [
+      0,
+      0
+    ],
+    "indicator": {
+      "root": "IM",
+      "slot": 2,
+      "draw_times": [
+        "11:30:00.911375",
+        "11:30:30.922419",
+        "11:31:00.911076"
+      ],
+      "draw_interval_seconds": [
+        30.011044,
+        29.988657
+      ],
+      "first_source": "2026-11-12T11:29:56+08:00",
+      "later_mode": "completed_daily_2026-11-11",
+      "annual_z": [
+        0.06942875,
+        0.83262953
+      ],
+      "annual_percentile": [
+        45,
+        75
+      ],
+      "note": "switch across lunch; not evidence of multiple intraday source ticks"
+    },
+    "ddb": {
+      "mode": "existing_tunnel",
+      "tcp_verified": true,
+      "authenticated": true,
+      "stage": "query_partial",
+      "inserted": 0
+    },
+    "industry": {
+      "archive_files_read": 23,
+      "groups_per_root": 22,
+      "duplicates_per_root": 17,
+      "incompatible_per_root": 5,
+      "IC_unclassified": 49,
+      "IM_unclassified": 148
+    }
   }
 }

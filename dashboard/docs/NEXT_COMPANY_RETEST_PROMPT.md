@@ -1,26 +1,28 @@
-# 下一对话：公司同屏与指标连续更新复测
+# 下一对话：行业权重变化补全与公司复测
 
-2026-11-12公司复测续改，统一codex/company-apps，实施基线da50685，最终运行版本以Git HEAD/远端为准。概览将每个指数、四个期货卡及该品种期限/成交/持仓图合为一行，1080p/125%中比例无需滚动；小窗口可滚动以保持可读。ETF总览增加蓝色表头、交替底色、涨跌/折溢价颜色并放大字号；指标图最新点加大。行业变化缺项显示可比失败原因，并在安全报告中保留每品种判断摘要；不把缺失权重伪造为零。
+2026-11-12行业变化补全，统一codex/company-apps，实施基线a628472，最终运行版本以Git HEAD及远端为准。完整同口径历史比较优先；历史不全时按成分代码及真实权重日期配对，或在行情样本覆盖更高时按现有权重和有效成分涨跌估算。标题明确“部分成分”或“涨跌估算”，显示样本数、基准日期、缓存状态和百分点；缺项不补零、未知行业保留“待分类”。无可信权重或行情时仍显示真实缺项原因；公司新图效果待更新后验收。
 
-496项独立完整回归通过，136.744秒（含加载），无跳过，ResourceWarning作为错误；原490项重跑，新增6项。 本地离屏截图为合成数据，不等于公司新版本验收。
+510项完整回归通过，130.731秒（含加载），无跳过，ResourceWarning作为错误；较上版新增14项。 本地PySide6主窗口用合成数据在1536×864逻辑像素、125%缩放离屏检查了中证500涨跌估算变化图、样本数及基准日期；同时核查860×620布局。合成截图不等于公司实际数据或公司新版本验收。
 
 ## 可复制提示词
 
-请继续Delta1公司看板。先完整读取本文件及docs/INDICATOR_PAGE_PROPOSAL.md，再读取相关AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。统一工作区P:/project/swhy/Delta1/company-apps-worktree、codex/company-apps；先核验Git、远端、worktree、status与diff。
+请继续Delta1公司看板。先完整读取本文件与docs/INDICATOR_PAGE_PROPOSAL.md，再阅读AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。统一工作区P:/project/swhy/Delta1/company-apps-worktree、codex/company-apps；先核验Git、远端、worktree、status与diff。
 
-先核验我提供的最新安全包，同次开窗与关闭按同一report_path识别；检查app_reports的indicator_analysis及indicator_draw.timer_draws，比较相邻实际绘图时间、选择、源时、当前值、Z及分位，不能将历史快照或定时器设置当成公司连续绘图证据。核对index_industry_changes中IC/IM的可比失败原因、日期、分类覆盖和归档计数；不将未知值补0。检查四品种概览同屏、ETF表、指标末点及DDB/关闭。必要实施、测试、精确提交推送授权持续；本地验证与公司验收分开。
+核验我提供的最新公司安全包，同次开窗及关闭按同一report_path识别；检查index_industry_changes中IC/IM的comparison_kind、样本、日期、来源与缺口，在指数页验收变化图，区分完整历史、部分成分和涨跌估算。不将缺项补0。按需核验indicator_draw实际绘图及源时间、Z和分位，区分午休模式切换；核查DDB和同次关闭。必要实施、测试、精确提交推送授权持续，本地验证与公司验收分开。
 
-DDB不暂停，原凭据和192.168.198.77:8904沿用，可达时复用已有jc数据隧道；实时VPN手动。保留原数据、配置、凭据、Excel、其他worktree、四份受保护提示词、七份唯一归档及APP_RELEASE.backtest原块；逐日实际D、简单年化、连续四档固定20/60保持，历史缺D暂0只派生、当前D不补0、冲突不填；32项/A02继续暂停。Overview默认离线，不强杀写入者、删锁、重映射Y、reset/clean、全量stage或强推。
+估算公式：以真实基准权重w、同快照成分涨跌ri、同快照指数涨跌R计算w*(1+ri/100)/(1+R/100)-w，单位百分点。指数涨跌缺失时使用已覆盖成分按原权重的加权涨跌作为分母并明确标注；未匹配的成分不纳入，不伪造权重或行情，也不称官方完整变化。旧基准权重保留原日期，估算并不保证等于真实昨日权重。历史配对逐成分校验同指数、同来源、同分类口径、真实且先后的权重日期；分类变更成分排除，分类未知归入待分类。
+
+原数据、配置、凭据、Excel、其他worktree、四份受保护提示词及APP_RELEASE.backtest原块保留；逐日D、简单年化、连续四档固定20/60规则保持，32项/A02继续暂停；默认Overview离线、DDB不暂停、实时VPN手动，不强杀写入者、删锁、重映射Y、reset/clean、全量stage或强推。
 
 ## 最新已审公司包
 
-公司安全包20261112_100603_500_safe_103108_772_2f9c3359.zip，121515字节，SHA256 faa33f5818c8f3fbfabeeabb6a76cc0197ddbf2061d7d2ad0bcf2486fcbdcc6f，运行da50685；9份JSON/CRC正常、Complete=true/MissingReports=[]，同一f12c8a运行开窗、正常关闭3.355秒、waiting=[]，成分sqlite_committed。两次Overview与preflight均退出0、stderr为空。
+公司安全包20261112_111531_749_safe_113124_158_68fd3bf7.zip，130457字节，SHA256 1e80ae4ff4d06748b8688e90c9bfef746296063321ec7a7e2da08f6cfadd101a，运行a628472；9份JSON、CRC正常、Complete=true、MissingReports=[]。同一515050c运行正常关闭7.247秒、waiting=[]，成分sqlite_committed。两次Overview及preflight退出0、stderr为空。
 
-开窗10:27:34应用了IC 03、t_w=90/t_z=20的盘中快照，F/S/D/T源时10:27:31。绝对基差/去分红/年化/03−02/02−01的Z分别为0.2756/0.5718/0.6992/0.6894/1.0607，分位分别为60/55/65/55/90%；用包内同输入复算各公式及Z一致。两次只读采样有32个行情源时推进，但运行指标摘要只有一个时点，因此不能从本包断言Z/分位持续变化或30秒实际重绘；分位按样本排序离散，不要求每笔行情均变化。
+IM02同一选择在11:30:00.911、11:30:30.922、11:31:00.911实际绘图，相隔30.011秒、29.989秒。第一帧为11-12 11:29:56盘中行情，年化Z约0.0694、分位45%；后两帧为11-11收盘参考，年化Z约0.8326、分位75%；变动跨午休定价模式，不能据此宣称连续多个盘中tick均改变Z/分位，分位也不保证每个tick都变。
 
-本次DDB维护有效端点192.168.198.77:8904、existing_tunnel/tcp_verified/authenticated、query_partial，插入0；10:07维护记录待补收盘24条和期货OI 16条，不等于最终四指数与16期货都缺收盘。HTTP缓存已核验11-11四指数及16实际期货共20条，均为corroborated_live_session日期推定；页面计算预览16个年化、16个20日及16个60日分位有值。20日历史D暂0为0行，60日396样本行暂0，不能称真实历史D已全。
+本包DDB为192.168.198.77:8904，复用existing_tunnel，TCP和认证成功，query_partial、插入0；11:16维护时仍有收盘和持仓缺项记录，该记录不是最终全品种结果。DDB不暂停，实时VPN仍手动。
 
-包内IC/IM当前权重均存在、权重日期10-30，成分中分别49/148只缺行业分类；安全包未记录上次可比权重决策或归档内容，不能证明这两项缺分类就是图不显示的原因。新版本在运行报告与离线预览中记录比较状态、当前/前次日期、来源口径、归档扫描/不兼容计数及未分类数；仅对同口径可比快照计算，保留“待分类”，无可比数据留空。
+本包归档读取23份，IC/IM各22组中17组重复、5组上期权重不完整或不可比，是旧变化图为空的直接原因；当前权重日期10-30，500只中49只、1000只中148只缺行业分类，二者属于另行统计的分类缺项。
 
 ## 公司原入口
 
@@ -29,4 +31,4 @@ cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
 git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900
 ```
 
-取开窗报告前在指标分析页保持同一品种/档位至少65秒；正常关闭并等待排空后取关闭报告，回传最后的安全ZIP。DDB和实时VPN按既有策略，勿重映射Y或强杀进程。
+按需取开窗报告，正常关闭并等待排空后取关闭报告，回传最后的安全ZIP。DDB和实时VPN按既有策略，勿重映射Y或强杀进程。

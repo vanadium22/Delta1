@@ -59,7 +59,7 @@ function Invoke-CompanyRetest {
     Write-Host '检查四品种四档20/60日年化分位；无显式交易日时，HTTP需连续盘中两次行情真实推进且昨收稳定，诊断标会话日期推定。'
     Write-Host 'DDB自动流程保持；你手动连接的数据VPN若已能到新地址，会直接复用隧道。补齐结束后实时VPN仍由你手动切换。'
     Write-Host '检查概览同屏的00/01/02/03、同窗20/60统计及四品种期限、成交和持仓。'
-    Write-Host '检查指数行业权重及变化缺项原因、ETF总览表；进入指标分析，查看缺项和30秒图像更新。'
+    Write-Host '检查指数行业权重变化图；部分成分或涨跌估算请核对样本覆盖和基准日期。查看ETF总览表和指标分析30秒图像更新。'
     Write-Host '开窗取证前，请保持指标分析同一品种和档位至少65秒，以保留连续两次定时重绘的安全摘要。'
     for ($remaining=$Seconds;$remaining -gt 0;$remaining-=[Math]::Min(30,$remaining)) {
         Write-Progress -Activity '保持看板打开取样' -Status ('剩余约 '+$remaining+' 秒') -PercentComplete (100*(1-$remaining/[Math]::Max(1,$Seconds)))

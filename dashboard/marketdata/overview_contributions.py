@@ -37,7 +37,7 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     rows=group.get('rows',[]);closed=snapshot.get('mode')=='completed_daily'
     result=dict(rows=[],industries=[],leaders=[],laggards=[],source_at=None,snapshot_at=snapshot.get('finished_at'),
         coverage_pct=None,covered=0,weighted_covered=0,expected=len(rows),up=None,down=None,flat=None,up_pct=None,
-        actual_points=None,contribution_points=None,residual_points=None,
+        actual_points=None,actual_return_pct=None,pricing_day=None,contribution_points=None,residual_points=None,
         weight_date=group.get('as_of'),official_weight_date=group.get('official_as_of',group.get('as_of')),
         weight_method=group.get('weight_method','provided_reference'),weight_reason=group.get('weight_reason'),
         weight_source_dates=group.get('weight_source_dates',[]),industry_standard=group.get('industry_standard'),
@@ -54,6 +54,8 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     except (ValueError,TypeError):cutoff=None
     same_day=bool(snapshot.get('pricing_day') and snapshot['pricing_day']<=str(now.tz_convert('Asia/Shanghai').date())) if closed else bool(cutoff is not None and cutoff.tz_convert('Asia/Shanghai').date()==now.tz_convert('Asia/Shanghai').date())
     valid_cutoff=cutoff is not None and same_day
+    if valid_cutoff:
+        result['pricing_day']=snapshot.get('pricing_day') if closed else str(cutoff.tz_convert('Asia/Shanghai').date())
     # A reference SHA also changes for NAV updates. Match current membership by
     # stock code; an unrelated reference update must not erase valid prices.
     quotes=snapshot.get('quotes',{}) if valid_cutoff else {}
@@ -90,7 +92,9 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
         ret=100*(q['close']/prior-1) if valid else None;w=weight(member)
         point=base*w/100*ret/100 if valid and w is not None and base_valid else None
         item=dict(symbol=member['symbol'],name=member.get('name') or member['symbol'],industry=member.get('industry') or '待分类',
-            weight_pct=w,weight_date=member.get('reference_date') or group.get('as_of'),change_pct=ret,contribution_points=point,source_at=q.get('source_event_time') if valid else None)
+            weight_pct=w,weight_date=(group.get('as_of') if group.get('weight_method')=='fixed_quantity_estimate' else
+                member.get('reference_date') or (None if group.get('weights_complete') is False else group.get('as_of'))),
+            change_pct=ret,contribution_points=point,source_at=q.get('source_event_time') if valid else None)
         result['rows'].append(item);groups[item['industry']].append(item)
         if valid:times.append(pd.Timestamp(q['source_event_time']))
     covered=[r for r in result['rows'] if r['change_pct'] is not None]
@@ -125,6 +129,7 @@ def contributions(group, snapshot, index_row, now, previous, reference_version):
     if not isinstance(index_quote,dict):index_quote={}
     if valid_cutoff and usable(index_quote) and finite(index_quote.get('prev_close')) and index_quote['prev_close']>0:
         result['actual_points']=index_quote['close']-index_quote['prev_close']
+        result['actual_return_pct']=100*(index_quote['close']/index_quote['prev_close']-1)
     if result['actual_points'] is not None and result['contribution_points'] is not None:
         result['residual_points']=result['actual_points']-result['contribution_points']
     result['reason']=('收盘参考 '+snapshot['pricing_day']+'；' if closed else '')+'按有效成分已有权重计算；权重日 '+str(group.get('as_of') or '待核验')

@@ -102,21 +102,32 @@ def enrich(model, data, reference, now,*,equity_snapshot=None):
         model._overview_contributions = {row['root']: contributions(groups.get(row['root'], {}),
             equity, row, now, previous, reference['version']) for row in data['indices']}
     data['index_details'] = deepcopy(model._overview_contributions)
+    for detail in data['index_details'].values():
+        cutoff = detail.get('snapshot_at')
+        if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > equity_max_age(equity)+60:
+            detail['stale'] = True
+            detail['reason'] = '成分快照已停更，保留原始截止时间；'+detail.get('reason','')
     if hasattr(model,'local_root'):
-        from dashboard.marketdata.overview_industry_changes import load as load_changes,token as changes_token
+        from dashboard.marketdata.overview_industry_changes import load as load_changes,token as changes_token,estimate_from_returns
         token=(reference['version'],changes_token(model.config,model.local_root),tuple(tokens),previous)
         if getattr(model,'_overview_industry_changes_token',None)!=token:
             from dashboard.marketdata.overview_weights import roll
             compared={root:roll(g,model.config,model.local_root,previous) for root,g in groups.items()}
             model._overview_industry_changes=load_changes(model.config,model.local_root,source,compared,previous_day=earlier)
             model._overview_industry_changes_token=token
+        estimate_key=(key,tuple((root,bool(detail.get('stale'))) for root,detail in data['index_details'].items()))
+        if getattr(model,'_overview_industry_estimate_key',None)!=estimate_key:
+            model._overview_industry_estimates={root:estimate_from_returns(detail,previous) for root,detail in data['index_details'].items()}
+            model._overview_industry_estimate_key=estimate_key
         for root,detail in data['index_details'].items():
-            detail['industry_change']=deepcopy(model._overview_industry_changes.get(root,{}))
-    for detail in data['index_details'].values():
-        cutoff = detail.get('snapshot_at')
-        if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > equity_max_age(equity)+60:
-            detail['stale'] = True
-            detail['reason'] = '成分快照已停更，保留原始截止时间；'+detail.get('reason','')
+            history=deepcopy(model._overview_industry_changes.get(root,{}))
+            estimate=deepcopy(model._overview_industry_estimates.get(root))
+            if estimate and (not history.get('rows') or (history.get('comparison_kind')=='partial_history' and
+                    estimate['anchor_weight']>history.get('paired_current_weight',0))):
+                estimate.update(diagnostics=history.get('diagnostics',{}),archive_truncated=history.get('archive_truncated',False),
+                                historical_fallback_reason=history.get('reason'))
+                detail['industry_change']=estimate
+            else:detail['industry_change']=history
     for row in data['indices']:
         row['change_5m_pct'] = five_minute(row, now)
     from dashboard.marketdata.overview_etf_history import archive_token,read_aum_history,size_changes,series_for

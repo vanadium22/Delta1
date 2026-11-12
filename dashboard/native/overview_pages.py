@@ -227,7 +227,13 @@ class IndustryChanges(QWidget):
         super().__init__();self.rows=[];self.hit=[];self.reason='待上一份可比权重';self.setMinimumHeight(264);self.setMinimumWidth(0)
     def render(self,change):
         rows=change.get('rows',[]);self.rows=rows[:7]
-        if len(rows)>7:self.rows=self.rows+[dict(name='其他',change_pp=sum(r['change_pp'] for r in rows[7:]))]
+        if len(rows)>7:
+            rest=rows[7:]
+            unclassified=next((r for r in rest if r.get('name')=='待分类'),None)
+            if unclassified:
+                rest=[r for r in rest if r is not unclassified]+[self.rows[-1]]
+                self.rows=self.rows[:-1]+[unclassified]
+            self.rows=self.rows+[dict(name='其他',change_pp=sum(r['change_pp'] for r in rest))]
         self.reason=change.get('reason') or '待上一份可比权重';self.setToolTip(self.reason);self.update()
     def mouseReleaseEvent(self,event):
         for rect,name in self.hit:
@@ -310,11 +316,23 @@ class IndexOverviewPage(ScrollPage):
         comparison=detail.get('industry_change') or {}
         self.weight_changes.render(comparison)
         current=comparison.get('current_date');previous=comparison.get('previous_date')
+        kind=comparison.get('comparison_kind')
+        self.weight_change_panel.title.setText('行业权重变化 · 部分成分' if kind=='partial_history' else
+            '行业权重变化 · 涨跌估算' if kind=='return_estimate' else '行业权重较上次变化')
         estimate=' · 当前估算' if comparison.get('weight_method')=='fixed_quantity_estimate' else ''
-        self.weight_change_panel.note.setText((str(previous)+' → '+str(current)+' · pp'+estimate) if current and previous else '待可比权重')
+        if kind in ('partial_history','return_estimate'):
+            label='样本 '+str(comparison.get('paired_members',0))+'/'+str(comparison.get('current_members',0))+'只'
+            dates=comparison.get('anchor_date_range') if kind=='return_estimate' else comparison.get('previous_date_range')
+            if dates and len(dates)==2:
+                label+=(' · 基准' if kind=='return_estimate' else ' · 上期')+(dates[0][5:] if dates[0]==dates[1] else '多日')
+            if comparison.get('stale'):label+=' · 缓存'
+            self.weight_change_panel.note.setText(label+' · pp')
+        else:self.weight_change_panel.note.setText((str(previous)+' → '+str(current)+' · pp'+estimate) if current and previous else '待可比权重')
         self.weight_change_panel.setToolTip((comparison.get('reason') or '待上一份同口径已发布权重')+
             '\n分类 '+str(comparison.get('industry_standard') or '待核验')+
             '\n方法 '+str(comparison.get('previous_weight_method') or '待核验')+' → '+str(comparison.get('weight_method') or '待核验')+
+            '\n对比日期 '+str(comparison.get('previous_date_range') or previous or '待核验')+' → '+str(comparison.get('current_date_range') or current or '待核验')+
+            '\n基准权重日期 '+str(comparison.get('anchor_date_range') or '见权重来源')+'；成分快照 '+stamp(comparison.get('snapshot_at'))+
             '\n分类权重 '+numeric(comparison.get('previous_classified_weight'),1,suffix='%')+' → '+numeric(comparison.get('current_classified_weight'),1,suffix='%'))
         ranked = detail.get('leaders', [])+detail.get('laggards', [])
         displayed = ranked if ranked else groups[:6]

@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-12行业变化补全，基线a628472：完整历史优先，缺项时展示部分配对或基于真实权重与行情的估算，显式样本和基准日期。510项完整回归通过，130.731秒（含加载），无跳过，ResourceWarning作为错误；较上版新增14项。 公司a628472包确认约30秒定时重绘、DDB隧道认证、同次关闭7.247秒；新图公司验收待更新。[复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
+
 - 2026-11-12公司复测与同屏概览，基线da50685：四品种卡图同屏、ETF表配色放大、指标末点加大，安全记录定时绘图与行业权重可比原因。496项独立完整回归通过，136.744秒（含加载），无跳过，ResourceWarning作为错误；原490项重跑，新增6项。 公司da50685包完整，IC03实时单时点五组Z/分位有值且公式复算一致；DDB复用隧道并认证、查询部分完成，同次关闭3.355秒。连续30秒重绘与IC/IM上次权重缺失确因需新报告；[复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 
