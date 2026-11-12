@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from dashboard.marketdata.indicator_analysis import (selection, plan, values, historical,
-    statistics, display, point, maintenance_rows, summary, SERIES)
+    statistics, display, display_charts, aggregate_selection, point, maintenance_rows, summary, SERIES)
 from dashboard.marketdata.overview_daily import publish_day, requests, seed_local
 from dashboard.native.continuous import slot_map
 from dashboard.native.indicator_analysis import IndicatorAnalysisEngine
@@ -25,7 +25,7 @@ NOW=pd.Timestamp(DAY+'T10:00:05+08:00')
 
 def fixture(request=None, day=DAY, book=ZERO_DIVIDENDS):
     request=request or selection()
-    meta=metadata();planned=plan(day,request,meta);tables={}
+    meta=metadata();planned=plan(day,aggregate_selection(request),meta);tables={}
     for item in planned['rows']:
         s,d=item['symbol'],item['day']
         price=4000. if not s.endswith('.CFE') else 3950.+(date.fromisoformat(d).toordinal()%19)*2-int(s[4:6])
@@ -35,9 +35,10 @@ def fixture(request=None, day=DAY, book=ZERO_DIVIDENDS):
 
 
 def preview(request=None):
+    request=request or selection()
     planned,meta,tables,history=fixture(request)
     current={k:history[k][-1] for k in SERIES}
-    result=display(planned,history,current)
+    result=display_charts(planned,history,current,request)
     result.update(mode='completed_daily',version='synthetic-layout-only',errors=[],cache_hit=False)
     return result
 

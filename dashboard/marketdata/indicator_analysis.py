@@ -13,6 +13,8 @@ from .overview_basis import dividend_record
 from .overview_percentiles import historical_dividend, prior_days
 
 SERIES = ('raw', 'adjusted', 'annual', 'calendar_03_02', 'calendar_02_01')
+CHARTS = {'adjusted': ('raw', 'adjusted'), 'annual': ('annual',),
+          'calendar_03_02': ('calendar_03_02',), 'calendar_02_01': ('calendar_02_01',)}
 MAX_WINDOW = 365
 MAX_STATS = 120
 
@@ -30,6 +32,30 @@ def selection(root='IF', slot=0, window=90, stats=None):
     if type(stats) is not int or not 2 <= stats <= MAX_STATS:
         raise ValueError('统计窗口为 2–120 交易日')
     return dict(root=root, slot=slot, window=window, stats=stats)
+
+
+def chart_selections(request):
+    """Validate four chart windows; old single-window requests remain valid."""
+    base = selection(*(request.get(k) for k in ('root', 'slot', 'window', 'stats')))
+    charts = request.get('charts')
+    if charts is None:
+        return {key: dict(base) for key in CHARTS}
+    if not isinstance(charts, dict) or set(charts) != set(CHARTS):
+        raise ValueError('四张图须分别提供窗口')
+    output = {}
+    for key, value in charts.items():
+        if not isinstance(value, dict) or set(value) != {'window', 'stats'}:
+            raise ValueError('图像窗口格式无效')
+        output[key] = selection(base['root'], base['slot'], value['window'], value['stats'])
+    return output
+
+
+def aggregate_selection(request):
+    """Plan/read and repair the union of all chart windows once."""
+    charts = chart_selections(request)
+    first = next(iter(charts.values()))
+    return selection(first['root'], first['slot'], max(c['window'] for c in charts.values()),
+                     max(c['stats'] for c in charts.values()))
 
 
 def plan(day, request, metadata):
@@ -183,11 +209,38 @@ def display(plan_value, history, current):
                 network_requested=False)
 
 
+def display_charts(plan_value, history, current, request):
+    """Slice one shared historical read into four independent chart results."""
+    if 'charts' not in request:
+        return display(plan_value, history, current)
+    selections = chart_selections(request)
+    day = plan_value['pricing_day']
+    output = None
+    chart_info = {}
+    combined = {}
+    for key, channels in CHARTS.items():
+        choice = selections[key]
+        start = str(date.fromisoformat(day)-timedelta(days=choice['window']-1))
+        individual = {**plan_value, 'selection': choice, 'start': start,
+                      'reference_days': prior_days(day, choice['stats'])}
+        rendered = display(individual, history, current)
+        if output is None:output = rendered
+        chart_info[key] = {k:rendered[k] for k in ('selection', 'start', 'end', 'reference_days')}
+        combined.update({channel:rendered['series'][channel] for channel in channels})
+    output.update(selection=request, charts=chart_info, series=combined)
+    return output
+
+
 def summary(result):
     """Small explicit whitelist for same-run company evidence, no raw records."""
     if not isinstance(result,dict):return None
     output={k:result.get(k) for k in ('schema','selection','pricing_day','start','end','mode','as_of','version','cache_hit','history_reads','completed_target','reference_fallback','error')}
-    if isinstance(output['selection'],dict):output['selection']={k:output['selection'].get(k) for k in ('root','slot','window','stats')}
+    if isinstance(output['selection'],dict):
+        request=output['selection']
+        output['selection']={k:request.get(k) for k in ('root','slot','window','stats')}
+        if isinstance(request.get('charts'),dict):
+            output['selection']['charts']={key:{k:value.get(k) for k in ('window','stats')}
+                for key,value in request['charts'].items() if key in CHARTS and isinstance(value,dict)}
     else:output['selection']=None
     output['series']={}
     channels=result.get('series') if isinstance(result.get('series'),dict) else {}
@@ -224,8 +277,12 @@ def draw_summary(value):
         except ValueError:return None
     def event(item):
         if not isinstance(item,dict):return None
-        try:request=selection(**item['selection'])
-        except (TypeError,KeyError,ValueError):request=None
+        try:
+            original=item['selection'];charts=chart_selections(original)
+            request=selection(*(original.get(k) for k in ('root','slot','window','stats')))
+            if 'charts' in original:
+                request['charts']={key:{k:choice[k] for k in ('window','stats')} for key,choice in charts.items()}
+        except (TypeError,KeyError,ValueError,AttributeError):request=None
         channels=item.get('series') if isinstance(item.get('series'),dict) else {}
         output=dict(draw_at=stamp(item.get('draw_at')),reason=item.get('reason') if item.get('reason') in ('timer','manual') else None,
             selection=request,mode=item.get('mode') if item.get('mode') in ('realtime','completed_daily') else None,

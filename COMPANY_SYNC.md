@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-12卡片与指标参数：概览卡新增剩余自然日和缩小价格，四图独立t_w/t_z及持久化。551项完整本地回归通过，155.545秒（含加载），无跳过，ResourceWarning作为错误。 同事包带独立Python/离线依赖；随包历史截至10-16，分红快照09-18，公司新电脑及DDB/UNC待验收。[交接](dashboard/PROJECT_HANDOFF.md)、[同事配置](dashboard/PORTABLE_SETUP.md)。
+
+
 - 2026-11-12四品种期限结构坐标，基线2acf89c：IF/IH/IC/IM两处曲线缺项沿用，每日纵轴按可用值范围上下各留2个百分点，小幅波动不缩放、越界单侧扩展，横轴不随暂缺收缩。543项完整回归通过，136.377秒（含加载），无跳过，ResourceWarning作为错误。 公司实际行情及新功能待复测；分发包暂缓。[复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 

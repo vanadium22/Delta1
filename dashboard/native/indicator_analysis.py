@@ -5,7 +5,8 @@ import pandas as pd
 
 from dashboard.indicator_v6.sources import SPOTS
 from dashboard.marketdata.dividends import digest
-from dashboard.marketdata.indicator_analysis import SERIES, plan, historical, display, point, values
+from dashboard.marketdata.indicator_analysis import (SERIES, plan, historical, display_charts,
+    aggregate_selection, point, values)
 from dashboard.marketdata.overview_daily import directory, read_day, merge_daily
 from dashboard.marketdata.overview_percentiles import final_rows
 from dashboard.marketdata.quote_quality import aligned_quotes
@@ -29,7 +30,7 @@ class IndicatorAnalysisEngine:
         day = _reference_day or (str(now.tz_convert('Asia/Shanghai').date()) if continuous else completed)
         if not day:
             raise ValueError('缺少已核验完成交易日')
-        planned = plan(day, request, metadata)
+        planned = plan(day, aggregate_selection(request), metadata)
         paths = [directory(self.model.config, self.model.local_root)/'days'/(d+'.json') for d in planned['days'] if d <= completed]
         signatures = []
         for path in paths:
@@ -102,7 +103,7 @@ class IndicatorAnalysisEngine:
                 if candidates:
                     return self.snapshot(request,now=now,completed=completed,metadata=metadata,dividends=dividends,
                         repo=repo,frozen=frozen,refresh_clock=False,_reference_day=candidates[0])
-        output = display(planned, cached['history'], current)
+        output = display_charts(planned, cached['history'], current, request)
         output.update(mode='realtime' if continuous else 'completed_daily', as_of=now.isoformat(),
                       completed_target=completed,reference_fallback=bool(_reference_day and _reference_day!=completed),
                       version=key, cache_hit=cache_hit, history_reads=self.history_reads, errors=cached['errors'])

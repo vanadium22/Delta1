@@ -48,8 +48,8 @@ class HistoryMaintenance:
         cmd+=['--include-completed-today','--overview-daily','--overview-only']
         request=getattr(self.model,'indicator_analysis_request',None) or getattr(self.model,'indicator_history_request',None)
         if request:
-            from dashboard.marketdata.indicator_analysis import selection
-            request=selection(**request)
+            from dashboard.marketdata.indicator_analysis import aggregate_selection
+            request=aggregate_selection(request)
             cmd+=['--indicator-root',request['root'],'--indicator-slot',str(request['slot']),
                   '--indicator-window',str(request['window']),'--indicator-stats',str(request['stats'])]
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'BELOW_NORMAL_PRIORITY_CLASS',0)

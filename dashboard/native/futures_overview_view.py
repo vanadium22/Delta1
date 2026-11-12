@@ -35,11 +35,15 @@ class FuturesCard(Panel):
         self.compact=compact;self.value_size=27 if compact else 29
         self.box.setContentsMargins(12,8,12,8);self.box.setSpacing(3 if compact else 6)
         head=QHBoxLayout();self.heading=lab('',16 if compact else 24,MUTED if compact else ACCENT,True);self.badge=lab('',23 if compact else 16,ACCENT if compact else MUTED,compact)
-        self.price=lab('—',34 if compact else 40,ACCENT,True)
+        self.price=lab('—',22 if compact else 40,ACCENT,not compact)
         if compact:
             self.badge.setStyleSheet(f'background:{ACCENT_BACKGROUND};color:{ACCENT};font-size:24px;font-weight:700;border-radius:5px;padding:2px 4px;')
             identity=QVBoxLayout();identity.setSpacing(1);identity.addWidget(self.badge);identity.addWidget(self.heading)
-            head.addLayout(identity,1);self.price.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.price,1)
+            self.remaining=lab('剩余 —',17,ACCENT,True);self.remaining.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.remaining.setStyleSheet(f'background:{ACCENT_BACKGROUND};color:{ACCENT};font-size:17px;font-weight:700;border-radius:4px;padding:2px 4px;')
+            self.price.setAlignment(Qt.AlignmentFlag.AlignRight)
+            secondary=QVBoxLayout();secondary.setSpacing(1);secondary.addWidget(self.remaining,0,Qt.AlignmentFlag.AlignRight);secondary.addWidget(self.price)
+            head.addLayout(identity,1);head.addLayout(secondary,1)
         else:
             self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,2)
         self.box.addLayout(head)
@@ -77,6 +81,10 @@ class FuturesCard(Panel):
         view=row.get('basis_display') or row
         self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(((row.get('root') or '')+' ' if self.compact else '')+f'0{position} · '+SLOTS[position])
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
+        if self.compact:
+            days=row.get('days')
+            self.remaining.setText('剩余 '+(str(int(days))+' 天' if isinstance(days,(int,float)) and not isinstance(days,bool) and math.isfinite(days) and days>=0 and days==int(days) else '—'))
+            self.remaining.setToolTip('剩余自然日；到期 '+str(row.get('expiry') or '待核验'))
         self.price.setText(numeric(row.get('price')))
         for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2),(self.previous_value,'basis_change_previous','点',1)):
             put(widget,numeric(view.get(key),digits,True,suffix),color=ink(view.get(key)),size=self.value_size,bold=True)

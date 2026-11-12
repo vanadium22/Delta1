@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-12-four-product-stable-term-axes",
+  "release": "2026-11-12-individual-chart-windows-colleague-package",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "base_commit": "2acf89c4b6a1c52be2a3c075b18b4143e220045d",
-  "status": "local_validated_company_term_axis_acceptance_pending",
+  "base_commit": "d22c5a4b5007da2bcac565cf461ec86efd700ab9",
+  "status": "local_validated_colleague_package_company_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -58,8 +58,8 @@
     }
   },
   "latest_update": {
-    "base_commit": "2acf89c4b6a1c52be2a3c075b18b4143e220045d",
-    "scope": "2026-11-12四品种期限结构坐标续改，统一codex/company-apps，实施基线2acf89c，运行版本以Git HEAD/远端为准。IF/IH/IC/IM的概览和股指期货详情均共用同合约、同到期日的缺项缓存回退；旧点标沿用及源时，T<5、换档或到期修订不错误沿用。每个品种每天首次有可用点时纵轴设为最小年化减2至最大年化加2（百分点），数据在范围内波动不缩放；越界时仅向外扩展被突破的一端，后来首次出现的新档补足2个百分点余量，次日重新初始化。横轴使用已知合约期限，当日不收缩；概览与详情共用各品种范围。范围在本次看板运行期间保存，重启按当时可用点重新初始化。",
+    "base_commit": "d22c5a4b5007da2bcac565cf461ec86efd700ab9",
+    "scope": "2026-11-12概览卡片及指标参数续改，统一codex/company-apps，实施基线d22c5a4，运行版本以Git HEAD/远端为准。四品种各期货卡顶部显示剩余自然日、缩小价格，保留去分红基差、年化、连续20/60分位及同窗均值/中位数。指标分析四图各自配置并自动记忆t_w/t_z及自动选项；旧单组设置迁移为四图初值。各图用自己的窗口计算，历史读取与补数覆盖四图所需最长窗口；30秒重绘、冻结与公式口径保持。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
@@ -68,40 +68,43 @@
       "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
+      "dashboard/PORTABLE_SETUP.md",
       "dashboard/PROJECT_HANDOFF.md",
       "dashboard/README.md",
+      "dashboard/build_colleague_package.py",
+      "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
       "dashboard/docs/README.md",
+      "dashboard/marketdata/indicator_analysis.py",
       "dashboard/native/futures_overview_view.py",
-      "dashboard/native/market_overview_view.py",
-      "dashboard/native/overview_charts.py",
-      "dashboard/native/overview_summary.py",
-      "dashboard/native/term_curve.py",
-      "tests/test_term_axes_20261112.py"
+      "dashboard/native/history_maintenance.py",
+      "dashboard/native/indicator_analysis.py",
+      "dashboard/native/indicator_analysis_view.py",
+      "dashboard/portable/Python环境设置.vbs",
+      "dashboard/portable/使用说明.txt",
+      "dashboard/portable/启动看板.vbs",
+      "tests/test_indicator_analysis.py",
+      "tests/test_individual_windows_20261112.py",
+      "tests/test_market_overview_ui.py"
     ],
     "tests": {
-      "passed": 543,
-      "seconds": 136.377,
+      "passed": 551,
+      "seconds": 155.545,
       "skipped": 0,
-      "resource_warnings": "errors"
+      "resource_warnings": "errors",
+      "bundled_python_key_tests": 48
     },
-    "term_axes": {
-      "roots": [
-        "IF",
-        "IH",
-        "IC",
-        "IM"
-      ],
-      "vertical_margin_percentage_points": 2,
-      "expand_only_on_breach": true,
-      "new_slot_gets_margin": true,
-      "reset": "Shanghai calendar day or application restart",
-      "horizontal": "known maturities; no intraday shrink",
-      "shared_between_overview_and_detail": true
+    "portability": {
+      "python": "3.13.17 64-bit",
+      "offline_repair": "passed",
+      "unpacked_offline_smoke": "passed",
+      "history_latest": "2026-10-16",
+      "dividend_business_day": "2026-09-18",
+      "credentials_included": false,
+      "wind_and_company_network": "pending_company_validation"
     },
-    "layout": "本地PySide6主窗口以合成数据在125%/1536×864及860×620离屏检查；四品种均使用模拟年化-7%至-5%，各有两档沿用点，范围为-9%至-3%。合成截图不等于公司实盘验收。",
-    "company_acceptance": "four-product live term charts and axes pending",
-    "distribution": "用户暂不制作分发压缩包，独立Python运行时、离线依赖、干净数据分发清单及新电脑验收继续留待后续。",
+    "layout": "本地125%/1536×864和860×620以合成行情做离屏检查；概览常用比例四行无滚动，指标四图各有t_w/t_z控件；内置Python另通过48项关键测试。",
+    "distribution": "用户已确认制作同事分发ZIP。包内为无本机账号和凭据的看板、Python 3.13.17 64位、离线依赖及历史数据；行情最新2026-10-16、分红工作簿B1为2026-09-18，较新数据需公司网络及本人账号补齐。本地新目录解压、离线启动和离线一键补依赖已通过；Wind终端/授权及公司VPN需本机具备，公司新电脑、DDB实连和UNC直连尚待验收。",
     "protection": {
       "files": 8455,
       "bytes": 365790526,
@@ -497,7 +500,12 @@
     "dashboard/常用入口/Python环境设置.vbs",
     "tests/test_dashboard_data_package.py",
     "tests/test_portable_followup_20261112.py",
-    "tests/test_term_axes_20261112.py"
+    "tests/test_term_axes_20261112.py",
+    "dashboard/build_colleague_package.py",
+    "dashboard/portable/Python环境设置.vbs",
+    "dashboard/portable/使用说明.txt",
+    "dashboard/portable/启动看板.vbs",
+    "tests/test_individual_windows_20261112.py"
   ],
   "excluded": [
     "dashboard/NEXT_*_PROMPT.md",
@@ -516,7 +524,7 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "543项完整回归通过，136.377秒（含加载），无跳过，ResourceWarning作为错误。 本地PySide6主窗口以合成数据在125%/1536×864及860×620离屏检查；四品种均使用模拟年化-7%至-5%，各有两档沿用点，范围为-9%至-3%。合成截图不等于公司实盘验收。",
+  "current_validation": "551项完整本地回归通过，155.545秒（含加载），无跳过，ResourceWarning作为错误。 本地125%/1536×864和860×620以合成行情做离屏检查；概览常用比例四行无滚动，指标四图各有t_w/t_z控件；内置Python另通过48项关键测试。 用户已确认制作同事分发ZIP。包内为无本机账号和凭据的看板、Python 3.13.17 64位、离线依赖及历史数据；行情最新2026-10-16、分红工作簿B1为2026-09-18，较新数据需公司网络及本人账号补齐。本地新目录解压、离线启动和离线一键补依赖已通过；Wind终端/授权及公司VPN需本机具备，公司新电脑、DDB实连和UNC直连尚待验收。",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
     "Company IC/IM new partial or estimated industry chart, actual coverage and anchor date",
@@ -526,7 +534,8 @@
     "Real historical dividends: prior 60-day window sample contained 396 flagged zero placeholders; not complete true D",
     "Company term curve fallback, account configuration and direct UNC access on the live workstation",
     "Future portable runtime, offline wheelhouse and clean-machine end-to-end distribution acceptance",
-    "Company four-product term-curve fallback and stable daily axes on actual market data"
+    "Company four-product term-curve fallback and stable daily axes on actual market data",
+    "Company individual chart parameters, colleague package and fresh data acceptance"
   ],
   "company_feedback": "公司安全包20261112_111531_749_safe_113124_158_68fd3bf7.zip，130457字节，SHA256 1e80ae4ff4d06748b8688e90c9bfef746296063321ec7a7e2da08f6cfadd101a，运行a628472；9份JSON、CRC正常、Complete=true、MissingReports=[]。同一515050c运行正常关闭7.247秒、waiting=[]，成分sqlite_committed。两次Overview及preflight退出0、stderr为空。 IM02同一选择在11:30:00.911、11:30:30.922、11:31:00.911实际绘图，相隔30.011秒、29.989秒。第一帧为11-12 11:29:56盘中行情，年化Z约0.0694、分位45%；后两帧为11-11收盘参考，年化Z约0.8326、分位75%；变动跨午休定价模式，不能据此宣称连续多个盘中tick均改变Z/分位，分位也不保证每个tick都变。 本包DDB为192.168.198.77:8904，复用existing_tunnel，TCP和认证成功，query_partial、插入0；11:16维护时仍有收盘和持仓缺项记录，该记录不是最终全品种结果。DDB不暂停，实时VPN仍手动。 本包归档读取23份，IC/IM各22组中17组重复、5组上期权重不完整或不可比，是旧变化图为空的直接原因；当前权重日期10-30，500只中49只、1000只中148只缺行业分类，二者属于另行统计的分类缺项。",
   "research_runtime": "paused in both live App editions by the 2026-10-28 user request; existing 32-item research core, A02, Excel and frozen exports preserved",
@@ -586,7 +595,8 @@
     "term_curve": "four_products_both_pages_local_fallback_and_stable_daily_axes_verified_company_pending",
     "colleague_setup": "local_dpapi_gui_and_isolated_python_install_verified_company_pending",
     "unc_share": "derived_from_company_mapped_root_direct_unc_access_not_yet_tested",
-    "portable_distribution": "deferred_no_archive_or_bundled_runtime_created"
+    "portable_distribution": "local_offline_unpack_and_repair_validated_company_pending",
+    "individual_chart_windows": "local_validated_company_pending"
   },
   "company_feedback_afternoon": {
     "package_sha256": "fb133dd757b9a6e23c5a0882ae294fd3f8daacf4f1b58e211adf3783127f2969",

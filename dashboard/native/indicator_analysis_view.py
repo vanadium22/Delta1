@@ -10,9 +10,9 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal, QSignalBlocker, QEvent, QTimer
 from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QGridLayout,
-    QScrollArea, QFrame, QComboBox, QSpinBox, QCheckBox, QPushButton, QToolTip)
+    QScrollArea, QFrame, QComboBox, QSpinBox, QCheckBox, QPushButton, QToolTip, QSizePolicy)
 
-from dashboard.marketdata.indicator_analysis import selection, finite
+from dashboard.marketdata.indicator_analysis import selection, chart_selections, finite
 from .overview_pages import Panel, FlowGrid, lab, numeric
 from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, THEME
 
@@ -39,12 +39,22 @@ class IndicatorChart(Panel):
     def __init__(self, title, key, *, overlay=False):
         super().__init__()
         self.key=key;self.overlay=overlay;self.result=None;self.reference_lines={}
-        head=QHBoxLayout();self.heading=lab(title,19,ACCENT,True);head.addWidget(self.heading,1)
-        self.unit=lab('点' if overlay else '% / 年',13,MUTED);self.unit.setFixedWidth(62);head.addWidget(self.unit)
+        head=QHBoxLayout();head.setSpacing(4);self.heading=lab(title,19,ACCENT,True);head.addWidget(self.heading,1)
+        self.unit=lab('点' if overlay else '% / 年',13,MUTED);self.unit.setFixedWidth(42)
+        self.unit.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred);head.addWidget(self.unit)
+        self.window_spin=QSpinBox();self.window_spin.setRange(10,365);self.window_spin.setValue(90);self.window_spin.setPrefix('t_w ')
+        self.stats=QSpinBox();self.stats.setRange(2,120);self.stats.setValue(20);self.stats.setPrefix('t_z ')
+        self.auto=QCheckBox('自动');self.auto.setChecked(True);self.stats.setEnabled(False)
+        self.window_spin.setToolTip('本图显示窗口 t_w：自然日，含定价日')
+        self.stats.setToolTip('本图统计窗口 t_z：定价日前的交易日')
+        self.auto.setToolTip('本图自动 t_z = min(20, floor(t_w/2))；取消后可手动设置')
+        for control in (self.window_spin,self.stats):
+            control.setFixedWidth(94);control.setMinimumHeight(36);head.addWidget(control)
+        head.addWidget(self.auto)
         self.box.addLayout(head)
         self.content=QBoxLayout(QBoxLayout.Direction.LeftToRight);self.content.setSpacing(12);self.box.addLayout(self.content,1)
         self.plot=pg.PlotWidget(background=PANEL,axisItems={'bottom':pg.DateAxisItem(utcOffset=0)})
-        self.plot.setMinimumWidth(0);self.plot.setMinimumHeight(174)
+        self.plot.setMinimumWidth(0);self.plot.setMinimumHeight(145)
         self.plot.setMenuEnabled(False);self.plot.hideButtons();self.plot.showGrid(y=True,alpha=.12)
         self.plot.setMouseEnabled(x=False,y=False)
         self.plot.getPlotItem().setContentsMargins(0,0,8,0)
@@ -94,7 +104,8 @@ class IndicatorChart(Panel):
                 if finite(current.get('value')):
                     self.plot.plot([seconds(current['day'])],[current['value']],pen=None,symbol='o',symbolSize=11,
                                    symbolBrush=color,symbolPen=pg.mkPen(PANEL,width=2))
-            left,right=seconds(result['start']),seconds(result['end'])
+            scope=(result.get('charts') or {}).get(self.key,result)
+            left,right=seconds(scope['start']),seconds(scope['end'])
             if references:
                 for key,color,title in (('mean',AVG,'均值'),('median',MEDIAN,'中位数')):
                     if finite(stats.get(key)):
@@ -162,24 +173,19 @@ class IndicatorAnalysisPage(QWidget):
         for root,title in (('IF','沪深300'),('IH','上证50'),('IC','中证500'),('IM','中证1000')):self.root.addItem(root+' · '+title,root)
         self.slot=QComboBox()
         for i,title in enumerate(('00 · 当月','01 · 次月','02 · 季月','03 · 远季')):self.slot.addItem(title,i)
-        self.window=QSpinBox();self.window.setRange(10,365);self.window.setValue(90);self.window.setSuffix(' 自然日')
-        self.stats=QSpinBox();self.stats.setRange(2,120);self.stats.setValue(20);self.stats.setSuffix(' 交易日')
-        self.auto=QCheckBox('自动 t_z');self.auto.setChecked(True);self.stats.setEnabled(False)
         self.view=QComboBox()
         for title,key in (('四图同屏','all'),('简单基差','basis'),('跨期','calendar')):self.view.addItem(title,key)
         fields=[]
-        for title,control in (('品种',self.root),('基差档位',self.slot),('图像 t_w',self.window),('统计 t_z',self.stats),('查看',self.view)):
+        for title,control in (('品种',self.root),('基差档位',self.slot),('查看',self.view)):
             field=QWidget();box=QVBoxLayout(field);box.setContentsMargins(0,0,0,0);box.setSpacing(2)
             box.addWidget(lab(title,12,MUTED));box.addWidget(control);control.setMinimumHeight(36);fields.append(field)
-        self.controls.box.addWidget(FlowGrid(fields,5,150,self.controls))
+        self.controls.box.addWidget(FlowGrid(fields,3,150,self.controls))
         actions=QHBoxLayout();self.controls.box.addLayout(actions)
-        self.auto.setToolTip('min(20, floor(t_w/2))；关闭自动后手动统计窗口不随图像窗口变化')
-        actions.addWidget(self.auto)
         self.references=QCheckBox('均值 / 中位数虚线');self.references.setChecked(True);actions.addWidget(self.references)
         self.overlay=QComboBox();self.overlay.addItem('叠加图统计 · 去分红','adjusted');self.overlay.addItem('叠加图统计 · 绝对','raw');actions.addWidget(self.overlay)
         actions.addStretch()
         self.history=QPushButton('补齐所选窗口');actions.addWidget(self.history)
-        self.history.setToolTip('使用原有本地 → HTTP昨收 → DDB流程，仅扩展所选品种日线；需等待安全排空')
+        self.history.setToolTip('使用原有本地 → HTTP昨收 → DDB流程，覆盖四图所需最长窗口；需等待安全排空')
         status=QHBoxLayout();self.note=lab('选择一个品种查看；t_z 统计排定价日，参考线横跨 t_w。',13,MUTED)
         self.draw_clock=lab('图像等待更新 · 30秒重画',12,MUTED);self.draw_clock.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
         status.addWidget(self.note,3);status.addWidget(self.draw_clock,2);outer.addLayout(status)
@@ -192,10 +198,14 @@ class IndicatorAnalysisPage(QWidget):
         for key,title in (('adjusted','绝对基差 ＋ 去分红基差'),('calendar_03_02','03 − 02 · 年化去分红价差'),
                           ('annual','去分红年化基差'),('calendar_02_01','02 − 01 · 年化去分红价差')):
             self.charts[key]=IndicatorChart(title,key,overlay=key=='adjusted')
+        self.window=self.charts['adjusted'].window_spin;self.stats=self.charts['adjusted'].stats;self.auto=self.charts['adjusted'].auto
         self.arrangement=None
         self.restore()
         for control in (self.root,self.slot):control.currentIndexChanged.connect(self.inputs_changed)
-        self.window.valueChanged.connect(self.inputs_changed);self.stats.valueChanged.connect(self.inputs_changed);self.auto.toggled.connect(self.inputs_changed)
+        for key,chart in self.charts.items():
+            chart.window_spin.valueChanged.connect(lambda _,k=key:self.chart_changed(k))
+            chart.stats.valueChanged.connect(lambda _,k=key:self.chart_changed(k))
+            chart.auto.toggled.connect(lambda _,k=key:self.chart_changed(k))
         self.view.currentIndexChanged.connect(self.presentation_changed);self.overlay.currentIndexChanged.connect(self.presentation_changed);self.references.toggled.connect(self.presentation_changed)
         self.history.clicked.connect(lambda:self.history_requested.emit(self.request()))
         self.draw_timer=QTimer(self);self.draw_timer.setInterval(30000);self.draw_timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -203,7 +213,10 @@ class IndicatorAnalysisPage(QWidget):
         self._ready=True;self.frozen=False;self.set_active(False);self.arrange()
 
     def request(self):
-        return selection(self.root.currentData(),self.slot.currentData(),self.window.value(),self.stats.value())
+        base=selection(self.root.currentData(),self.slot.currentData(),self.window.value(),self.stats.value())
+        charts={key:dict(window=chart.window_spin.value(),stats=chart.stats.value()) for key,chart in self.charts.items()}
+        if any(value!=dict(window=base['window'],stats=base['stats']) for value in charts.values()):base['charts']=charts
+        return base
 
     def set_active(self,active):
         was_active=self.active
@@ -217,19 +230,24 @@ class IndicatorAnalysisPage(QWidget):
 
     def freeze(self,result):
         self.frozen=True;self._ready=False
-        controls=(self.root,self.slot,self.window,self.stats,self.auto)
+        controls=(self.root,self.slot,*(control for chart in self.charts.values() for control in (chart.window_spin,chart.stats,chart.auto)))
         blockers=[QSignalBlocker(c) for c in controls]
         request=result['selection']
         self.root.setCurrentIndex(self.root.findData(request['root']));self.slot.setCurrentIndex(self.slot.findData(request['slot']))
-        self.window.setValue(request['window']);self.stats.setValue(request['stats']);self.auto.setChecked(False)
+        for key,choice in chart_selections(request).items():
+            chart=self.charts[key];chart.window_spin.setValue(choice['window']);chart.stats.setValue(choice['stats']);chart.auto.setChecked(False)
         for control in controls:control.setEnabled(False)
         del blockers
         self.history.hide();self.set_active(False);self.render(result)
 
+    def chart_changed(self,key):
+        chart=self.charts[key]
+        if chart.auto.isChecked():
+            with QSignalBlocker(chart.stats):chart.stats.setValue(min(20,chart.window_spin.value()//2))
+        chart.stats.setEnabled(not chart.auto.isChecked())
+        self.inputs_changed()
+
     def inputs_changed(self,*_):
-        if self.auto.isChecked():
-            with QSignalBlocker(self.stats):self.stats.setValue(min(20,self.window.value()//2))
-        self.stats.setEnabled(not self.auto.isChecked())
         self.result=None
         for chart in self.charts.values():chart.clear_result()
         self.note.setText('读取 '+self.root.currentData()+' 的逐日实际合约与所选窗口…')
@@ -265,7 +283,9 @@ class IndicatorAnalysisPage(QWidget):
 
     def render(self,result,*,force=False):
         if result is None:return
-        if result.get('selection')!=self.request():return
+        try:
+            if chart_selections(result.get('selection') or {})!=chart_selections(self.request()):return
+        except (TypeError,ValueError,KeyError,AttributeError):return
         if result.get('error'):
             self.result=None;self.note.setText('指标窗口暂不可用：'+result['error'])
             for chart in self.charts.values():chart.clear_result('窗口不可用；原概览保持可读')
@@ -276,8 +296,9 @@ class IndicatorAnalysisPage(QWidget):
         dates=[r.get('source_at') for r in (v['current'] for v in result['series'].values()) if r.get('source_at')]
         stamp=pd.Timestamp(max(dates)).tz_convert('Asia/Shanghai').strftime('%m-%d %H:%M:%S') if dates else result['pricing_day']+' · 当前点缺项'
         fallback=' · 最新完成日 '+result['completed_target']+' 收盘待补' if result.get('reference_fallback') else ''
-        self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · 参考 {result['reference_days'][0]} 至 {result['reference_days'][-1]}")
-        self.note.setToolTip(result['mapping_policy']+'\n'+result['statistics_policy']+'\n图像 '+result['start']+' 至 '+result['end']+'；历史读取起点 '+result['history_start'])
+        reference=('各图独立窗口' if result.get('charts') else '参考 '+result['reference_days'][0]+' 至 '+result['reference_days'][-1])
+        self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · {reference}")
+        self.note.setToolTip(result['mapping_policy']+'\n'+result['statistics_policy']+'\n历史读取起点 '+result['history_start'])
         for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
         if first or force:self.redraw()
 
@@ -305,7 +326,9 @@ class IndicatorAnalysisPage(QWidget):
         if not self._ready:return
         from dashboard.marketdata.bars import _atomic_bytes, _json_bytes
         preference=dict(**self.request(),automatic=self.auto.isChecked(),view=self.view.currentData(),
-                        overlay=self.overlay.currentData(),references=self.references.isChecked())
+                        overlay=self.overlay.currentData(),references=self.references.isChecked(),
+                        chart_settings={key:dict(window=chart.window_spin.value(),stats=chart.stats.value(),automatic=chart.auto.isChecked())
+                                        for key,chart in self.charts.items()})
         try:_atomic_bytes(Path(self.model.local_root)/'indicator_ui.json',_json_bytes(preference))
         except OSError:self.note.setToolTip('显示偏好暂未保存')
 
@@ -314,9 +337,15 @@ class IndicatorAnalysisPage(QWidget):
             p=json.loads((Path(self.model.local_root)/'indicator_ui.json').read_text(encoding='utf8'))
             request=selection(p['root'],p['slot'],p['window'],p['stats'])
             for control,key in ((self.root,'root'),(self.slot,'slot')):control.setCurrentIndex(control.findData(request[key]))
-            self.window.setValue(request['window']);self.stats.setValue(request['stats']);self.auto.setChecked(bool(p.get('automatic',True)))
-            if self.auto.isChecked():self.stats.setValue(min(20,self.window.value()//2))
-            self.stats.setEnabled(not self.auto.isChecked())
+            settings=p.get('chart_settings') if isinstance(p.get('chart_settings'),dict) else {}
+            for key,chart in self.charts.items():
+                values=settings.get(key,{}) if isinstance(settings.get(key,{}),dict) else {}
+                try:choice=selection(request['root'],request['slot'],values.get('window',request['window']),values.get('stats',request['stats']))
+                except ValueError:choice=request
+                chart.window_spin.setValue(choice['window']);chart.stats.setValue(choice['stats'])
+                chart.auto.setChecked(bool(values.get('automatic',p.get('automatic',True))))
+                if chart.auto.isChecked():chart.stats.setValue(min(20,chart.window_spin.value()//2))
+                chart.stats.setEnabled(not chart.auto.isChecked())
             for control,key in ((self.view,'view'),(self.overlay,'overlay')):
                 index=control.findData(p.get(key))
                 if index>=0:control.setCurrentIndex(index)
