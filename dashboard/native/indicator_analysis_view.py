@@ -26,6 +26,11 @@ def seconds(day):
     return pd.Timestamp(day, tz='UTC').timestamp()
 
 
+def display_policy(value):
+    """Present even older frozen snapshots with the current field names."""
+    return str(value or '').replace('t_z','指标计算窗口').replace('t_w','坐标轴窗口')
+
+
 def chart_data(rows):
     x = np.array([seconds(r['day']) for r in rows], dtype=float)
     y = np.array([r['value'] if finite(r.get('value')) else np.nan for r in rows], dtype=float)
@@ -42,14 +47,16 @@ class IndicatorChart(Panel):
         head=QHBoxLayout();head.setSpacing(4);self.heading=lab(title,19,ACCENT,True);head.addWidget(self.heading,1)
         self.unit=lab('点' if overlay else '% / 年',13,MUTED);self.unit.setFixedWidth(42)
         self.unit.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred);head.addWidget(self.unit)
-        self.window_spin=QSpinBox();self.window_spin.setRange(10,365);self.window_spin.setValue(90);self.window_spin.setPrefix('t_w ')
-        self.stats=QSpinBox();self.stats.setRange(2,120);self.stats.setValue(20);self.stats.setPrefix('t_z ')
+        self.window_spin=QSpinBox();self.window_spin.setRange(10,365);self.window_spin.setValue(90)
+        self.stats=QSpinBox();self.stats.setRange(2,120);self.stats.setValue(20)
         self.auto=QCheckBox('自动');self.auto.setChecked(True);self.stats.setEnabled(False)
-        self.window_spin.setToolTip('本图显示窗口 t_w：自然日，含定价日')
-        self.stats.setToolTip('本图统计窗口 t_z：定价日前的交易日')
-        self.auto.setToolTip('本图自动 t_z = min(20, floor(t_w/2))；取消后可手动设置')
-        for control in (self.window_spin,self.stats):
-            control.setFixedWidth(94);control.setMinimumHeight(36);head.addWidget(control)
+        self.window_spin.setToolTip('坐标轴窗口：自然日，包含定价日')
+        self.stats.setToolTip('指标计算窗口：定价日之前的交易日')
+        self.auto.setToolTip('自动取坐标轴窗口的一半并向下取整，最多20个交易日；取消后可手动设置指标计算窗口')
+        self.window_caption=lab('坐标轴窗口',13,MUTED);self.stats_caption=lab('指标计算窗口',13,MUTED)
+        for caption,control in ((self.window_caption,self.window_spin),(self.stats_caption,self.stats)):
+            caption.setWordWrap(False);caption.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred)
+            control.setFixedWidth(64);control.setMinimumHeight(36);head.addWidget(caption);head.addWidget(control)
         head.addWidget(self.auto)
         self.box.addLayout(head)
         self.content=QBoxLayout(QBoxLayout.Direction.LeftToRight);self.content.setSpacing(12);self.box.addLayout(self.content,1)
@@ -124,7 +131,7 @@ class IndicatorChart(Panel):
         reason=latest.get('reason') if not finite(latest.get('value')) else stats.get('reason')
         explanation=(' · '+reasons.get(reason,reason)) if reason else ''
         self.footer.setText(f"{title}最新 {now} · 样本 {n}/{requested} · 排除 {len(stats['excluded_dates'])}日 · 缺 {len(stats['missing'])}日"+explanation)
-        detail=[result['statistics_policy'],f"参考 {stats['start']} 至 {stats['end']}",
+        detail=[display_policy(result['statistics_policy']),f"参考 {stats['start']} 至 {stats['end']}",
                 '排除T<5：'+(', '.join(stats['excluded_dates']) or '无'),
                 '缺项：'+('; '.join(r['day']+' '+r['reason'] for r in stats['missing']) or '无'),
                 '历史D暂0：'+(', '.join(stats['zero_dividend_dates']) or '无'),
@@ -186,7 +193,7 @@ class IndicatorAnalysisPage(QWidget):
         actions.addStretch()
         self.history=QPushButton('补齐所选窗口');actions.addWidget(self.history)
         self.history.setToolTip('使用原有本地 → HTTP昨收 → DDB流程，覆盖四图所需最长窗口；需等待安全排空')
-        status=QHBoxLayout();self.note=lab('选择一个品种查看；t_z 统计排定价日，参考线横跨 t_w。',13,MUTED)
+        status=QHBoxLayout();self.note=lab('选择一个品种查看；指标计算不含定价日，参考线横跨坐标轴窗口。',13,MUTED)
         self.draw_clock=lab('图像等待更新 · 30秒重画',12,MUTED);self.draw_clock.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
         status.addWidget(self.note,3);status.addWidget(self.draw_clock,2);outer.addLayout(status)
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -298,7 +305,7 @@ class IndicatorAnalysisPage(QWidget):
         fallback=' · 最新完成日 '+result['completed_target']+' 收盘待补' if result.get('reference_fallback') else ''
         reference=('各图独立窗口' if result.get('charts') else '参考 '+result['reference_days'][0]+' 至 '+result['reference_days'][-1])
         self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · {reference}")
-        self.note.setToolTip(result['mapping_policy']+'\n'+result['statistics_policy']+'\n历史读取起点 '+result['history_start'])
+        self.note.setToolTip(result['mapping_policy']+'\n'+display_policy(result['statistics_policy'])+'\n历史读取起点 '+result['history_start'])
         for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
         if first or force:self.redraw()
 

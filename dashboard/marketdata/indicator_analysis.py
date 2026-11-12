@@ -205,7 +205,7 @@ def display(plan_value, history, current):
                 pricing_day=plan_value['pricing_day'], start=plan_value['start'], end=plan_value['end'], series=result,
                 history_start=plan_value['days'][0], reference_days=plan_value['reference_days'],
                 mapping_policy='逐日挂牌/到期重建，换实际合约断线；非当时可得映射',
-                statistics_policy='前t_z交易日，排定价日；样本标准差ddof=1；等值半权；未知缺项不跳过',
+                statistics_policy='指标计算窗口取定价日前交易日；样本标准差ddof=1；等值半权；未知缺项不跳过',
                 network_requested=False)
 
 

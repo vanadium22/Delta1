@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 from dashboard.marketdata.indicator_analysis import (CHARTS, SERIES, aggregate_selection,
     chart_selections, display_charts, draw_summary, plan, point, selection, statistics, summary)
 from dashboard.native.futures_overview_view import FuturesCard
-from dashboard.native.indicator_analysis_view import IndicatorAnalysisPage, seconds
+from dashboard.native.indicator_analysis_view import IndicatorAnalysisPage, display_policy, seconds
 from tests.test_indicator_analysis import DAY, preview
 import tests.test_indicator_analysis as indicator_fixture
 from tests.test_market_overview_ui import state
@@ -91,15 +91,27 @@ class IndividualWindowTests(unittest.TestCase):
                 self.assertEqual(cmd[cmd.index('--indicator-stats')+1],'25')
 
     def test_chart_header_labels_and_controls_do_not_overlap(self):
+        from PySide6.QtCore import Qt,QRect
         with tempfile.TemporaryDirectory() as tmp:
             page=IndicatorAnalysisPage(SimpleNamespace(local_root=Path(tmp)))
             try:
-                page.resize(1480,720);page.show();APP.processEvents()
-                for chart in page.charts.values():
-                    self.assertLess(chart.unit.geometry().right(),chart.window_spin.geometry().left())
-                    self.assertLess(chart.window_spin.geometry().right(),chart.stats.geometry().left())
-                    self.assertEqual(chart.window_spin.prefix(),'t_w ')
-                    self.assertEqual(chart.stats.prefix(),'t_z ')
+                page.show()
+                for width in (860,1200,1300,1480):
+                    page.resize(width,720);APP.processEvents()
+                    for chart in page.charts.values():
+                        controls=(chart.heading,chart.unit,chart.window_caption,chart.window_spin,chart.stats_caption,chart.stats,chart.auto)
+                        for left,right in zip(controls,controls[1:]):
+                            self.assertLess(left.geometry().right(),right.geometry().left())
+                        needed=chart.heading.fontMetrics().boundingRect(QRect(0,0,chart.heading.width(),1000),Qt.TextFlag.TextWordWrap,chart.heading.text()).height()
+                        self.assertGreaterEqual(chart.heading.height(),needed)
+                        self.assertEqual(chart.window_caption.text(),'坐标轴窗口')
+                        self.assertEqual(chart.stats_caption.text(),'指标计算窗口')
+                        for control in (chart.window_spin,chart.stats):
+                            self.assertEqual(control.prefix(),'')
+                            self.assertEqual(control.suffix(),'')
+                            self.assertTrue(control.text().isdigit())
+                self.assertNotIn('t_z',display_policy('前t_z交易日，参考线跨t_w'))
+                self.assertNotIn('t_w',display_policy('前t_z交易日，参考线跨t_w'))
             finally:page.close();APP.processEvents()
 
     def test_chart_controls_persist_independently_and_restore_legacy_preferences(self):
