@@ -154,7 +154,10 @@ def statistics(rows, reference_days, current):
     sigma = stdev(samples) if complete and len(samples) >= 2 else None
     x = current.get('value')
     usable = complete and finite(x)
-    return dict(mean=avg, median=mid, std=sigma,
+    reason=('历史样本缺项' if missing else '有效历史样本不足' if not samples else
+            current.get('reason') or '当前比较值缺失' if not finite(x) else
+            '历史标准差为零' if sigma == 0 else '有效样本不足2个' if sigma is None else '')
+    return dict(mean=avg, median=mid, std=sigma, reason=reason,
                 z=(x-avg)/sigma if usable and sigma is not None and sigma > 0 else None,
                 percentile=100*(sum(v < x for v in samples)+.5*sum(v == x for v in samples))/len(samples) if usable else None,
                 complete=complete, samples=len(samples), requested=len(reference_days),
@@ -183,13 +186,28 @@ def display(plan_value, history, current):
 def summary(result):
     """Small explicit whitelist for same-run company evidence, no raw records."""
     if not isinstance(result,dict):return None
-    output={k:result.get(k) for k in ('schema','selection','pricing_day','start','end','mode','as_of','version','cache_hit','history_reads','error')}
+    output={k:result.get(k) for k in ('schema','selection','pricing_day','start','end','mode','as_of','version','cache_hit','history_reads','completed_target','reference_fallback','error')}
+    if isinstance(output['selection'],dict):output['selection']={k:output['selection'].get(k) for k in ('root','slot','window','stats')}
+    else:output['selection']=None
     output['series']={}
+    channels=result.get('series') if isinstance(result.get('series'),dict) else {}
     for key in SERIES:
-        channel=(result.get('series') or {}).get(key)
+        channel=channels.get(key)
         if not isinstance(channel,dict):continue
-        current=channel.get('current') or {};stats=channel.get('statistics') or {}
-        output['series'][key]=dict(current={k:current.get(k) for k in ('day','symbols','value','reason','excluded','source_at')},
-            statistics={k:stats.get(k) for k in ('mean','median','std','z','percentile','complete','samples','requested',
+        current=channel.get('current') if isinstance(channel.get('current'),dict) else {}
+        stats=channel.get('statistics') if isinstance(channel.get('statistics'),dict) else {}
+        inputs=current.get('inputs') or current.get('calculation_inputs') or {}
+        if not isinstance(inputs,dict):inputs={}
+        legs=[];raw_legs=inputs.get('legs') if isinstance(inputs.get('legs'),list) else []
+        for leg in raw_legs[:3]:
+            if not isinstance(leg,dict):continue
+            record=leg.get('dividend') if isinstance(leg.get('dividend'),dict) else {}
+            legs.append({**{k:leg.get(k) for k in ('symbol','F','D','T','expiry')},
+                'dividend_source':leg.get('dividend_source') or record.get('source_snapshot') or record.get('source_business_date'),
+                'dividend_kind':leg.get('dividend_kind') or record.get('source_kind')})
+        current_safe={k:current.get(k) for k in ('day','symbols','value','reason','excluded','source_at','http_session_inferred')}
+        current_safe['calculation_inputs']=dict(S=inputs.get('S'),legs=legs)
+        output['series'][key]=dict(current=current_safe,
+            statistics={k:stats.get(k) for k in ('mean','median','std','z','percentile','reason','complete','samples','requested',
                 'excluded_dates','missing','zero_dividend_dates','http_session_inferred_dates','start','end')})
     return output

@@ -50,6 +50,7 @@ def details(rows, indices, live, observations, now,*,dividends=None):
         spot=by_root.get(root,{})
         group=dict(basis_change_previous=None,basis_change_5m=None,calendar_points=None,
                    distribution=[],distribution_reason='待四个到期合约的完整有效成交数据',
+                   position_distribution=[],position_reason='待四个合约同日持仓数据',
                    previous_reason='较准确昨日收盘；不使用昨结算替代',
                    five_minute_reason='需要五分钟前同一合约及现货的同步观测')
         for contract in contracts:
@@ -79,5 +80,22 @@ def details(rows, indices, live, observations, now,*,dividends=None):
                 group['distribution_reason']='本时点四个合约累计成交合计为0'
             elif not ok:
                 group['distribution_reason']=reason
+        if len(contracts)==4 and {r.get('slot') for r in contracts}==set(range(4)) and len({r['symbol'] for r in contracts})==4:
+            quotes=[live.get(r['symbol'],{}) for r in contracts]
+            realtime=aligned_quotes(quotes,now)[0] and all(finite(q.get('open_interest')) and q['open_interest']>0 for q in quotes)
+            dates={r.get('yesterday_oi_date') for r in contracts}
+            positions=[q['open_interest'] for q in quotes] if realtime else [r.get('yesterday_open_interest') for r in contracts]
+            dated=len(dates)==1 and None not in dates and all(finite(v) and v>=0 for v in positions)
+            if realtime or dated:
+                position_day=(max(pd.Timestamp(q['source_event_time']) for q in quotes).tz_convert('Asia/Shanghai').isoformat()
+                              if realtime else next(iter(dates)))
+                total=sum(positions)
+                if total>0:
+                    group['position_distribution']=[dict(symbol=r['symbol'],slot=r['slot'],open_interest=v,
+                        share_pct=100*v/total) for r,v in zip(contracts,positions)]
+                    group['position_reason']=('实时' if realtime else '已完成日')+'持仓手数占比 · '+position_day
+                    group['position_mode']='current_http' if realtime else 'completed_daily'
+                    group['position_date']=position_day
+                else:group['position_reason']='同日四档持仓合计为0 · '+position_day
         groups[root]=group
     return groups

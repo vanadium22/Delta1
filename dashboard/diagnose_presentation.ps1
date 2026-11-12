@@ -51,8 +51,28 @@ try {
         if (-not $overviewRoot -and $profile.profile) { $overviewRoot=Split-Path $profile.profile -Parent }
         if ($overviewRoot) {
             $overviewArguments=@('-B','-s','-X','utf8','-m','dashboard.overview_check','--local-root',$overviewRoot,'--output',(Join-Path $runtime 'overview.json'))
-            & $report.python @overviewArguments 1> (Join-Path $runtime 'overview.log') 2> (Join-Path $runtime 'overview.stderr.log')
-            $report.overview_exit_code=$LASTEXITCODE
+            $overviewErrorFile=Join-Path $runtime 'overview.stderr.log'
+            $previousErrorAction=$ErrorActionPreference
+            try {
+                # Windows PowerShell can raise NativeCommandError for stderr
+                # even when the child succeeds. Preserve the real exit code.
+                $ErrorActionPreference='Continue'
+                & $report.python @overviewArguments 1> (Join-Path $runtime 'overview.log') 2> $overviewErrorFile
+                $report.overview_exit_code=$LASTEXITCODE
+            } finally { $ErrorActionPreference=$previousErrorAction }
+            $stderr=@{present=$false;bytes=0;warning=$false;traceback=$false;serialization=$false;permission=$false}
+            if (Test-Path -LiteralPath $overviewErrorFile -PathType Leaf) {
+                $stderr.bytes=(Get-Item -LiteralPath $overviewErrorFile).Length
+                $stderr.present=$stderr.bytes -gt 0
+                if ($stderr.present -and $stderr.bytes -le 1048576) {
+                    $detail=Get-Content -LiteralPath $overviewErrorFile -Raw -ErrorAction SilentlyContinue
+                    $stderr.warning=$detail -match '(?i)warning'
+                    $stderr.traceback=$detail -match '(?i)traceback'
+                    $stderr.serialization=$detail -match '(?i)json|serializ|out of range float'
+                    $stderr.permission=$detail -match '(?i)permissionerror|access is denied'
+                }
+            }
+            $report.overview_stderr=$stderr
             $report.overview_report=Join-Path $runtime 'overview.json'
         }
     }

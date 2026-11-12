@@ -76,7 +76,7 @@ def enrich(model, data, reference, now,*,equity_snapshot=None):
     equity = equity_snapshot if equity_snapshot is not None else read_equities(model.config, model.local_root) if hasattr(model, 'local_root') else {}
     previous=data.get('previous_session')
     groups=source.get('indices',{})
-    closed=False;tokens=[]
+    closed=False;tokens=[];earlier=None
     if hasattr(model,'local_root'):
         from dashboard.marketdata.overview_weights import roll,closed_snapshot
         from dashboard.marketdata.overview_daily import directory
@@ -84,7 +84,8 @@ def enrich(model, data, reference, now,*,equity_snapshot=None):
         closed=market_phase(now.to_pydatetime())['phase'] not in ('morning','lunch','afternoon') and bool(data.get('completed_session'))
         if closed:
             previous=previous_session(data['completed_session'])
-        days={previous,data.get('completed_session'),*(g.get('as_of') for g in groups.values())}-{None}
+        earlier=previous_session(previous) if previous else None
+        days={previous,earlier,data.get('completed_session'),*(g.get('as_of') for g in groups.values())}-{None}
         for day in sorted(days):
             path=directory(model.config,model.local_root)/'days'/(day+'.json')
             try:stat=path.stat();tokens.append((day,stat.st_mtime_ns,stat.st_size))
@@ -101,6 +102,16 @@ def enrich(model, data, reference, now,*,equity_snapshot=None):
         model._overview_contributions = {row['root']: contributions(groups.get(row['root'], {}),
             equity, row, now, previous, reference['version']) for row in data['indices']}
     data['index_details'] = deepcopy(model._overview_contributions)
+    if hasattr(model,'local_root'):
+        from dashboard.marketdata.overview_industry_changes import load as load_changes,token as changes_token
+        token=(reference['version'],changes_token(model.config,model.local_root),tuple(tokens),previous)
+        if getattr(model,'_overview_industry_changes_token',None)!=token:
+            from dashboard.marketdata.overview_weights import roll
+            compared={root:roll(g,model.config,model.local_root,previous) for root,g in groups.items()}
+            model._overview_industry_changes=load_changes(model.config,model.local_root,source,compared,previous_day=earlier)
+            model._overview_industry_changes_token=token
+        for root,detail in data['index_details'].items():
+            detail['industry_change']=deepcopy(model._overview_industry_changes.get(root,{}))
     for detail in data['index_details'].values():
         cutoff = detail.get('snapshot_at')
         if detail.get('mode')!='completed_daily' and cutoff and (now-pd.Timestamp(cutoff)).total_seconds() > equity_max_age(equity)+60:

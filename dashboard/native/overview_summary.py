@@ -1,6 +1,6 @@
 """All four indices and sixteen actual contracts, with responsive large cards."""
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QWidget, QBoxLayout
+from PySide6.QtCore import Signal, QEvent, QTimer, Qt
+from PySide6.QtWidgets import QWidget, QBoxLayout, QScrollArea, QVBoxLayout, QFrame, QPushButton
 
 from .overview_pages import ScrollPage, IndexCard, FlowGrid,lab
 from .theme import ACCENT
@@ -38,7 +38,15 @@ class OverviewSummary(ScrollPage):
 
     def __init__(self):
         super().__init__()
+        self.outer_scroll=QScrollArea();self.outer_scroll.setWidgetResizable(True);self.outer_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.outer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.container=QWidget();self.container_box=QVBoxLayout(self.container);self.container_box.setContentsMargins(0,0,0,0);self.container_box.setSpacing(12)
+        self.layout().removeWidget(self.scroll);self.container_box.addWidget(self.scroll)
+        self.outer_scroll.setWidget(self.container);self.layout().addWidget(self.outer_scroll)
+        self.outer_scroll.viewport().installEventFilter(self)
         self.dividend_source=lab('最新分红表：待核验',18,ACCENT,True);self.box.addWidget(self.dividend_source)
+        self.charts_button=QPushButton('查看四品种期限结构与成交持仓 ↓');self.box.addWidget(self.charts_button)
+        self.charts_button.clicked.connect(lambda:self.outer_scroll.verticalScrollBar().setValue(self.scroll.height()))
         self.products = {}
         self.cards = {}
         self.index_cards = {}
@@ -48,7 +56,18 @@ class OverviewSummary(ScrollPage):
             self.products[root] = group
             self.index_cards[symbol] = group.index
             self.box.addWidget(group)
+        from .overview_charts import ProductCharts
+        self.charts={root:ProductCharts(root,name) for root,(_,name,_) in UNDERLYINGS.items()}
+        self.charts_grid=FlowGrid(list(self.charts.values()),2,520,self.container);self.container_box.addWidget(self.charts_grid)
+        QTimer.singleShot(0,self.fit_overview_height)
         self.visible_rows = []
+
+    def eventFilter(self,obj,event):
+        if obj is self.outer_scroll.viewport() and event.type()==QEvent.Type.Resize:QTimer.singleShot(0,self.fit_overview_height)
+        return super().eventFilter(obj,event)
+
+    def fit_overview_height(self):
+        if hasattr(self,'outer_scroll'):self.scroll.setFixedHeight(max(360,self.outer_scroll.viewport().height()-2))
 
     def render_data(self, data):
         from .overview_status import data_dates,dates_text
@@ -65,3 +84,4 @@ class OverviewSummary(ScrollPage):
                 card.render(row,slot)
                 if row.get('symbol'):
                     self.cards[row['symbol']] = card
+            self.charts[root].render([r for r in data.get('futures',[]) if r.get('root')==root],data.get('futures_details',{}).get(root,{}))

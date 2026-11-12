@@ -5,6 +5,7 @@ No network, future-day close or back-adjusted continuous price. Each historical
 day uses its actual dated contract and that time's dividend version.
 """
 from datetime import date,timedelta
+from statistics import mean,median
 import pandas as pd
 
 from dashboard.indicator_v6.core import raw,statistic
@@ -107,6 +108,7 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
         inferred=[r for r in good if r.get('http_session_inferred')]
         values=[raw(r['annual_pct']) for r in good]
         available=len(rows)==length and not missing and len(values)>=2
+        historical_values=[float(r['annual_pct']) for r in good]
         pct=None
         if available and matches and current.value is not None:
             pct=statistic([*values,current],len(values),n=len(values))[0].value
@@ -118,7 +120,8 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
                 '有效年化样本不足' if not available else '前'+str(length)+'交易日窗口；排除当前日，等值半权，已知T<5日另列排除')
         if estimated:reason+='；历史缺分红暂按0估算 '+str(len(estimated))+'日'
         if inferred:reason+='；HTTP连续盘中核验昨收 '+str(len(inferred))+'日（日期推定）'
-        output['windows'][str(length)]=dict(percentile=pct,samples=len(good),calendar_days=length,
+        output['windows'][str(length)]=dict(percentile=pct,mean=mean(historical_values) if available else None,
+            median=median(historical_values) if available else None,samples=len(good),calendar_days=length,
             expected_eligible=length-len(excluded),excluded=len(excluded),complete=available,
             estimated=bool(estimated),zero_dividend_count=len(estimated),
             zero_dividend_dates=[r['day'] for r in estimated],

@@ -277,9 +277,21 @@ def main(argv=None):
         value = collect(args.local_root)
     except Exception as exc:
         value = dict(schema='overview-company-check-v1',error_type=type(exc).__name__,network_requested=False,vpn_changed=False)
+    try:
+        serialized=json.dumps(value,ensure_ascii=False,allow_nan=False,indent=2)
+    except (TypeError,ValueError):
+        try:
+            from dashboard.percentile_audit import clean
+            value=clean(value)
+            value['serialization_status']='normalized_nonfinite_or_scalar'
+            serialized=json.dumps(value,ensure_ascii=False,allow_nan=False,indent=2)
+        except (TypeError,ValueError,AttributeError,RecursionError) as exc:
+            value=dict(schema='overview-company-check-v1',error_type='ReportSerializationError',
+                       serialization_error_type=type(exc).__name__,network_requested=False,vpn_changed=False)
+            serialized=json.dumps(value,ensure_ascii=False,allow_nan=False,indent=2)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     with args.output.open('x',encoding='utf8') as out:
-        json.dump(value,out,ensure_ascii=False,allow_nan=False,indent=2)
+        out.write(serialized)
     print(str(args.output))
     return 0 if 'error_type' not in value else 1
 

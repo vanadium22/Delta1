@@ -5,17 +5,26 @@ import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QPushButton
 
 from .overview_pages import (ScrollPage, Panel, FlowGrid, Split, lab, put, numeric,
                              ink, clock, table, cell,source_label)
 from .instruments import UNDERLYINGS
 from .card_views import stamp
-from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
+from .theme import ACCENT, ACCENT_BACKGROUND, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
 from dashboard.marketdata.overview_basis import input_summary
 
 SLOTS=('当月','次月','季月','远季')
 COLORS=(ACCENT,'#4c8fbc','#7bb3d3','#a7c9e0') if THEME=='public' else CHART_COLORS
+
+
+def percentile_color(value):
+    if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value) or not 0<=value<=100:
+        return MUTED,0.0
+    intensity=abs(value-50)/50
+    neutral=QColor(MUTED);edge=QColor('#126ca5' if value<50 else '#b44f22') if THEME=='public' else QColor('#94b8d5' if value<50 else '#f0ab6d')
+    rgb=[round(getattr(neutral,c)()*(1-intensity)+getattr(edge,c)()*intensity) for c in ('red','green','blue')]
+    return QColor(*rgb).name(),intensity
 
 
 class FuturesCard(Panel):
@@ -23,10 +32,11 @@ class FuturesCard(Panel):
         super().__init__(parent=parent);self.row={}
         self.compact=compact;self.value_size=27 if compact else 29
         self.box.setContentsMargins(12,8,12,8);self.box.setSpacing(3 if compact else 6)
-        head=QHBoxLayout();self.heading=lab('',21 if compact else 24,ACCENT,True);self.badge=lab('',13 if compact else 16,MUTED)
+        head=QHBoxLayout();self.heading=lab('',16 if compact else 24,MUTED if compact else ACCENT,True);self.badge=lab('',23 if compact else 16,ACCENT if compact else MUTED,compact)
         self.price=lab('—',34 if compact else 40,ACCENT,True)
         if compact:
-            identity=QVBoxLayout();identity.setSpacing(1);identity.addWidget(self.heading);identity.addWidget(self.badge)
+            self.badge.setStyleSheet(f'background:{ACCENT_BACKGROUND};color:{ACCENT};font-size:24px;font-weight:700;border-radius:5px;padding:2px 4px;')
+            identity=QVBoxLayout();identity.setSpacing(1);identity.addWidget(self.badge);identity.addWidget(self.heading)
             head.addLayout(identity,1);self.price.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.price,1)
         else:
             self.badge.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.heading,3);head.addWidget(self.badge,2)
@@ -36,14 +46,32 @@ class FuturesCard(Panel):
         for title in ('去分红基差','去分红年化基差','较昨日基差变化','20日年化分位','60日年化分位'):
             line=QHBoxLayout();caption=lab(title,15 if compact else 17,MUTED);value=lab('—',self.value_size,TEXT,True)
             value.setAlignment(Qt.AlignmentFlag.AlignRight);line.addWidget(caption,1);line.addWidget(value,1)
-            self.box.addLayout(line);self.values.append(value);self.captions.append(caption)
+            if compact and len(self.values)>=2:
+                caption.setParent(self);value.setParent(self);caption.hide();value.hide()
+            else:self.box.addLayout(line)
+            self.values.append(value);self.captions.append(caption)
         self.basis_value,self.annual_value,self.previous_value,self.rank_value,self.rank60_value=self.values
+        self.window_dates={};self.means={};self.medians={}
+        if compact:
+            grid=QGridLayout();grid.setContentsMargins(0,1,0,0);grid.setHorizontalSpacing(5);grid.setVerticalSpacing(0)
+            grid.addWidget(lab('窗口',12,MUTED),0,0)
+            for col,length in enumerate((20,60),1):
+                heading=lab(str(length)+'日',14,ACCENT,True);heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                dates=lab('日期待核验',10,MUTED);dates.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.window_dates[length]=dates;grid.addWidget(heading,0,col);grid.addWidget(dates,1,col)
+            for row,title in ((2,'分位'),(3,'avg'),(4,'中位')):grid.addWidget(lab(title,12,MUTED),row,0)
+            for col,(length,rank) in enumerate(((20,self.rank_value),(60,self.rank60_value)),1):
+                rank.setAlignment(Qt.AlignmentFlag.AlignCenter);grid.addWidget(rank,2,col)
+                avg=lab('—',16,TEXT,True);middle=lab('—',16,TEXT,True)
+                for widget in (avg,middle):widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                grid.addWidget(avg,3,col);grid.addWidget(middle,4,col);self.means[length]=avg;self.medians[length]=middle
+            self.box.addLayout(grid)
         self.dividend_note=lab('分红来源待核验',12 if compact else 14,MUTED);self.box.addWidget(self.dividend_note)
         self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(222 if compact else 318)
 
     def render(self,row,position):
         view=row.get('basis_display') or row
-        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(f'0{position} · '+SLOTS[position])
+        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(((row.get('root') or '')+' ' if self.compact else '')+f'0{position} · '+SLOTS[position])
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
         self.price.setText(numeric(row.get('price')))
         for widget,key,suffix,digits in ((self.basis_value,'basis_points','点',1),(self.annual_value,'annual_pct','%',2),(self.previous_value,'basis_change_previous','点',1)):
@@ -52,12 +80,15 @@ class FuturesCard(Panel):
         self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(view.get('basis_prev_day') or '待核验'))
         history=view.get('continuous_percentiles') or {}
         for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),3):
-            widget.show();self.captions[i].show()
+            widget.show()
+            if not self.compact:self.captions[i].show()
             result=history.get('windows',{}).get(str(length),{});rank=result.get('percentile')
             missing=result.get('missing',[])
             label=(numeric(rank,1,suffix='%') if rank is not None else '缺映射' if any(r['reason']=='mapping_missing' for r in missing) else
                 '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else 'T<5' if view.get('days') is not None and view['days']<5 else '待年化行情')
             widget.setText(label)
+            color,strength=percentile_color(rank)
+            widget.setStyleSheet(f'background:transparent;color:{color};font-size:{21 if self.compact else self.value_size}px;font-weight:{700 if strength>=.4 else 500};')
             widget.setToolTip(str(history.get('alias') or f'0{position}')+' · 去分红年化基差\n'+str(result.get('start') or '—')+' 至 '+str(result.get('end') or '—')+
                 f"\n有效 {result.get('samples',0)}/{result.get('expected_eligible',length)}；规则排除 {result.get('excluded',0)} 日"+
                 '\n'+(result.get('reason') or '等待当前连续档位分位资料，旧版具体合约分位不混用'))
@@ -68,6 +99,13 @@ class FuturesCard(Panel):
                     details.append(str(item.get('day') or '待日期')+'  '+', '.join(str(s) for s in symbols))
                 if len(missing)>8:details.append('其余 '+str(len(missing)-8)+' 日见导出诊断')
                 widget.setToolTip(widget.toolTip()+'\n'+'\n'.join(details))
+            if self.compact:
+                start=result.get('start');end=result.get('end')
+                self.window_dates[length].setText((start[5:].replace('-','/')+'–'+end[5:].replace('-','/')) if start and end else '日期待核验')
+                self.window_dates[length].setToolTip('参考窗口 '+str(start or '—')+' 至 '+str(end or '—'))
+                self.means[length].setText(numeric(result.get('mean'),2,suffix='%'))
+                self.medians[length].setText(numeric(result.get('median'),2,suffix='%'))
+                for stat in (self.means[length],self.medians[length]):stat.setToolTip(widget.toolTip()+'\n年化基差的同窗统计')
         source_day=view.get('dividend_snapshot');pricing_day=view.get('pricing_day')
         carried=bool(source_day and pricing_day and source_day<pricing_day)
         self.dividend_note.setText('D '+numeric(view.get('dividend_points'),6)+'点 · '+

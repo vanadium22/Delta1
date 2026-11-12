@@ -112,6 +112,7 @@ class EtfUiTests(unittest.TestCase):
         page=EtfOverviewPage()
         try:
             page.render(rows,dict(IF=dict(rows=rows,ranking=dict(as_of='2026-10-23'),size_changes=changes)),{})
+            page.select('IF')
             card=page.fund_cards[0]
             self.assertEqual(card.premium.text(),'-20.0 bp');self.assertIn('昨日',card.iopv.text())
             self.assertIn('2026-10-23',card.closing_premium.text())

@@ -1,5 +1,11 @@
 # 看板文档索引
 
+2026-11-12，统一分支codex/company-apps，实施基线95869c2，最终运行版本以Git HEAD/远端为准。指标页数值按原行情计算更新，图像在页面激活期间每30秒重画并标图像更新时间；缺项显示原因。概览突出00–03，去掉概览上的较昨基差变化；20/60分位并列同窗均值/中位数及日期，越接近两端越高亮；概览新增四品种期限/成交/持仓，指数页新增行业权重变化，ETF页新增全部现有订阅的总览表。
+
+新公司包20261111_154729_881_safe_160539_083_91d394e8.zip，8886字节，SHA256 cbb1e517a16a39a252a69690bfe0ef4f4b522dcf456df8f1f84c2834fb38c262；95869c2、7份JSON且CRC正常，但Complete=false，开窗与关闭后overview.json均缺失，缺少同次安全排空证据。两次诊断均报System.Management.Automation.RemoteException/NativeCommandError，preflight退出0；没有原始stderr，不能据此确定Z/分位为何为空、DDB状态或同次关闭完成。
+
+490项独立完整回归通过，123.232秒（含加载），无跳过，ResourceWarning作为错误；原469项重跑，新增21项。
+
 2026-11-11，统一codex/company-apps，实施基线39760f0，最终运行版本以Git HEAD/远端为准。新增同级“指标分析”正式Qt页，一品种切换IF/IH/IC/IM，基差两图＋03−02/02−01跨期年化两图。四项统计统一可调t_z，默认min(20,floor(t_w/2))交易日；t_w默认90自然日，均值/中位数水平虚线横跨t_w，跨期分母为同日指数S。原逐日实际D、简单年化、连续四档固定20/60保持，32项/A02研究继续暂停。
 
 新公司安全包20261111_141737_345_safe_143604_770_d37cd87a.zip已核验：b7d5d55、9份JSON/CRC完整，11-10四指数＋16实际期货close齐备，16档原20/60年化分位全部恢复；HTTP日期依据为corroborated_live_session（推定，非交易所认证）。DDB在192.168.198.77:8904复用existing_tunnel、tcp_verified=true、authenticated=true，已到query_partial；当前仍待16合约OI及12只ETF收盘。同次运行安全关闭2.731秒，waiting为空，成分sqlite_committed。

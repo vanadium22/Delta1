@@ -1,6 +1,8 @@
 """One-root, four-chart indicator page; widgets never acquire market data."""
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -77,33 +79,39 @@ class IndicatorChart(Panel):
         for _,value in self.metrics.values():value.setText('—')
         self.footer.setText(text)
 
-    def render(self,result,*,stat_key='adjusted',references=True):
-        self.result=result;self.stat_key=stat_key if self.overlay else self.key
-        self.plot.clear();self.reference_lines={}
-        series=result['series'];selected=series[self.stat_key];stats=selected['statistics']
-        for key in (('raw','adjusted') if self.overlay else (self.key,)):
-            rows=series[key]['rows'];x,y,connect=chart_data(rows)
-            color=RAW if key=='raw' else PRIMARY
-            title='绝对基差 F−S' if key=='raw' else '去分红基差' if key=='adjusted' else '年化去分红'
-            self.plot.plot(x,y,connect=connect,pen=pg.mkPen(color,width=1.9 if key=='raw' else 2.5),name=title)
-            current=series[key]['current']
-            if finite(current.get('value')):
-                self.plot.plot([seconds(current['day'])],[current['value']],pen=None,symbol='o',symbolSize=6,symbolBrush=color,symbolPen=PANEL)
-        left,right=seconds(result['start']),seconds(result['end'])
-        if references:
-            for key,color,title in (('mean',AVG,'均值'),('median',MEDIAN,'中位数')):
-                if finite(stats.get(key)):
-                    self.reference_lines[key]=self.plot.plot([left,right],[stats[key],stats[key]],
-                        pen=pg.mkPen(color,width=1.3,style=Qt.PenStyle.DashLine),name=title)
-        self.plot.setXRange(left,right,padding=.01)
-        self.plot.enableAutoRange(axis='y',enable=True)
-        self.plot.getViewBox().setDefaultPadding(.14)
+    def render(self,result,*,stat_key='adjusted',references=True,draw=True):
+        selected_key=stat_key if self.overlay else self.key
+        series=result['series'];selected=series[selected_key];stats=selected['statistics']
+        if draw:
+            self.result=result;self.stat_key=selected_key
+            self.plot.clear();self.reference_lines={}
+            for key in (('raw','adjusted') if self.overlay else (self.key,)):
+                rows=series[key]['rows'];x,y,connect=chart_data(rows)
+                color=RAW if key=='raw' else PRIMARY
+                title='绝对基差 F−S' if key=='raw' else '去分红基差' if key=='adjusted' else '年化去分红'
+                self.plot.plot(x,y,connect=connect,pen=pg.mkPen(color,width=1.9 if key=='raw' else 2.5),name=title)
+                current=series[key]['current']
+                if finite(current.get('value')):
+                    self.plot.plot([seconds(current['day'])],[current['value']],pen=None,symbol='o',symbolSize=6,symbolBrush=color,symbolPen=PANEL)
+            left,right=seconds(result['start']),seconds(result['end'])
+            if references:
+                for key,color,title in (('mean',AVG,'均值'),('median',MEDIAN,'中位数')):
+                    if finite(stats.get(key)):
+                        self.reference_lines[key]=self.plot.plot([left,right],[stats[key],stats[key]],
+                            pen=pg.mkPen(color,width=1.3,style=Qt.PenStyle.DashLine),name=title)
+            self.plot.setXRange(left,right,padding=.01)
+            self.plot.enableAutoRange(axis='y',enable=True)
+            self.plot.getViewBox().setDefaultPadding(.14)
         for key,(_,value) in self.metrics.items():
             value.setText(numeric(stats.get(key),1 if key=='percentile' else 2,suffix='%' if key=='percentile' else ''))
         latest=selected['current'];n=stats['samples'];requested=stats['requested']
-        title=('去分红' if self.stat_key=='adjusted' else '绝对')+'基差 · ' if self.overlay else ''
+        title=('去分红' if selected_key=='adjusted' else '绝对')+'基差 · ' if self.overlay else ''
         now=numeric(latest.get('value'),2,suffix='' if self.overlay else '%')
-        self.footer.setText(f"{title}最新 {now} · 样本 {n}/{requested} · 排除 {len(stats['excluded_dates'])}日 · 缺 {len(stats['missing'])}日")
+        reasons={'index_close_missing':'指数收盘缺失','future_close_missing':'期货收盘缺失',
+                 'dividend_missing_or_conflict':'分红缺失或冲突','mapping_missing':'合约映射缺失','T_LT_5':'临期T<5'}
+        reason=latest.get('reason') if not finite(latest.get('value')) else stats.get('reason')
+        explanation=(' · '+reasons.get(reason,reason)) if reason else ''
+        self.footer.setText(f"{title}最新 {now} · 样本 {n}/{requested} · 排除 {len(stats['excluded_dates'])}日 · 缺 {len(stats['missing'])}日"+explanation)
         detail=[result['statistics_policy'],f"参考 {stats['start']} 至 {stats['end']}",
                 '排除T<5：'+(', '.join(stats['excluded_dates']) or '无'),
                 '缺项：'+('; '.join(r['day']+' '+r['reason'] for r in stats['missing']) or '无'),
@@ -113,7 +121,7 @@ class IndicatorChart(Panel):
         self.footer.setToolTip('\n'.join(detail))
         self.stats_widget.setToolTip('\n'.join(detail))
         visible=[r for r in selected['rows'] if finite(r.get('value'))]
-        if not visible:
+        if draw and not visible:
             empty=pg.TextItem('此窗口暂无有效数据',color=MUTED,anchor=(.5,.5))
             self.plot.addItem(empty);empty.setPos((left+right)/2,0);self.plot.setYRange(-1,1,padding=0)
 
@@ -170,7 +178,9 @@ class IndicatorAnalysisPage(QWidget):
         actions.addStretch()
         self.history=QPushButton('补齐所选窗口');actions.addWidget(self.history)
         self.history.setToolTip('使用原有本地 → HTTP昨收 → DDB流程，仅扩展所选品种日线；需等待安全排空')
-        self.note=lab('选择一个品种查看；t_z 统计排定价日，参考线横跨 t_w。',13,MUTED);outer.addWidget(self.note)
+        status=QHBoxLayout();self.note=lab('选择一个品种查看；t_z 统计排定价日，参考线横跨 t_w。',13,MUTED)
+        self.draw_clock=lab('图像等待更新 · 30秒重画',12,MUTED);self.draw_clock.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+        status.addWidget(self.note,3);status.addWidget(self.draw_clock,2);outer.addLayout(status)
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff);outer.addWidget(self.scroll,1)
         self.scroll.viewport().installEventFilter(self)
@@ -186,14 +196,21 @@ class IndicatorAnalysisPage(QWidget):
         self.window.valueChanged.connect(self.inputs_changed);self.stats.valueChanged.connect(self.inputs_changed);self.auto.toggled.connect(self.inputs_changed)
         self.view.currentIndexChanged.connect(self.presentation_changed);self.overlay.currentIndexChanged.connect(self.presentation_changed);self.references.toggled.connect(self.presentation_changed)
         self.history.clicked.connect(lambda:self.history_requested.emit(self.request()))
+        self.draw_timer=QTimer(self);self.draw_timer.setInterval(30000);self.draw_timer.timeout.connect(self.redraw)
         self._ready=True;self.frozen=False;self.set_active(False);self.arrange()
 
     def request(self):
         return selection(self.root.currentData(),self.slot.currentData(),self.window.value(),self.stats.value())
 
     def set_active(self,active):
+        was_active=self.active
         self.active=active
         self.model.indicator_analysis_request=self.request() if active and not getattr(self,'frozen',False) else None
+        if hasattr(self,'draw_timer'):
+            if active and not self.frozen:
+                self.draw_timer.start()
+                if not was_active and self.result:self.redraw()
+            else:self.draw_timer.stop()
 
     def freeze(self,result):
         self.frozen=True;self._ready=False
@@ -217,7 +234,7 @@ class IndicatorAnalysisPage(QWidget):
 
     def presentation_changed(self,*_):
         self.arrange();self.save()
-        if self.result:self.render(self.result)
+        if self.result:self.render(self.result,force=True)
 
     def resizeEvent(self,event):
         super().resizeEvent(event);self.arrange()
@@ -243,20 +260,29 @@ class IndicatorAnalysisPage(QWidget):
             chart.setFixedHeight(height);chart.setVisible(key in keys)
         for i,key in enumerate(keys):self.grid.addWidget(self.charts[key],i//columns,i%columns)
 
-    def render(self,result):
+    def render(self,result,*,force=False):
         if result is None:return
         if result.get('selection')!=self.request():return
         if result.get('error'):
             self.result=None;self.note.setText('指标窗口暂不可用：'+result['error'])
             for chart in self.charts.values():chart.clear_result('窗口不可用；原概览保持可读')
             return
+        first=self.result is None
         self.result=result
         mode='实时末点' if result['mode']=='realtime' else '收盘参考'
         dates=[r.get('source_at') for r in (v['current'] for v in result['series'].values()) if r.get('source_at')]
         stamp=pd.Timestamp(max(dates)).tz_convert('Asia/Shanghai').strftime('%m-%d %H:%M:%S') if dates else result['pricing_day']+' · 当前点缺项'
-        self.note.setText(f"{self.root.currentData()} · {mode} {stamp} · 参考 {result['reference_days'][0]} 至 {result['reference_days'][-1]}")
+        fallback=' · 最新完成日 '+result['completed_target']+' 收盘待补' if result.get('reference_fallback') else ''
+        self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · 参考 {result['reference_days'][0]} 至 {result['reference_days'][-1]}")
         self.note.setToolTip(result['mapping_policy']+'\n'+result['statistics_policy']+'\n图像 '+result['start']+' 至 '+result['end']+'；历史读取起点 '+result['history_start'])
-        for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked())
+        for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
+        if first or force:self.redraw()
+
+    def redraw(self):
+        if self.result is None:return
+        for chart in self.charts.values():chart.render(self.result,stat_key=self.overlay.currentData(),references=self.references.isChecked())
+        at=datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%H:%M:%S')
+        self.draw_clock.setText('图像更新 '+at+' · 30秒重画；数值随行情计算更新')
 
     def save(self):
         if not self._ready:return

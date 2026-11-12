@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-12概览与指标刷新，基线95869c2：30秒绘图、缺项解释与安全盘后回退，20/60同窗均值中位数及两端高亮，概览四品种期限/成交/持仓、行业权重变化和ETF总览。490项独立完整回归通过，123.232秒（含加载），无跳过，ResourceWarning作为错误；原469项重跑，新增21项。 最新95869c2公司包两份Overview缺失，不能判断新页Z/分位或同次安全关闭；本轮诊断安全修复与新界面待[公司复测](dashboard/APP_COMPANY_TEST.md)。[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
+
 - 2026-11-11正式指标分析页，基线39760f0：一品种/四图、可调t_w/t_z、均值中位数虚线跨图、跨期同日S分母；逐日合约/D/T和图外历史、版本LRU、冻结快照及所选品种有界日线维护接入，原20/60与32/A02暂停保持。469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 100%/125%三尺寸离屏截图核验，1536×864/125%四图无滚动。b7新公司包9JSON完整，11-10四指数+16期货昨收及原20/60恢复，DDB新端点复用隧道并认证查询、仍缺16 OI/12ETF close，同次关闭2.731秒。新页公司现场仍待[复测](dashboard/APP_COMPANY_TEST.md)；[实现](dashboard/docs/INDICATOR_PAGE_PROPOSAL.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 

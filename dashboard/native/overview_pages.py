@@ -221,6 +221,39 @@ class IndustryWeights(QWidget):
             self.hit.append((QRectF(0, y, self.width(), 32), row['name']))
 
 
+class IndustryChanges(QWidget):
+    clicked=Signal(str)
+    def __init__(self):
+        super().__init__();self.rows=[];self.hit=[];self.reason='待上一份可比权重';self.setMinimumHeight(264);self.setMinimumWidth(0)
+    def render(self,change):
+        rows=change.get('rows',[]);self.rows=rows[:7]
+        if len(rows)>7:self.rows=self.rows+[dict(name='其他',change_pp=sum(r['change_pp'] for r in rows[7:]))]
+        self.reason=change.get('reason') or '待上一份可比权重';self.setToolTip(self.reason);self.update()
+    def mouseReleaseEvent(self,event):
+        for rect,name in self.hit:
+            if rect.contains(event.position()) and name!='其他':self.clicked.emit(name);break
+        super().mouseReleaseEvent(event)
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing);self.hit=[]
+        if not self.rows:
+            p.setPen(QColor(MUTED));p.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,self.reason);return
+        label_width=min(100,self.width()*.28);end_width=70;half=max(6,(self.width()-label_width-end_width)/2)
+        center=label_width+half;maximum=max([abs(r['change_pp']) for r in self.rows]+[.01])
+        p.setPen(QColor(BORDER));p.drawLine(int(center),0,int(center),min(self.height(),len(self.rows)*32))
+        for i,row in enumerate(self.rows):
+            y=4+i*32;value=row['change_pp'];p.setPen(QColor(TEXT));p.drawText(QRectF(0,y,label_width,30),Qt.AlignmentFlag.AlignVCenter,row['name'])
+            w=half*abs(value)/maximum;p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor(UP if value>0 else DOWN if value<0 else MUTED))
+            p.drawRoundedRect(QRectF(center if value>=0 else center-w,y+9,w,14),3,3)
+            p.setPen(QColor(MUTED));p.drawText(QRectF(self.width()-end_width,y,end_width,30),Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter,numeric(value,2,True,'pp'))
+            self.hit.append((QRectF(0,y,self.width(),32),row['name']))
+
+
+class WeightComparisonSplit(Split):
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.box.setDirection(QBoxLayout.Direction.LeftToRight if self.width()>=620 else QBoxLayout.Direction.TopToBottom)
+
+
 class IndexOverviewPage(ScrollPage):
     def __init__(self):
         super().__init__(); self.selected_root = 'IF'; self.selected_industry = {}; self.rows = []; self.details = {}; self.expanded = False
@@ -242,7 +275,9 @@ class IndexOverviewPage(ScrollPage):
         self.industries.cellClicked.connect(self.industry_clicked); self.industry_panel.box.addWidget(self.industries)
         self.weight_panel = Panel('指数行业权重', '')
         self.weights = IndustryWeights(); self.weights.clicked.connect(self.select_industry); self.weight_panel.box.addWidget(self.weights)
-        self.box.addWidget(Split(self.industry_panel, self.weight_panel))
+        self.weight_change_panel=Panel('行业权重较上次变化','百分点')
+        self.weight_changes=IndustryChanges();self.weight_changes.clicked.connect(self.select_industry);self.weight_change_panel.box.addWidget(self.weight_changes)
+        self.box.addWidget(Split(self.industry_panel,WeightComparisonSplit(self.weight_panel,self.weight_change_panel,(1,1)),(1,2)))
         self.stock_panel = Panel('选择行业 → 查看指数内成分', '权重、涨跌和贡献一起看')
         self.stocks = table(['标的', '占指数权重', '个股涨跌', '估算贡献点'], 150); self.stock_panel.box.addWidget(self.stocks)
         self.more = QPushButton('展开全部成分'); self.more.setCheckable(True); self.more.toggled.connect(self.expand)
@@ -272,6 +307,15 @@ class IndexOverviewPage(ScrollPage):
             value = detail.get(key); put(widget, numeric(value, 1 if key == 'up_pct' else 2, key != 'up_pct', suffix), color=ink(value), size=28, bold=True)
         self.weight_panel.note.setText((detail.get('industry_standard') or '行业分类待核验')+(' · 估算权重 ' if detail.get('weight_method')=='fixed_quantity_estimate' else ' · 权重 ')+str(detail.get('weight_date') or '待核验'))
         groups = detail.get('industries', []); self.weights.render(groups)
+        comparison=detail.get('industry_change') or {}
+        self.weight_changes.render(comparison)
+        current=comparison.get('current_date');previous=comparison.get('previous_date')
+        estimate=' · 当前估算' if comparison.get('weight_method')=='fixed_quantity_estimate' else ''
+        self.weight_change_panel.note.setText((str(previous)+' → '+str(current)+' · pp'+estimate) if current and previous else '待可比权重')
+        self.weight_change_panel.setToolTip((comparison.get('reason') or '待上一份同口径已发布权重')+
+            '\n分类 '+str(comparison.get('industry_standard') or '待核验')+
+            '\n方法 '+str(comparison.get('previous_weight_method') or '待核验')+' → '+str(comparison.get('weight_method') or '待核验')+
+            '\n分类权重 '+numeric(comparison.get('previous_classified_weight'),1,suffix='%')+' → '+numeric(comparison.get('current_classified_weight'),1,suffix='%'))
         ranked = detail.get('leaders', [])+detail.get('laggards', [])
         displayed = ranked if ranked else groups[:6]
         self.industry_panel.note.setText('按已覆盖成分计算 · 缺项已剔除' if detail.get('partial') else '按有效权重计算' if ranked else '贡献待核验，先看权重')
@@ -393,15 +437,27 @@ class MinuteAxis(pg.AxisItem):
 
 class EtfOverviewPage(ScrollPage):
     def __init__(self):
-        super().__init__();self.selected_root='IF';self.groups={};self.rows=[];self.reference={};self.cards={};self.market_sizes={}
+        super().__init__();self.selected_root=None;self.groups={};self.rows=[];self.reference={};self.cards={};self.market_sizes={}
         self.products={}
+        self.all_button=QPushButton('ETF总览');self.all_button.setCheckable(True);self.all_button.setMinimumHeight(39)
+        self.all_button.clicked.connect(lambda:self.select(None))
         for root,(_,name,_) in UNDERLYINGS.items():
             button=QPushButton(name+' · 3只');button.setCheckable(True);button.setMinimumHeight(39)
             button.clicked.connect(lambda _,r=root:self.select(r));self.products[root]=button
-        self.box.addWidget(FlowGrid(list(self.products.values()),4,220,self.body))
+        self.box.addWidget(FlowGrid([self.all_button,*self.products.values()],5,180,self.body))
+        self.all_panel=Panel('ETF总览','按对应指数及已核验规模排序');self.box.addWidget(self.all_panel)
+        self.all_table=table(['指数','ETF名称','代码','价格','涨跌','折溢价','规模(亿)','占比','价差(bp)','成交额','源时'],520)
+        self.all_table.setStyleSheet(f'QTableWidget{{border:0;background:{PANEL};font-size:15px;}} QTableWidget::item{{padding:3px;}} QHeaderView::section{{background:{PANEL};font-size:13px;padding:4px;color:{MUTED};border:0;}}')
+        self.all_table.horizontalHeader().setMinimumSectionSize(75)
+        self.all_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Interactive)
+        self.all_table.setColumnWidth(1,170)
+        self.all_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.all_table.cellDoubleClicked.connect(self.open_summary_row);self.all_panel.box.addWidget(self.all_table)
+        self.all_note=lab('规模及净值按各自来源日期；折溢价保留盘中或收盘口径。双击进入指数详情。',14,MUTED);self.all_panel.box.addWidget(self.all_note)
         head=QHBoxLayout();self.summary=lab('同一指数内筛选 · 基金规模前三',24,ACCENT,True);self.review=lab('',16,MUTED)
-        self.review.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.summary,3);head.addWidget(self.review,2);self.box.addLayout(head)
-        self.fund_cards=[EtfCard(self.body) for _ in range(3)];self.box.addWidget(FlowGrid(self.fund_cards,3,320,self.body))
+        self.review.setAlignment(Qt.AlignmentFlag.AlignRight);head.addWidget(self.summary,3);head.addWidget(self.review,2)
+        self.detail_head=QWidget();self.detail_head.setLayout(head);self.box.addWidget(self.detail_head)
+        self.fund_cards=[EtfCard(self.body) for _ in range(3)];self.fund_grid=FlowGrid(self.fund_cards,3,320,self.body);self.box.addWidget(self.fund_grid)
         self.capacity=Panel('规模对比 · ETF资产与期货名义本金','')
         from .market_size_view import SizePie
         self.etf_panel=Panel('同指数ETF · 前三与其它','');self.futures_panel=Panel('四档期货 · 持仓名义本金','')
@@ -415,11 +471,47 @@ class EtfOverviewPage(ScrollPage):
     def select(self,root):
         self.selected_root=root;self.show_group()
 
+    def open_summary_row(self,row,_column):
+        item=self.all_table.item(row,0)
+        if item and item.data(Qt.ItemDataRole.UserRole) in UNDERLYINGS:self.select(item.data(Qt.ItemDataRole.UserRole))
+
+    def show_all(self):
+        from dashboard.marketdata.overview_reference import premium_display,finite
+        rows=[]
+        for root in UNDERLYINGS:
+            group=self.groups.get(root,{})
+            selected=group.get('rows') or []
+            # Preserve the ranked rows' enriched size data, then include every
+            # other ETF already present in the existing overview subscription.
+            seen=set()
+            for row in [*selected,*(r for r in self.rows if r.get('root')==root)]:
+                symbol=row.get('symbol')
+                if symbol and symbol not in seen:
+                    rows.append((root,row));seen.add(symbol)
+        self.visible_rows=[r for _,r in rows];self.cards={};self.all_table.setRowCount(len(rows));self.all_table.clearContents()
+        for index,(root,row) in enumerate(rows):
+            premium=premium_display(row);value=premium['display_premium_bp'];amount=row.get('aum_cny')
+            values=[root,row.get('name') or row['symbol'],row['symbol'],numeric(row.get('price'),3),
+                numeric(row.get('change_pct'),2,True,'%'),numeric(value,1,True,' bp'),
+                numeric(amount/1e8,2) if finite(amount) and amount>0 else '—',numeric(row.get('aum_share_pct'),1,suffix='%'),
+                numeric(row.get('spread_bp'),1),money(row.get('amount_cny')),clock(row.get('source_at'))]
+            for col,value in enumerate(values):cell(self.all_table,index,col,value,key=root if col==0 else None)
+            self.all_table.item(index,5).setToolTip((row.get('display_premium_label') or premium['display_premium_label'])+' · '+str(premium.get('display_premium_date') or '盘中')+'\n'+str(premium.get('display_premium_reason') or ''))
+            self.all_table.item(index,6).setToolTip('规模日期 '+str(row.get('aum_date') or '待核验'))
+            self.all_table.item(index,7).setToolTip('占比基准日 '+str(row.get('aum_share_date') or row.get('aum_date') or '待核验'))
+            self.all_table.item(index,10).setToolTip('行情源 '+stamp(row.get('source_at'))+'\n接收 '+stamp(row.get('received_at'))+'\n'+str(row.get('status') or ''))
+        self.all_panel.note.setText('已列 '+str(len(rows))+' 只 · 未核验排名保留缺项')
+
     def show_group(self):
         from dashboard.marketdata.overview_reference import finite
-        root=self.selected_root;group=self.groups.get(root,{});meta=group.get('ranking',{})
-        rows=group.get('rows',[r for r in self.rows if r['root']==root][:1]);self.visible_rows=rows;self.cards={}
+        root=self.selected_root
+        self.all_button.setChecked(root is None)
+        for widget in (self.detail_head,self.fund_grid,self.capacity,self.note):widget.setVisible(root is not None)
+        self.all_panel.setVisible(root is None)
         for r,button in self.products.items():button.setChecked(r==root)
+        if root is None:self.show_all();return
+        group=self.groups.get(root,{});meta=group.get('ranking',{})
+        rows=group.get('rows',[r for r in self.rows if r['root']==root][:1]);self.visible_rows=rows;self.cards={}
         pending=bool(meta.get('reason')) or not meta.get('as_of')
         self.summary.setText('同一指数内筛选 · 基金规模前三'+('待核验' if pending else ''))
         self.review.setText('规模排名 '+str(meta.get('as_of') or '待核验'))

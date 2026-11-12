@@ -1,37 +1,32 @@
-# 下一对话：指标页公司复测与真实源缺项
+# 下一对话：公司复测与看板验收
 
-2026-11-11，39760f0后已正式实现Qt“指标分析”，最终运行版本先核验Git/远端。469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 证据local_artifacts/validation/company_20261111_indicator_page；本地截图为合成输入，不当公司新页验收。
+2026-11-12，统一分支codex/company-apps，实施基线95869c2，最终运行版本以Git HEAD/远端为准。指标页数值按原行情计算更新，图像在页面激活期间每30秒重画并标图像更新时间；缺项显示原因。概览突出00–03，去掉概览上的较昨基差变化；20/60分位并列同窗均值/中位数及日期，越接近两端越高亮；概览新增四品种期限/成交/持仓，指数页新增行业权重变化，ETF页新增全部现有订阅的总览表。
+
+490项独立完整回归通过，123.232秒（含加载），无跳过，ResourceWarning作为错误；原469项重跑，新增21项。 本地Qt截图为合成数据，不等于公司验收。
 
 ## 可复制提示词
 
-请继续完成Delta1公司看板。先完整读取本文件和docs/INDICATOR_PAGE_PROPOSAL.md，再读相关AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。统一工作区P:/project/swhy/Delta1/company-apps-worktree、分支codex/company-apps，核验Git/远端/worktree/status/diff，保留现有工作，最终版本以Git为准。
+请继续Delta1公司看板。先完整读本文件和docs/INDICATOR_PAGE_PROPOSAL.md，再读相关AGENTS、PROJECT_HANDOFF、APP_COMPANY_TEST、APP_VALIDATION、APP_MARKET_OVERVIEW、APP_RELEASE和COMPANY_SYNC。统一工作区P:/project/swhy/Delta1/company-apps-worktree、分支codex/company-apps，核验Git/远端/worktree/status/diff并保护现有工作。
 
-本轮新增指标页已经接入正式App：一品种切IF/IH/IC/IM、基差两图及03−02/02−01跨期两图；默认00档，右图不随基差档位改变。四项统计统一t_z、排定价日，均值/中位数水平虚线横跨t_w，跨期分母同日指数S。t_w默认90且10–365自然日，t_z默认min(20,floor(t_w/2))且2–120交易日，手动不随t_w覆盖。历史逐日实际合约/D/T、换月/缺项断线、图外统计暖启动与独立版本LRU；原固定20/60不改。具体公式和口径看实现文档。
+先核验我新的安全反馈包：检查Complete、两次Overview与同一运行排空、app_reports.matching_profile[].indicator_analysis的选择/当前F/S/D/T/统计/缺项及实际源时间，区分实时与带日期的收盘参考；不要把旧包当本轮已验收。核对指标Z/分位、30秒图像、四品种概览期限成交持仓、20/60同窗统计、行业权重变化及ETF总览。默认Overview诊断离线，必要实施、测试和精确提交推送授权持续；本地模拟与公司实测分开。
 
-先核验我提供的新安全包，不能把下面b7旧运行包当新页验收。公司新页复测应停留指标分析页，等计算后采开窗Overview、正常关闭等排空再采关闭后Overview，app_reports.matching_profile[].indicator_analysis应有当前选择及统计摘要；默认Overview不隐含联网。必要实施、测试、精确提交推送授权持续；区分本地回归和公司真实验收。
+保留原数据、配置、凭据、Excel、其他worktree、四份受保护提示词及APP_RELEASE.backtest。DDB不暂停，沿用192.168.198.77:8904及凭据，已有jc数据隧道可达时复用；实时VPN手动。原逐日D、简单年化、连续四档20/60保持，历史缺D暂0仅派生、当前D不补0、冲突不填；32项/A02继续暂停。Overview诊断默认离线，不强杀、删锁、重映射Y、reset/clean、全量stage或强推。
 
-DDB不要暂停，新地址192.168.198.77:8904、账号密码/TLS沿用，已有jc数据隧道可达时复用，不重复登录。实时VPN手动。原数据/配置/凭据/Excel、其他模块/worktree和四份受保护提示词保持；逐日实际D、简单年化、四档20/60保持，历史缺D暂0仅派生、当前D不补0、真实冲突不填；32项/A02继续暂停。不强杀写入者、删锁、重映射Y，不reset/clean/全量stage/强推。
+## 最新已审公司包：不完整
 
-## 最新已审公司包（b7d5d55，尚无新指标页）
+新公司包20261111_154729_881_safe_160539_083_91d394e8.zip，8886字节，SHA256 cbb1e517a16a39a252a69690bfe0ef4f4b522dcf456df8f1f84c2834fb38c262；95869c2、7份JSON且CRC正常，但Complete=false，开窗与关闭后overview.json均缺失，缺少同次安全排空证据。两次诊断均报System.Management.Automation.RemoteException/NativeCommandError，preflight退出0；没有原始stderr，不能据此确定Z/分位为何为空、DDB状态或同次关闭完成。
 
-20261111_141737_345_safe_143604_770_d37cd87a.zip，119408字节，SHA256 4bd430f9185aba8faf62412f436898fd80bc65290397db3c5ddc417b5dc3e874。9JSON/CRC正常、Complete=true/MissingReports=[]；同f80a70e运行，14:34开窗、14:35关闭，2.731秒/complete/waiting=[]/sqlite_committed；旧5cb076e的7.623秒排除。
+本轮开发机对192.168.198.77:8904做一次3秒TCP探测，3022毫秒超时；未使用凭据、修改VPN或查询数据，只表示开发机当前不可达，不覆盖旧包中的公司端连通证据。
 
-11-10四指数＋16实际期货close最终齐备，HTTP首轮18，IF2612/IH2706源时未推进被拒后经主采集补入；最终20行source_date_basis=corroborated_live_session、日期推定，源会话11-11，不能称交易所认证。安全包无完整双raw，不声称本轮独立检验raw SHA。页面引擎预览16年化、16个20日及16个60日分位均可用，公式同输入复算一致；历史专用continuous_annual.percentile为空仅因没传当前比较值。当前D11-06，20日暂0=0，60日暂0共412样本行，真实历史D仍缺。
-
-DDB生效新端点，existing_tunnel/tcp_verified=true/authenticated=true/query_partial，真实补入0。最后28行计划=16期货OI+12ETF close；14:18:09任务pending_close_rows=14早于两项后续HTTP补价，不当最终价格缺口。本机15:06有界TCP探测仍超时、未认证/查询，未改VPN/配置，不覆盖公司成功证据。
+旧b7d5d55公司包独立证实11-10四指数和16实际期货收盘、16个20日与16个60日分位，日期为corroborated_live_session推定；DDB existing_tunnel/tcp/authenticated/query_partial，仍缺16期货OI及12 ETF收盘；同次安全关闭2.731秒。旧包不验证95869c2或本轮新页。
 
 ## 公司原入口
 
 ```bat
 cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
-git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900 -ExpectedCloseDay 2026-11-10
+git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900
 ```
 
-更新后按APP_COMPANY_TEST验证新页，必要时点一次“补齐所选窗口”，等结束并保持该页取开窗证据，正常关闭排空后回传最后_safe_*.zip。脚本不替用户点击、不操作实时VPN。11-10专项保留，若已进入更晚完成日还需准确最新交易日；HTTP昨收只补源会话准确前一日，不能冒充当天收盘。
+按APP_COMPANY_TEST操作：必要时补一次所选窗口，待计算后保留指标页获取开窗Overview，正常关闭等排空后取关闭Overview，回传最后_safe_*.zip。脚本不替用户点击、不操作实时VPN。11-10专项可附加-ExpectedCloseDay 2026-11-10；真实最新完成日仍按源和交易日历单独核验。
 
-```bat
-cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
-wscript.exe "dashboard\start_presentation.vbs" --theme public --local-root "D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\dashboard\localsetting\app"
-```
-
-四份未跟踪提示词不修改/提交：dashboard/INDICATOR_REDESIGN_ANALYSIS.md、NEXT_INDICATOR_REDESIGN_PROMPT.md、NEXT_PRESENTATION_APP_PROMPT.md、NEXT_UI_SIMPLIFICATION_PROMPT.md。APP_RELEASE.backtest原对象/序列化块和七份唯一SHA归档/MANIFEST保持；Y按确认年份目录与Sheet1!B1，不猜拼或重映射。
+四份受保护提示词不修改/提交：dashboard/INDICATOR_REDESIGN_ANALYSIS.md、NEXT_INDICATOR_REDESIGN_PROMPT.md、NEXT_PRESENTATION_APP_PROMPT.md、NEXT_UI_SIMPLIFICATION_PROMPT.md。APP_RELEASE.backtest原对象/序列化块、七份唯一SHA归档/MANIFEST保留；Y按确认年份目录与Sheet1!B1，不猜拼或重映射。

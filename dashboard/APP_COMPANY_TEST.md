@@ -1,5 +1,22 @@
 # 公司完整复测命令（2026-11-11）
 
+## 2026-11-12 当前版本复测
+
+2026-11-12，统一分支codex/company-apps，实施基线95869c2，最终运行版本以Git HEAD/远端为准。指标页数值按原行情计算更新，图像在页面激活期间每30秒重画并标图像更新时间；缺项显示原因。概览突出00–03，去掉概览上的较昨基差变化；20/60分位并列同窗均值/中位数及日期，越接近两端越高亮；概览新增四品种期限/成交/持仓，指数页新增行业权重变化，ETF页新增全部现有订阅的总览表。
+
+新公司包20261111_154729_881_safe_160539_083_91d394e8.zip，8886字节，SHA256 cbb1e517a16a39a252a69690bfe0ef4f4b522dcf456df8f1f84c2834fb38c262；95869c2、7份JSON且CRC正常，但Complete=false，开窗与关闭后overview.json均缺失，缺少同次安全排空证据。两次诊断均报System.Management.Automation.RemoteException/NativeCommandError，preflight退出0；没有原始stderr，不能据此确定Z/分位为何为空、DDB状态或同次关闭完成。
+
+更新前正常关闭旧看板等排空，在原Git根运行：
+
+```bat
+cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900
+```
+
+保持看板打开，盘中确认指标当前值/Z/分位随有效行情变化；连续观察至少30秒，核对图像更新时间及最新点。核对概览00–03卡片20/60窗口日期、avg/中位数及两端分位高亮，向下查看四品种期限、成交、持仓及持仓日期；指数页看权重与变化的日期/分类，ETF总览查看已有全部ETF行。缺数据保留原因，不要求伪造数值。需要时仅点一次“补齐所选窗口”，等完成。开窗取证前留在指标分析页且等计算完成，取开窗Overview后正常关闭并等待排空，再取关闭后Overview，回传最后_safe_*.zip；检查Complete、app_reports.matching_profile[].indicator_analysis、数据源时和诊断overview_stderr分类。DDB继续自动，jc隧道可达则复用，实时VPN手动。若还要专门核验11-10可加-ExpectedCloseDay 2026-11-10，但不能以该日期代替最新真实完成日。
+
+## 以下为前序详细流程和历史记录
+
 本次在39760f0后正式实现“指标分析”，最终运行提交见Git HEAD；469项独立完整回归通过，105.841秒（含加载），无跳过，ResourceWarning作为错误；原438项全部重跑，新增31项指标页回归。 b7d5d55新公司包已确认11-10四指数/16期货昨收及16档20/60恢复、新端点DDB认证/query_partial/existing_tunnel、同次关闭2.731秒。仍缺16期货OI与12 ETF收盘，不当业务全通过。
 
 ## 本轮重点

@@ -1,6 +1,5 @@
 """Bounded local reader for the indicator page, run on the overview worker."""
 from collections import OrderedDict
-from copy import deepcopy
 
 import pandas as pd
 
@@ -24,10 +23,10 @@ class IndicatorAnalysisEngine:
         event = getattr(self.model, 'overview_stop', None)
         return event is not None and event.is_set()
 
-    def snapshot(self, request, *, now, completed, metadata, dividends, repo, frozen, refresh_clock=False):
+    def snapshot(self, request, *, now, completed, metadata, dividends, repo, frozen, refresh_clock=False, _reference_day=None):
         phase = market_phase(now.to_pydatetime())
         continuous = phase['continuous']
-        day = str(now.tz_convert('Asia/Shanghai').date()) if continuous else completed
+        day = _reference_day or (str(now.tz_convert('Asia/Shanghai').date()) if continuous else completed)
         if not day:
             raise ValueError('缺少已核验完成交易日')
         planned = plan(day, request, metadata)
@@ -68,7 +67,7 @@ class IndicatorAnalysisEngine:
                              if (r := v.get('rows',{}).get(symbol))]
                 tables[symbol] = {d:r for d,r in final_rows(merge_daily(frame, additions)).items()
                                   if planned['days'][0] <= d <= completed}
-            cached = dict(history=historical(planned, metadata, tables, dividends, stop=self.stopped), errors=errors)
+            cached = dict(history=historical(planned, metadata, tables, dividends, stop=self.stopped), tables=tables, errors=errors)
             self.cache[key] = cached
             while len(self.cache) > 4:
                 self.cache.popitem(last=False)
@@ -80,9 +79,32 @@ class IndicatorAnalysisEngine:
                 now = pd.Timestamp.now(tz='UTC')
             current = self.current(planned, metadata, dividends, now)
         else:
-            current = {k:deepcopy(cached['history'][k][-1]) for k in SERIES}
+            mapping = planned['mappings'][day]['mapping']
+            if not mapping:
+                current = {k:point(day,reason='mapping_missing') for k in SERIES}
+            else:
+                rows = {s:table.get(day,{}) for s,table in cached['tables'].items()}
+                prices = {s:r.get('close') for s,r in rows.items()}
+                prices['_http_session_inferred_symbols'] = [s for s,r in rows.items() if r.get('source_date_basis')=='corroborated_live_session']
+                current = values(day,planned['selection'],mapping,metadata,prices,dividends,current=True,
+                                 at=day+'T15:00:00+08:00',source_at=day+'T15:00:00+08:00')
+                for item in current.values():
+                    if item['value'] is None:item['source_at']=None
+            # An unavailable completed-day price may fall back to a real older
+            # common close. Re-plan the whole reference window for that day;
+            # missing current D, mapping or expiry never triggers substitution.
+            price_missing={'index_close_missing','future_close_missing'}
+            if (_reference_day is None and not any(v['value'] is not None for v in current.values()) and
+                    any(v.get('reason') in price_missing for v in current.values()) and
+                    all(v.get('reason') in price_missing for v in current.values())):
+                candidates=sorted({r['day'] for rows in cached['history'].values() for r in rows
+                                   if r['day']<day and r.get('value') is not None},reverse=True)
+                if candidates:
+                    return self.snapshot(request,now=now,completed=completed,metadata=metadata,dividends=dividends,
+                        repo=repo,frozen=frozen,refresh_clock=False,_reference_day=candidates[0])
         output = display(planned, cached['history'], current)
         output.update(mode='realtime' if continuous else 'completed_daily', as_of=now.isoformat(),
+                      completed_target=completed,reference_fallback=bool(_reference_day and _reference_day!=completed),
                       version=key, cache_hit=cache_hit, history_reads=self.history_reads, errors=cached['errors'])
         return output
 

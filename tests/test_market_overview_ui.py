@@ -85,6 +85,7 @@ class OverviewUiTests(unittest.TestCase):
             for index,kind in enumerate(('indices','etfs','futures')):
                 w.pages.setCurrentIndex(index+1);pump()
                 page=w.quotes.views[kind]
+                if kind=='etfs':page.select('IF');pump()
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
                 for row in page.visible_rows:
                     c=page.cards[row['symbol']]
