@@ -58,12 +58,18 @@ def compare(current,previous,*,previous_at=None):
 
 
 def load(config,local_root,reference,current_groups,*,previous_day=None):
-    result={root:dict(rows=[],reason='暂无上一份可比权重快照') for root in current_groups}
+    result={root:dict(rows=[],reason='暂无上一份可比权重快照',current_date=group.get('as_of'),
+        industry_standard=group.get('industry_standard'),weight_method=group.get('weight_method','provided_reference'))
+        for root,group in current_groups.items()}
     try:
         cutoff=datetime.fromisoformat(reference['fetched_at'])
         paths=sorted((path_for(config,local_root).parent/'archive').glob('*.json'),reverse=True)
     except (OSError,ValueError,KeyError,TypeError):return result
-    candidates={root:[] for root in current_groups};total=0;truncated=len(paths)>64
+    candidates={root:[] for root in current_groups};total=0;truncated=len(paths)>64;files_read=0
+    checks={root:dict(archive_groups=0,duplicate_groups=0,incompatible_groups=0,invalid_groups=0,
+        roll_attempted=False,roll_comparable=False,last_incompatible_reason=None,
+        current_members=len(group.get('rows') or []),unclassified_members=sum(not r.get('industry') for r in group.get('rows') or []))
+        for root,group in current_groups.items()}
     if previous_day:
         from .overview_weights import roll
         for root,current in current_groups.items():
@@ -71,28 +77,59 @@ def load(config,local_root,reference,current_groups,*,previous_day=None):
             anchor_day=anchor.get('as_of');current_day=current.get('as_of')
             if (current.get('weight_method')!='fixed_quantity_estimate' or not anchor_day or not current_day or
                     not anchor_day<=previous_day<current_day):continue
+            checks[root]['roll_attempted']=True
             previous=roll(anchor,config,local_root,previous_day)
             compared=compare(current,previous,previous_at=reference['fetched_at'])
-            if compared.get('rows'):candidates[root].append((previous['as_of'],cutoff,compared))
+            if compared.get('rows'):
+                candidates[root].append((previous['as_of'],cutoff,compared));checks[root]['roll_comparable']=True
     for path in paths[:64]:
         try:
             size=path.stat().st_size
             if size>4*1024*1024:continue
             if total+size>32*1024*1024:truncated=True;break
-            raw=path.read_bytes();total+=len(raw);decoded=json.loads(raw)
+            raw=path.read_bytes();total+=len(raw);files_read+=1;decoded=json.loads(raw)
             if not isinstance(decoded,dict):continue
-            value,_=available_sections({k:decoded[k] for k in ('schema','fetched_at','reference_reviewed_at','indices') if k in decoded})
+            value,issues=available_sections({k:decoded[k] for k in ('schema','fetched_at','reference_reviewed_at','indices') if k in decoded})
             fetched=datetime.fromisoformat(value['fetched_at'])
             if fetched>cutoff:continue
             for root,current in current_groups.items():
+                if any(i.get('scope')=='indices.'+root for i in issues):checks[root]['invalid_groups']+=1
                 old=value.get('indices',{}).get(root)
                 if not old or not current.get('as_of') or old['as_of']>current['as_of']:continue
-                if old['as_of']==current['as_of'] and (fetched>=cutoff or weights(old)==weights(current)):continue
+                checks[root]['archive_groups']+=1
+                if old['as_of']==current['as_of'] and (fetched>=cutoff or weights(old)==weights(current)):
+                    checks[root]['duplicate_groups']+=1;continue
                 compared=compare(current,old,previous_at=value['fetched_at'])
                 if compared.get('rows'):candidates[root].append((old['as_of'],fetched,compared))
+                else:
+                    checks[root]['incompatible_groups']+=1;checks[root]['last_incompatible_reason']=compared.get('reason')
         except (OSError,ValueError,TypeError,KeyError,AttributeError):continue
     for root,items in candidates.items():
         if items:result[root]=max(items,key=lambda item:(item[0],item[1]))[2]
+        else:
+            current=current_groups[root];check=checks[root]
+            if not weights(current):result[root]['reason']='当前权重或成分不完整，等待可比快照'
+            elif not current.get('industry_standard'):result[root]['reason']='当前行业分类口径缺失，等待可比快照'
+            elif check['incompatible_groups']:result[root]['reason']='上一份不可比：'+str(check['last_incompatible_reason'])
+            elif check['archive_groups'] and check['archive_groups']==check['duplicate_groups']:
+                result[root]['reason']='归档仅有相同权重，等待上一份可比快照'
+            elif check['invalid_groups']:result[root]['reason']='历史权重分组不完整，等待可比快照'
         result[root]['archive_truncated']=truncated
+        result[root]['diagnostics']=dict(checks[root],archive_files_read=files_read)
         if truncated and not items:result[root]['reason']+='；归档读取已达上限'
     return result
+
+
+def summary(value):
+    """Only the comparison decision and bounded counts, never member rows."""
+    if not isinstance(value,dict):return None
+    keys=('reason','current_date','previous_date','previous_fetched_at','industry_standard','weight_method',
+          'previous_weight_method','current_classified_weight','previous_classified_weight','reclassified','archive_truncated')
+    out={k:value.get(k) for k in keys}
+    rows=value.get('rows') if isinstance(value.get('rows'),list) else []
+    out['row_count']=value.get('row_count') if type(value.get('row_count')) is int else len(rows)
+    d=value.get('diagnostics') if isinstance(value.get('diagnostics'),dict) else {}
+    fields=('archive_files_read','archive_groups','duplicate_groups','incompatible_groups','invalid_groups',
+            'roll_attempted','roll_comparable','last_incompatible_reason','current_members','unclassified_members')
+    out['diagnostics']={k:d.get(k) for k in fields}
+    return out

@@ -17,6 +17,9 @@
 
 ## 最近发布
 
+- 2026-11-12公司复测与同屏概览，基线da50685：四品种卡图同屏、ETF表配色放大、指标末点加大，安全记录定时绘图与行业权重可比原因。496项独立完整回归通过，136.744秒（含加载），无跳过，ResourceWarning作为错误；原490项重跑，新增6项。 公司da50685包完整，IC03实时单时点五组Z/分位有值且公式复算一致；DDB复用隧道并认证、查询部分完成，同次关闭3.355秒。连续30秒重绘与IC/IM上次权重缺失确因需新报告；[复测](dashboard/APP_COMPANY_TEST.md)、[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
+
+
 - 2026-11-12概览与指标刷新，基线95869c2：30秒绘图、缺项解释与安全盘后回退，20/60同窗均值中位数及两端高亮，概览四品种期限/成交/持仓、行业权重变化和ETF总览。490项独立完整回归通过，123.232秒（含加载），无跳过，ResourceWarning作为错误；原469项重跑，新增21项。 最新95869c2公司包两份Overview缺失，不能判断新页Z/分位或同次安全关闭；本轮诊断安全修复与新界面待[公司复测](dashboard/APP_COMPANY_TEST.md)。[交接](dashboard/PROJECT_HANDOFF.md)、[验证](dashboard/APP_VALIDATION.md)。
 
 

@@ -5,7 +5,7 @@ import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QPushButton
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QPushButton, QLabel
 
 from .overview_pages import (ScrollPage, Panel, FlowGrid, Split, lab, put, numeric,
                              ink, clock, table, cell,source_label)
@@ -68,6 +68,8 @@ class FuturesCard(Panel):
             self.box.addLayout(grid)
         self.dividend_note=lab('分红来源待核验',12 if compact else 14,MUTED);self.box.addWidget(self.dividend_note)
         self.clock=lab('',14,MUTED);self.clock.setParent(self);self.clock.hide();self.setMinimumHeight(222 if compact else 318)
+        if compact:
+            for label in self.findChildren(QLabel):label.setWordWrap(False)
 
     def render(self,row,position):
         view=row.get('basis_display') or row

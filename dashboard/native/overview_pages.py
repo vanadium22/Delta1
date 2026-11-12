@@ -236,7 +236,7 @@ class IndustryChanges(QWidget):
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing);self.hit=[]
         if not self.rows:
-            p.setPen(QColor(MUTED));p.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,self.reason);return
+            p.setPen(QColor(MUTED));p.drawText(self.rect().adjusted(8,0,-8,0),Qt.AlignmentFlag.AlignCenter|Qt.TextFlag.TextWordWrap,self.reason);return
         label_width=min(100,self.width()*.28);end_width=70;half=max(6,(self.width()-label_width-end_width)/2)
         center=label_width+half;maximum=max([abs(r['change_pp']) for r in self.rows]+[.01])
         p.setPen(QColor(BORDER));p.drawLine(int(center),0,int(center),min(self.height(),len(self.rows)*32))
@@ -446,8 +446,11 @@ class EtfOverviewPage(ScrollPage):
             button.clicked.connect(lambda _,r=root:self.select(r));self.products[root]=button
         self.box.addWidget(FlowGrid([self.all_button,*self.products.values()],5,180,self.body))
         self.all_panel=Panel('ETF总览','按对应指数及已核验规模排序');self.box.addWidget(self.all_panel)
-        self.all_table=table(['指数','ETF名称','代码','价格','涨跌','折溢价','规模(亿)','占比','价差(bp)','成交额','源时'],520)
-        self.all_table.setStyleSheet(f'QTableWidget{{border:0;background:{PANEL};font-size:15px;}} QTableWidget::item{{padding:3px;}} QHeaderView::section{{background:{PANEL};font-size:13px;padding:4px;color:{MUTED};border:0;}}')
+        self.all_table=table(['指数','ETF名称','代码','价格','涨跌','折溢价','规模(亿)','占比','价差(bp)','成交额','源时'],540)
+        self.all_table.setAlternatingRowColors(True);self.all_table.verticalHeader().setDefaultSectionSize(40)
+        self.all_table.setStyleSheet(f'QTableWidget{{border:0;background:{PANEL};alternate-background-color:{SURFACE};font-size:18px;color:{TEXT};}} '
+            f'QTableWidget::item{{padding:4px;}} QTableWidget::item:selected{{background:{ACCENT_BACKGROUND};color:{ACCENT};}} '
+            f'QHeaderView::section{{background:{ACCENT_BACKGROUND};font-size:15px;font-weight:700;padding:6px;color:{ACCENT};border:0;}}')
         self.all_table.horizontalHeader().setMinimumSectionSize(75)
         self.all_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Interactive)
         self.all_table.setColumnWidth(1,170)
@@ -495,7 +498,10 @@ class EtfOverviewPage(ScrollPage):
                 numeric(row.get('change_pct'),2,True,'%'),numeric(value,1,True,' bp'),
                 numeric(amount/1e8,2) if finite(amount) and amount>0 else '—',numeric(row.get('aum_share_pct'),1,suffix='%'),
                 numeric(row.get('spread_bp'),1),money(row.get('amount_cny')),clock(row.get('source_at'))]
-            for col,value in enumerate(values):cell(self.all_table,index,col,value,key=root if col==0 else None)
+            for col,value in enumerate(values):
+                color=ink(row.get('change_pct')) if col==4 else ink(premium['display_premium_bp']) if col==5 else TEXT
+                cell(self.all_table,index,col,value,color=color,key=root if col==0 else None)
+            self.all_table.item(index,1).setTextAlignment(Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
             self.all_table.item(index,5).setToolTip((row.get('display_premium_label') or premium['display_premium_label'])+' · '+str(premium.get('display_premium_date') or '盘中')+'\n'+str(premium.get('display_premium_reason') or ''))
             self.all_table.item(index,6).setToolTip('规模日期 '+str(row.get('aum_date') or '待核验'))
             self.all_table.item(index,7).setToolTip('占比基准日 '+str(row.get('aum_share_date') or row.get('aum_date') or '待核验'))

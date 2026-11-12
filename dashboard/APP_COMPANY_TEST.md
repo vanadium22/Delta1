@@ -2,6 +2,27 @@
 
 ## 2026-11-12 当前版本复测
 
+2026-11-12公司复测续改，统一codex/company-apps，实施基线da50685，最终运行版本以Git HEAD/远端为准。概览将每个指数、四个期货卡及该品种期限/成交/持仓图合为一行，1080p/125%中比例无需滚动；小窗口可滚动以保持可读。ETF总览增加蓝色表头、交替底色、涨跌/折溢价颜色并放大字号；指标图最新点加大。行业变化缺项显示可比失败原因，并在安全报告中保留每品种判断摘要；不把缺失权重伪造为零。
+
+公司安全包20261112_100603_500_safe_103108_772_2f9c3359.zip，121515字节，SHA256 faa33f5818c8f3fbfabeeabb6a76cc0197ddbf2061d7d2ad0bcf2486fcbdcc6f，运行da50685；9份JSON/CRC正常、Complete=true/MissingReports=[]，同一f12c8a运行开窗、正常关闭3.355秒、waiting=[]，成分sqlite_committed。两次Overview与preflight均退出0、stderr为空。
+
+包内IC/IM当前权重均存在、权重日期10-30，成分中分别49/148只缺行业分类；安全包未记录上次可比权重决策或归档内容，不能证明这两项缺分类就是图不显示的原因。新版本在运行报告与离线预览中记录比较状态、当前/前次日期、来源口径、归档扫描/不兼容计数及未分类数；仅对同口径可比快照计算，保留“待分类”，无可比数据留空。
+
+正常关闭旧看板等排空，在公司原Git根执行：
+
+```bat
+cd /d D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard
+git pull --ff-only && call dashboard\company_retest.cmd -SampleSeconds 900
+```
+
+检查1080p/125%中比例概览四品种卡和图同屏，ETF表的颜色和可读性，指标当前点；指数页查看500/1000的行业变化及明确缺项原因。开窗取证前，在指标分析保持同一品种/档位至少65秒，再按脚本保存开窗Overview。核对同一app_reports记录的indicator_draw.timer_draws中相邻真实绘图时间、各自源时/数值/Z/分位，区分采集未变化和绘图未执行。正常关闭、等待排空后再取Overview，回传最后_safe_*.zip。同一记录的index_industry_changes给出每品种分类/归档可比原因；离线计算预览不冒充UI实际状态。
+
+DDB不暂停，原凭据和192.168.198.77:8904沿用，可达时复用已有jc数据隧道；实时VPN手动。保留原数据、配置、凭据、Excel、其他worktree、四份受保护提示词、七份唯一归档及APP_RELEASE.backtest原块；逐日实际D、简单年化、连续四档固定20/60保持，历史缺D暂0只派生、当前D不补0、冲突不填；32项/A02继续暂停。Overview默认离线，不强杀写入者、删锁、重映射Y、reset/clean、全量stage或强推。
+
+## 以下为前序详细流程
+
+## 2026-11-12 当前版本复测
+
 2026-11-12，统一分支codex/company-apps，实施基线95869c2，最终运行版本以Git HEAD/远端为准。指标页数值按原行情计算更新，图像在页面激活期间每30秒重画并标图像更新时间；缺项显示原因。概览突出00–03，去掉概览上的较昨基差变化；20/60分位并列同窗均值/中位数及日期，越接近两端越高亮；概览新增四品种期限/成交/持仓，指数页新增行业权重变化，ETF页新增全部现有订阅的总览表。
 
 新公司包20261111_154729_881_safe_160539_083_91d394e8.zip，8886字节，SHA256 cbb1e517a16a39a252a69690bfe0ef4f4b522dcf456df8f1f84c2834fb38c262；95869c2、7份JSON且CRC正常，但Complete=false，开窗与关闭后overview.json均缺失，缺少同次安全排空证据。两次诊断均报System.Management.Automation.RemoteException/NativeCommandError，preflight退出0；没有原始stderr，不能据此确定Z/分位为何为空、DDB状态或同次关闭完成。

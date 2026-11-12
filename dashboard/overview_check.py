@@ -89,8 +89,12 @@ def app_reports(local_root, runtime_root=None):
                 timing=value.get(name) or {}
                 entry[name]={k:timing.get(k) for k in ('calculation_started_at','calculation_finished_at','calculation_seconds',
                     'realtime_sequence','ui_applied_at','ui_apply_seconds','selection_generation','active_workers','pending_requests')}
-            from dashboard.marketdata.indicator_analysis import summary as indicator_summary
+            from dashboard.marketdata.indicator_analysis import summary as indicator_summary,draw_summary
             entry['indicator_analysis']=indicator_summary(value.get('indicator_analysis'))
+            entry['indicator_draw']=draw_summary(value.get('indicator_draw'))
+            from dashboard.marketdata.overview_industry_changes import summary as industry_summary
+            groups=value.get('index_industry_changes') if isinstance(value.get('index_industry_changes'),dict) else {}
+            entry['index_industry_changes']={r:industry_summary(groups[r]) for r in ('IF','IH','IC','IM') if r in groups}
             target=matching if same else others
             if len(target)<3:target.append(entry)
         except (OSError,ValueError,TypeError,AttributeError):

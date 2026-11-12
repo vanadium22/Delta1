@@ -360,7 +360,12 @@ class DataPipeline(QObject):
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
         from .overview_status import data_dates
         from dashboard.marketdata.ddb_connection import app_endpoint
-        from dashboard.marketdata.indicator_analysis import summary as indicator_summary
+        from dashboard.marketdata.indicator_analysis import summary as indicator_summary,draw_summary
+        from dashboard.marketdata.overview_industry_changes import summary as industry_summary
+        page=getattr(self.window,'indicator_page',None)
+        draw=draw_summary(page.draw_evidence()) if callable(getattr(page,'draw_evidence',None)) else None
+        changes={root:industry_summary(detail.get('industry_change')) for root,detail in overview.get('index_details',{}).items()
+                 if root in ('IF','IH','IC','IM')}
         try:ddb_connection=app_endpoint(config)
         except (ValueError,TypeError):ddb_connection=dict(source='invalid_app_setting',error_type='InvalidEndpoint')
         coverage={key:dict(total=len(overview.get(key,[])),valid=sum(bool(r.get('quality',{}).get('usable')) for r in overview.get(key,[])),
@@ -369,6 +374,7 @@ class DataPipeline(QObject):
             phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
             shutdown=self.shutdown_state(),startup=getattr(self.model,'startup_timing',{}),
             indicator_analysis=indicator_summary((getattr(self.window,'state',None) or {}).get('indicator_analysis')),
+            indicator_draw=draw,index_industry_changes=changes,
             ddb_connection=ddb_connection,data_dates=data_dates(overview,self.completed_target),
             history_pid=self.history.process.pid if self.history.process else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,

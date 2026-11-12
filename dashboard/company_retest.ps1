@@ -58,14 +58,15 @@ function Invoke-CompanyRetest {
     if ($ExpectedDay) { Write-Host ('本轮重点核验收盘日期：'+$ExpectedDay+'；核对期货实际合约及对应指数。') }
     Write-Host '检查四品种四档20/60日年化分位；无显式交易日时，HTTP需连续盘中两次行情真实推进且昨收稳定，诊断标会话日期推定。'
     Write-Host 'DDB自动流程保持；你手动连接的数据VPN若已能到新地址，会直接复用隧道。补齐结束后实时VPN仍由你手动切换。'
-    Write-Host '检查概览00/01/02/03、同窗20/60分位与均值/中位数，向下查看四品种期限、成交和持仓。'
-    Write-Host '检查指数行业权重及较上次变化、ETF总览表；进入指标分析，查看缺项原因和30秒图像更新。'
+    Write-Host '检查概览同屏的00/01/02/03、同窗20/60统计及四品种期限、成交和持仓。'
+    Write-Host '检查指数行业权重及变化缺项原因、ETF总览表；进入指标分析，查看缺项和30秒图像更新。'
+    Write-Host '开窗取证前，请保持指标分析同一品种和档位至少65秒，以保留连续两次定时重绘的安全摘要。'
     for ($remaining=$Seconds;$remaining -gt 0;$remaining-=[Math]::Min(30,$remaining)) {
         Write-Progress -Activity '保持看板打开取样' -Status ('剩余约 '+$remaining+' 秒') -PercentComplete (100*(1-$remaining/[Math]::Max(1,$Seconds)))
         Start-Sleep -Seconds ([Math]::Min(30,$remaining))
     }
     Write-Progress -Activity '保持看板打开取样' -Completed
-    [void](Read-Host '保持指标分析页打开；确认收盘补齐任务已结束且页面已计算后按回车，保存开窗Overview')
+    [void](Read-Host '保持指标分析同一选择至少65秒，确认补齐已结束且页面已计算后按回车，保存开窗Overview')
     Invoke-DeltaDiagnosis $Repository $Profile $reports
     $openRecord=$null
     foreach ($dir in @(Get-ChildItem -LiteralPath $reports -Directory -Filter 'diagnosis-*' | Sort-Object Name -Descending)) {

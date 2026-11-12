@@ -92,7 +92,8 @@ class IndicatorChart(Panel):
                 self.plot.plot(x,y,connect=connect,pen=pg.mkPen(color,width=1.9 if key=='raw' else 2.5),name=title)
                 current=series[key]['current']
                 if finite(current.get('value')):
-                    self.plot.plot([seconds(current['day'])],[current['value']],pen=None,symbol='o',symbolSize=6,symbolBrush=color,symbolPen=PANEL)
+                    self.plot.plot([seconds(current['day'])],[current['value']],pen=None,symbol='o',symbolSize=11,
+                                   symbolBrush=color,symbolPen=pg.mkPen(PANEL,width=2))
             left,right=seconds(result['start']),seconds(result['end'])
             if references:
                 for key,color,title in (('mean',AVG,'均值'),('median',MEDIAN,'中位数')):
@@ -154,6 +155,7 @@ class IndicatorAnalysisPage(QWidget):
 
     def __init__(self,model):
         super().__init__();self.model=model;self.active=False;self.result=None;self._ready=False
+        self._last_draw=None;self._timer_draws=[]
         outer=QVBoxLayout(self);outer.setContentsMargins(8,12,8,4);outer.setSpacing(8)
         self.controls=Panel();outer.addWidget(self.controls)
         self.root=QComboBox()
@@ -196,7 +198,8 @@ class IndicatorAnalysisPage(QWidget):
         self.window.valueChanged.connect(self.inputs_changed);self.stats.valueChanged.connect(self.inputs_changed);self.auto.toggled.connect(self.inputs_changed)
         self.view.currentIndexChanged.connect(self.presentation_changed);self.overlay.currentIndexChanged.connect(self.presentation_changed);self.references.toggled.connect(self.presentation_changed)
         self.history.clicked.connect(lambda:self.history_requested.emit(self.request()))
-        self.draw_timer=QTimer(self);self.draw_timer.setInterval(30000);self.draw_timer.timeout.connect(self.redraw)
+        self.draw_timer=QTimer(self);self.draw_timer.setInterval(30000);self.draw_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.draw_timer.timeout.connect(lambda:self.redraw(reason='timer'))
         self._ready=True;self.frozen=False;self.set_active(False);self.arrange()
 
     def request(self):
@@ -278,11 +281,25 @@ class IndicatorAnalysisPage(QWidget):
         for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
         if first or force:self.redraw()
 
-    def redraw(self):
+    def redraw(self,*,reason='manual'):
         if self.result is None:return
         for chart in self.charts.values():chart.render(self.result,stat_key=self.overlay.currentData(),references=self.references.isChecked())
-        at=datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%H:%M:%S')
-        self.draw_clock.setText('图像更新 '+at+' · 30秒重画；数值随行情计算更新')
+        at=datetime.now(ZoneInfo('Asia/Shanghai'))
+        self.draw_clock.setText('图像更新 '+at.strftime('%H:%M:%S')+' · 30秒重画；数值随行情计算更新')
+        from dashboard.marketdata.indicator_analysis import summary
+        safe=summary(self.result)
+        event=dict(draw_at=at.isoformat(),reason=reason,selection=safe.get('selection'),mode=safe.get('mode'),
+                   calculation_at=safe.get('as_of'),pricing_day=safe.get('pricing_day'),series={})
+        for key,channel in safe['series'].items():
+            current=channel['current'];stats=channel['statistics']
+            event['series'][key]=dict(source_at=current.get('source_at'),current=current.get('value'),
+                                      z=stats.get('z'),percentile=stats.get('percentile'))
+        self._last_draw=event
+        if reason=='timer':self._timer_draws=(self._timer_draws+[event])[-3:]
+
+    def draw_evidence(self):
+        return dict(active=self.active,frozen=self.frozen,interval_ms=self.draw_timer.interval(),
+                    last_draw=self._last_draw,timer_draws=list(self._timer_draws))
 
     def save(self):
         if not self._ready:return

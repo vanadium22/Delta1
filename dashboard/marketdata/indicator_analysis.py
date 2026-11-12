@@ -2,7 +2,7 @@
 
 No acquisition, research service, fixed 20/60 mutation or raw-data writes.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from math import isfinite
 from numbers import Real
 from statistics import mean, median, stdev
@@ -211,3 +211,35 @@ def summary(result):
             statistics={k:stats.get(k) for k in ('mean','median','std','z','percentile','reason','complete','samples','requested',
                 'excluded_dates','missing','zero_dividend_dates','http_session_inferred_dates','start','end')})
     return output
+
+
+def draw_summary(value):
+    """Bounded evidence of actual GUI draws; no raw market or config records."""
+    if not isinstance(value,dict):return None
+    def stamp(item):
+        if not isinstance(item,str) or len(item)>64:return None
+        try:
+            parsed=datetime.fromisoformat(item)
+            return item if parsed.tzinfo is not None else None
+        except ValueError:return None
+    def event(item):
+        if not isinstance(item,dict):return None
+        try:request=selection(**item['selection'])
+        except (TypeError,KeyError,ValueError):request=None
+        channels=item.get('series') if isinstance(item.get('series'),dict) else {}
+        output=dict(draw_at=stamp(item.get('draw_at')),reason=item.get('reason') if item.get('reason') in ('timer','manual') else None,
+            selection=request,mode=item.get('mode') if item.get('mode') in ('realtime','completed_daily') else None,
+            calculation_at=stamp(item.get('calculation_at')),pricing_day=None,series={})
+        try:output['pricing_day']=date.fromisoformat(item['pricing_day']).isoformat()
+        except (TypeError,KeyError,ValueError):pass
+        for key in SERIES:
+            channel=channels.get(key)
+            if not isinstance(channel,dict):continue
+            output['series'][key]=dict(source_at=stamp(channel.get('source_at')),
+                **{k:float(channel[k]) if finite(channel.get(k)) else None for k in ('current','z','percentile')})
+        return output
+    events=value.get('timer_draws') if isinstance(value.get('timer_draws'),list) else []
+    interval=value.get('interval_ms')
+    return dict(active=value.get('active') is True,frozen=value.get('frozen') is True,
+        interval_ms=interval if type(interval) is int and 0<=interval<=3600000 else None,
+        last_draw=event(value.get('last_draw')),timer_draws=[e for x in events[-3:] if (e:=event(x)) is not None])

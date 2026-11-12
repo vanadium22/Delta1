@@ -13,6 +13,7 @@ from .overview_daily import read_day,requests,directory,merge_daily,local_copy_p
 from .overview_percentiles import requirements,prepare,evaluate,prior_days,SLOTS
 from .overview_sessions import latest_completed_session
 from .overview_contributions import read_equities,equity_max_age
+from .overview_industry_changes import summary as industry_summary
 
 
 def read_object(path):
@@ -116,8 +117,9 @@ def calculation_preview(config,local_root,now,repo,frozen,*,equity_snapshot=None
             'display_premium_bp','display_premium_mode','display_premium_date','display_premium_label')} for r in state['market_overview']['etfs']],
         etf_size_changes={root:g.get('size_changes',[]) for root,g in state['market_overview']['etf_groups'].items()},
         etf_aum_history=state['market_overview']['aum_history'],market_sizes=state['market_overview'].get('market_sizes'),display_cache=state['market_overview'].get('display_cache'),
-        index_display={root:{k:v for k,v in detail.items() if k in ('covered','weighted_covered','expected','coverage_pct','snapshot_at','source_at',
-            'weight_date','official_weight_date','partial','contribution_points','actual_points','residual_points','display_saved','reason','inputs')}
+        index_display={root:{**{k:v for k,v in detail.items() if k in ('covered','weighted_covered','expected','coverage_pct','snapshot_at','source_at',
+            'weight_date','official_weight_date','partial','contribution_points','actual_points','residual_points','display_saved','reason','inputs')},
+            'industry_change':industry_summary(detail.get('industry_change'))}
             for root,detail in state['market_overview'].get('index_details',{}).items()})
 
 
