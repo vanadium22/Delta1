@@ -1,11 +1,69 @@
 """Display valid term points, preserving each saved point's real source time."""
 import math
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 
 def _number(value):
     return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)
+
+
+def axis_day(value=None):
+    """Use the snapshot's Shanghai calendar date, not the cached quote date."""
+    try:
+        stamp=pd.Timestamp(value) if value is not None else None
+        if stamp is not None and not pd.isna(stamp):
+            if stamp.tzinfo is not None:stamp=stamp.tz_convert('Asia/Shanghai')
+            return stamp.date().isoformat()
+    except (TypeError,ValueError,OverflowError):pass
+    return datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
+
+
+class DailyRanges:
+    """Keep independent per-product bounds until the next Shanghai day."""
+    def __init__(self,margin=2.):
+        self.margin=margin;self.day=None;self.products={};self.x_products={}
+
+    def _day(self,day):
+        if day!=self.day:self.day=day;self.products={};self.x_products={}
+
+    def update(self,root,day,items):
+        self._day(day)
+        valid=[p for p in items if _number(p.get('annual_pct'))]
+        previous=self.products.get(root)
+        if not valid:return previous['bounds'] if previous else None
+        low=min(p['annual_pct'] for p in valid);high=max(p['annual_pct'] for p in valid)
+        slots={p['slot'] for p in valid};seen=previous['slots'] if previous else set()
+        if not previous:bounds=(low-self.margin,high+self.margin)
+        else:
+            bottom,top=previous['bounds']
+            # A newly available contract completes the initial daily coverage.
+            if slots-seen:
+                bottom=min(bottom,low-self.margin);top=max(top,high+self.margin)
+            else:
+                if low<bottom:bottom=low-self.margin
+                if high>top:top=high+self.margin
+            bounds=(bottom,top)
+        self.products[root]=dict(bounds=bounds,slots=seen|slots)
+        return bounds
+
+    def x_range(self,root,day,rows,items):
+        """Use known maturities and never shrink the horizontal range intraday."""
+        self._day(day)
+        values=[r['days'] for r in [*rows,*items] if _number(r.get('days')) and r['days']>=0]
+        previous=self.x_products.get(root)
+        if not values:return previous
+        low,high=min(values),max(values);padding=max(high-low,30)*.1
+        if previous:
+            bottom,top=previous
+            if low<bottom:bottom=low-padding
+            if high>top:top=high+padding
+            bounds=(bottom,top)
+        else:bounds=(low-padding,high+padding)
+        self.x_products[root]=bounds
+        return bounds
 
 
 def points(rows):

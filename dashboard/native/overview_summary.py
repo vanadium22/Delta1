@@ -39,14 +39,14 @@ class ContractFlow(QWidget):
 
 
 class ProductRow(QWidget):
-    def __init__(self, root):
+    def __init__(self, root, axis_ranges=None):
         super().__init__()
         self.index = IndexCard(root, self)
         self.index.heading.setText(UNDERLYINGS[root][1])
         self.futures = [FuturesCard(self,compact=True) for _ in range(4)]
         self.flow = ContractFlow(self.futures, 4, 240, self)
         from .overview_charts import ProductCharts
-        self.chart=ProductCharts(root,UNDERLYINGS[root][1],compact=True)
+        self.chart=ProductCharts(root,UNDERLYINGS[root][1],compact=True,axis_ranges=axis_ranges)
         self.box = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
         self.box.setContentsMargins(0,0,0,0)
         self.box.setSpacing(16)
@@ -73,12 +73,13 @@ class OverviewSummary(ScrollPage):
     def __init__(self):
         super().__init__()
         self.dividend_source=lab('最新分红表：待核验',18,ACCENT,True);self.box.addWidget(self.dividend_source)
-        self.products = {}
+        from .term_curve import DailyRanges
+        self.term_axes=DailyRanges();self.products = {}
         self.cards = {}
         self.index_cards = {}
         self.charts = {}
         for root,(symbol,_,_) in UNDERLYINGS.items():
-            group = ProductRow(root)
+            group = ProductRow(root,self.term_axes)
             group.index.clicked.connect(self.index_clicked)
             self.products[root] = group
             self.index_cards[symbol] = group.index
@@ -95,7 +96,7 @@ class OverviewSummary(ScrollPage):
         wide=self.scroll.width()>=1100
         for group in self.products.values():group.set_wide(wide)
 
-    def render_data(self, data):
+    def render_data(self, data,*,day=None):
         from .overview_status import data_dates,dates_text
         self.dividend_source.setText(dates_text(data_dates(data)))
         self.dividend_source.setToolTip('价格日取卡片真实源时间；DDB目标是最近已完成交易日；分红业务日取公盘表内B1，三者独立。')
@@ -110,4 +111,4 @@ class OverviewSummary(ScrollPage):
                 card.render(row,slot)
                 if row.get('symbol'):
                     self.cards[row['symbol']] = card
-            self.charts[root].render([r for r in data.get('futures',[]) if r.get('root')==root],data.get('futures_details',{}).get(root,{}))
+            self.charts[root].render([r for r in data.get('futures',[]) if r.get('root')==root],data.get('futures_details',{}).get(root,{}),day=day)

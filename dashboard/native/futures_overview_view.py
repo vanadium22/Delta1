@@ -14,7 +14,7 @@ from .instruments import UNDERLYINGS
 from .card_views import stamp
 from .theme import ACCENT, ACCENT_BACKGROUND, MUTED, TEXT, PANEL, BORDER, CHART_COLORS, THEME
 from dashboard.marketdata.overview_basis import input_summary
-from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip
+from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip,DailyRanges,axis_day
 
 SLOTS=('当月','次月','季月','远季')
 COLORS=(ACCENT,'#4c8fbc','#7bb3d3','#a7c9e0') if THEME=='public' else CHART_COLORS
@@ -153,8 +153,9 @@ class VolumeDistribution(QWidget):
 
 
 class FuturesOverviewPage(ScrollPage):
-    def __init__(self):
+    def __init__(self,axis_ranges=None):
         super().__init__();self.selected_root='IF';self.rows=[];self.indices=[];self.groups={};self.cards={}
+        self.axis_ranges=axis_ranges or DailyRanges();self.axis_day=axis_day()
         self.products={}
         for root,(_,name,_) in UNDERLYINGS.items():
             button=QPushButton(root+' · '+name);button.setCheckable(True);button.setMinimumHeight(39)
@@ -188,8 +189,8 @@ class FuturesOverviewPage(ScrollPage):
     def select(self,root):
         self.selected_root=root;self.show_group()
 
-    def render(self,rows,indices=None,groups=None):
-        self.rows=rows;self.indices=indices or [];self.groups=groups or {};self.show_group()
+    def render(self,rows,indices=None,groups=None,*,day=None):
+        self.rows=rows;self.indices=indices or [];self.groups=groups or {};self.axis_day=axis_day(day);self.show_group()
 
     def show_group(self):
         root=self.selected_root
@@ -206,6 +207,8 @@ class FuturesOverviewPage(ScrollPage):
             row=by_slot.get(i,{});card.render(row,i)
             if row.get('symbol'):self.cards[row['symbol']]=card
         self.curve.clear();self.curve_points=term_points(rows)
+        bounds=self.axis_ranges.update(root,self.axis_day,self.curve_points)
+        x_bounds=self.axis_ranges.x_range(root,self.axis_day,rows,self.curve_points)
         if self.curve_points:
             xs=[r['days'] for r in self.curve_points];ys=[r['annual_pct'] for r in self.curve_points]
             ticks=[(r['days'],SLOTS[min(3,r['slot'])]+' · '+str(r['days'])+'天') for r in self.curve_points]
@@ -214,9 +217,9 @@ class FuturesOverviewPage(ScrollPage):
             brushes=[pg.mkBrush(None if r['saved'] else ACCENT) for r in self.curve_points]
             pens=[pg.mkPen(MUTED if r['saved'] else ACCENT,width=2) for r in self.curve_points]
             self.curve.plot(xs,ys,pen=pg.mkPen(ACCENT,width=3),symbol='o',symbolSize=7,symbolBrush=brushes,symbolPen=pens,connect=connect)
-            self.curve.getAxis('bottom').setTicks([ticks]);self.curve.enableAutoRange(axis='y')
-            span=max(max(xs)-min(xs),30)
-            self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
+            self.curve.getAxis('bottom').setTicks([ticks])
+            if x_bounds:self.curve.setXRange(x_bounds[0],x_bounds[1],padding=0)
+            if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
         self.curve.setVisible(bool(self.curve_points));self.empty_curve.setVisible(not self.curve_points)
         self.term.note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         group=self.groups.get(root,{})

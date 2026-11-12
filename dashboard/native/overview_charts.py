@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QSizePolicy
 from .overview_pages import Panel,lab,numeric
 from .futures_overview_view import COLORS
 from .theme import ACCENT,MUTED,PANEL,TEXT
-from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip
+from .term_curve import points as term_points,description as term_description,tooltip as term_tooltip,DailyRanges,axis_day
 
 
 class CompactDistribution(QWidget):
@@ -39,13 +39,13 @@ class CompactDistribution(QWidget):
 
 
 class ProductCharts(Panel):
-    def __init__(self,root,name,*,compact=False):
+    def __init__(self,root,name,*,compact=False,axis_ranges=None):
         super().__init__(root+' · '+name,'期限结构 / 成交与持仓')
         if compact:
             self.box.setContentsMargins(10,6,10,6);self.box.setSpacing(3)
             self.title.setStyleSheet(f'background:transparent;color:{ACCENT};font-size:18px;font-weight:700;')
             self.note.setStyleSheet(f'background:transparent;color:{MUTED};font-size:12px;')
-        self.root=root;self.curve_points=[]
+        self.root=root;self.curve_points=[];self.axis_ranges=axis_ranges or DailyRanges()
         self.curve=pg.PlotWidget(background=PANEL);self.curve.setMinimumWidth(0);self.curve.setMinimumHeight(80 if compact else 125);self.curve.setMaximumHeight(95 if compact else 150)
         self.curve.setMenuEnabled(False);self.curve.setMouseEnabled(x=False,y=False);self.curve.hideButtons();self.curve.showGrid(y=True,alpha=.12)
         self.curve.getAxis('left').setLabel('%');self.curve.getAxis('left').enableAutoSIPrefix(False)
@@ -59,9 +59,12 @@ class ProductCharts(Panel):
         self.position_note=lab('',11,MUTED);self.position_note.hide();self.box.addWidget(self.position_note)
         self.setMinimumHeight(222 if compact else 245)
 
-    def render(self,rows,group):
+    def render(self,rows,group,*,day=None):
         self.curve.clear();self.curve_points=[]
         self.curve_points=term_points(rows)
+        current_day=axis_day(day)
+        bounds=self.axis_ranges.update(self.root,current_day,self.curve_points)
+        x_bounds=self.axis_ranges.x_range(self.root,current_day,rows,self.curve_points)
         if self.curve_points:
             xs=[r['days'] for r in self.curve_points];ys=[r['annual_pct'] for r in self.curve_points]
             connect=np.array([self.curve_points[i+1]['slot']==r['slot']+1 if i+1<len(self.curve_points) else False
@@ -70,7 +73,8 @@ class ProductCharts(Panel):
             pens=[pg.mkPen(MUTED if r['saved'] else ACCENT,width=2) for r in self.curve_points]
             self.curve.plot(xs,ys,connect=connect,pen=pg.mkPen(ACCENT,width=2),symbol='o',symbolSize=6,symbolBrush=brushes,symbolPen=pens)
             self.curve.getAxis('bottom').setTicks([[(r['days'],'0'+str(r['slot'])) for r in self.curve_points]])
-            span=max(max(xs)-min(xs),30);self.curve.setXRange(min(xs)-span*.1,max(xs)+span*.1,padding=0)
+            if x_bounds:self.curve.setXRange(x_bounds[0],x_bounds[1],padding=0)
+            if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
         self.term_note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         self.volume.render(group.get('distribution',[]),group.get('distribution_reason') or '等待四档成交')
         self.position.render(group.get('position_distribution',[]),group.get('position_reason') or '等待同日持仓')

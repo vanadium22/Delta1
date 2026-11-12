@@ -186,12 +186,14 @@ class MarketOverviewPanel(OverviewSummary):
         super().__init__();self.state=None
         from .overview_pages import IndexOverviewPage,EtfOverviewPage
         from .futures_overview_view import FuturesOverviewPage
-        self.views=dict(indices=IndexOverviewPage(),etfs=EtfOverviewPage(),futures=FuturesOverviewPage())
+        self.views=dict(indices=IndexOverviewPage(),etfs=EtfOverviewPage(),futures=FuturesOverviewPage(self.term_axes))
 
     def render(self,state):
         data=state.get('market_overview') or {}
+        from .term_curve import axis_day
+        day=axis_day(state.get('as_of'))
         self.state=state
-        self.render_data(data)
+        self.render_data(data,day=day)
         self.views['indices'].render(data.get('indices',[]),data.get('index_details'),data.get('reference'))
         self.views['etfs'].render(data.get('etfs',[]),data.get('etf_groups'),data.get('reference'),data.get('market_sizes'))
-        self.views['futures'].render(data.get('futures',[]),data.get('indices',[]),data.get('futures_details'))
+        self.views['futures'].render(data.get('futures',[]),data.get('indices',[]),data.get('futures_details'),day=day)
