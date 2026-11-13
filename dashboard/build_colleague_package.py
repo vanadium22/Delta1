@@ -66,7 +66,7 @@ def prepare(stage,python_archive,wheels,data_archive):
     for name in sources():
         target=stage/name;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(ROOT/name,target);source_hashes[name]=digest(target)
-    for name in ('启动看板.vbs','Python环境设置.vbs','使用说明.txt'):
+    for name in ('启动看板.vbs','Python环境设置.vbs','创建桌面快捷方式.vbs','使用说明.txt'):
         source=ROOT/'dashboard'/'portable'/name
         target=stage/name
         if name.endswith('.txt'):target.write_text(source.read_text(encoding='utf8'),encoding='utf-8-sig')
