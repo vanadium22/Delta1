@@ -134,6 +134,34 @@ class PathsAndCredentialsTests(unittest.TestCase):
         self.assertEqual(widget.fields['history_vpn_config'].text(),str(vpn));pipeline.readonly.assert_not_called()
         self.assertNotIn('new-vpn-password',json.dumps(pipeline.model.config))
 
+    def test_vpn_defaults_only_for_new_profile_and_existing_trust_wins(self):
+        from dashboard.vpn_profile_settings import display_defaults,DEFAULT_GATEWAY,DEFAULT_FINGERPRINT
+        with tempfile.TemporaryDirectory() as tmp:
+            config=Path(tmp)/'vpn.json';trust=Path(tmp)/'trust.json'
+            self.assertEqual(display_defaults(config,trust),dict(gateway=DEFAULT_GATEWAY,fingerprint=DEFAULT_FINGERPRINT))
+            self.assertEqual(display_defaults(config,trust,allow_default=False),{})
+            config.write_text(json.dumps(dict(url='https://vpn.example:10443')),encoding='utf8')
+            self.assertEqual(display_defaults(config,trust),{})
+            trust.write_text(json.dumps(dict(endpoint='https://vpn.example:10443',certificate_sha256='A'*64)),encoding='utf8')
+            self.assertEqual(display_defaults(config,trust),dict(gateway='https://vpn.example:10443',fingerprint='A'*64))
+
+    @unittest.skipUnless(os.name=='nt','Windows DPAPI')
+    def test_new_vpn_profile_saves_with_only_user_and_password(self):
+        from dashboard.native.inline_settings import InlineSettings
+        from dashboard.vpn_profile_settings import DEFAULT_GATEWAY,DEFAULT_FINGERPRINT,metadata
+        from index_strategy.history.protected_config import load_config
+        from tests.test_overview_ddb_refresh import SettingsLayoutTests
+        helper=SettingsLayoutTests();window,pipeline=helper.fixture();self.addCleanup(helper.doCleanups)
+        widget=InlineSettings(pipeline);self.addCleanup(widget.deleteLater)
+        self.assertEqual(widget.fields['vpn_gateway'].text(),DEFAULT_GATEWAY)
+        self.assertEqual(widget.fields['vpn_fingerprint'].text(),DEFAULT_FINGERPRINT)
+        widget.fields['vpn_username'].setText('test-user');widget.fields['vpn_password'].setText('test-password')
+        widget.save_vpn();config=pipeline.model.config
+        self.assertEqual(load_config(config['history_vpn_config'])['id'],'test-user')
+        self.assertEqual(metadata(config['history_vpn_config'],config['history_vpn_trust']),
+                         dict(gateway=DEFAULT_GATEWAY,fingerprint=DEFAULT_FINGERPRINT))
+        self.assertNotIn(b'test-password',Path(config['history_vpn_config']).read_bytes())
+
     def test_fresh_profile_uses_its_own_ddb_path(self):
         from dashboard.native.model import NativeModel
         with tempfile.TemporaryDirectory() as tmp,patch('dashboard.data_package.activate_config',side_effect=lambda config,*_:config):

@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-13-fixed-term-default-axes",
+  "release": "2026-11-13-default-data-vpn",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "base_commit": "047db9b8fd4fc76010298364465ad162edc58d0c",
+  "base_commit": "4dfa9cdf584499eabe4a8e4ce7ae58f7457b7936",
   "status": "local_validated_colleague_package_company_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
@@ -58,57 +58,22 @@
     }
   },
   "latest_update": {
-    "base_commit": "047db9b8fd4fc76010298364465ad162edc58d0c",
-    "scope": "2026-11-13期限结构默认坐标续改，统一codex/company-apps，实施基线047db9b，运行版本以Git HEAD/远端为准。IF/IH/IC/IM在概览与股指期货详情共用各自纵轴，默认−10%至0%，空图同样使用默认范围。仅当有效点超出当前范围时向越界侧扩展并预留2个百分点，日内不收缩；新出现的档位在范围内不会改变比例。上海日界或看板重启后重新从默认范围判断，原缺档同合约缓存回退与横轴稳定规则保持。指标输入无上下按钮，按回车或切换焦点后仅更新所改图，其他图继续原有30秒定时重画。",
+    "base_commit": "4dfa9cdf584499eabe4a8e4ce7ae58f7457b7936",
+    "scope": "新用户默认网关与经核验证书指纹；VPN只需填写本人账号密码，已有配置优先，证书变更须核验。",
     "files": [
-      "AGENTS.md",
       "COMPANY_SYNC.md",
-      "dashboard/AGENTS.md",
-      "dashboard/APP_COMPANY_TEST.md",
-      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
-      "dashboard/APP_VALIDATION.md",
-      "dashboard/PORTABLE_SETUP.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-      "dashboard/native/futures_overview_view.py",
-      "dashboard/native/overview_charts.py",
-      "dashboard/native/term_curve.py",
+      "dashboard/native/inline_settings.py",
       "dashboard/portable/使用说明.txt",
-      "tests/test_term_axes_20261112.py"
+      "dashboard/vpn_profile_settings.py",
+      "tests/test_portable_followup_20261112.py"
     ],
     "tests": {
-      "targeted_passed": 68,
-      "seconds": 21.687,
-      "bundled_python_key_tests": 59,
-      "previous_full": 559,
-      "skipped": 0,
-      "resource_warnings": "errors"
+      "targeted_passed": 44,
+      "company_acceptance": "pending"
     },
-    "term_axes": {
-      "roots": [
-        "IF",
-        "IH",
-        "IC",
-        "IM"
-      ],
-      "default_vertical_range": [
-        -10,
-        0
-      ],
-      "unit": "percent",
-      "expand_only_on_breach": true,
-      "extension_percentage_points": 2,
-      "reset": "Shanghai calendar day or application restart",
-      "shared_between_overview_and_detail": true
-    },
-    "layout": "125%缩放下1536×864及860×620离屏检查，模拟四品种默认范围及同/次日行为；本地封装环境离线启动通过。同事版不含本机账号，历史行情最新2026-10-16、分红快照2026-09-18；公司新电脑、DDB及公盘UNC仍待现场验证。",
-    "protection": {
-      "files": 8455,
-      "bytes": 365790526,
-      "changed": 0,
-      "backtest_raw": "unchanged"
-    }
+    "certificate": "原可信配置与当前TLS证书匹配，不含账号密码"
   },
   "files": [
     ".gitattributes",

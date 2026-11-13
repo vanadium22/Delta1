@@ -72,14 +72,14 @@ class InlineSettings(QWidget):
         load=QPushButton('读取已有账号（密码不回显）');account.addRow(load);load.clicked.connect(self.load_credentials)
         save=QPushButton('保存本机数据库凭据');account.addRow(save);save.clicked.connect(self.save_credentials)
         vpn_account=self.group(advanced,'配置本机 DDB 数据 VPN')
-        from dashboard.vpn_profile_settings import metadata as vpn_metadata
-        meta=vpn_metadata(vpn['config'],vpn['trust'])
+        from dashboard.vpn_profile_settings import display_defaults as vpn_metadata
+        meta=vpn_metadata(vpn['config'],vpn['trust'],allow_default=not (config.get('history_vpn_config') or config.get('history_vpn_trust')))
         for key,title,value in [('vpn_gateway','VPN HTTPS 网关',meta.get('gateway','')),
                                 ('vpn_fingerprint','网关证书 SHA256 指纹',meta.get('fingerprint','')),
                                 ('vpn_username','VPN 账号',''),('vpn_password','VPN 密码','')]:
             vpn_account.addRow(title,self.field(key,value))
         self.fields['vpn_password'].setEchoMode(QLineEdit.EchoMode.Password)
-        help_text=QLabel('填写经核验的网关和证书指纹；仅在本机加密保存。已有可达数据隧道继续复用，实时 VPN 仍由您手动切换。')
+        help_text=QLabel('新用户默认填入已核验的网关和指纹；已有配置优先。填写账号和密码后保存；可达数据隧道继续复用，实时 VPN 仍手动切换。')
         help_text.setWordWrap(True);vpn_account.addRow(help_text)
         save_vpn=QPushButton('保存本机 VPN 凭据');vpn_account.addRow(save_vpn);save_vpn.clicked.connect(self.save_vpn)
 

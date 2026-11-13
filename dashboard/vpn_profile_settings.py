@@ -8,6 +8,17 @@ from .marketdata.bars import _atomic_bytes,_json_bytes
 from .marketdata.ddb_vpn import normalize_gateway,VPNError
 from index_strategy.history.protected_config import save_config
 
+DEFAULT_GATEWAY='https://210.22.83.97:10443'
+DEFAULT_FINGERPRINT='7D8F3700892DBD417706E195EEB865103E56B70FC7820F5129C8385B4C2E9EAD'
+
+
+def display_defaults(config_path,trust_path,*,allow_default=True):
+    """Use existing trust first; only initialize a completely new profile."""
+    current=metadata(config_path,trust_path)
+    if current:return current
+    if not allow_default or Path(config_path).exists() or Path(trust_path).exists():return {}
+    return dict(gateway=DEFAULT_GATEWAY,fingerprint=DEFAULT_FINGERPRINT)
+
 
 def metadata(config_path,trust_path):
     """Return only the gateway and matching certificate fingerprint."""
