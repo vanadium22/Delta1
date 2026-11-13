@@ -227,7 +227,7 @@ class FuturesOverviewPage(ScrollPage):
             self.curve.plot(xs,ys,pen=pg.mkPen(ACCENT,width=3),symbol='o',symbolSize=7,symbolBrush=brushes,symbolPen=pens,connect=connect)
             self.curve.getAxis('bottom').setTicks([ticks])
             if x_bounds:self.curve.setXRange(x_bounds[0],x_bounds[1],padding=0)
-            if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
+        if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
         self.curve.setVisible(bool(self.curve_points));self.empty_curve.setVisible(not self.curve_points)
         self.term.note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         group=self.groups.get(root,{})

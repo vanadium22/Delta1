@@ -74,7 +74,7 @@ class ProductCharts(Panel):
             self.curve.plot(xs,ys,connect=connect,pen=pg.mkPen(ACCENT,width=2),symbol='o',symbolSize=6,symbolBrush=brushes,symbolPen=pens)
             self.curve.getAxis('bottom').setTicks([[(r['days'],'0'+str(r['slot'])) for r in self.curve_points]])
             if x_bounds:self.curve.setXRange(x_bounds[0],x_bounds[1],padding=0)
-            if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
+        if bounds:self.curve.setYRange(bounds[0],bounds[1],padding=0)
         self.term_note.setText(term_description(self.curve_points));self.curve.setToolTip(term_tooltip(self.curve_points))
         self.volume.render(group.get('distribution',[]),group.get('distribution_reason') or '等待四档成交')
         self.position.render(group.get('position_distribution',[]),group.get('position_reason') or '等待同日持仓')

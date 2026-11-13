@@ -22,7 +22,7 @@ def axis_day(value=None):
 
 
 class DailyRanges:
-    """Keep independent per-product bounds until the next Shanghai day."""
+    """Start each product at -10% to 0%; expand only beyond a boundary."""
     def __init__(self,margin=2.):
         self.margin=margin;self.day=None;self.products={};self.x_products={}
 
@@ -33,20 +33,13 @@ class DailyRanges:
         self._day(day)
         valid=[p for p in items if _number(p.get('annual_pct'))]
         previous=self.products.get(root)
-        if not valid:return previous['bounds'] if previous else None
+        if not valid:return previous['bounds'] if previous else (-10.,0.)
         low=min(p['annual_pct'] for p in valid);high=max(p['annual_pct'] for p in valid)
-        slots={p['slot'] for p in valid};seen=previous['slots'] if previous else set()
-        if not previous:bounds=(low-self.margin,high+self.margin)
-        else:
-            bottom,top=previous['bounds']
-            # A newly available contract completes the initial daily coverage.
-            if slots-seen:
-                bottom=min(bottom,low-self.margin);top=max(top,high+self.margin)
-            else:
-                if low<bottom:bottom=low-self.margin
-                if high>top:top=high+self.margin
-            bounds=(bottom,top)
-        self.products[root]=dict(bounds=bounds,slots=seen|slots)
+        bottom,top=previous['bounds'] if previous else (-10.,0.)
+        if low<bottom:bottom=low-self.margin
+        if high>top:top=high+self.margin
+        bounds=(bottom,top)
+        self.products[root]=dict(bounds=bounds)
         return bounds
 
     def x_range(self,root,day,rows,items):

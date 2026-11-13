@@ -1,8 +1,8 @@
 {
-  "release": "2026-11-13-indicator-single-chart-refresh",
+  "release": "2026-11-13-fixed-term-default-axes",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "base_commit": "e32f34ebd2843371303320ac18363444c5089988",
+  "base_commit": "047db9b8fd4fc76010298364465ad162edc58d0c",
   "status": "local_validated_colleague_package_company_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
@@ -58,31 +58,51 @@
     }
   },
   "latest_update": {
-    "base_commit": "e32f34ebd2843371303320ac18363444c5089988",
-    "scope": "2026-11-13指标图输入与单图刷新优化，统一codex/company-apps，实施基线e32f34e，运行版本以Git HEAD/远端为准。每张图的坐标轴窗口和指标计算窗口移除上下按钮，输入数字后按回车或切换焦点生效；只清理并重画被修改的图，其余图保留当前内容，连续多图修改、迟到结果和读取失败独立处理。原30秒行情重绘继续，等待新窗口的图不以旧窗口冒充更新；切换品种或档位仍更新相关图。",
+    "base_commit": "047db9b8fd4fc76010298364465ad162edc58d0c",
+    "scope": "2026-11-13期限结构默认坐标续改，统一codex/company-apps，实施基线047db9b，运行版本以Git HEAD/远端为准。IF/IH/IC/IM在概览与股指期货详情共用各自纵轴，默认−10%至0%，空图同样使用默认范围。仅当有效点超出当前范围时向越界侧扩展并预留2个百分点，日内不收缩；新出现的档位在范围内不会改变比例。上海日界或看板重启后重新从默认范围判断，原缺档同合约缓存回退与横轴稳定规则保持。指标输入无上下按钮，按回车或切换焦点后仅更新所改图，其他图继续原有30秒定时重画。",
     "files": [
       "AGENTS.md",
       "COMPANY_SYNC.md",
       "dashboard/AGENTS.md",
       "dashboard/APP_COMPANY_TEST.md",
+      "dashboard/APP_MARKET_OVERVIEW.md",
       "dashboard/APP_RELEASE.json",
       "dashboard/APP_VALIDATION.md",
       "dashboard/PORTABLE_SETUP.md",
       "dashboard/PROJECT_HANDOFF.md",
-      "dashboard/docs/INDICATOR_PAGE_PROPOSAL.md",
       "dashboard/docs/NEXT_COMPANY_RETEST_PROMPT.md",
-      "dashboard/native/indicator_analysis_view.py",
+      "dashboard/native/futures_overview_view.py",
+      "dashboard/native/overview_charts.py",
+      "dashboard/native/term_curve.py",
       "dashboard/portable/使用说明.txt",
-      "tests/test_single_chart_refresh_20261113.py"
+      "tests/test_term_axes_20261112.py"
     ],
     "tests": {
-      "passed": 559,
-      "seconds": 131.311,
-      "bundled_python_key_tests": 53,
+      "targeted_passed": 68,
+      "seconds": 21.687,
+      "bundled_python_key_tests": 59,
+      "previous_full": 559,
       "skipped": 0,
       "resource_warnings": "errors"
     },
-    "layout": "本地125%缩放下1536×864及860×620离屏检查，实际窗口异步工作线程、输入确认、单图刷新、定时器和失败恢复均已测试。同事版不含本机账号，历史行情最新2026-10-16、分红快照2026-09-18；公司新电脑、DDB及公盘UNC仍待现场验证。",
+    "term_axes": {
+      "roots": [
+        "IF",
+        "IH",
+        "IC",
+        "IM"
+      ],
+      "default_vertical_range": [
+        -10,
+        0
+      ],
+      "unit": "percent",
+      "expand_only_on_breach": true,
+      "extension_percentage_points": 2,
+      "reset": "Shanghai calendar day or application restart",
+      "shared_between_overview_and_detail": true
+    },
+    "layout": "125%缩放下1536×864及860×620离屏检查，模拟四品种默认范围及同/次日行为；本地封装环境离线启动通过。同事版不含本机账号，历史行情最新2026-10-16、分红快照2026-09-18；公司新电脑、DDB及公盘UNC仍待现场验证。",
     "protection": {
       "files": 8455,
       "bytes": 365790526,
@@ -503,7 +523,7 @@
   "phase2_authorization": "Overview/company fixes and necessary tests/push remain authorized; 32-item/A02 research stays paused by latest user request.",
   "realtime_read_test": "2026-10-26 explicit user authorization after manual realtime VPN connection; 4 finite HTTP reads of 24 symbols; current development machine only; company acceptance pending",
   "instance_policy": "normal realtime launch safely replaces same-data Apps; drain before handover; no forced termination, lock deletion, Excel or unrelated App closure; test/read-only/frozen entries do not replace",
-  "current_validation": "559项完整本地回归通过，131.311秒（含加载），无跳过，ResourceWarning作为错误；内置Python另有53项关键测试通过。 本地125%缩放下1536×864及860×620离屏检查，实际窗口异步工作线程、输入确认、单图刷新、定时器和失败恢复均已测试。同事版不含本机账号，历史行情最新2026-10-16、分红快照2026-09-18；公司新电脑、DDB及公盘UNC仍待现场验证。",
+  "current_validation": "本轮68项相关本地测试通过（21.687秒），内置Python另有59项关键测试通过；上一提交559项完整回归通过。 125%缩放下1536×864及860×620离屏检查，模拟四品种默认范围及同/次日行为；本地封装环境离线启动通过。同事版不含本机账号，历史行情最新2026-10-16、分红快照2026-09-18；公司新电脑、DDB及公盘UNC仍待现场验证。",
   "overview_reference_policy": "Existing WindPy and user site: weekly references, bounded daily repairs, daily selected-ETF NAV/unadjusted close plus three-calendar-month AUM via existing netasset_total or configured field, unit=1/Fill=Blank/Days=Trading, one code per dated series. Bad optional histories isolated; no fill or guessed IOPV/share fields. Explicit stages read only and do not publish or change VPN.",
   "overview_data_pending": [
     "Company IC/IM new partial or estimated industry chart, actual coverage and anchor date",
@@ -571,7 +591,7 @@
     "latest_previous_close": "verified_da50685_2026-11-11_four_indices_16_actual_futures_HTTP_corroborated_session_date_inferred",
     "latest_feedback": "a628472_complete_same_run_shutdown_7.247s_ddb_existing_tunnel_authenticated_query_partial",
     "industry_change": "local_partial_or_return_estimate_verified_new_company_view_pending",
-    "term_curve": "four_products_both_pages_local_fallback_and_stable_daily_axes_verified_company_pending",
+    "term_curve": "default_minus10_to_zero_local_validated_company_pending",
     "colleague_setup": "local_dpapi_gui_and_isolated_python_install_verified_company_pending",
     "unc_share": "derived_from_company_mapped_root_direct_unc_access_not_yet_tested",
     "portable_distribution": "local_offline_unpack_and_repair_validated_company_pending",

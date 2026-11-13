@@ -20,28 +20,38 @@ def item(slot,value):return dict(slot=slot,annual_pct=value)
 
 
 class DailyRangeTests(unittest.TestCase):
-    def test_initial_margin_then_only_extend_outside_and_reset_next_day(self):
+    def test_default_minus_ten_to_zero_then_only_extend_outside_and_reset_next_day(self):
         ranges=DailyRanges();day='2026-11-12'
         original=[item(0,-7),item(1,-6.5),item(2,-6),item(3,-5)]
-        self.assertEqual(ranges.update('IH',day,original),(-9,-3))
-        for value in (-7.1,-8.99,-9):
+        self.assertEqual(ranges.update('IH',day,original),(-10,0))
+        for value in (-7.1,-9.99,-10):
             changed=deepcopy(original);changed[0]['annual_pct']=value
-            self.assertEqual(ranges.update('IH',day,changed),(-9,-3))
-        changed=deepcopy(original);changed[0]['annual_pct']=-9.5
-        self.assertEqual(ranges.update('IH',day,changed),(-11.5,-3))
-        self.assertEqual(ranges.update('IH',day,original),(-11.5,-3))
-        changed[3]['annual_pct']=-2.5
-        self.assertEqual(ranges.update('IH',day,changed),(-11.5,-.5))
-        self.assertEqual(ranges.update('IH','2026-11-13',original),(-9,-3))
+            self.assertEqual(ranges.update('IH',day,changed),(-10,0))
+        changed=deepcopy(original);changed[0]['annual_pct']=-10.5
+        self.assertEqual(ranges.update('IH',day,changed),(-12.5,0))
+        self.assertEqual(ranges.update('IH',day,original),(-12.5,0))
+        changed[3]['annual_pct']=.5
+        self.assertEqual(ranges.update('IH',day,changed),(-12.5,2.5))
+        self.assertEqual(ranges.update('IH','2026-11-13',original),(-10,0))
 
-    def test_newly_available_slot_gets_margin_without_shrinking_other_bounds(self):
+    def test_new_slot_inside_default_keeps_scale_and_products_are_independent(self):
         ranges=DailyRanges();day='2026-11-12'
-        self.assertEqual(ranges.update('IF',day,[item(0,-5)]),(-7,-3))
-        self.assertEqual(ranges.update('IF',day,[item(0,-5),item(1,-7)]),(-9,-3))
-        self.assertEqual(ranges.update('IF',day,[item(1,-7)]),(-9,-3))
-        self.assertEqual(ranges.update('IF',day,[]),(-9,-3))
-        self.assertEqual(ranges.update('IM',day,[item(0,2),item(1,3)]),(0,5))
-        self.assertIsNone(ranges.update('IF','2026-11-13',[]))
+        self.assertEqual(ranges.update('IF',day,[item(0,-5)]),(-10,0))
+        self.assertEqual(ranges.update('IF',day,[item(0,-5),item(1,-9.9)]),(-10,0))
+        self.assertEqual(ranges.update('IF',day,[item(1,-9.9)]),(-10,0))
+        self.assertEqual(ranges.update('IF',day,[]),(-10,0))
+        self.assertEqual(ranges.update('IM',day,[item(0,2),item(1,3)]),(-10,5))
+        self.assertEqual(ranges.update('IC',day,[item(0,-11),item(1,.5)]),(-13,2.5))
+        self.assertEqual(ranges.update('IF',day,[item(0,-5)]),(-10,0))
+        self.assertEqual(ranges.update('IF','2026-11-13',[]),(-10,0))
+
+    def test_empty_overview_curve_starts_at_default_range(self):
+        from dashboard.native.overview_charts import ProductCharts
+        chart=ProductCharts('IF','沪深300')
+        try:
+            chart.render([],{},day='2026-11-13');APP.processEvents()
+            self.assertEqual(tuple(chart.curve.viewRange()[1]),(-10.,0.))
+        finally:chart.close();APP.processEvents()
 
     def test_day_comes_from_shanghai_snapshot_not_quote_date(self):
         self.assertEqual(axis_day('2026-11-12T15:59:59+00:00'),'2026-11-12')
@@ -79,11 +89,11 @@ class FourProductChartTests(unittest.TestCase):
                     chart=panel.charts[root]
                     self.assertEqual([p['slot'] for p in chart.curve_points],[0,1,2,3])
                     self.assertEqual([p['slot'] for p in chart.curve_points if p['saved']],[1,2])
-                    self.assertEqual(tuple(chart.curve.viewRange()[1]),(-9.,-3.))
+                    self.assertEqual(tuple(chart.curve.viewRange()[1]),(-10.,0.))
                     detail.select(root)
                     APP.processEvents()
                     self.assertEqual([p['slot'] for p in detail.curve_points],[0,1,2,3])
-                    self.assertEqual(tuple(detail.curve.viewRange()[1]),(-9.,-3.))
+                    self.assertEqual(tuple(detail.curve.viewRange()[1]),(-10.,0.))
                     self.assertIs(chart.axis_ranges,detail.axis_ranges)
                 initial_x=tuple(panel.charts['IH'].curve.viewRange()[0])
                 absent=next(r for r in missing['futures'] if r['root']=='IH' and r['slot']==3)
@@ -95,26 +105,26 @@ class FourProductChartTests(unittest.TestCase):
                 absent['annual_pct']=-5.
                 # A small move stays inside the previous range for every root.
                 for row in missing['futures']:
-                    if row['slot']==0:row['annual_pct']=-8.9
+                    if row['slot']==0:row['annual_pct']=-9.9
                 panel.render(dict(as_of=(NOW+pd.Timedelta(seconds=3)).isoformat(),market_overview=missing))
                 APP.processEvents()
                 for root in ('IF','IH','IC','IM'):
-                    self.assertEqual(tuple(panel.charts[root].curve.viewRange()[1]),(-9.,-3.))
+                    self.assertEqual(tuple(panel.charts[root].curve.viewRange()[1]),(-10.,0.))
                 # Only the breached side expands, for the affected product only.
-                next(r for r in missing['futures'] if r['root']=='IH' and r['slot']==0)['annual_pct']=-9.5
+                next(r for r in missing['futures'] if r['root']=='IH' and r['slot']==0)['annual_pct']=-10.5
                 panel.render(dict(as_of=(NOW+pd.Timedelta(seconds=6)).isoformat(),market_overview=missing))
                 APP.processEvents()
-                self.assertEqual(tuple(panel.charts['IH'].curve.viewRange()[1]),(-11.5,-3.))
-                detail.select('IH');self.assertEqual(tuple(detail.curve.viewRange()[1]),(-11.5,-3.))
-                self.assertEqual(tuple(panel.charts['IF'].curve.viewRange()[1]),(-9.,-3.))
-                # A new Shanghai day starts with that day's visible minimum and maximum.
+                self.assertEqual(tuple(panel.charts['IH'].curve.viewRange()[1]),(-12.5,0.))
+                detail.select('IH');self.assertEqual(tuple(detail.curve.viewRange()[1]),(-12.5,0.))
+                self.assertEqual(tuple(panel.charts['IF'].curve.viewRange()[1]),(-10.,0.))
+                # A new Shanghai day returns to the fixed default range.
                 fresh=deepcopy(market)
                 for row in fresh['futures']:row['annual_pct']=(-4.,-3.8,-3.5,-3.)[row['slot']]
                 panel.render(dict(as_of=(NOW+pd.Timedelta(days=1)).isoformat(),market_overview=fresh))
                 APP.processEvents()
                 for root in ('IF','IH','IC','IM'):
-                    self.assertEqual(tuple(panel.charts[root].curve.viewRange()[1]),(-6.,-1.))
-                    detail.select(root);self.assertEqual(tuple(detail.curve.viewRange()[1]),(-6.,-1.))
+                    self.assertEqual(tuple(panel.charts[root].curve.viewRange()[1]),(-10.,0.))
+                    detail.select(root);self.assertEqual(tuple(detail.curve.viewRange()[1]),(-10.,0.))
             finally:panel.close();APP.processEvents()
 
 
