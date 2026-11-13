@@ -10,9 +10,9 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal, QSignalBlocker, QEvent, QTimer
 from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QGridLayout,
-    QScrollArea, QFrame, QComboBox, QSpinBox, QCheckBox, QPushButton, QToolTip, QSizePolicy)
+    QScrollArea, QFrame, QComboBox, QSpinBox, QAbstractSpinBox, QCheckBox, QPushButton, QToolTip, QSizePolicy)
 
-from dashboard.marketdata.indicator_analysis import selection, chart_selections, finite
+from dashboard.marketdata.indicator_analysis import CHARTS, selection, chart_selections, finite
 from .overview_pages import Panel, FlowGrid, lab, numeric
 from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, THEME
 
@@ -50,12 +50,14 @@ class IndicatorChart(Panel):
         self.window_spin=QSpinBox();self.window_spin.setRange(10,365);self.window_spin.setValue(90)
         self.stats=QSpinBox();self.stats.setRange(2,120);self.stats.setValue(20)
         self.auto=QCheckBox('自动');self.auto.setChecked(True);self.stats.setEnabled(False)
-        self.window_spin.setToolTip('坐标轴窗口：自然日，包含定价日')
-        self.stats.setToolTip('指标计算窗口：定价日之前的交易日')
+        self.window_spin.setToolTip('坐标轴窗口：自然日，包含定价日；输入后按回车或点击别处生效')
+        self.stats.setToolTip('指标计算窗口：定价日之前的交易日；输入后按回车或点击别处生效')
         self.auto.setToolTip('自动取坐标轴窗口的一半并向下取整，最多20个交易日；取消后可手动设置指标计算窗口')
         self.window_caption=lab('坐标轴窗口',13,MUTED);self.stats_caption=lab('指标计算窗口',13,MUTED)
         for caption,control in ((self.window_caption,self.window_spin),(self.stats_caption,self.stats)):
             caption.setWordWrap(False);caption.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred)
+            control.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            control.setKeyboardTracking(False)
             control.setFixedWidth(64);control.setMinimumHeight(36);head.addWidget(caption);head.addWidget(control)
         head.addWidget(self.auto)
         self.box.addLayout(head)
@@ -173,7 +175,7 @@ class IndicatorAnalysisPage(QWidget):
 
     def __init__(self,model):
         super().__init__();self.model=model;self.active=False;self.result=None;self._ready=False
-        self._last_draw=None;self._timer_draws=[]
+        self._last_draw=None;self._timer_draws=[];self._pending_charts=set()
         outer=QVBoxLayout(self);outer.setContentsMargins(8,12,8,4);outer.setSpacing(8)
         self.controls=Panel();outer.addWidget(self.controls)
         self.root=QComboBox()
@@ -231,7 +233,7 @@ class IndicatorAnalysisPage(QWidget):
         self.model.indicator_analysis_request=self.request() if active and not getattr(self,'frozen',False) else None
         if hasattr(self,'draw_timer'):
             if active and not self.frozen:
-                self.draw_timer.start()
+                if not self.draw_timer.isActive():self.draw_timer.start()
                 if not was_active and self.result:self.redraw()
             else:self.draw_timer.stop()
 
@@ -252,17 +254,19 @@ class IndicatorAnalysisPage(QWidget):
         if chart.auto.isChecked():
             with QSignalBlocker(chart.stats):chart.stats.setValue(min(20,chart.window_spin.value()//2))
         chart.stats.setEnabled(not chart.auto.isChecked())
-        self.inputs_changed()
+        self._pending_charts.add(key);chart.clear_result()
+        self.note.setText('读取 '+self.root.currentData()+' 的所选图窗口…')
+        self.set_active(self.active);self.save();self.changed.emit()
 
     def inputs_changed(self,*_):
-        self.result=None
+        self.result=None;self._pending_charts.clear()
         for chart in self.charts.values():chart.clear_result()
         self.note.setText('读取 '+self.root.currentData()+' 的逐日实际合约与所选窗口…')
         self.set_active(self.active);self.save();self.changed.emit()
 
     def presentation_changed(self,*_):
         self.arrange();self.save()
-        if self.result:self.render(self.result,force=True)
+        if self.result:self.redraw()
 
     def resizeEvent(self,event):
         super().resizeEvent(event);self.arrange()
@@ -294,10 +298,12 @@ class IndicatorAnalysisPage(QWidget):
             if chart_selections(result.get('selection') or {})!=chart_selections(self.request()):return
         except (TypeError,ValueError,KeyError,AttributeError):return
         if result.get('error'):
-            self.result=None;self.note.setText('指标窗口暂不可用：'+result['error'])
-            for chart in self.charts.values():chart.clear_result('窗口不可用；原概览保持可读')
+            self.note.setText('指标窗口暂不可用：'+result['error'])
+            targets=self._pending_charts or set(self.charts)
+            for key in targets:self.charts[key].clear_result('窗口不可用；原概览保持可读')
+            if not self._pending_charts:self.result=None
             return
-        first=self.result is None
+        first=self.result is None;pending=set(self._pending_charts)
         self.result=result
         mode='实时末点' if result['mode']=='realtime' else '收盘参考'
         dates=[r.get('source_at') for r in (v['current'] for v in result['series'].values()) if r.get('source_at')]
@@ -306,19 +312,30 @@ class IndicatorAnalysisPage(QWidget):
         reference=('各图独立窗口' if result.get('charts') else '参考 '+result['reference_days'][0]+' 至 '+result['reference_days'][-1])
         self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · {reference}")
         self.note.setToolTip(result['mapping_policy']+'\n'+display_policy(result['statistics_policy'])+'\n历史读取起点 '+result['history_start'])
-        for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
-        if first or force:self.redraw()
+        if first or force:
+            self._pending_charts.clear();self.redraw()
+        elif pending:
+            self._pending_charts.difference_update(pending);self.redraw(keys=pending)
+        else:
+            for chart in self.charts.values():chart.render(result,stat_key=self.overlay.currentData(),references=self.references.isChecked(),draw=False)
 
-    def redraw(self,*,reason='manual'):
+    def redraw(self,*,reason='manual',keys=None):
         if self.result is None:return
-        for chart in self.charts.values():chart.render(self.result,stat_key=self.overlay.currentData(),references=self.references.isChecked())
+        selected=(set(self.charts) if keys is None else set(keys)) - self._pending_charts
+        selected.intersection_update(self.charts)
+        if not selected:return
+        for key,chart in self.charts.items():
+            if key in selected:chart.render(self.result,stat_key=self.overlay.currentData(),references=self.references.isChecked())
         at=datetime.now(ZoneInfo('Asia/Shanghai'))
-        self.draw_clock.setText('图像更新 '+at.strftime('%H:%M:%S')+' · 30秒重画；数值随行情计算更新')
+        label='图像更新 ' if len(selected)==len(self.charts) else '所选图更新 '
+        self.draw_clock.setText(label+at.strftime('%H:%M:%S')+' · 30秒重画；数值随行情计算更新')
         from dashboard.marketdata.indicator_analysis import summary
         safe=summary(self.result)
         event=dict(draw_at=at.isoformat(),reason=reason,selection=safe.get('selection'),mode=safe.get('mode'),
                    calculation_at=safe.get('as_of'),pricing_day=safe.get('pricing_day'),series={})
+        channels={channel for key in selected for channel in CHARTS[key]}
         for key,channel in safe['series'].items():
+            if key not in channels:continue
             current=channel['current'];stats=channel['statistics']
             event['series'][key]=dict(source_at=current.get('source_at'),current=current.get('value'),
                                       z=stats.get('z'),percentile=stats.get('percentile'))
