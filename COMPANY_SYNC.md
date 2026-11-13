@@ -17,6 +17,8 @@
 
 ## 最近发布
 
+- 2026-11-13 看板阶段交接已整理：[当前交接](dashboard/PROJECT_HANDOFF.md)记录应用及同事包版本、包路径、验证边界和公司待验收事项；后续以 Git HEAD 与实际包内版本分别核验。
+
 - 2026-11-13 同事包新增桌面快捷方式创建入口，说明内置Python路径、WindPy对应解释器和独立WindPy Python设置；真实Wind安装和登录待公司验证。[交接](dashboard/PROJECT_HANDOFF.md)。
 
 - 2026-11-13 数据VPN默认网关和证书指纹：新用户填写本人账号密码即可保存，已有信任配置优先；当前网关证书与原信任指纹匹配。44项相关测试通过，公司新电脑实际连接待验收。[交接](dashboard/PROJECT_HANDOFF.md)。
