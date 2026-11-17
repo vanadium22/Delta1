@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-17-configurable-expiry-filter",
+  "release": "2026-11-17-colleague-expiry-filter",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "base_commit": "ab97812f78aee01b4f1ac043dbf3c0c1a7ff5a09",
-  "status": "local_validated_company_acceptance_pending",
+  "status": "local_validated_colleague_package_company_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",
@@ -88,6 +88,7 @@
       "dashboard/native/model.py",
       "dashboard/native/term_curve.py",
       "dashboard/numeric_evidence.py",
+      "dashboard/portable/使用说明.txt",
       "tests/test_expiry_filter_20261117.py",
       "tests/test_overview_afternoon_feedback.py",
       "tests/test_overview_refresh_20261112.py",
@@ -111,11 +112,51 @@
       "new_tests": 14,
       "targeted_passed": 35,
       "resource_warnings": "errors",
-      "ui": "125% offscreen 1536x864 and 860x620; both term charts checked"
+      "ui": "125% offscreen 1536x864 and 860x620; both term charts checked",
+      "packaged_runtime": {
+        "tests": 44,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 10.631,
+        "python": "3.13.17",
+        "user_site": false,
+        "additional_verification": "real clean embedded Python plus full offline wheelhouse in repair_offline.py"
+      }
     },
     "validation": "dashboard/APP_VALIDATION.md",
     "company_acceptance": "pending",
-    "colleague_zip_rebuilt": false
+    "colleague_zip_rebuilt": true
+  },
+  "colleague_package": {
+    "revision": "c0d05c8d3c1f3f0314deaa97c3d425a618b025f5",
+    "feature_revision": "4d1db17a8720b74b90dd3b5c04b9a0a555c8d5e8",
+    "bytes": 368944087,
+    "sha256": "8fc552c79bb528a37039a75e6299041af6b794f9fd1092726e5c586fc157cbb4",
+    "members": 21288,
+    "source_files": 357,
+    "credentials_included": false,
+    "history_end": "2026-10-16",
+    "dividend_snapshot": "2026-09-18",
+    "date": "2026-11-17",
+    "local_archive": "local_artifacts/distribution/Delta1_公司看板_20261117_c0d05c8.zip",
+    "expiry_default": 1,
+    "python": "3.13.17",
+    "wheels": 25,
+    "crc_valid": true,
+    "offline_smoke": true,
+    "bundled_tests": 44,
+    "company_acceptance": "pending",
+    "clean_runtime_offline_repair": {
+      "ok": true,
+      "source": "offline_wheels",
+      "python": "3.13.17",
+      "packages": 10,
+      "no_network_index": true,
+      "user_site": false,
+      "initial_runtime": "clean embedded Python"
+    },
+    "data_dependency_reuse": "same verified inputs as previous colleague package; no new downloads"
   },
   "files": [
     ".gitattributes",

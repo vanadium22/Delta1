@@ -1,5 +1,11 @@
 # 看板当前验证与公司验收边界
 
+## 2026-11-17 同事包临期参数
+
+新ZIP的21288个成员通过CRC、来源内容及清单核验；已实际解压，用内置Python 3.13.17、`-B -s`和包内代码通过44项相关测试，10.631秒，无跳过。离线主窗口、4指数/16期货、参数默认值及重启保存、到期日排除、独立依赖和VBS启动器自检通过；验证阻断HTTP请求，不使用开发机或Windows用户site-packages。另以空白嵌入式Python实际执行随包“一键补齐依赖”，25份离线wheel在禁用网络索引时完成安装，10项依赖检查通过。历史行情仍截至2026-10-16，分红快照2026-09-18，数据和25份离线wheel与上版同事包完全一致；原包保留。新电脑Wind/DDB/VPN及公盘仍需公司现场验证。
+
+交付包：`local_artifacts/distribution/Delta1_公司看板_20261117_c0d05c8.zip`；运行提交 `c0d05c8d3c1f3f0314deaa97c3d425a618b025f5`。本轮验证产物位于忽略目录 `local_artifacts/validation/company_20261117_colleague_expiry/`，包括 `archive_checks.json`、`bundled_tests_result.json`、`smoke_result.json`、`repair_result.json`、`pip_check.log` 和 `protection_result.json`。包内回归单独使用空测试数据根，避免真实随包数据自动激活改变测试前提；依赖安装采用真实空运行时验证，替代依赖cwd切换模块的临时colorama测试夹具。应用源码在前一轮的576项完整回归已通过，本次不重复计为重新运行的完整回归。
+
 ## 2026-11-17 临期过滤
 
 本轮完整本地回归576项通过，134.517秒（含加载），无跳过、无重复ID，ResourceWarning作为错误；新增14项，另有35项针对性检查通过。125%缩放下1536×864及860×620离屏核查设置页，无横向滚动；两处期限图验证默认1天保留末档、设5天排除。原数据、凭据、配置、Excel及四提示词保留，APP_RELEASE.backtest原块保持。公司实盘验证待现场；此前同事ZIP未重制，运行版本以Git HEAD为准。
