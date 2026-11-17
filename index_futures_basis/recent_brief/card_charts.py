@@ -131,7 +131,7 @@ def _candle_panel(ax, qs, key, ids, current):
         extent_key = "near" if target is near_axis else "main"
         rank = number(q.percentile, 1) if q is not None else "—"
         sample = f"有效n={int(q.n)}" if q is not None and q.complete else "覆盖不足"
-        labels.append(f"{name}\nP{rank}%\n{sample}")
+        labels.append(f"{name}\n{sample}")
         if q is not None and q.complete:
             extents[extent_key].extend([q.p05, q.p95])
             target.plot([i, i], [q.p05, q.p95], color=color, lw=1.8)
@@ -144,7 +144,7 @@ def _candle_panel(ax, qs, key, ids, current):
             extents[extent_key].append(actual)
             marker = target.scatter([i], [actual], marker="D", color=RED, edgecolor="white", lw=.7, s=58, zorder=7)
             marker.set_gid("current-value")
-            annotations.append((target, extent_key, i, actual))
+            annotations.append((target, extent_key, i, actual, f"P{rank}%"))
         else:
             reason = "当前到期/缺失" if key == "slot" else "当前缺失"
             target.text(i, .95, reason, transform=target.get_xaxis_transform(), color=MUTED, fontsize=9, ha="center", va="top")
@@ -158,10 +158,10 @@ def _candle_panel(ax, qs, key, ids, current):
         target.set_ylim(low-pad, high+pad)
         limits[extent_key] = (low, high)
     ax.set_xlim(-.55, len(ids)-.45)
-    for target, extent_key, x, y in annotations:
+    for target, extent_key, x, y, rank_label in annotations:
         low, high = limits[extent_key]
         upper = (y-low)/(high-low) > .72 if high != low else False
-        label = target.annotate(f"{y:.2f}%", (x, y), xytext=(0, -16 if upper else 16),
+        label = target.annotate(rank_label, (x, y), xytext=(0, -16 if upper else 16),
                     textcoords="offset points", ha="center", va="top" if upper else "bottom",
                     color=RED, fontsize=10, weight="bold", clip_on=True, annotation_clip=True,
                     bbox={"boxstyle": "round,pad=.23", "fc": "white", "ec": "#edc4c9", "lw": .6}, zorder=8)
@@ -208,8 +208,8 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
                     label += " · " + r.contract.replace(".CFE", "")
                     if pd.notna(r.days_to_expiry):
                         label += f" · T={int(r.days_to_expiry)}"
-                detail = f"日变 {number(r.annual_change_1d_bp, 0, True)}bp  /  5日 {number(r.annual_change_5d_bp, 0, True)}bp"
-                secondary = f"60日 P{number(r.percentile, 1)}%  ·  分位日变 {number(r.percentile_change_1d, 1, True)}pct"
+                detail = f"日变 {number(r.annual_change_1d_pct_points, 2, True)} / 5日 {number(r.annual_change_5d_pct_points, 2, True)} 个百分点"
+                secondary = f"60日 P{number(r.percentile, 1)}%  ·  分位日变 {number(r.percentile_change_1d, 1, True)}个百分点"
                 if r.roll_5d:
                     secondary += " · 含换月"
             _card(fig, .06+i*(width+.010), top-.068, width, .048, label, value, detail, secondary, color)

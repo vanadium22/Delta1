@@ -46,8 +46,10 @@ def series_metrics(series, end, key, current_quantiles=None):
                "percentile": percentile}
         for lag, day in dates.items():
             row[f"basis_change_{lag}d"] = _difference(group, end, day, "basis_points")
-            # Annualized values are in percent. 1 percentage point = 100 basis points.
-            row[f"annual_change_{lag}d_bp"] = 100*_difference(group, end, day, "annualized_basis_pct")
+            # Percentage-point difference is the display unit; bp remains an audit column.
+            delta = _difference(group, end, day, "annualized_basis_pct")
+            row[f"annual_change_{lag}d_pct_points"] = delta
+            row[f"annual_change_{lag}d_bp"] = 100*delta
             previous_rank = lookup.get(lag, pd.Series(dtype=float)).get((root, identity), np.nan)
             interval = group[group.trade_date.between(day, end)] if day is not None else group.iloc[:0]
             row[f"percentile_change_{lag}d"] = (percentile-previous_rank
@@ -90,8 +92,8 @@ def highlights(single, cross, totals):
     cards = []
     for frame, field, title, units, decimals, scale in (
         (single, "basis_change_5d", "单合约 · 5日基差变动最大", "点", 1, 1),
-        (single, "annual_change_1d_bp", "单合约 · 当日年化变动最大", "bp", 0, 1),
-        (cross, "annual_change_5d_bp", "跨期 · 5日年化变动最大", "bp", 0, 1),
+        (single, "annual_change_1d_pct_points", "单合约 · 当日年化变动最大", "个百分点", 2, 1),
+        (cross, "annual_change_5d_pct_points", "跨期 · 5日年化变动最大", "个百分点", 2, 1),
         (totals, "oi_change_1d", "四合约 · 当日总持仓变动最大", "万手", 2, .0001)):
         valid = frame[frame[field].notna() & np.isfinite(frame[field])]
         if valid.empty:

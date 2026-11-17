@@ -15,7 +15,8 @@ import pandas as pd
 from index_futures_basis.recent_brief.automation import input_fingerprint, watch
 from index_futures_basis.recent_brief.card_charts import _candle_panel
 from index_futures_basis.recent_brief.data import adjust, session_quantiles
-from index_futures_basis.recent_brief.metrics import series_metrics, total_metrics
+from index_futures_basis.recent_brief.metrics import highlights, series_metrics, total_metrics
+from index_futures_basis.recent_brief.brief import main, refresh_market
 from index_futures_basis.tests.test_recent_brief import panel
 
 
@@ -67,6 +68,7 @@ class BriefCardTests(unittest.TestCase):
         self.assertEqual(r.basis_change_1d, 1)
         self.assertEqual(r.basis_change_5d, 5)
         self.assertAlmostEqual(r.annual_change_1d_bp, (-99-9.8)*100)
+        self.assertAlmostEqual(r.annual_change_1d_pct_points, -99-9.8)
         self.assertEqual(r.percentile, 0)
         self.assertEqual(r.percentile_change_1d, -100)
         self.assertTrue(r.roll_5d)
@@ -102,8 +104,44 @@ class BriefCardTests(unittest.TestCase):
                 for text in axis.texts:
                     if text.get_gid() == "current-value-label":
                         self.assertTrue(text.get_clip_on())
+                        self.assertEqual(text.get_text(), "P10.0%")
         finally:
             plt.close(fig)
+
+    def test_summary_uses_percentage_points_instead_of_basis_points(self):
+        p = self.history()
+        single = series_metrics(p, p.trade_date.max(), "slot")
+        cross = single.drop(columns="slot").assign(pair="01−02")
+        totals = total_metrics(panel(), panel().trade_date.max())
+        cards = highlights(single, cross, totals)
+        self.assertEqual(cards[1]["value"], "+0.10 个百分点")
+        self.assertEqual(cards[2]["value"], "+0.50 个百分点")
+        self.assertNotIn("bp", json.dumps(cards))
+
+    def test_refresh_reuses_original_incremental_service_and_requested_cutoff(self):
+        service = SimpleNamespace(sync=unittest.mock.Mock(return_value={"state": "complete", "requests": 0}))
+        factory = unittest.mock.Mock(return_value=service)
+        result = refresh_market("2026-01-05", factory=factory,
+                                volume_refresher=lambda service, day: {"state": "complete", "requests": 0})
+        factory.assert_called_once_with(mode="wind")
+        self.assertEqual(service.sync.call_args.kwargs["end"], "2026-01-05")
+        self.assertEqual(result["state"], "complete")
+        self.assertTrue(result["requested"])
+
+    def test_refresh_failure_is_not_reported_as_success(self):
+        factory = unittest.mock.Mock(side_effect=TimeoutError("test timeout"))
+        result = refresh_market(factory=factory)
+        self.assertEqual(result["state"], "failed")
+        self.assertIn("test timeout", result["reason"])
+
+    def test_daily_refresh_still_exports_partial_data_and_returns_nonzero(self):
+        with patch("index_futures_basis.recent_brief.brief.refresh_market", return_value={"requested": True, "state": "partial"}), \
+             patch("index_futures_basis.recent_brief.brief.build", return_value=Path("fixture")) as generate, \
+             patch("index_futures_basis.recent_brief.automation.publish_latest") as publish:
+            self.assertEqual(main(["--refresh"]), 2)
+            generate.assert_called_once()
+            self.assertEqual(generate.call_args.args[0].refresh_result["state"], "partial")
+            publish.assert_called_once()
 
     def test_input_fingerprint_detects_snapshot_and_wal_but_ignores_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

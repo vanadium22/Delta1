@@ -20,6 +20,35 @@ from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_
 from .metrics import highlights, series_metrics, total_metrics
 
 
+def refresh_market(as_of=None, factory=None, volume_refresher=None):
+    """Reuse the original incremental updater; never fabricate a successful refresh."""
+    if factory is None:
+        from ..service import BasisService
+        factory = BasisService
+    print("先检查并增量补齐Wind行情。", flush=True)
+    try:
+        service = factory(mode="wind")
+        outcome = service.sync(progress=print, end=as_of)
+        info = {"requested": True, "started_with": "original BasisService.sync", **outcome}
+        if info["state"] == "complete":
+            if volume_refresher is None:
+                from .refresh import refresh_volumes
+                volume_refresher = refresh_volumes
+            try:
+                volume_info = volume_refresher(service, as_of)
+            except Exception as exc:
+                volume_info = {"state": "failed", "message": str(exc)}
+            info["volume_refresh"] = volume_info
+            if volume_info["state"] != "complete":
+                info["state"] = "partial"
+                info["message"] = "期现货/持仓更新完成，成交量未完整更新：" + volume_info.get("message", "缺成交量")
+    except Exception as exc:
+        info = {"requested": True, "state": "failed", "reason": str(exc)}
+    if info["state"] != "complete":
+        print("行情未完整更新，将使用本地实际可用数据生成；日期以报告为准。", flush=True)
+    return info
+
+
 def explanations(panel, spreads, single_q, end, cross_q=None):
     latest = snapshot_table(panel, end)
     available = latest[latest.change_5d.notna()]
@@ -51,7 +80,7 @@ def explanations(panel, spreads, single_q, end, cross_q=None):
             return "60交易日尾部：" + "；".join(labels) + "。"
         return "有效当前值未落入5%/95%尾部。" if len(complete) else "当前值或历史覆盖不足，分位留空。"
     second = ("每品种四条年化曲线合并，右侧为此前60个交易日的分布，排除当日。"
-              "实体P25–P75、须P5–P95、中线P50；红菱形旁为当前实际年化值。"
+              "实体P25–P75、须P5–P95、中线P50；红菱形旁标当前60日分位比例Pxx%，实际年化值见上方卡片。"
               "剩余自然日T≥1均计算并纳入分位，T=0留空；n为有效样本数。"
               "00读蓝色右轴，01—03读左轴，走势与蜡烛均标清独立刻度，不能跨轴按高度比较。")
     second += tail_note(single_q, "slot")
@@ -122,8 +151,8 @@ def build(args):
     source_label = source.get("label") or source.get("source", {}).get("label", "本地持久化行情库")
     source_line = "\n行情来源：" + source_label + ("；成交量补充：共享修订后日线缓存。" if volume_info.get("version") else "。")
     chart1_note = note + " 阴影/加粗线为最近5日；变化按连续档位，换月在卡片标记。" + source_line
-    chart2_note = note + " T≥1均计算。00读蓝色右轴、01—03读左轴，不跨轴比高度；菱形位于蜡烛中心。1bp=0.01个百分点。" + source_line
-    chart3_note = note + " 年化=调整后价差÷现货×365÷实际到期日间隔；菱形为当前值，左右独立纵轴。" + source_line
+    chart2_note = note + " T≥1均计算。00读蓝色右轴、01—03读左轴，不跨轴比高度；红点标签为60日分位比例，实际值见卡片。" + source_line
+    chart3_note = note + " 年化=调整后价差÷现货×365÷实际到期日间隔；红点标签为60日分位比例，实际值见卡片。" + source_line
     chart4_note = note + " 总量任一腿缺值则留空；虚线为前20交易日成交中位数，最近5日着色；右侧持仓轴自动缩放。" + source_line
     charts.setup()
     files = ["01_近期基差与跨期.png", "02_单合约年化与60日分位.png",
@@ -148,6 +177,11 @@ def build(args):
         source_note += " 分红输入不可用，调整后基差留空：" + dividend_info["reason"]
     if volume_info.get("reason"):
         source_note += " 额外成交量不可用：" + volume_info["reason"]
+    refresh_info = getattr(args, "refresh_result", {})
+    if refresh_info.get("requested"):
+        source_note += " 本次行情更新状态：" + refresh_info.get("state", "unknown") + "。"
+        if refresh_info.get("state") != "complete":
+            source_note += " 使用本地实际可用数据；" + str(refresh_info.get("reason") or refresh_info.get("message") or "部分字段未更新")
     body = "".join(f'<figure><img src="{escape(f)}" alt="{escape(f)}"><figcaption>{escape(t)}</figcaption></figure>'
                    for f, t in zip(files, texts))
     hero = '<div class="cards">' + "".join(
@@ -172,7 +206,7 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 3, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 4, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": 60},
@@ -182,13 +216,14 @@ def build(args):
                 "calendar_annualized_formula": "(left_adjusted_price-right_adjusted_price)/spot_close*36500/(right_expiry-left_expiry).days",
                 "activity_aggregation": "sum 4 contracts (00-03); any missing constituent makes total missing; total OI change is difference of daily sums",
                 "card_policy": {"changes": "1/5 exact local trading sessions; continuous slots/pairs, rolls marked; unknown calendar invalidates",
-                    "annual_change_unit": "bp = annualized percentage-point difference * 100",
+                    "annual_change_unit": "percentage-point difference; bp retained only in audit CSV, not displayed",
                     "percentile_change": "current rank minus previous day's own trailing-60-session rank; percentage points",
                     "activity_relative_change": "(current/previous-1)*100; zero denominator unavailable"},
                 "rendering": {"png_dpi": charts.DPI, "png_width_pixels": 3800, "vector_svg": True,
-                    "current_marker": "center of corresponding candle, actual annualized value; label constrained inside axes",
+                    "current_marker": "center of corresponding candle at actual annualized y-value; label is trailing-60-session percentile Pxx%, constrained inside axes",
                     "single_contract_axes": "00 blue right axis; 01-03 left axis; do not compare heights across different axes"},
                 "summary_cards": summary_cards,
+                "market_refresh": getattr(args, "refresh_result", {"requested": False}),
                 "anomaly_policy": {"percentile_tails": [5,95], "volume_multiple": 2,
                     "volume_reference": "previous 20 sessions, four-contract total; >=10 finite samples; exclude current"},
                 "code_sha256": code_hash, "explanations": texts,
@@ -210,10 +245,13 @@ def main(argv=None):
     parser.add_argument("--sessions", type=int, default=60, help="走势图交易日数，默认60")
     parser.add_argument("--output", type=Path, help="输出到一个新的批次目录")
     parser.add_argument("--watch", action="store_true", help="持续检查本地输入，变化后自动生成新批次、卡片与图文；Ctrl+C退出")
+    parser.add_argument("--refresh", action="store_true", help="单次先尝试原项目Wind增量补缺再生成；更新失败仍尽力导出，退出码2并记录原因")
     parser.add_argument("--poll-seconds", type=int, default=60, help="自动生成的本地输入检查间隔，默认60秒")
     args = parser.parse_args(argv)
     if args.snapshot and args.database:
         parser.error("--snapshot和--database只能指定一个")
+    if args.refresh and (args.watch or args.snapshot or args.database):
+        parser.error("--refresh只用于默认行情库的单次生成，不与--watch/--snapshot/--database组合")
     if not 10 <= args.sessions <= 80:
         parser.error("--sessions须为10至80；成交量补充读取最近80个交易日")
     if args.as_of:
@@ -225,6 +263,8 @@ def main(argv=None):
     from .automation import publish_latest, watch
     if args.watch:
         return watch(args)
+    if args.refresh:
+        args.refresh_result = refresh_market(args.as_of)
     output = build(args)
     publish_latest(output, Path(args.output).resolve().parent if args.output else ROOT/"exports/recent_brief")
-    return 0
+    return 2 if args.refresh and args.refresh_result["state"] != "complete" else 0
