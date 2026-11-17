@@ -1,62 +1,54 @@
-# 每天生成基差简报
+# 每天生成Word和PDF基差简报
 
-使用已有 **工作自动化工作台（Work Automation 0.6.0）**。本机已找到桌面快捷方式，目标为 `P:\project\swhy\project\work_automation\启动工作自动化工作台.vbs`；公司原应用目录为 `D:\WORKSPACE\MAIN\SwhySc\project\work_automation`。本次只读检查了本机任务登记，未发现基差任务；公司实际任务列表需按程序路径查重。
+## 在基差App里操作
 
-## 立即生成
+公司先在原仓库根目录执行`git pull --ff-only`，重开基差App，进入 **报告与记录**。
 
-公司先在原仓库根目录 `git pull --ff-only`，登录Wind终端，然后双击：
+- **一键生成简报并打开PDF**：默认正式模式先增量更新Wind行情及成交量，然后后台生成Word/PDF并打开PDF。取消“正式模式先增量更新行情”只用本地；离线模式不联网，演示模式不生成真实简报。
+- **查看最新PDF / 查看最新Word**：打开最近成功批次对应的文件。
+- **打开简报目录**：查看该批次的Word、PDF、四张完整PNG/SVG、30/60/120日分位表CSV及来源记录。
+- **修正图片后重排Word/PDF**：选择已修改PNG的批次，仅重排新Word/PDF批次并打开PDF；不重算、不下载、不覆盖原批次。
+- **接入每日自动化**：在原“工作自动化工作台”登记唯一的单次CMD任务。新任务自动启用工作日16:10；已有同程序登记保留原ID、时间和启停，不重复创建。找不到工作台时选择其包含app.py的目录。
 
-```text
-<仓库根目录>\index_futures_basis\start_recent_brief_daily.cmd
-```
+生成使用已有Python及项目已声明的python-docx/Matplotlib依赖，不需要Word或LibreOffice来生成PDF。Word与PDF同时生成完整后才替换latest；图片和文档布局分开，未来改图后可重新生成或重排。
 
-这个入口先复用原基差程序的Wind增量补缺（日历、实际合约、到期日、期现货收盘和持仓），再按逐日实际合约补最近80交易日成交量缺口，随后生成图片、卡片和图文；已有有效行情直接复用。沿用原`python.local.txt`或`SWHY_DELTA1_PYTHON`解释器配置，无需更换Work Automation自己的Python。无须每次导入快照或手填报告日期。
+## 已有工作自动化App
 
-已经由其他程序更新好行情时，双击 `start_recent_brief.cmd` 即可只用本地生成。
+本机已登记并启用“股指基差每日Word与PDF简报”（工作日16:10），重复接入验证保留同一ID；没有启动后台或更改原邮件/日报/FOF任务。本机桌面为“工作自动化工作台”，源目录`P:\project\swhy\project\work_automation`；公司为`D:\WORKSPACE\MAIN\SwhySc\project\work_automation`。仍使用其0.6.0原生定时子任务，不另建Windows调度器、不接邮件、不更改日报或FOF。
 
-## 在自动化App里每日定时
+公司更新基差代码后，在基差前端点一次“接入每日自动化”，再打开工作台“定时子任务”，会看到 **股指基差每日Word与PDF简报**。已有任务仍沿用自己的名字。可在此编辑时点、暂停/启用、运行一次和查看日志。接入按钮只登记任务，不启动工作台后台、不立即运行Wind；到点执行仍需Wind登录、工作台后台运行以及本机Python配置可用。
 
-1. 打开桌面的“工作自动化工作台”，进入“定时子任务 → 登记子任务”。如已有同一基差程序登记，编辑原任务。
-2. 按下表填写，点“检查配置”和“保存”。新任务默认暂停，保存不会执行。
-3. 登录Wind后点“运行一次”，从日志和简报核对实际行情日、分红日期及退出结果。
-4. 使用下表建议日程，启用自动运行；让工作台后台在该时点保持运行。关闭前端页面仍保留后台，完全关闭应用会停止调度。
-
-| 字段 | 填写内容 |
+| 字段 | 默认值 |
 | --- | --- |
-| 名称 | 股指基差每日简报 |
-| 程序 | 选择本仓库的 `index_futures_basis\start_recent_brief_daily.cmd` |
+| 程序 | 仓库内`index_futures_basis\start_recent_brief_daily.cmd` |
+| 工作目录 | 仓库根目录，即包含index_futures_basis的目录 |
 | 参数 | 留空 |
-| 工作目录 | 仓库根目录，即包含`index_futures_basis`的目录 |
-| 执行方式 | 建议“工作日”，北京时间16:10；可按自己的数据更新时间调整 |
-| 程序类型/环境 | CMD任务，由启动脚本复用基差项目的现有Python |
-| 邮件关联 | 不关联；本任务只生成文件 |
+| 环境 | CMD，由启动脚本沿用python.local.txt或SWHY_DELTA1_PYTHON |
+| 新任务时间 | 北京时间工作日16:10，启用；已有任务不改动 |
+| 邮件 | 关闭，只生成文件 |
 
-本机程序完整路径：
+本机程序：`P:\project\swhy\Delta1\project\index_futures_basis\start_recent_brief_daily.cmd`。
 
-```text
-P:\project\swhy\Delta1\project\index_futures_basis\start_recent_brief_daily.cmd
-```
+公司程序：`D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\start_recent_brief_daily.cmd`；公司工作目录为`D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard`。
 
-按公司现有仓库位置，程序为：
+手动也可双击`start_recent_brief_daily.cmd`；已经更新好行情时双击`start_recent_brief.cmd`。持续监控用的`start_recent_brief_watch.cmd`不放入工作台串行队列。任务单次完成后退出，正常0；更新不完整仍尽力生成且返回2，日志和报告标实际行情日期及失败原因。没有输出成功就不替换上次结果。
 
-```text
-D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\start_recent_brief_daily.cmd
-```
+工作台工作日为周一到周五，交易所假期可能重复最近行情日，报告如实标日期；错过定时不会自动补跑。关闭工作台前端可保留后台，完全关闭会停止调度。公司Wind权限和实连仍需现场验证。
 
-公司工作目录为 `D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard`。仓库实际位置不同就选择自己的文件。CMD参数每格一个值，不手工加外层引号。自动化App负责唯一调度，本入口不会安装Windows计划任务。
+## 保存位置
 
-定时子任务使用这份单次入口，运行完成会退出；`start_recent_brief_watch.cmd`是持续监控本地输入的常驻方式，不用于工作台串行定时队列。
-
-## 每天查看结果
-
-固定打开：
+本机固定文件：
 
 ```text
-<仓库根目录>\index_futures_basis\exports\recent_brief\latest.html
+P:\project\swhy\Delta1\project\index_futures_basis\exports\recent_brief\latest.pdf
+P:\project\swhy\Delta1\project\index_futures_basis\exports\recent_brief\latest.docx
 ```
 
-它指向最近成功生成的批次。每次批次保留4张PNG、4份SVG、图文页、计算及卡片CSV、来源清单。报告标题和页首注明实际行情截止日及分红表日期。
+公司固定文件：
 
-正常退出码为0；Wind更新失败或不完整，但使用本地数据生成了报告时为2，页面和`run_manifest.json.market_refresh`说明状态及原因。有输出不代表行情已更新到当天，应核对报告日期。公司Wind实连、权限和实际数据更新速度仍以现场运行为准。
+```text
+D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\recent_brief\latest.pdf
+D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\recent_brief\latest.docx
+```
 
-工作台0.6.0按工作日安排时仍可能在交易所节假日运行；报告会标实际可用行情日。它错过定时不自动补跑，如需当天补做，在任务界面按已有批次/新建批次规则运行一次。保持原有日报、FOF及邮件任务不变。
+每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，含8页Word/PDF、4张完整PNG和SVG、8份分段排版图、计算/卡片CSV及来源清单。不生成HTML，新旧批次独立保留。前端从latest.json读取真实批次，所以不依赖特定预览日期目录。

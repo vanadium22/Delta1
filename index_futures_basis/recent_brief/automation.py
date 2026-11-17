@@ -3,53 +3,41 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from html import escape
 import json
 import os
 from pathlib import Path
 import threading
-from urllib.parse import quote
 import uuid
 
 from ..config import ROOT, atomic_json, load_config, timestamp
 from shared_data import DataPaths
 
 
-def _text(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    try:
-        tmp.write_text(value, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
 def publish_latest(output, root):
+    from .documents import WORD_NAME, PDF_NAME
+    import shutil
     output, root = Path(output).resolve(), Path(root).resolve()
     manifest = json.loads((output/"run_manifest.json").read_text(encoding="utf-8"))
-    try:
-        url = quote(Path(os.path.relpath(output/"index.html", root)).as_posix(), safe="/._-")
-    except ValueError:
-        url = (output/"index.html").as_uri()
-    _text(root/"latest.html", '<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
-          f'<meta http-equiv="refresh" content="0;url={escape(url)}"><title>最新基差简报</title>'
-          f'<p>最近成功生成：{escape(manifest["created_at"])}；行情截至{escape(manifest["as_of"])}。</p>'
-          f'<a href="{escape(url)}">打开最新成功简报</a></html>')
+    root.mkdir(parents=True, exist_ok=True)
+    paths = {"word": output/WORD_NAME, "pdf": output/PDF_NAME}
+    if any(not path.is_file() or path.stat().st_size == 0 for path in paths.values()):
+        raise ValueError("Word/PDF未完整生成，保留之前成功简报")
+    for key, path in paths.items():
+        target = root/("latest"+path.suffix)
+        tmp = root/("."+uuid.uuid4().hex+path.suffix)
+        try:
+            shutil.copyfile(path, tmp)
+            os.replace(tmp, target)
+        finally:
+            tmp.unlink(missing_ok=True)
     atomic_json(root/"latest.json", {"output": str(output), "as_of": manifest["as_of"],
-                                   "created_at": manifest["created_at"]})
+        "created_at": manifest["created_at"], **{key: str(path) for key, path in paths.items()}})
+    (root/"last_failure.json").unlink(missing_ok=True)
 
 
 def _show_failure(root):
-    previous = root/"latest.json"
-    if previous.is_file():
-        saved = json.loads(previous.read_text(encoding="utf-8"))
-        url = (Path(saved["output"])/"index.html").as_uri()
-        content = f'<p>上次成功行情截至 {escape(saved["as_of"])}。</p><a href="{escape(url)}">查看上次成功简报</a>'
-    else:
-        content = '<p>尚无成功生成的简报。</p>'
-    _text(root/"latest.html", '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>基差简报更新状态</title>'
-          '<h2>本次自动更新未成功</h2><p>已保留先前结果，输入变化后会重试。</p>'+content+'</html>')
+    atomic_json(root/"last_failure.json", {"state": "failed", "at": timestamp(),
+        "message": "本次自动更新未成功，先前Word/PDF及latest指针保持不变；输入变化后重试"})
 
 
 def input_fingerprint(args):
@@ -114,10 +102,16 @@ def watch(args, *, generate=None, fingerprint=input_fingerprint, stop=None):
                 try:
                     run = copy.copy(args)
                     run.output = root/(timestamp().replace(":", "").replace("+", "_") + "_" + uuid.uuid4().hex[:6])
-                    output = generate(run)
-                    publish_latest(output, root)
+                    from .workflow import generation_lock
+                    with generation_lock():
+                        output = generate(run)
+                        publish_latest(output, root)
                     atomic_json(root/"automation_state.json", {"state": "waiting", "updated_at": timestamp(),
                         "input_fingerprint": signature, "last_successful_output": str(output)})
+                except TimeoutError as exc:
+                    last_attempt = None
+                    atomic_json(root/"automation_state.json", {"state": "waiting", "updated_at": timestamp(),
+                        "input_fingerprint": signature, "message": "其他生成批次忙，下一轮重试", "detail": str(exc)})
                 except Exception as exc:
                     atomic_json(root/"automation_state.json", {"state": "failed", "updated_at": timestamp(),
                         "input_fingerprint": signature, "error": str(exc), "previous_success_preserved": True})

@@ -229,12 +229,18 @@ def session_quantiles(series, end, key, sessions=60):
                "sample_start": values.index.min(), "sample_end": values.index.max(),
                "current": current, "n": len(values), "eligible_n": int(eligible.sum()),
                "expiry_day_excluded_n": int((~eligible).sum()), "complete": complete}
+        row["mean"] = values.mean() if complete else np.nan
+        row["std"] = values.std(ddof=0) if complete else np.nan
         for name, probability in (("p05", .05), ("p25", .25), ("p50", .5), ("p75", .75), ("p95", .95)):
             row[name] = values.quantile(probability) if complete else np.nan
         row["percentile"] = (100*((values < current).sum() + .5*(values == current).sum())/len(values)
                              if complete and np.isfinite(current) else np.nan)
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def multi_session_quantiles(series, end, key):
+    return pd.concat([session_quantiles(series, end, key, sessions=n) for n in (30, 60, 120)], ignore_index=True)
 
 
 def activity_totals(panel):

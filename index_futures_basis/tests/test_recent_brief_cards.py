@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 
 from index_futures_basis.recent_brief.automation import input_fingerprint, watch
-from index_futures_basis.recent_brief.card_charts import _candle_panel
-from index_futures_basis.recent_brief.data import adjust, session_quantiles
-from index_futures_basis.recent_brief.metrics import highlights, series_metrics, total_metrics
+from index_futures_basis.recent_brief.card_charts import _candle_panel, _quantile_table, _trend
+from index_futures_basis.recent_brief.data import adjust, session_quantiles, multi_session_quantiles
+from index_futures_basis.recent_brief.metrics import highlights, series_metrics, total_metrics, activity_commentary
 from index_futures_basis.recent_brief.brief import main, refresh_market
 from index_futures_basis.tests.test_recent_brief import panel
 
@@ -91,22 +91,64 @@ class BriefCardTests(unittest.TestCase):
         self.assertTrue(np.isnan(missing.oi_current))
         self.assertTrue(np.isnan(missing.oi_change_1d))
 
-    def test_current_diamonds_are_centered_on_corresponding_candles(self):
-        qs = pd.DataFrame([{"slot": i, "complete": True, "n": 60, "percentile": 10,
-            "p05": -30, "p25": -20, "p50": -15, "p75": -10, "p95": 5} for i in range(1, 5)])
-        current = pd.DataFrame({"slot": [1,2,3,4], "annual_current": [-112.,-10.,-9.,-8.]})
-        fig, ax = plt.subplots(figsize=(7, 6))
+    def test_rank_table_keeps_00_current_value_and_all_three_windows(self):
+        p = self.history()
+        q = multi_session_quantiles(p, p.trade_date.max(), "slot")
+        metric = series_metrics(p, p.trade_date.max(), "slot")
+        fig, ax = plt.subplots(figsize=(8, 6))
         try:
-            _candle_panel(ax, qs, "slot", [1,2,3,4], current)
-            points = [tuple(c.get_offsets()[0]) for axis in fig.axes for c in axis.collections if c.get_gid() == "current-value"]
-            self.assertEqual(sorted(points), [(0.,-112.),(1.,-10.),(2.,-9.),(3.,-8.)])
-            for axis in fig.axes:
-                for text in axis.texts:
-                    if text.get_gid() == "current-value-label":
-                        self.assertTrue(text.get_clip_on())
-                        self.assertEqual(text.get_text(), "P10.0%")
+            table = _quantile_table(ax, q, "slot", [1,2,3,4], metric)
+            texts = [c.get_text().get_text() for c in table.get_celld().values()]
+            self.assertIn("30日分位", texts)
+            self.assertIn("60日分位", texts)
+            self.assertIn("120日分位", texts)
+            self.assertIn("00", texts)
+            self.assertIn("9.90%", texts)
+            self.assertIn("P100.0%\nn=60", texts)
+            self.assertIn("—\nn=99/120", texts)
         finally:
             plt.close(fig)
+
+    def test_annualized_trend_has_no_00_line_or_secondary_axis(self):
+        p = self.history()
+        p["annualized_plot_filled"] = False
+        p["annualized_plot_pct"] = p.annualized_basis_pct
+        fig, ax = plt.subplots()
+        try:
+            _trend(ax, p, "IF", "slot", [2,3,4], sorted(p.trade_date.unique()), "annualized_basis_pct", annual=True)
+            self.assertEqual(len(fig.axes), 1)
+            self.assertEqual([x.get_text() for x in ax.get_legend().get_texts()], ["01","02","03"])
+        finally:
+            plt.close(fig)
+
+    def test_30_60_120_windows_exclude_current_and_do_not_shorten_history(self):
+        p = self.history()
+        result = multi_session_quantiles(p, p.trade_date.max(), "slot").set_index("window_sessions")
+        self.assertEqual(set(result.index), {30,60,120})
+        self.assertTrue(result.loc[30,"complete"])
+        self.assertTrue(result.loc[60,"complete"])
+        self.assertFalse(result.loc[120,"complete"])
+        self.assertAlmostEqual(result.loc[60,"mean"], 6.85)
+        p.loc[p.index[-1], "annualized_basis_pct"] = -999
+        revised = multi_session_quantiles(p, p.trade_date.max(), "slot").set_index("window_sessions")
+        self.assertEqual(revised.loc[60,"mean"], result.loc[60,"mean"])
+
+    def test_activity_comments_describe_sustained_growth_and_reversal(self):
+        days = pd.bdate_range("2026-01-01", periods=11)
+        p = pd.DataFrame([{"trade_date": day, "root": "IF", "slot": slot, "volume": (100+i*10),
+                           "open_interest": (300+i*20), "calendar_known": True}
+                          for i,day in enumerate(days) for slot in range(1,5)])
+        text = activity_commentary(p, days[-1])["IF"]
+        self.assertIn("连续10日增加", text)
+        self.assertIn("增仓与成交扩张同向", text)
+        alternating = [100+i*10+(12 if i%2 else 0) for i in range(len(days))]
+        p["volume"] = [alternating[i] for i in range(len(days)) for _ in range(4)]
+        self.assertIn("5日均值连续", activity_commentary(p, days[-1])["IF"])
+        p.loc[p.trade_date.eq(days[-1]), "open_interest"] = 100
+        text = activity_commentary(p, days[-1])["IF"]
+        self.assertIn("此前5日中5日增加，最新转为减少", text)
+        p.loc[p.trade_date.eq(days[-1]), "calendar_known"] = False
+        self.assertIn("数据不足", activity_commentary(p, days[-1])["IF"])
 
     def test_summary_uses_percentage_points_instead_of_basis_points(self):
         p = self.history()
@@ -114,8 +156,10 @@ class BriefCardTests(unittest.TestCase):
         cross = single.drop(columns="slot").assign(pair="01−02")
         totals = total_metrics(panel(), panel().trade_date.max())
         cards = highlights(single, cross, totals)
-        self.assertEqual(cards[1]["value"], "+0.10 个百分点")
-        self.assertEqual(cards[2]["value"], "+0.50 个百分点")
+        self.assertEqual(cards[1]["value"], "+3.05 个百分点")
+        self.assertIn("60均", cards[1]["detail"])
+        self.assertIn("60日均幅1.00倍", cards[1]["detail"])
+        self.assertEqual(cards[2]["value"], "+3.05 个百分点")
         self.assertNotIn("bp", json.dumps(cards))
 
     def test_refresh_reuses_original_incremental_service_and_requested_cutoff(self):
@@ -171,14 +215,16 @@ class BriefCardTests(unittest.TestCase):
                 if len(calls) == 2:
                     raise ValueError("test invalid input")
                 run.output.mkdir(parents=True)
-                (run.output/"index.html").write_text("preview", encoding="utf-8")
+                (run.output/"股指基差简报.pdf").write_bytes(b"%PDF-test")
+                (run.output/"股指基差简报.docx").write_bytes(b"PK-test")
                 (run.output/"run_manifest.json").write_text(json.dumps({"as_of": "2026-01-05", "created_at": str(len(calls))}), encoding="utf-8")
                 return run.output
             def observe():
                 states.append(json.loads((root/"automation_state.json").read_text(encoding="utf-8"))["state"])
                 if states[-1] == "failed":
                     self.assertEqual(json.loads((root/"latest.json").read_text(encoding="utf-8"))["created_at"], "1")
-                    self.assertIn("本次自动更新未成功", (root/"latest.html").read_text(encoding="utf-8"))
+                    self.assertIn("本次自动更新未成功", (root/"last_failure.json").read_text(encoding="utf-8"))
+                    self.assertFalse((root/"latest.html").exists())
             watch(args, generate=generate, fingerprint=lambda _: next(signatures), stop=Cycles(4, observe))
             self.assertEqual(len(calls), 3)
             self.assertEqual(states, ["waiting", "waiting", "failed", "waiting"])

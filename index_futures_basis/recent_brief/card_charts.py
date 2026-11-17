@@ -12,7 +12,7 @@ import pandas as pd
 from ..analytics import NAMES
 from .charts import COLORS, INK, MUTED, RED, number, setup
 from .data import ORDER, PAIRS, activity_totals
-from .metrics import series_metrics, total_metrics
+from .metrics import series_metrics, total_metrics, activity_commentary
 
 STYLES = ("-", (0, (5, 2)), (0, (4, 2, 1, 2)), (0, (1, 1.5)))
 DPI = 200
@@ -73,23 +73,26 @@ def _save(fig, output):
     fig.savefig(output, dpi=DPI)
     fig.savefig(output.with_suffix(".svg"))
     output.with_suffix(".layout.json").write_text(json.dumps({"pixels": [int(fig.bbox.width), int(fig.bbox.height)],
-        "dpi": DPI, "current_value_labels": contained}, ensure_ascii=False, indent=2), encoding="utf-8")
+        "dpi": DPI, "current_value_labels": contained,
+        "quantile_tables": [[cell.get_text().get_text() for cell in table.get_celld().values()]
+                            for ax in fig.axes for table in ax.tables if table.get_gid() == "rank-table"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     plt.close(fig)
 
 
 def _trend(ax, series, root, key, ids, days, field, annual=False):
     ax.axvspan(max(-.5, len(days)-6), len(days)-1, color="#edf3f8", zorder=0)
     handles = []
-    near_axis = ax.twinx() if annual and key == "slot" else None
+    near_axis = ax.twinx() if annual and key == "slot" and 1 in ids else None
     for i, identity in enumerate(ids):
-        color = COLORS[i] if key == "slot" else COLORS[i+1]
+        style_index = identity-1 if key == "slot" else i+1
+        color = COLORS[style_index]
         name = f"{identity-1:02d}" if key == "slot" else identity
         g = series[series.root.eq(root) & series[key].eq(identity)].set_index("trade_date").reindex(days)
         values = g[field].to_numpy()
         target = near_axis if near_axis is not None and identity == 1 else ax
-        target.plot(range(len(days)), values, color=color, lw=1.6, ls=STYLES[i], alpha=.88)
+        target.plot(range(len(days)), values, color=color, lw=1.6, ls=STYLES[style_index], alpha=.88)
         first = max(0, len(days)-6)
-        target.plot(range(first, len(days)), values[first:], color=color, lw=2.6, ls=STYLES[i])
+        target.plot(range(first, len(days)), values[first:], color=color, lw=2.6, ls=STYLES[style_index])
         if np.isfinite(values[-1]):
             target.scatter([len(days)-1], [values[-1]], s=42, color=color, edgecolor="white", lw=.7, zorder=6)
         if np.isfinite(values[first]):
@@ -98,7 +101,7 @@ def _trend(ax, series, root, key, ids, days, field, annual=False):
             fill = g.annualized_plot_filled.eq(True).to_numpy()
             joins = fill | np.r_[fill[1:], False]
             target.plot(range(len(days)), g.annualized_plot_pct.where(joins), color=color, ls="--", lw=1.1, alpha=.65)
-        handles.append(Line2D([0], [0], color=color, lw=2, ls=STYLES[i], label=name))
+        handles.append(Line2D([0], [0], color=color, lw=2, ls=STYLES[style_index], label=name))
     _date_axis(ax, days)
     if ax.get_ylim()[0] <= 0 <= ax.get_ylim()[1]:
         ax.axhline(0, color="#aab9c6", lw=.8, ls="--")
@@ -181,15 +184,55 @@ def _candle_panel(ax, qs, key, ids, current):
         near_axis.spines["right"].set_color(COLORS[0])
 
 
+def _quantile_table(ax, qs, key, ids, current):
+    ax.axis("off")
+    body = []
+    for identity in ids:
+        rows = current[current[key].eq(identity)]
+        row = rows.iloc[0] if len(rows) else None
+        label = f"{identity-1:02d}" if key == "slot" else identity
+        if row is not None and key == "slot":
+            label += f" · T{int(row.days_to_expiry)}" if pd.notna(row.days_to_expiry) else ""
+            label += "\n"+row.contract.replace(".CFE", "")
+        value = f"{row.annual_current:.2f}%" if row is not None and np.isfinite(row.annual_current) else "—"
+        cells = [label, value]
+        for window in (30, 60, 120):
+            matches = qs[qs[key].eq(identity) & qs.window_sessions.eq(window)]
+            q = matches.iloc[0] if len(matches) else None
+            cells.append((f"P{q.percentile:.1f}%\nn={int(q.n)}" if q is not None and np.isfinite(q.percentile)
+                          else f"—\nn={int(q.n) if q is not None else 0}/{window}"))
+        body.append(cells)
+    table = ax.table(cellText=body, colLabels=["合约", "当前年化", "30日分位", "60日分位", "120日分位"],
+                     colWidths=[.24,.19,.19,.19,.19], cellLoc="center", bbox=[0,0,1,1])
+    table.set_gid("rank-table")
+    table.auto_set_font_size(False)
+    table.set_fontsize(10.5)
+    for (r,c), cell in table.get_celld().items():
+        cell.set_edgecolor("#e0e7ef")
+        cell.set_linewidth(.7)
+        cell.set_facecolor("#e8eef6" if r == 0 else "white" if r%2 else "#f5f8fb")
+        cell.get_text().set_color(INK)
+        if r == 0:
+            cell.get_text().set_weight("bold")
+        if r > 0 and c >= 2 and cell.get_text().get_text().startswith("P"):
+            percentile = float(cell.get_text().get_text().split("%",1)[0][1:])
+            if percentile <= 5 or percentile >= 95:
+                cell.set_facecolor("#fbe9e8" if percentile >= 95 else "#e8f1fc")
+                cell.get_text().set_color(RED if percentile >= 95 else COLORS[0])
+    ax.text(0, -.10, "排除当日；n为有效样本；—为覆盖不足", transform=ax.transAxes, fontsize=9, color=MUTED)
+    return table
+
+
 def annualized(series, quantiles, end, output, note, sessions=60, key="slot", metrics=None):
     days = sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())[-sessions:]
     metrics = series_metrics(series, end, key, quantiles) if metrics is None else metrics
-    ids = list(range(1, 5)) if key == "slot" else list(PAIRS)
+    ids = [2, 3, 4] if key == "slot" else list(PAIRS)
+    table_ids = [1, 2, 3, 4] if key == "slot" else list(PAIRS)
     kind = "单合约" if key == "slot" else "跨期"
     fig = plt.figure(figsize=(19, 28))
-    _header(fig, f"股指期货 / {kind}年化与60日分位",
+    _header(fig, f"股指期货 / {kind}年化与历史分位表",
             f"行情截至 {end:%Y-%m-%d} · T≥1均计算 · 卡片：当前值、1日/5日变化、分位日变 · " +
-            ("00读蓝色右轴，01—03读左轴" if key == "slot" else "走势与蜡烛独立纵轴，单位均为%"), note)
+            ("年化走势仅01—03，00保留在表格" if key == "slot" else "跨期仅01−02、02−03；前30/60/120交易日分位"), note)
     for row, root in enumerate(ORDER):
         top = .934-row*.222
         fig.text(.06, top, f"{root}  {NAMES[root]}", fontsize=16, weight="bold", va="top")
@@ -199,7 +242,7 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
             matches = current[current[key].eq(identity)]
             r = matches.iloc[0] if len(matches) else None
             label = f"{root}{identity-1:02d}" if key == "slot" else f"{root} {identity}"
-            color = COLORS[i] if key == "slot" else COLORS[i+1]
+            color = COLORS[identity-1] if key == "slot" else COLORS[i+1]
             if r is None:
                 value, detail, secondary = "—", "日变 — · 5日 —", "60日分位 —"
             else:
@@ -213,10 +256,10 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
                 if r.roll_5d:
                     secondary += " · 含换月"
             _card(fig, .06+i*(width+.010), top-.068, width, .048, label, value, detail, secondary, color)
-        trend = fig.add_axes([.06, top-.202, .535, .122])
-        candles = fig.add_axes([.665, top-.202, .289, .122])
+        trend = fig.add_axes([.06, top-.202, .47, .122])
+        rank_axis = fig.add_axes([.592, top-.202, .362, .122])
         _trend(trend, series, root, key, ids, days, "annualized_basis_pct", annual=True)
-        _candle_panel(candles, quantiles[quantiles.root.eq(root)], key, ids, current)
+        _quantile_table(rank_axis, quantiles[quantiles.root.eq(root)], key, table_ids, current)
     _save(fig, output)
 
 
@@ -255,6 +298,7 @@ def activity(panel, end, output, note, sessions=60, metrics=None):
     days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[-sessions:]
     metrics = total_metrics(panel, end) if metrics is None else metrics
     totals = activity_totals(panel)
+    comments = activity_commentary(panel, end)
     fig = plt.figure(figsize=(19, 17))
     _header(fig, "股指期货 / 四合约总量与变化",
             f"行情截至 {end:%Y-%m-%d} · 四合约累和 · 总成交柱形读左轴，总持仓曲线读右轴 · 最近5日着色", note)
@@ -296,6 +340,9 @@ def activity(panel, end, output, note, sessions=60, metrics=None):
         right.tick_params(axis="y", labelsize=10, colors=COLORS[0])
         right.spines["right"].set_visible(True)
         right.spines["right"].set_color("#dce3e9")
+        import textwrap
+        fig.text(x, top-.368, "\n".join(textwrap.wrap(comments.get(root, "数据不足，暂不判断趋势。"), width=50)),
+                 fontsize=9.5, va="top", color=INK, linespacing=1.25)
         if not volume.notna().any() or not oi.notna().any():
             ax.text(.5, .45, "部分字段缺失，总量留空", transform=ax.transAxes, ha="center", color=MUTED)
     _save(fig, output)

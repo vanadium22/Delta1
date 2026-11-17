@@ -395,6 +395,29 @@ class Window(QMainWindow):
 
     def build_exports_tab(self):
         layout = self.tab("报告与记录")
+        layout.addWidget(QLabel("近期简报 · Word / PDF"))
+        brief_row = QHBoxLayout()
+        self.brief_generate = self.button("一键生成简报并打开PDF", self.generate_brief, True)
+        brief_row.addWidget(self.brief_generate)
+        brief_row.addWidget(self.button("查看最新PDF", lambda: self.open_brief("pdf")))
+        brief_row.addWidget(self.button("查看最新Word", lambda: self.open_brief("word")))
+        brief_row.addWidget(self.button("打开简报目录", lambda: self.open_brief("folder")))
+        brief_row.addStretch()
+        layout.addLayout(brief_row)
+        options = QHBoxLayout()
+        self.brief_refresh = QCheckBox("正式模式先增量更新行情")
+        self.brief_refresh.setChecked(True)
+        options.addWidget(self.brief_refresh)
+        self.brief_automation = self.button("接入每日自动化", self.connect_brief_automation)
+        options.addWidget(self.brief_automation)
+        options.addWidget(self.button("修正图片后重排Word/PDF", self.repackage_brief))
+        options.addStretch()
+        layout.addLayout(options)
+        self.brief_note = self.hint("四张高清合并图，按品种分段排入Word/PDF；同时保留PNG、SVG和计算明细。生成完成后自动打开PDF。")
+        self.brief_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.brief_note)
+        self.update_brief_note()
+        layout.addWidget(self.hint("下方为原完整Word报告与计算数据导出："))
         row = QHBoxLayout()
         row.addWidget(self.button("生成 Word（尝试更新）", lambda: self.export("report"), True))
         row.addWidget(self.button("仅用本地生成 Word", lambda: self.export("report", refresh=False)))
@@ -410,6 +433,76 @@ class Window(QMainWindow):
         self.export_table = Table(["生成时间", "行情截止日", "分红日期", "类型", "版本状态", "保存位置"])
         self.export_table.cellDoubleClicked.connect(self.open_artifact)
         layout.addWidget(self.export_table, 1)
+
+    def update_brief_note(self):
+        from .recent_brief.workflow import latest_paths
+        try:
+            saved = latest_paths(self.service.root/"exports/recent_brief")
+            self.brief_note.setText(f"最新简报行情截至 {saved['as_of']}；Word/PDF及可修改图片：{saved['folder']}")
+        except (ValueError, OSError, KeyError):
+            self.brief_note.setText(f"尚无Word/PDF简报。一键生成后自动打开PDF；图片保留供后续修正。保存目录：{self.service.root/'exports/recent_brief'}")
+
+    def open_brief(self, kind):
+        from .recent_brief.workflow import latest_paths
+        try:
+            saved = latest_paths(self.service.root/"exports/recent_brief")
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(saved[kind]))):
+                self.progress_label.setText("未能调用默认程序，请从简报目录打开："+str(saved[kind]))
+            self.update_brief_note()
+        except (ValueError, OSError, KeyError) as exc:
+            self.progress_label.setText(str(exc))
+
+    def generate_brief(self):
+        from .recent_brief.workflow import generate_for_service
+        if self.worker:
+            return
+        end, refresh = self.as_of(), self.brief_refresh.isChecked()
+        def done(result):
+            self.update_brief_note()
+            info = result["refresh"]
+            partial = info.get("requested") and info.get("state") != "complete"
+            prefix = "行情未完整更新，按本地可用数据生成；" if partial else "已生成Word/PDF；"
+            self.progress_label.setText(prefix+str(result["folder"]))
+            if not self.closing:
+                if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(result["pdf"]))):
+                    self.progress_label.setText(prefix+"未能调用默认PDF阅读器，请打开："+str(result["pdf"]))
+        self.run_task("准备近期Word/PDF简报…",
+            lambda progress: generate_for_service(self.service, end, refresh, progress), done)
+
+    def connect_brief_automation(self):
+        from .recent_brief.work_automation import find_work_automation, register_task
+        try:
+            folder = find_work_automation(self.service.root)
+        except ValueError:
+            selected = QFileDialog.getExistingDirectory(self, "选择工作自动化工作台目录（包含app.py）")
+            if not selected:
+                return
+            folder = Path(selected)
+        def done(result):
+            schedule = result["schedule"]
+            state = "已启用" if result["enabled"] else "已暂停"
+            text = f"自动化任务{state}，计划 {schedule.get('type')} {schedule.get('time', '')}；可在工作自动化工作台的定时子任务查看。"
+            self.progress_label.setText(text)
+            self.brief_note.setText(text+" 结果保存到："+str(self.service.root/"exports/recent_brief"))
+        self.run_task("接入现有工作自动化工作台…", lambda _: register_task(folder, self.service.root), done)
+
+    def repackage_brief(self):
+        from .recent_brief.workflow import latest_paths, repackage
+        try:
+            saved = latest_paths(self.service.root/"exports/recent_brief")
+        except (ValueError, OSError, KeyError) as exc:
+            self.progress_label.setText(str(exc))
+            return
+        source = QFileDialog.getExistingDirectory(self, "选择已修正PNG的简报批次目录", str(saved["folder"]))
+        if not source:
+            return
+        def done(folder):
+            self.update_brief_note()
+            self.progress_label.setText("已按所选图片重排为新批次，原批次保留："+str(folder))
+            if not self.closing:
+                from .recent_brief.documents import PDF_NAME
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(folder)/PDF_NAME)))
+        self.run_task("用现有图片重排Word/PDF，不下载行情…", lambda _: repackage(source), done)
 
     def update_chart_window_note(self):
         if hasattr(self, "chart_window_note"):
