@@ -1,5 +1,9 @@
 # Delta1 股指基差工作台
 
+## 基差三图简报（2026-11-17 初版）
+
+新增独立子项目 [recent_brief](recent_brief/README.md)：在仓库根运行 `python -X utf8 -m index_futures_basis.recent_brief`，或运行本目录 `start_recent_brief.cmd`。仅用本地真实数据，生成三张合并图及图下短说明：四指数×四档近期绝对基差、3/6/12月分位蜡烛（旁标实际点数）、持仓与成交量；01−02/02−03跨期并入前两图，按前者减后者。输出为 `exports/recent_brief/行情日/批次/index.html`。原工作台和Word保持原行为，详细输入、口径和复现命令见子项目说明。
+
 升级公共数据后，关闭 App，在公司统一分支 `git pull --ff-only`，双击仓库根目录 [一键迁移数据.cmd](../一键迁移数据.cmd)。自动复制校验并保留原件，重复运行安全。
 
 公共数据目录与看板扩展接口见 [SHARED_DATA.md](../SHARED_DATA.md)。`@shared` 使用公共默认目录，旧默认设置自动兼容；显式自定义路径保留。迁移不联网、只复制和校验，原文件保留；查询、分红、增量补缺与报告口径不变。
