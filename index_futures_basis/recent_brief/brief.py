@@ -6,16 +6,18 @@ from html import escape
 import json
 from pathlib import Path
 import re
+import uuid
 
 import numpy as np
 import pandas as pd
 
 from ..analytics import sha256
 from ..config import ROOT, timestamp
-from . import charts
+from . import card_charts as charts
 from .charts import number
 from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_series,
                    change, load_market, session_quantiles, snapshot_table)
+from .metrics import highlights, series_metrics, total_metrics
 
 
 def explanations(panel, spreads, single_q, end, cross_q=None):
@@ -50,7 +52,8 @@ def explanations(panel, spreads, single_q, end, cross_q=None):
         return "有效当前值未落入5%/95%尾部。" if len(complete) else "当前值或历史覆盖不足，分位留空。"
     second = ("每品种四条年化曲线合并，右侧为此前60个交易日的分布，排除当日。"
               "实体P25–P75、须P5–P95、中线P50；红菱形旁为当前实际年化值。"
-              "单合约剩余不足5日不计算年化，虚线仅延续显示，不进入分位；n为有效样本数。")
+              "剩余自然日T≥1均计算并纳入分位，T=0留空；n为有效样本数。"
+              "00读蓝色右轴，01—03读左轴，走势与蜡烛均标清独立刻度，不能跨轴按高度比较。")
     second += tail_note(single_q, "slot")
     third = ("跨期仅展示01−02、02−03；年化为调整后价差÷现货×365÷两合约实际到期日间隔。"
              "右侧使用此前60个交易日的同一跨期年化序列，排除当日，不直接相减两腿年化。")
@@ -100,9 +103,13 @@ def build(args):
     panel, dividend_info = adjust(panel, config, paths, args.dividends)
     spreads = calendar_series(panel)
     single_q, cross_q = session_quantiles(panel, end, "slot"), session_quantiles(spreads, end, "pair")
+    single_metrics = series_metrics(panel, end, "slot", single_q)
+    cross_metrics = series_metrics(spreads, end, "pair", cross_q)
+    aggregate_metrics = total_metrics(panel, end)
+    summary_cards = highlights(single_metrics, cross_metrics, aggregate_metrics)
     texts, activity_table = explanations(panel, spreads, single_q, end, cross_q)
     created = timestamp()
-    run_id = re.sub(r"[^0-9]", "", created)[:14]
+    run_id = re.sub(r"[^0-9]", "", created)[:14] + "_" + uuid.uuid4().hex[:6]
     out = (Path(args.output) if args.output else ROOT / "exports/recent_brief" / str(end.date()) / run_id).resolve()
     out.mkdir(parents=True, exist_ok=True)
     if (out / "run_manifest.json").exists():
@@ -114,24 +121,25 @@ def build(args):
             "00当月 / 01次月 / 02季月一 / 03季月二；曲线随逐日实际合约映射滚动。缺失留空，分位覆盖不足不绘制。")
     source_label = source.get("label") or source.get("source", {}).get("label", "本地持久化行情库")
     source_line = "\n行情来源：" + source_label + ("；成交量补充：共享修订后日线缓存。" if volume_info.get("version") else "。")
-    chart1_note = note + " 底部彩色短线标记换月；浅灰区为最近10个本地交易日。" + source_line
-    chart2_note = note + " 每行走势与蜡烛共用纵轴；不足5日的年化虚线仅用于显示，不进入分位。" + source_line
-    chart3_note = note + " 跨期年化=调整后价差÷现货×365÷实际到期日间隔；前者减后者，不是两腿年化相减。" + source_line
-    chart4_note = note + " 四合约任一缺值则总量留空；双轴用于分别观察成交和持仓，各自单位均为万手。" + source_line
+    chart1_note = note + " 阴影/加粗线为最近5日；变化按连续档位，换月在卡片标记。" + source_line
+    chart2_note = note + " T≥1均计算。00读蓝色右轴、01—03读左轴，不跨轴比高度；菱形位于蜡烛中心。1bp=0.01个百分点。" + source_line
+    chart3_note = note + " 年化=调整后价差÷现货×365÷实际到期日间隔；菱形为当前值，左右独立纵轴。" + source_line
+    chart4_note = note + " 总量任一腿缺值则留空；虚线为前20交易日成交中位数，最近5日着色；右侧持仓轴自动缩放。" + source_line
     charts.setup()
     files = ["01_近期基差与跨期.png", "02_单合约年化与60日分位.png",
              "03_跨期年化与60日分位.png", "04_四合约总成交与总持仓.png"]
     print("绘制 1/4：近期绝对基差与跨期", flush=True)
-    charts.trends(panel, spreads, end, out/files[0], chart1_note, args.sessions)
+    charts.trends(panel, spreads, end, out/files[0], chart1_note, args.sessions, single_metrics, cross_metrics)
     print("绘制 2/4：单合约年化与60交易日分位", flush=True)
-    charts.annualized(panel, single_q, end, out/files[1], chart2_note, args.sessions)
+    charts.annualized(panel, single_q, end, out/files[1], chart2_note, args.sessions, metrics=single_metrics)
     print("绘制 3/4：跨期年化与60交易日分位", flush=True)
-    charts.annualized(spreads, cross_q, end, out/files[2], chart3_note, args.sessions, key="pair")
+    charts.annualized(spreads, cross_q, end, out/files[2], chart3_note, args.sessions, key="pair", metrics=cross_metrics)
     print("绘制 4/4：四合约总成交与总持仓", flush=True)
-    charts.activity(panel, end, out/files[3], chart4_note, args.sessions)
+    charts.activity(panel, end, out/files[3], chart4_note, args.sessions, aggregate_metrics)
     tables = {"daily_basis": panel, "daily_calendar": spreads, "basis_quantiles": single_q,
               "calendar_quantiles": cross_q, "latest_contracts": snapshot_table(panel, end),
-              "activity_checks": activity_table, "activity_totals": activity_totals(panel)}
+              "activity_checks": activity_table, "activity_totals": activity_totals(panel),
+              "basis_cards": single_metrics, "calendar_cards": cross_metrics, "activity_cards": aggregate_metrics}
     for name, frame in tables.items():
         frame.to_csv(out/f"{name}.csv", index=False, encoding="utf-8-sig")
     source_note = f"生成时间 {created}；行情截至 {end:%Y-%m-%d}，未更新至生成日。分红快照 {dividend_date}。"
@@ -142,25 +150,45 @@ def build(args):
         source_note += " 额外成交量不可用：" + volume_info["reason"]
     body = "".join(f'<figure><img src="{escape(f)}" alt="{escape(f)}"><figcaption>{escape(t)}</figcaption></figure>'
                    for f, t in zip(files, texts))
+    hero = '<div class="cards">' + "".join(
+        f'<article><small>{escape(c["title"])}</small><strong>{escape(c["value"])}</strong><span>{escape(c["detail"])}</span></article>'
+        for c in summary_cards) + '</div>'
     html = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>股指基差简报</title>'
             '<style>body{max-width:1440px;margin:32px auto;padding:0 24px;background:#f3f6f8;color:#1c344a;'
             'font:15px/1.8 "Microsoft YaHei",sans-serif}h1{font-size:26px;margin-bottom:8px}'
             'header p{color:#68798a;font-size:13px}figure{margin:26px 0;background:white;border-radius:8px;'
-            'padding:18px}img{width:100%;display:block}figcaption{padding:12px 20px 8px}footer{font-size:12px;color:#68798a}</style>'
+            'padding:18px}img{width:100%;display:block}figcaption{padding:12px 20px 8px}footer{font-size:12px;color:#68798a}'
+            '.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.cards article{background:white;border-radius:8px;'
+            'padding:18px;border-top:3px solid #3371ba}.cards strong{display:block;font-size:27px}.cards span{display:block;color:#68798a}'
+            '@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style>'
             f'<header><h1>股指基差简报 · {end:%Y-%m-%d}</h1><p>{escape(source_note)}</p></header>'
-            f'{body}<footer>跨期公式：01−02=(F01+G01)−(F02+G02)；02−03=(F02+G02)−(F03+G03)。'
+            f'{hero}{body}<footer>跨期公式：01−02=(F01+G01)−(F02+G02)；02−03=(F02+G02)−(F03+G03)。'
             '正值表示前一档调整价更高。分位采用连续档位历史，不是今天实际合约的固定存续期历史。'
             'CSV与run_manifest.json保存计算明细及来源。</footer></html>')
     (out/"index.html").write_text(html, encoding="utf-8")
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
-    manifest = {"version": 2, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    cards_payload = {"summary": summary_cards,
+        "single": json.loads(single_metrics.to_json(orient="records", date_format="iso")),
+        "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
+        "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
+    (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+    manifest = {"version": 3, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": 60},
-                "quantile_policy": "exact previous 60 local sessions, exclude current; half-weight ties; known single-contract D<5 excluded; missing inputs/unknown calendar invalidate",
+                "quantile_policy": "exact previous 60 local sessions, exclude current; half-weight ties; single-contract T>=1 included, T=0 excluded; missing inputs/unknown calendar invalidate",
+                "minimum_days_to_expiry": 1,
                 "percentile_metric": "dividend-adjusted annualized basis percent; calendar uses actual expiry gap and spot denominator",
                 "calendar_annualized_formula": "(left_adjusted_price-right_adjusted_price)/spot_close*36500/(right_expiry-left_expiry).days",
                 "activity_aggregation": "sum 4 contracts (00-03); any missing constituent makes total missing; total OI change is difference of daily sums",
+                "card_policy": {"changes": "1/5 exact local trading sessions; continuous slots/pairs, rolls marked; unknown calendar invalidates",
+                    "annual_change_unit": "bp = annualized percentage-point difference * 100",
+                    "percentile_change": "current rank minus previous day's own trailing-60-session rank; percentage points",
+                    "activity_relative_change": "(current/previous-1)*100; zero denominator unavailable"},
+                "rendering": {"png_dpi": charts.DPI, "png_width_pixels": 3800, "vector_svg": True,
+                    "current_marker": "center of corresponding candle, actual annualized value; label constrained inside axes",
+                    "single_contract_axes": "00 blue right axis; 01-03 left axis; do not compare heights across different axes"},
+                "summary_cards": summary_cards,
                 "anomaly_policy": {"percentile_tails": [5,95], "volume_multiple": 2,
                     "volume_reference": "previous 20 sessions, four-contract total; >=10 finite samples; exclude current"},
                 "code_sha256": code_hash, "explanations": texts,
@@ -181,6 +209,8 @@ def main(argv=None):
     parser.add_argument("--no-volume-supplement", action="store_true", help="不读取额外成交量缓存")
     parser.add_argument("--sessions", type=int, default=60, help="走势图交易日数，默认60")
     parser.add_argument("--output", type=Path, help="输出到一个新的批次目录")
+    parser.add_argument("--watch", action="store_true", help="持续检查本地输入，变化后自动生成新批次、卡片与图文；Ctrl+C退出")
+    parser.add_argument("--poll-seconds", type=int, default=60, help="自动生成的本地输入检查间隔，默认60秒")
     args = parser.parse_args(argv)
     if args.snapshot and args.database:
         parser.error("--snapshot和--database只能指定一个")
@@ -190,5 +220,11 @@ def main(argv=None):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.as_of):
             parser.error("--as-of须为YYYY-MM-DD")
         pd.Timestamp(args.as_of)
-    build(args)
+    if args.poll_seconds < 5:
+        parser.error("--poll-seconds不得小于5秒")
+    from .automation import publish_latest, watch
+    if args.watch:
+        return watch(args)
+    output = build(args)
+    publish_latest(output, Path(args.output).resolve().parent if args.output else ROOT/"exports/recent_brief")
     return 0

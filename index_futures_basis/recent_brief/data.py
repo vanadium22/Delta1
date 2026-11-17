@@ -21,6 +21,7 @@ ORDER = ("IF", "IH", "IC", "IM")
 # Literal subtraction, deliberately separate from the original report's far-near pairs.
 PAIRS = {"01−02": (2, 3), "02−03": (3, 4)}
 WINDOWS = (3, 6, 12)
+MIN_DAYS_TO_EXPIRY = 1
 
 
 class ReadOnlyStore(Store):
@@ -166,6 +167,11 @@ def adjust(panel, config, paths, dividend_file=None):
         info = {"application": "exact_date", "snapshot_date": "缺失", "reason": str(exc)}
     result = attach_dividends(panel, dividends, panel.trade_date.min(),
                               info.get("application", "exact_date"), allow_partial=True)
+    # The brief has its own user-confirmed threshold; the original App is unchanged.
+    result["annualized_basis_pct"] = (result.basis_points/result.spot_close*36500/
+        result.days_to_expiry.replace(0, np.nan)).where(result.days_to_expiry.ge(MIN_DAYS_TO_EXPIRY))
+    result["annualized_plot_pct"] = result.annualized_basis_pct
+    result["annualized_plot_filled"] = False
     return result, info
 
 
@@ -213,7 +219,7 @@ def session_quantiles(series, end, key, sessions=60):
         history = g.set_index("trade_date").reindex(days)
         # Known near-expiry single-contract observations are mathematically excluded.
         # Missing maturities remain eligible, so they invalidate rather than shrink the sample.
-        eligible = (history.days_to_expiry.ge(5) | history.days_to_expiry.isna()
+        eligible = (history.days_to_expiry.ge(MIN_DAYS_TO_EXPIRY) | history.days_to_expiry.isna()
                     if key == "slot" else pd.Series(True, index=history.index))
         values = history.loc[eligible, "annualized_basis_pct"].replace([np.inf, -np.inf], np.nan).dropna()
         complete = bool(len(days) == sessions and history.calendar_known.eq(True).all()
@@ -222,7 +228,7 @@ def session_quantiles(series, end, key, sessions=60):
                "window_start": days.min(), "window_end_exclusive": end,
                "sample_start": values.index.min(), "sample_end": values.index.max(),
                "current": current, "n": len(values), "eligible_n": int(eligible.sum()),
-               "near_expiry_excluded_n": int((~eligible).sum()), "complete": complete}
+               "expiry_day_excluded_n": int((~eligible).sum()), "complete": complete}
         for name, probability in (("p05", .05), ("p25", .25), ("p50", .5), ("p75", .75), ("p95", .95)):
             row[name] = values.quantile(probability) if complete else np.nan
         row["percentile"] = (100*((values < current).sum() + .5*(values == current).sum())/len(values)

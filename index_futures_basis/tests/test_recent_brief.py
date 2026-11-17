@@ -124,14 +124,14 @@ class RecentBriefTests(unittest.TestCase):
         p = self.annual_history().tail(60)  # Only 59 prior sessions.
         self.assertFalse(session_quantiles(p, p.trade_date.max(), "slot").iloc[0].complete)
 
-    def test_near_expiry_excluded_but_missing_expiry_not_discarded(self):
+    def test_expiry_day_excluded_but_missing_expiry_not_discarded(self):
         p = self.annual_history()
-        p.loc[p.index[-3], ["days_to_expiry", "annualized_basis_pct"]] = [1, np.nan]
+        p.loc[p.index[-3], ["days_to_expiry", "annualized_basis_pct"]] = [0, np.nan]
         p["annualized_plot_pct"] = 9999  # Display fills must not enter the candle sample.
         row = session_quantiles(p, p.trade_date.max(), "slot").iloc[0]
         self.assertTrue(row.complete)
         self.assertEqual(row.n, 59)
-        self.assertEqual(row.near_expiry_excluded_n, 1)
+        self.assertEqual(row.expiry_day_excluded_n, 1)
         self.assertEqual(row.p95, 1)
         p.loc[p.index[-3], "days_to_expiry"] = np.nan
         self.assertFalse(session_quantiles(p, p.trade_date.max(), "slot").iloc[0].complete)
