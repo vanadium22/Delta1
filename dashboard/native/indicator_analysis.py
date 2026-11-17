@@ -10,6 +10,7 @@ from dashboard.marketdata.indicator_analysis import (SERIES, plan, historical, d
 from dashboard.marketdata.overview_daily import directory, read_day, merge_daily
 from dashboard.marketdata.overview_percentiles import final_rows
 from dashboard.marketdata.quote_quality import aligned_quotes
+from dashboard.marketdata.overview_basis import annual_min_days
 from dashboard.native.continuous import slot_map
 from dashboard.session_clock import market_phase
 
@@ -25,6 +26,7 @@ class IndicatorAnalysisEngine:
         return event is not None and event.is_set()
 
     def snapshot(self, request, *, now, completed, metadata, dividends, repo, frozen, refresh_clock=False, _reference_day=None):
+        min_days=annual_min_days(self.model.config)
         phase = market_phase(now.to_pydatetime())
         continuous = phase['continuous']
         day = _reference_day or (str(now.tz_convert('Asia/Shanghai').date()) if continuous else completed)
@@ -45,7 +47,7 @@ class IndicatorAnalysisEngine:
                           versions={k:v['version'] for k,v in frozen.items()}, side=signatures,
                           metadata={s:r for s,r in metadata.items() if s.startswith(request['root'])},
                           dividend=getattr(dividends,'version',None), roots=self.model.config.get('history_roots',[]),
-                          repo_available=repo is not None))
+                          repo_available=repo is not None,min_annual_days=min_days))
         cached = self.cache.get(key)
         cache_hit = cached is not None
         if cached is None:
@@ -68,7 +70,7 @@ class IndicatorAnalysisEngine:
                              if (r := v.get('rows',{}).get(symbol))]
                 tables[symbol] = {d:r for d,r in final_rows(merge_daily(frame, additions)).items()
                                   if planned['days'][0] <= d <= completed}
-            cached = dict(history=historical(planned, metadata, tables, dividends, stop=self.stopped), tables=tables, errors=errors)
+            cached = dict(history=historical(planned, metadata, tables, dividends, stop=self.stopped,min_annual_days=min_days), tables=tables, errors=errors)
             self.cache[key] = cached
             while len(self.cache) > 4:
                 self.cache.popitem(last=False)
@@ -88,7 +90,7 @@ class IndicatorAnalysisEngine:
                 prices = {s:r.get('close') for s,r in rows.items()}
                 prices['_http_session_inferred_symbols'] = [s for s,r in rows.items() if r.get('source_date_basis')=='corroborated_live_session']
                 current = values(day,planned['selection'],mapping,metadata,prices,dividends,current=True,
-                                 at=day+'T15:00:00+08:00',source_at=day+'T15:00:00+08:00')
+                                 at=day+'T15:00:00+08:00',source_at=day+'T15:00:00+08:00',min_annual_days=min_days)
                 for item in current.values():
                     if item['value'] is None:item['source_at']=None
             # An unavailable completed-day price may fall back to a real older
@@ -106,7 +108,7 @@ class IndicatorAnalysisEngine:
         output = display_charts(planned, cached['history'], current, request)
         output.update(mode='realtime' if continuous else 'completed_daily', as_of=now.isoformat(),
                       completed_target=completed,reference_fallback=bool(_reference_day and _reference_day!=completed),
-                      version=key, cache_hit=cache_hit, history_reads=self.history_reads, errors=cached['errors'])
+                      version=key, cache_hit=cache_hit, history_reads=self.history_reads, errors=cached['errors'],min_annual_days=min_days)
         return output
 
     def current(self, planned, metadata, dividends, now):
@@ -135,7 +137,7 @@ class IndicatorAnalysisEngine:
             at = max(times)
             prices = {s:q['close'] for s,q in zip(codes,quotes)}
             calculated = values(day, request, mapping, metadata, prices, dividends, current=True,
-                                at=at, source_at=at.isoformat())
+                                at=at, source_at=at.isoformat(),min_annual_days=annual_min_days(self.model.config))
             for key in keys:
                 output[key] = calculated[key]
                 output[key]['source_times'] = {s:q['source_event_time'] for s,q in zip(codes,quotes)}

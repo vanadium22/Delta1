@@ -208,7 +208,7 @@ class RetainedBasisTests(unittest.TestCase):
 
     def test_t_below_five_remains_excluded_when_new_result_is_calculable(self):
         with tempfile.TemporaryDirectory() as tmp:
-            model=SimpleNamespace(local_root=Path(tmp),config={},overview_write_cache=True);preserve(model,self.data(),NOW)
+            model=SimpleNamespace(local_root=Path(tmp),config={'overview_min_annual_days':5},overview_write_cache=True);preserve(model,self.data(),NOW)
             current=self.data();row=current['futures'][0];row.update(days=4,annual_pct=None,percentile_20=None,percentile_60=None)
             for w in row['continuous_percentiles']['windows'].values():w['percentile']=None
             preserve(model,current,NOW+pd.Timedelta(seconds=1));self.assertNotIn('basis_display',row);self.assertIsNone(row['annual_pct'])
@@ -230,7 +230,7 @@ class RetainedBasisTests(unittest.TestCase):
 
     def test_missing_price_cannot_revive_changed_expiry_or_near_expiry_annual(self):
         with tempfile.TemporaryDirectory() as tmp:
-            model=SimpleNamespace(local_root=Path(tmp),config={},overview_write_cache=True);preserve(model,self.data(),NOW)
+            model=SimpleNamespace(local_root=Path(tmp),config={'overview_min_annual_days':5},overview_write_cache=True);preserve(model,self.data(),NOW)
             changed=self.data();changed['futures'][0].update(price=None,expiry='2026-11-19',basis_points=None,annual_pct=None)
             preserve(model,changed,NOW+pd.Timedelta(seconds=1))
             self.assertIsNone(changed['futures'][0]['annual_pct']);self.assertNotIn('basis_display',changed['futures'][0])

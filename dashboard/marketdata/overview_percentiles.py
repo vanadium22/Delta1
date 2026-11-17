@@ -9,7 +9,7 @@ from statistics import mean,median
 import pandas as pd
 
 from dashboard.indicator_v6.core import raw,statistic
-from .overview_basis import calculate,FORMULA,dividend_record
+from .overview_basis import calculate,FORMULA,dividend_record,DEFAULT_MIN_ANNUAL_DAYS
 from .dividends import digest
 from dashboard.indicator_v6.sources import dates_between,SPOTS
 from dashboard.native.continuous import slot_map
@@ -35,26 +35,27 @@ def prior_days(day,count=60):
     return days[-count:]
 
 
-def dated_slots(metadata,root,slot,days):
+def dated_slots(metadata,root,slot,days,*,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
     alias=f'{root}0{slot}.CFE';rows=[]
     for day in days:
         mapping,reason=slot_map(metadata,root,day)
         symbol=mapping.get(alias);expiry=metadata.get(symbol,{}).get('expiry_date')
         t=(date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
+        excluded=t is not None and t<min_annual_days
         rows.append(dict(day=day,alias=alias,symbol=symbol,expiry=expiry,days=t,
-            excluded=t is not None and t<5,reason='mapping_missing' if reason else 'T_LT_5' if t<5 else None))
+            excluded=excluded,reason='mapping_missing' if reason else f'T_LT_{min_annual_days}' if excluded else None))
     return rows
 
 
-def requirements(metadata,day):
+def requirements(metadata,day,*,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
     days=prior_days(day);needed=set();gaps=[]
     for root,spot in SPOTS.items():
         for slot in SLOTS:
-            for row in dated_slots(metadata,root,slot,days):
+            for row in dated_slots(metadata,root,slot,days,min_annual_days=min_annual_days):
                 if row['reason']=='mapping_missing':gaps.append(dict(root=root,**row))
                 elif not row['excluded']:
                     needed.add((spot,row['day']));needed.add((row['symbol'],row['day']))
-    return dict(pricing_day=day,start=days[0],end=days[-1],calendar_days=len(days),
+    return dict(pricing_day=day,start=days[0],end=days[-1],calendar_days=len(days),min_annual_days=min_annual_days,
         rows=[dict(symbol=s,day=d) for s,d in sorted(needed,key=lambda r:(r[1],r[0]))],mapping_gaps=gaps)
 
 
@@ -63,8 +64,8 @@ def final_rows(frame):
     return {str(row['trade_date'])[:10]:row for row in frame.to_dict('records') if row.get('is_final')==True}
 
 
-def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day=None):
-    days=prior_days(day);rows=dated_slots(metadata,root,slot,days)
+def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day=None,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
+    days=prior_days(day);rows=dated_slots(metadata,root,slot,days,min_annual_days=min_annual_days)
     spot=final_rows(daily.get(SPOTS[root]));tables={}
     for item in rows:
         symbol=item['symbol'];item['annual_pct']=None;item['dividend_estimated_zero']=False
@@ -78,8 +79,8 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
         item['dividend_source_kind']=record.get('source_kind')
         item['dividend_revision']=record.get('revision');item['dividend_inherited_from']=record.get('inherited_from')
         values=(cache.calculate(symbol,item['day'],f.get('close'),s.get('close'),dividend,item['days'],
-            dividend_record=record,price_version=digest([f,s])) if cache is not None else
-            calculate(f.get('close'),s.get('close'),dividend,item['days']))
+            dividend_record=record,price_version=digest([f,s]),min_annual_days=min_annual_days) if cache is not None else
+            calculate(f.get('close'),s.get('close'),dividend,item['days'],min_annual_days=min_annual_days))
         value=values['annual_pct']
         item['annual_pct']=value
         if value is None:
@@ -90,7 +91,7 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
     current,error=slot_map(metadata,root,current_day or day)
     return dict(alias=f'{root}0{slot}.CFE',pricing_day=day,current_symbol=current.get(f'{root}0{slot}.CFE'),
         current_mapping_error=bool(error),slot_day=current_day or day,rows=rows,method='continuous_slot_dividend_simple_annual',
-        formula=FORMULA+'；已知T<5另列排除；不调整期现价格',
+        min_annual_days=min_annual_days,formula=FORMULA+f'；已知T<{min_annual_days}另列排除；不调整期现价格',
         dividend_version=getattr(dividends,'version',None),dividend_policy=HISTORICAL_DIVIDEND_POLICY,
         dividend_source_policy=(getattr(dividends,'info',{}) or {}).get('historical_policy'),
         mapping_policy='按历日挂牌/到期重建；交割日保留旧档，下一交易日换月；非当时可得映射')
@@ -98,6 +99,8 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
 
 def evaluate(history,current_annual,current_symbol,*,current_reason=None):
     output={k:v for k,v in history.items() if k!='rows'};output['windows']={}
+    # Histories saved before this parameter existed used a five-day cutoff.
+    min_days=history.get('min_annual_days',5);output['min_annual_days']=min_days
     current=raw(current_annual)
     matches=history['current_symbol']==current_symbol and not history['current_mapping_error']
     for length in WINDOWS:
@@ -117,7 +120,7 @@ def evaluate(history,current_annual,current_symbol,*,current_reason=None):
         reason=(missing_reason if missing else
                 '当前连续档位合约映射不完整' if not matches else
                 current_reason or '当前年化基差不可用' if current.value is None else
-                '有效年化样本不足' if not available else '前'+str(length)+'交易日窗口；排除当前日，等值半权，已知T<5日另列排除')
+                '有效年化样本不足' if not available else '前'+str(length)+f'交易日窗口；排除当前日，等值半权，已知T<{min_days}日另列排除')
         if estimated:reason+='；历史缺分红暂按0估算 '+str(len(estimated))+'日'
         if inferred:reason+='；HTTP连续盘中核验昨收 '+str(len(inferred))+'日（日期推定）'
         output['windows'][str(length)]=dict(percentile=pct,mean=mean(historical_values) if available else None,

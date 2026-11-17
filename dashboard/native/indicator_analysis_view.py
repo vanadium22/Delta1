@@ -128,13 +128,14 @@ class IndicatorChart(Panel):
         latest=selected['current'];n=stats['samples'];requested=stats['requested']
         title=('去分红' if selected_key=='adjusted' else '绝对')+'基差 · ' if self.overlay else ''
         now=numeric(latest.get('value'),2,suffix='' if self.overlay else '%')
+        min_days=result.get('min_annual_days',5)
         reasons={'index_close_missing':'指数收盘缺失','future_close_missing':'期货收盘缺失',
-                 'dividend_missing_or_conflict':'分红缺失或冲突','mapping_missing':'合约映射缺失','T_LT_5':'临期T<5'}
+                 'dividend_missing_or_conflict':'分红缺失或冲突','mapping_missing':'合约映射缺失',f'T_LT_{min_days}':f'临期T<{min_days}'}
         reason=latest.get('reason') if not finite(latest.get('value')) else stats.get('reason')
         explanation=(' · '+reasons.get(reason,reason)) if reason else ''
         self.footer.setText(f"{title}最新 {now} · 样本 {n}/{requested} · 排除 {len(stats['excluded_dates'])}日 · 缺 {len(stats['missing'])}日"+explanation)
         detail=[display_policy(result['statistics_policy']),f"参考 {stats['start']} 至 {stats['end']}",
-                '排除T<5：'+(', '.join(stats['excluded_dates']) or '无'),
+                f'排除T<{min_days}：'+(', '.join(stats['excluded_dates']) or '无'),
                 '缺项：'+('; '.join(r['day']+' '+r['reason'] for r in stats['missing']) or '无'),
                 '历史D暂0：'+(', '.join(stats['zero_dividend_dates']) or '无'),
                 'HTTP日期推定：'+(', '.join(stats['http_session_inferred_dates']) or '无'),
@@ -304,6 +305,7 @@ class IndicatorAnalysisPage(QWidget):
             if not self._pending_charts:self.result=None
             return
         first=self.result is None;pending=set(self._pending_charts)
+        expiry_changed=self.result is not None and self.result.get('min_annual_days',1)!=result.get('min_annual_days',1)
         self.result=result
         mode='实时末点' if result['mode']=='realtime' else '收盘参考'
         dates=[r.get('source_at') for r in (v['current'] for v in result['series'].values()) if r.get('source_at')]
@@ -312,7 +314,7 @@ class IndicatorAnalysisPage(QWidget):
         reference=('各图独立窗口' if result.get('charts') else '参考 '+result['reference_days'][0]+' 至 '+result['reference_days'][-1])
         self.note.setText(f"{self.root.currentData()} · {mode} {stamp}{fallback} · {reference}")
         self.note.setToolTip(result['mapping_policy']+'\n'+display_policy(result['statistics_policy'])+'\n历史读取起点 '+result['history_start'])
-        if first or force:
+        if first or force or expiry_changed:
             self._pending_charts.clear();self.redraw()
         elif pending:
             self._pending_charts.difference_update(pending);self.redraw(keys=pending)

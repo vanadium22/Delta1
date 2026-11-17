@@ -22,6 +22,8 @@ def cache_scope(config):
         identity[key] = config.get(key)
     for key in ('research_carry_inputs','research_etf_iopv_mapping'):
         identity[key] = config.get(key)
+    from dashboard.marketdata.overview_basis import annual_min_days
+    identity['overview_min_annual_days'] = annual_min_days(config)
     # Invalidate old result schemas without changing any market-data file.
     from dashboard.indicator_catalog import FORMULA_VERSION
     from dashboard.native.pair_metrics import PAIR_FORMULA_VERSION

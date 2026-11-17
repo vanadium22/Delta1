@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .bars import _atomic_bytes, _json_bytes
 from .overview_reference import finite
+from .overview_basis import annual_min_days
 
 SCHEMA='overview-display-v1'
 
@@ -38,22 +39,23 @@ def compact_quote(row):
 
 
 def basis_bundle(row):
-    keys=('symbol','slot','root','expiry','days','pricing_day','pricing_at','annual_pct','raw_basis_points','continuous_percentiles')
+    keys=('symbol','slot','root','expiry','days','pricing_day','pricing_at','annual_pct','raw_basis_points','continuous_percentiles','min_annual_days')
     return compact_quote({k:v for k,v in row.items() if k in keys or k.startswith(('basis_','dividend_','percentile_'))})
 
 
-def preserve_basis(row,old,now):
+def preserve_basis(row,old,now,*,min_annual_days=1):
     """Retain one complete priced bundle; never replace the raw current result."""
     previous=old.get('_last_basis') or basis_bundle(old)
     if (previous.get('symbol')!=row['symbol'] or previous.get('slot')!=row.get('slot') or
         previous.get('expiry') and row.get('expiry') and previous['expiry']!=row['expiry']):previous={}
+    row['min_annual_days']=min_annual_days
     current=basis_bundle(row)
     days=row.get('days')
-    excluded=days is not None and days<5
+    excluded=days is not None and days<min_annual_days
     if excluded:
-        row.update(annual_pct=None,percentile_20=None,percentile_60=None)
+        row.update(annual_pct=None,percentile=None,percentile_20=None,percentile_60=None)
         for window in ((row.get('continuous_percentiles') or {}).get('windows') or {}).values():
-            window.update(percentile=None,reason='当前剩余T<5，规则排除')
+            window.update(percentile=None,reason=f'当前剩余T<{min_annual_days}，规则排除')
         current=basis_bundle(row)
     valid=finite(row.get('basis_points')) and (finite(row.get('annual_pct')) or excluded)
     lost=any(finite(previous.get(k)) and not finite(current.get(k)) for k in ('basis_points','annual_pct','percentile_20','percentile_60'))
@@ -62,9 +64,9 @@ def preserve_basis(row,old,now):
         display=deepcopy(previous)
         display.update(saved=True,current_reason=row.get('basis_reason'),current_source_at=row.get('source_at'))
         if excluded:
-            display.update(days=days,annual_pct=None,percentile_20=None,percentile_60=None)
+            display.update(days=days,annual_pct=None,percentile=None,percentile_20=None,percentile_60=None)
             for window in display.get('continuous_percentiles',{}).get('windows',{}).values():
-                window.update(percentile=None,reason='当前剩余T<5，规则排除')
+                window.update(percentile=None,reason=f'当前剩余T<{min_annual_days}，规则排除')
         row['basis_display']=display
     return previous if finite(previous.get('basis_points')) else current if valid else {}
 
@@ -103,7 +105,7 @@ def preserve(model, data, now):
                 data[kind][i]=value;restored.append(kind+':'+row['symbol'])
             value=data[kind][i]
             if kind=='futures':
-                basis=preserve_basis(value,old,now)
+                basis=preserve_basis(value,old,now,min_annual_days=annual_min_days(model.config))
                 if value.get('basis_display'):restored.append('futures_basis:'+row['symbol'])
             if finite(value.get('price')) and not value.get('display_saved'):
                 saved[row['symbol']]=compact_quote(value)

@@ -7,6 +7,17 @@ from .dividends import DividendBook,adjusted_basis,digest
 
 
 FORMULA='(F - S + D) / S × 365 / T × 100%'
+DEFAULT_MIN_ANNUAL_DAYS=1
+
+
+def validate_annual_min_days(value):
+    if type(value) is not int or not 1 <= value <= 3650:
+        raise ValueError('最小剩余自然日须为1–3650的整数')
+    return value
+
+
+def annual_min_days(config):
+    return validate_annual_min_days(config.get('overview_min_annual_days',DEFAULT_MIN_ANNUAL_DAYS))
 
 
 def input_summary(row):
@@ -20,11 +31,11 @@ def input_summary(row):
         ('（沿用早于定价日的表）' if row.get('dividend_carried_forward') else ''))
 
 
-def calculate(future,spot,dividend,days):
+def calculate(future,spot,dividend,days,*,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
     # Shared Excel arithmetic, independent of the paused research-v6 formulas.
     if (any(isinstance(v,bool) or not isinstance(v,Real) or not isfinite(v) for v in (future,spot,dividend)) or
-        future<=0 or spot<=0 or dividend<0):return adjusted_basis(None,None,None,days)
-    return adjusted_basis(future,spot,dividend,days)
+        future<=0 or spot<=0 or dividend<0):return adjusted_basis(None,None,None,days,min_annual_days=min_annual_days)
+    return adjusted_basis(future,spot,dividend,days,min_annual_days=min_annual_days)
 
 
 def input_token(config,metadata,day,local_root=None):

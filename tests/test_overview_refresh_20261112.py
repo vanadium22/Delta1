@@ -125,6 +125,7 @@ class IndicatorRefreshTests(unittest.TestCase):
     def test_near_expiry_exclusion_never_falls_back_to_old_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             request,_,meta,engine,repo=self.make_engine(tmp,'2026-10-15')
+            engine.model.config['overview_min_annual_days']=5
             result=engine.snapshot(request,now=pd.Timestamp('2026-10-15T15:47:30+08:00'),completed='2026-10-15',
                                    metadata=meta,dividends=ZERO_DIVIDENDS,repo=repo,frozen={})
             self.assertEqual(result['pricing_day'],'2026-10-15');self.assertFalse(result['reference_fallback'])

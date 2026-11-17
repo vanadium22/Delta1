@@ -9,7 +9,7 @@ from statistics import mean, median, stdev
 
 from dashboard.indicator_v6.sources import dates_between, SPOTS
 from dashboard.native.continuous import slot_map
-from .overview_basis import dividend_record
+from .overview_basis import dividend_record,DEFAULT_MIN_ANNUAL_DAYS
 from .overview_percentiles import historical_dividend, prior_days
 
 SERIES = ('raw', 'adjusted', 'annual', 'calendar_03_02', 'calendar_02_01')
@@ -92,7 +92,7 @@ def point(day, symbols=(), *, value=None, reason=None, excluded=False, **extra):
                 excluded=excluded, **extra)
 
 
-def values(day, request, mapping, metadata, prices, book, *, current=False, at=None, source_at=None):
+def values(day, request, mapping, metadata, prices, book, *, current=False, at=None, source_at=None,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
     """All legs belong to this day and use D known at the common pricing time."""
     root = request['root']
     spot = prices.get(SPOTS[root])
@@ -115,8 +115,8 @@ def values(day, request, mapping, metadata, prices, book, *, current=False, at=N
                      http_session_inferred=bool(set([SPOTS[root],*symbols]) & set(prices.get('_http_session_inferred_symbols',[]))))
         if any(not leg['symbol'] or leg['T'] is None for leg in selected):
             return point(day, symbols, reason='mapping_missing', **extra)
-        if any(leg['T'] < 5 for leg in selected):
-            return point(day, symbols, reason='T_LT_5', excluded=True, **extra)
+        if any(leg['T'] < min_annual_days for leg in selected):
+            return point(day, symbols, reason=f'T_LT_{min_annual_days}', excluded=True, **extra)
         if not finite(spot) or spot <= 0:
             return point(day, symbols, reason='index_close_missing', **extra)
         if any(not finite(leg['F']) or leg['F'] <= 0 for leg in selected):
@@ -146,7 +146,7 @@ def values(day, request, mapping, metadata, prices, book, *, current=False, at=N
     return result
 
 
-def historical(plan_value, metadata, tables, book, *, stop=lambda: False):
+def historical(plan_value, metadata, tables, book, *, stop=lambda: False,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
     output = {key:[] for key in SERIES}
     request = plan_value['selection']
     for day in plan_value['days']:
@@ -160,7 +160,7 @@ def historical(plan_value, metadata, tables, book, *, stop=lambda: False):
             prices = {s:r.get('close') for s,r in rows.items()}
             prices['_http_session_inferred_symbols'] = [s for s,r in rows.items() if r.get('source_date_basis') == 'corroborated_live_session']
             calculated = values(day, request, mapped['mapping'], metadata, prices, book,
-                                source_at=day+'T15:00:00+08:00')
+                                source_at=day+'T15:00:00+08:00',min_annual_days=min_annual_days)
         for key in SERIES:
             output[key].append(calculated[key])
     return output
@@ -234,7 +234,7 @@ def display_charts(plan_value, history, current, request):
 def summary(result):
     """Small explicit whitelist for same-run company evidence, no raw records."""
     if not isinstance(result,dict):return None
-    output={k:result.get(k) for k in ('schema','selection','pricing_day','start','end','mode','as_of','version','cache_hit','history_reads','completed_target','reference_fallback','error')}
+    output={k:result.get(k) for k in ('schema','selection','pricing_day','start','end','mode','as_of','version','cache_hit','history_reads','completed_target','reference_fallback','error','min_annual_days')}
     if isinstance(output['selection'],dict):
         request=output['selection']
         output['selection']={k:request.get(k) for k in ('root','slot','window','stats')}

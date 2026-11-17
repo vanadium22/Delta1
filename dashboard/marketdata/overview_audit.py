@@ -14,6 +14,7 @@ from .overview_percentiles import requirements,prepare,evaluate,prior_days,SLOTS
 from .overview_sessions import latest_completed_session
 from .overview_contributions import read_equities,equity_max_age
 from .overview_industry_changes import summary as industry_summary
+from .overview_basis import annual_min_days
 
 
 def read_object(path):
@@ -63,7 +64,7 @@ def inspect_history(config,*,target=None):
 
 
 def daily_inputs(config,local_root,target,metadata,*,repo=None,frozen=None):
-    needed=requirements(metadata,target)
+    needed=requirements(metadata,target,min_annual_days=annual_min_days(config))
     days={target,*prior_days(target)}
     cache={d:read_day(config,local_root,d) for d in sorted(days)}
     symbols={r['symbol'] for r in needed['rows']}|set(ROOTS.values())
@@ -104,7 +105,7 @@ def calculation_preview(config,local_root,now,repo,frozen,*,equity_snapshot=None
     model._live=lambda instruments,as_of:NativeModel._live(model,instruments,as_of)
     state=MarketOverviewEngine(model).snapshot(now=now,equity_snapshot=equity_snapshot)
     fields=('symbol','slot','price','source_at','received_at','display_kind','status','basis_kind','pricing_day','pricing_at',
-        'basis_future_price','basis_spot_price','basis_future_source_at','basis_spot_source_at','expiry','days',
+        'basis_future_price','basis_spot_price','basis_future_source_at','basis_spot_source_at','expiry','days','min_annual_days',
         'basis_points','raw_basis_points','annual_pct','basis_reason','dividend_points','dividend_snapshot','dividend_inherited_from',
         'dividend_source_contract','dividend_source_kind','dividend_file_sha256','dividend_effective_from','dividend_revision','dividend_precision','dividend_carried_forward',
         'percentile_20','percentile_60','percentile_reason','continuous_percentiles','basis_display')
@@ -136,7 +137,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     # later published snapshot must not be labelled stale against the old clock.
     snapshot=read_equities(config,local_root)
     result=dict(schema='overview-data-gaps-v1',at=stamp.isoformat(),expected_completed_session=target,
-        percentile_pricing_day=pricing,network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
+        percentile_pricing_day=pricing,min_annual_days=annual_min_days(config),network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
     preference=read_object(Path(local_root)/'overview_ui.json').get('page_scale','medium')
     result['display_preferences']=dict(page_scale=preference if preference in ('large','medium','small') else 'medium')
     try:metadata=latest_contracts(ReferenceBook(config.get('reference_file')).data)
@@ -171,7 +172,7 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         slots={};missing=defaultdict(set)
         for root in ROOTS:
             for slot in SLOTS:
-                prepared=prepare(root,slot,metadata,daily,pricing,dividends=dividends)
+                prepared=prepare(root,slot,metadata,daily,pricing,dividends=dividends,min_annual_days=annual_min_days(config))
                 checked=evaluate(prepared,None,prepared['current_symbol'])
                 checked.update(evaluation_scope='history_only',current_value_evaluated=False)
                 # This audit certifies history coverage, never an untested live marker.
@@ -188,7 +189,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             dividend_missing=[dict(alias=alias,day=r['day'],symbol=r['symbol']) for alias,checked in slots.items() for r in checked['windows']['60']['missing'] if r['reason']=='dividend_missing'],
             zero_dividend_assumptions=[dict(alias=alias,**r) for alias,checked in slots.items() for r in checked['windows']['60']['zero_dividend_rows']],
             daily_missing=[dict(symbol=s,dates=sorted(d)) for s,d in sorted(missing.items())],
-            note='逐行读取可用已完成收盘；缺档案、缺行情和已知T<5规则排除分别列示；不把旧合约上市短误当连续窗口不足')
+            min_annual_days=annual_min_days(config),
+            note=f'逐行读取可用已完成收盘；缺档案、缺行情和已知T<{annual_min_days(config)}规则排除分别列示；不把旧合约上市短误当连续窗口不足')
         present=defaultdict(set)
         for item in history['inventory']:
             if item['frequency']=='1d':present[item['symbol']].update(item['dates'])

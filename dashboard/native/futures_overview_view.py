@@ -91,13 +91,14 @@ class FuturesCard(Panel):
             widget.setToolTip((view.get('basis_reason') or '待有效同步期现报价')+'\n'+input_summary(view))
         self.previous_value.setToolTip('同一实际合约较准确上一交易日收盘；分别使用各时点D，单位点。前日 '+str(view.get('basis_prev_day') or '待核验'))
         history=view.get('continuous_percentiles') or {}
+        min_days=row.get('min_annual_days',1)
         for i,(length,widget) in enumerate(((20,self.rank_value),(60,self.rank60_value)),3):
             widget.show()
             if not self.compact:self.captions[i].show()
             result=history.get('windows',{}).get(str(length),{});rank=result.get('percentile')
             missing=result.get('missing',[])
             label=(numeric(rank,1,suffix='%') if rank is not None else '缺映射' if any(r['reason']=='mapping_missing' for r in missing) else
-                '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else 'T<5' if view.get('days') is not None and view['days']<5 else '待年化行情')
+                '缺分红' if any(r['reason']=='dividend_missing' for r in missing) else '缺收盘' if missing else f'T<{min_days}' if view.get('days') is not None and view['days']<min_days else '待年化行情')
             widget.setText(label)
             color,strength=percentile_color(rank)
             widget.setStyleSheet(f'background:transparent;color:{color};font-size:{21 if self.compact else self.value_size}px;font-weight:{700 if strength>=.4 else 500};')
@@ -192,7 +193,7 @@ class FuturesOverviewPage(ScrollPage):
         self.more=QPushButton('量仓明细 ›');self.more.setCheckable(True);self.volumes.box.addWidget(self.more,alignment=Qt.AlignmentFlag.AlignRight)
         self.volume_table=table(['合约','累计成交（手）','成交占比','昨日持仓','持仓日期'],190)
         self.volume_table.hide();self.more.toggled.connect(self.volume_table.setVisible);self.volumes.box.addWidget(self.volume_table)
-        self.box.addWidget(self.volumes);self.footer=lab('实际合约展示 · 00/01/02/03按历日换月；20/60交易日前窗，当前日排除，已知T<5另列排除',15,MUTED);self.footer.hide()
+        self.box.addWidget(self.volumes);self.footer=lab('实际合约展示 · 00/01/02/03按历日换月；20/60交易日前窗，当前日排除；临期门槛见数据更新/设置',15,MUTED);self.footer.hide()
 
     def select(self,root):
         self.selected_root=root;self.show_group()

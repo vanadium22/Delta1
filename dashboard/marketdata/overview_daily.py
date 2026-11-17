@@ -65,7 +65,8 @@ def requests(config,local_root,target,metadata,*,reference_data=None):
     symbols=set(ROOTS.values())|current|equities|funds
     day_symbols={d:set(symbols) for d in (target,previous_session(target)) if d}
     from .overview_percentiles import requirements
-    for item in requirements(metadata,target)['rows']:
+    from .overview_basis import annual_min_days
+    for item in requirements(metadata,target,min_annual_days=annual_min_days(config))['rows']:
         day_symbols.setdefault(item['day'],set()).add(item['symbol'])
     if config.get('_indicator_analysis_request'):
         from .indicator_analysis import maintenance_rows

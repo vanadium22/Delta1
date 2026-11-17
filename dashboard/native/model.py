@@ -38,7 +38,7 @@ class NativeModel:
         self.config={"history_roots":[],"realtime_root":"","realtime_id":"","reference_file":"",
             "results_root":str(MODULE_ROOT/"runtime"/"native_results"),"allow_unverified":False,
             "product":"IC","frequency":"1m","collection_symbols":[v[0] for v in UNDERLYINGS.values()],
-            "dividend_missing_policy":"previous_contract"}
+            "dividend_missing_policy":"previous_contract","overview_min_annual_days":1}
         if self.path.exists():
             self.config.update(json.loads(self.path.read_text(encoding="utf-8")))
         else:
@@ -67,6 +67,8 @@ class NativeModel:
     def save_config(self,config):
         if config.get("product","IC") not in UNDERLYINGS or config.get("frequency","1m") not in {"1d","1m","1s"}:
             raise ValueError("品种或频率无效")
+        from dashboard.marketdata.overview_basis import annual_min_days
+        annual_min_days(config)
         registered={}
         for root in config.get("history_roots",[]):
             report=MarketDataRepository.inspect(root)

@@ -2,6 +2,7 @@
 from copy import deepcopy
 from pathlib import Path
 
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QLineEdit,QPlainTextEdit,
     QLabel,QPushButton,QGroupBox,QSizePolicy,QLayout)
 
@@ -26,6 +27,15 @@ class InlineSettings(QWidget):
         info.setWordWrap(True);database.addRow(info)
         self.notice=QLabel('价格日、DDB补齐目标和公盘分红日分别显示；更新地址无需重新输入账号密码。')
         self.notice.setWordWrap(True);layout.addWidget(self.notice)
+        expiry=self.group(layout,'临期过滤')
+        from dashboard.marketdata.overview_basis import annual_min_days
+        minimum=self.field('overview_min_annual_days',str(annual_min_days(config)))
+        minimum.setValidator(QIntValidator(1,3650,minimum))
+        expiry.addRow('最小剩余自然日',minimum)
+        hint=QLabel('剩余天数小于此值时不绘图、不参与分位计算；等于此值仍参与。默认1天，到期当天排除。概览年化与20/60日分位、指标分析共用。')
+        hint.setWordWrap(True);expiry.addRow(hint)
+        self.expiry_save=QPushButton('保存临期参数');expiry.addRow(self.expiry_save)
+        self.expiry_save.clicked.connect(self.save_expiry_filter)
         toggle=QPushButton('展开 / 收起路径、分红、Wind、VPN与账号设置');layout.addWidget(toggle)
         self.body=QWidget();layout.addWidget(self.body);advanced=QVBoxLayout(self.body)
         advanced.setContentsMargins(0,0,0,0);advanced.setSpacing(16)
@@ -132,6 +142,16 @@ class InlineSettings(QWidget):
         candidate=deepcopy(self.pipeline.model.config)
         candidate.update(history_ddb_host=endpoint['host'],history_ddb_port=endpoint['port'])
         self.save_config(candidate,'DDB地址已保存，原账号密码未改；点击“一键补齐收盘”，先核验HTTP昨收，再补历史缺口。')
+
+    def save_expiry_filter(self):
+        if not self.idle(credentials_only=True):return
+        from dashboard.marketdata.overview_basis import validate_annual_min_days
+        try:value=validate_annual_min_days(int(self.fields['overview_min_annual_days'].text().strip()))
+        except (ValueError,TypeError):
+            self.notice.setText('最小剩余自然日须为1–3650的整数。');return
+        candidate=deepcopy(self.pipeline.model.config)
+        candidate['overview_min_annual_days']=value
+        self.save_config(candidate,f'临期参数已保存：T<{value}天排除，T={value}天仍参与；正在重算图表与分位。')
 
     def save_paths(self):
         if not self.idle():return

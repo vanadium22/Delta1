@@ -268,6 +268,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
     from .overview_daily import directory,requests,seed_local,fill
     from .overview_sessions import latest_completed_session
     from .overview_percentiles import requirements
+    from .overview_basis import annual_min_days
     from .repository import MarketDataRepository
     root=directory(config,local_root)/'maintenance';root.mkdir(parents=True,exist_ok=True)
     shared=maintenance_root(config.get('history_roots',[]));prior=read_json(shared/'status.json')
@@ -290,7 +291,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             metadata=latest_contracts(read_json(config.get('reference_file','')))
             if any(sum(r['listing_date']<=target<=r['expiry_date'] for s,r in metadata.items() if s.startswith(p))!=4 for p in UNDERLYINGS):
                 return report('waiting_reference','当前四档合约参考不足；没有请求DDB')
-            distribution=requirements(metadata,target)
+            distribution=requirements(metadata,target,min_annual_days=annual_min_days(config))
             state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
                 mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
             report('scanning','仅核对概览所需收盘；研究分钟历史保持原样')
@@ -461,9 +462,10 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
                 from .overview_daily import requests as overview_requests,seed_local
                 from .repository import MarketDataRepository
                 from .overview_percentiles import requirements
+                from .overview_basis import annual_min_days
                 local_repo=MarketDataRepository(roots,allow_unverified=config.get('allow_unverified',False))
                 seeded=seed_local(local_repo,snapshots,config,local_root,end,metadata,stop=stopped)
-                distribution=requirements(metadata,end)
+                distribution=requirements(metadata,end,min_annual_days=annual_min_days(config))
                 state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
                     mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
                 side_jobs=overview_requests(config,local_root,end,metadata)

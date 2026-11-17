@@ -70,7 +70,7 @@ class TermCurveTests(unittest.TestCase):
 
     def test_cache_requires_same_contract_expiry_valid_pair_and_t_at_least_five(self):
         _,rows=self.payload();row=deepcopy(rows[0]);cached=deepcopy(row);cached['saved']=True
-        row.update(annual_pct=None,basis_points=None,basis_display=cached)
+        row.update(annual_pct=None,basis_points=None,basis_display=cached,min_annual_days=5)
         self.assertTrue(points([row])[0]['saved'])
         for mutate in (lambda r:r.update(expiry='2026-11-21'),lambda r:r.update(days=4),
                        lambda r:r['basis_display'].update(symbol='IH_OTHER'),

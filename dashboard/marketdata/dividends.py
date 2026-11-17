@@ -161,11 +161,11 @@ class DividendBook:
         return rows[0]["points"] if rows else None
 
 
-def adjusted_basis(future, spot, dividend, days):
+def adjusted_basis(future, spot, dividend, days, *, min_annual_days=5):
     if any(v is None or not math.isfinite(v) for v in (future, spot, dividend)) or spot <= 0:
         return dict(adjusted_future=None, points=None, bp=None, annual_pct=None, convergence_bp_day=None)
     points = future - spot + dividend
     bp = 10000 * points / spot
     return dict(adjusted_future=future+dividend, points=points, bp=bp,
-        annual_pct=bp*365/(100*days) if days is not None and days >= 5 else None,
+        annual_pct=bp*365/(100*days) if days is not None and days > 0 and days >= min_annual_days else None,
         convergence_bp_day=-bp/days if days is not None and days > 0 else None)

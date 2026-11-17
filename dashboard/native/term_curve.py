@@ -63,8 +63,9 @@ def points(rows):
     result=[]
     for row in sorted(rows,key=lambda value:value.get('slot') if type(value.get('slot')) is int else 99):
         if type(row.get('slot')) is not int or not 0<=row['slot']<4:continue
+        min_days=row.get('min_annual_days',1)
         # A near-expiry exclusion is intentional, not a missing observation.
-        if _number(row.get('days')) and row['days']<5:continue
+        if _number(row.get('days')) and row['days']<min_days:continue
         view=row
         saved=bool(row.get('display_saved'))
         if not _number(row.get('annual_pct')):
@@ -75,7 +76,7 @@ def points(rows):
                     view.get('expiry')!=row.get('expiry')):continue
             saved=True
         days=view.get('days');value=view.get('annual_pct')
-        if not (_number(days) and days>=5 and _number(value)):continue
+        if not (_number(days) and days>=min_days and _number(value)):continue
         try:
             times=[pd.Timestamp(view[k]) for k in ('basis_future_source_at','basis_spot_source_at')]
             if any(pd.isna(t) or t.tzinfo is None for t in times) or abs((times[0]-times[1]).total_seconds())>3:continue

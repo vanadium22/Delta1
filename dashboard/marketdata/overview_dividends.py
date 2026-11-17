@@ -233,16 +233,17 @@ class DerivedCache:
             except (sqlite3.Error, ValueError) as exc:
                 self.error_type = type(exc).__name__
 
-    def calculate(self, symbol, day, future, spot, dividend, days, *, dividend_record=None, price_version=None):
+    def calculate(self, symbol, day, future, spot, dividend, days, *, dividend_record=None, price_version=None, min_annual_days=1):
         from .overview_basis import calculate, FORMULA
         inputs = dict(symbol=symbol, day=day, future=future, spot=spot, dividend=dividend, days=days,
-            dividend_revision=(dividend_record or {}).get('revision'), price_version=price_version, formula=FORMULA)
+            dividend_revision=(dividend_record or {}).get('revision'), price_version=price_version, formula=FORMULA,
+            min_annual_days=min_annual_days)
         key = digest(inputs)
         if key in self.rows:
             self.hits += 1
             return self.rows[key]['values']
         self.misses += 1
-        values = calculate(future, spot, dividend, days)
+        values = calculate(future, spot, dividend, days, min_annual_days=min_annual_days)
         if values['annual_pct'] is not None:
             self.rows[key] = dict(inputs, values=values)
             if self.writable:
