@@ -177,9 +177,18 @@ def calendar_series(panel):
             if left not in g.index or right not in g.index:
                 continue
             a, b = g.loc[left], g.loc[right]
+            gap = (b.expiry_date - a.expiry_date).days
+            valid_gap = pd.notna(gap) and gap > 0 and a.expiry_date >= day
+            valid_spot = np.isfinite(a.spot_close) and a.spot_close > 0 and np.isclose(
+                a.spot_close, b.spot_close, rtol=0, atol=1e-8)
+            points = a.adjusted_futures_close - b.adjusted_futures_close
             rows.append({"trade_date": day, "root": root, "pair": pair,
                          "left_contract": a.instrument_id, "right_contract": b.instrument_id,
-                         "basis_points": a.adjusted_futures_close - b.adjusted_futures_close,
+                         "left_expiry": a.expiry_date, "right_expiry": b.expiry_date,
+                         "expiry_gap_days": gap, "spot_close": a.spot_close,
+                         "basis_points": points,
+                         "annualized_basis_pct": points / a.spot_close * 36500 / gap
+                             if valid_gap and valid_spot else np.nan,
                          "calendar_known": bool(a.calendar_known and b.calendar_known),
                          "roll_day": bool(a.roll_day or b.roll_day)})
     return pd.DataFrame(rows)
@@ -191,6 +200,45 @@ def quantiles(series, end, key):
         rows.extend({"root": root, key: identity, **row}
                     for row in distribution_rows(g, end, "basis_points", windows=WINDOWS))
     return pd.DataFrame(rows)
+
+
+def session_quantiles(series, end, key, sessions=60):
+    """Annualized distributions over exactly N prior local sessions, never filled values."""
+    end = pd.Timestamp(end)
+    days = pd.DatetimeIndex(series.loc[series.trade_date.lt(end), "trade_date"].unique()).sort_values()[-sessions:]
+    rows = []
+    for (root, identity), g in series.groupby(["root", key]):
+        now = g[g.trade_date.eq(end)]
+        current = now.annualized_basis_pct.iloc[0] if len(now) else np.nan
+        history = g.set_index("trade_date").reindex(days)
+        # Known near-expiry single-contract observations are mathematically excluded.
+        # Missing maturities remain eligible, so they invalidate rather than shrink the sample.
+        eligible = (history.days_to_expiry.ge(5) | history.days_to_expiry.isna()
+                    if key == "slot" else pd.Series(True, index=history.index))
+        values = history.loc[eligible, "annualized_basis_pct"].replace([np.inf, -np.inf], np.nan).dropna()
+        complete = bool(len(days) == sessions and history.calendar_known.eq(True).all()
+                        and len(values) == int(eligible.sum()) and len(values))
+        row = {"root": root, key: identity, "window_sessions": sessions,
+               "window_start": days.min(), "window_end_exclusive": end,
+               "sample_start": values.index.min(), "sample_end": values.index.max(),
+               "current": current, "n": len(values), "eligible_n": int(eligible.sum()),
+               "near_expiry_excluded_n": int((~eligible).sum()), "complete": complete}
+        for name, probability in (("p05", .05), ("p25", .25), ("p50", .5), ("p75", .75), ("p95", .95)):
+            row[name] = values.quantile(probability) if complete else np.nan
+        row["percentile"] = (100*((values < current).sum() + .5*(values == current).sum())/len(values)
+                             if complete and np.isfinite(current) else np.nan)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def activity_totals(panel):
+    """Four-leg totals are missing if any constituent is missing."""
+    result = panel.groupby(["trade_date", "root"], as_index=False).agg(
+        open_interest=("open_interest", lambda values: values.sum(min_count=4)),
+        volume=("volume", lambda values: values.sum(min_count=4)))
+    result = result.sort_values(["root", "trade_date"]).reset_index(drop=True)
+    result["oi_change"] = result.groupby("root").open_interest.diff()
+    return result
 
 
 def change(g, end, field="basis_points", lag=1, same_contract=False):

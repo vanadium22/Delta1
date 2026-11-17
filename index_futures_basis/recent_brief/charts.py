@@ -1,4 +1,4 @@
-"""Three combined Matplotlib figures, with no market requests or display fills."""
+"""Combined Matplotlib figures with large per-index panels and explicit units."""
 from __future__ import annotations
 
 import matplotlib
@@ -10,10 +10,9 @@ import numpy as np
 import pandas as pd
 
 from ..analytics import NAMES
-from .data import ORDER, PAIRS, WINDOWS, change
+from .data import ORDER, PAIRS, activity_totals
 
 COLORS = ("#3371ba", "#d7952c", "#149b8c", "#915db4")
-QCOLORS = ("#86a7c4", "#4b9b93", "#c6a057")
 INK, MUTED, RED = "#1c344a", "#68798a", "#cd4d57"
 
 
@@ -94,97 +93,104 @@ def trends(panel, spreads, end, output, note, sessions=60):
     save(fig, output)
 
 
-def distribution_axis(ax, rows, label):
-    ax.set_title(label, loc="left", fontsize=10, pad=11)
-    current = rows.current.iloc[0] if len(rows) else np.nan
-    extents = [current] if np.isfinite(current) else []
-    ticklabels = []
-    for x, months, color in zip(range(3), WINDOWS, QCOLORS):
-        q = rows[rows.months.eq(months)] if len(rows) else rows
-        if q.empty or not bool(q.iloc[0].complete):
-            ticklabels.append(f"{months}月\n不足")
-            continue
-        q = q.iloc[0]
-        extents.extend([q.p05, q.p95])
-        ax.plot([x, x], [q.p05, q.p95], color=color, lw=1.25)
-        ax.plot([x-.13, x+.13], [q.p05, q.p05], color=color, lw=1.1)
-        ax.plot([x-.13, x+.13], [q.p95, q.p95], color=color, lw=1.1)
-        ax.add_patch(Rectangle((x-.23, q.p25), .46, q.p75-q.p25,
-                              facecolor=color, edgecolor=color, alpha=.52))
-        ax.plot([x-.23, x+.23], [q.p50, q.p50], color=INK, lw=1.2)
-        ticklabels.append(f"{months}月\nP{q.percentile:.0f}%" if np.isfinite(q.percentile) else f"{months}月\nP—")
-    if np.isfinite(current):
-        ax.plot([-.25, 2.5], [current, current], color=RED, lw=.8, ls=(0, (2, 3)), alpha=.7)
-        ax.scatter([2.85], [current], marker="D", color=RED, s=24, zorder=5)
-        ax.annotate(number(current), (2.85, current), xytext=(5, 0), textcoords="offset points",
-                    color=RED, fontsize=8.5, va="center", weight="bold")
-    else:
-        ax.text(.5, .5, "当前值缺失", transform=ax.transAxes, ha="center", color=MUTED)
-    if extents:
-        low, high = min(extents), max(extents)
-        pad = max((high-low)*.18, 2)
-        ax.set_ylim(low-pad, high+pad)
-    ax.set_xlim(-.55, 4.55)
-    ax.set_xticks(range(3), ticklabels, fontsize=7.6)
-    ax.tick_params(axis="y", labelsize=7.3, length=2, pad=2)
-    ax.tick_params(axis="x", length=0)
-    ax.grid(axis="y", color="#edf0f3", linewidth=.6)
-    ax.set_axisbelow(True)
-    ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_visible(False)
-
-
-def distributions(panel, single_q, cross_q, end, output, note):
-    fig, axes = plt.subplots(4, 6, figsize=(18.6, 13.2))
-    fig.subplots_adjust(left=.042, right=.987, top=.862, bottom=.105, hspace=.64, wspace=.36)
-    header(fig, "股指期货  /  基差历史分位", f"行情截至 {end:%Y-%m-%d}  ·  各格独立纵轴，单位：点  ·  3 / 6 / 12 自然月，不含当日", note)
-    fig.text(.042, .894, "单合约  00 / 01 / 02 / 03", fontsize=12, weight="bold")
-    fig.text(.685, .894, "跨期  01−02 / 02−03", fontsize=12, weight="bold")
-    fig.add_artist(Line2D([.669, .669], [.10, .873], transform=fig.transFigure, color="#d6e0e7", lw=1))
+def annualized(series, quantiles, end, output, note, sessions=60, key="slot"):
+    """One wide trend plus one shared-axis candle panel per index, no per-contract axes."""
+    days = sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())[-sessions:]
+    single = key == "slot"
+    ids = list(range(1, 5)) if single else list(PAIRS)
+    fig, axes = plt.subplots(4, 2, figsize=(17.5, 13.2), sharey="row",
+                             gridspec_kw={"width_ratios": [2.25, 1]})
+    fig.subplots_adjust(left=.06, right=.976, top=.843, bottom=.113, hspace=.83, wspace=.075)
+    kind = "单合约年化基差" if single else "跨期年化基差"
+    header(fig, f"股指期货  /  {kind}与60日分位",
+           f"行情截至 {end:%Y-%m-%d}  ·  每品种合并展示  ·  单位：%  ·  分位使用此前60个交易日，不含当日", note)
+    fig.text(.06, .894, "近期年化基差走势", fontsize=12, weight="bold")
+    fig.text(.714, .894, "60交易日分布 / 当前值", fontsize=12, weight="bold")
     for row, root in enumerate(ORDER):
-        for col in range(6):
-            if col < 4:
-                q = single_q[single_q.root.eq(root) & single_q.slot.eq(col+1)]
-                current = panel[panel.root.eq(root) & panel.slot.eq(col+1) & panel.trade_date.eq(end)]
-                code = current.instrument_id.iloc[0] if len(current) else ""
-                suffix = code[2:6] if code else "—"
-                label = f"{root}{col:02d} · {suffix}"
-            else:
-                pair = list(PAIRS)[col-4]
-                q = cross_q[cross_q.root.eq(root) & cross_q.pair.eq(pair)]
-                label = f"{root}  {pair}"
-            distribution_axis(axes[row, col], q, label)
+        trend, candles = axes[row]
+        trend.set_title(f"{root}  {NAMES[root]}", loc="left", pad=30, fontsize=12)
+        ticklabels = []
+        for x, identity in enumerate(ids):
+            color = COLORS[x] if single else COLORS[x+1]
+            label = f"{identity-1:02d}" if single else identity
+            g = series[series.root.eq(root) & series[key].eq(identity)].set_index("trade_date").reindex(days)
+            vals = g.annualized_basis_pct.to_numpy()
+            current = vals[-1]
+            trend.plot(range(len(days)), vals, color=color, lw=1.8,
+                       label=f"{label}  {number(current, 2)}%" if np.isfinite(current) else f"{label}  当前—")
+            if np.isfinite(current):
+                trend.scatter([len(days)-1], [current], color=color, s=20, zorder=5)
+            if single:
+                filled = g.annualized_plot_filled.eq(True).to_numpy()
+                joins = filled | np.r_[filled[1:], False]
+                trend.plot(range(len(days)), g.annualized_plot_pct.where(joins), color=color, lw=1.4, ls="--")
+            qs = quantiles[quantiles.root.eq(root) & quantiles[key].eq(identity)]
+            q = qs.iloc[0] if len(qs) else None
+            percentile = number(q.percentile, 0) if q is not None else "—"
+            sample = f"n={int(q.n)}" if q is not None and q.complete else "覆盖不足"
+            ticklabels.append(f"{label}\nP{percentile}% · {sample}")
+            if q is not None and q.complete:
+                candles.plot([x, x], [q.p05, q.p95], color=color, lw=1.5)
+                for y in (q.p05, q.p95):
+                    candles.plot([x-.13, x+.13], [y, y], color=color, lw=1.4)
+                candles.add_patch(Rectangle((x-.24, q.p25), .48, q.p75-q.p25,
+                                            facecolor=color, edgecolor=color, alpha=.35))
+                candles.plot([x-.24, x+.24], [q.p50, q.p50], color=INK, lw=1.6)
+            if np.isfinite(current):
+                candles.scatter([x+.28], [current], marker="D", color=RED, s=28, zorder=5)
+                candles.annotate(f"{current:.2f}%", (x+.28, current), xytext=(4, 0),
+                                 textcoords="offset points", va="center", color=RED, fontsize=8.2, weight="bold")
+            elif single:
+                candles.text(x, .96, "当前临期/缺失", transform=candles.get_xaxis_transform(),
+                             ha="center", va="top", color=MUTED, fontsize=7.4)
+        date_axis(trend, days)
+        trend.set_ylabel("%", rotation=0, labelpad=12)
+        if trend.get_ylim()[0] <= 0 <= trend.get_ylim()[1]:
+            trend.axhline(0, color="#b9c5cf", lw=.8, ls="--")
+        trend.legend(loc="lower left", bbox_to_anchor=(-.008, 1.015), ncol=len(ids),
+                     frameon=False, fontsize=8.7, handlelength=1.5, columnspacing=1.6)
+        candles.set_xticks(range(len(ids)), ticklabels, fontsize=8)
+        candles.set_xlim(-.55, len(ids)-.03 if single else len(ids)+.15)
+        candles.tick_params(axis="x", length=0)
+        candles.tick_params(axis="y", left=False, labelleft=False)
+        candles.grid(axis="y", color="#e8edf1", lw=.7)
+        candles.set_axisbelow(True)
+        candles.spines["left"].set_visible(False)
+        candles.spines["bottom"].set_visible(False)
+        trend.margins(y=.18)
     save(fig, output)
 
 
 def activity(panel, end, output, note, sessions=60):
     days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[-sessions:]
-    fig, axes = plt.subplots(4, 2, figsize=(17.5, 13.2))
-    fig.subplots_adjust(left=.055, right=.976, top=.852, bottom=.095, hspace=.67, wspace=.19)
-    header(fig, "股指期货  /  持仓与成交量", f"行情截至 {end:%Y-%m-%d}  ·  最近 {len(days)} 个本地交易日  ·  四档分别展示，跨期复用对应两腿", note)
-    fig.legend(handles=[Line2D([0], [0], color=c, lw=3, label=f"{i:02d}") for i, c in enumerate(COLORS)],
-               loc="upper left", bbox_to_anchor=(.05, .912), ncol=4, frameon=False, fontsize=10)
-    for row, root in enumerate(ORDER):
-        g = panel[panel.root.eq(root)].copy()
-        for col, field, title in [(0, "open_interest", "持仓量"), (1, "volume", "成交量")]:
-            ax = axes[row, col]
-            wide = g.pivot(index="trade_date", columns="slot", values=field).reindex(index=days, columns=range(1, 5)) / 10000
-            latest = wide.iloc[-1]
-            total = latest.sum(min_count=4)
-            suffix = f"四档合计 {number(total, 2)} 万手"
-            ax.set_title(f"{root}  {NAMES[root]}  /  {title}    {suffix}", loc="left", fontsize=10.5, pad=12)
-            for i, slot in enumerate(range(1, 5)):
-                vals = wide[slot].to_numpy()
-                if col == 0:
-                    ax.plot(range(len(days)), vals, color=COLORS[i], lw=1.6)
-                    if np.isfinite(vals[-1]):
-                        ax.scatter([len(days)-1], [vals[-1]], color=COLORS[i], s=14)
-                else:
-                    # Grouped bars keep a missing leg blank instead of implying a full stacked sum.
-                    ax.bar(np.arange(len(days)) + (i-1.5)*.2, vals, width=.19, color=COLORS[i], alpha=.8)
-            if not wide.notna().any().any():
-                ax.text(.5, .5, "本地未保存该字段", transform=ax.transAxes, ha="center", color=MUTED)
-            date_axis(ax, days)
-            ax.set_ylim(bottom=0)
-            ax.set_ylabel("万手", rotation=0, labelpad=15, fontsize=8)
+    totals = activity_totals(panel)
+    fig, axes = plt.subplots(2, 2, figsize=(17.5, 10))
+    fig.subplots_adjust(left=.06, right=.943, top=.795, bottom=.15, hspace=.52, wspace=.26)
+    header(fig, "股指期货  /  四合约总成交与总持仓",
+           f"行情截至 {end:%Y-%m-%d}  ·  最近 {len(days)} 个本地交易日  ·  每品种00—03四合约相加，单位：万手", note)
+    fig.legend(handles=[Rectangle((0, 0), 1, 1, color="#8bc9c0", label="总成交量 · 左轴"),
+                        Line2D([0], [0], color=COLORS[0], lw=2.5, label="总持仓量 · 右轴")],
+               loc="upper left", bbox_to_anchor=(.055, .91), ncol=2, frameon=False, fontsize=11)
+    for ax, root in zip(axes.flat, ORDER):
+        g = totals[totals.root.eq(root)].set_index("trade_date").reindex(days)
+        volume, oi = g.volume/10000, g.open_interest/10000
+        right = ax.twinx()
+        ax.bar(range(len(days)), volume, width=.75, color="#8bc9c0", alpha=.85)
+        right.plot(range(len(days)), oi, color=COLORS[0], lw=2.3)
+        if np.isfinite(oi.iloc[-1]):
+            right.scatter([len(days)-1], [oi.iloc[-1]], color=COLORS[0], s=26)
+        ax.set_title(f"{root}  {NAMES[root]}", loc="left", fontsize=13, pad=30)
+        ax.text(0, 1.025, f"总成交 {number(volume.iloc[-1], 2)} 万手     总持仓 {number(oi.iloc[-1], 2)} 万手",
+                transform=ax.transAxes, fontsize=10, color=MUTED, va="bottom")
+        date_axis(ax, days)
+        ax.set_ylim(bottom=0)
+        right.set_ylim(bottom=0)
+        ax.set_ylabel("成交", rotation=0, labelpad=15, fontsize=9, color="#489c90")
+        right.set_ylabel("持仓", rotation=0, labelpad=16, fontsize=9, color=COLORS[0])
+        right.tick_params(axis="y", labelsize=8, colors=COLORS[0])
+        right.spines["right"].set_visible(True)
+        right.spines["right"].set_color("#dce3e9")
+        if not volume.notna().any() or not oi.notna().any():
+            ax.text(.5, .45, "部分字段缺失，四合约总量留空", transform=ax.transAxes,
+                    color=MUTED, ha="center", fontsize=10)
     save(fig, output)

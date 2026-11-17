@@ -14,11 +14,11 @@ from ..analytics import sha256
 from ..config import ROOT, timestamp
 from . import charts
 from .charts import number
-from .data import (ORDER, PAIRS, WINDOWS, add_volumes, adjust, calendar_series,
-                   change, load_market, quantiles, snapshot_table)
+from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_series,
+                   change, load_market, session_quantiles, snapshot_table)
 
 
-def explanations(panel, spreads, single_q, end):
+def explanations(panel, spreads, single_q, end, cross_q=None):
     latest = snapshot_table(panel, end)
     available = latest[latest.change_5d.notna()]
     first = "绝对基差 = 期货收盘价 + 分红点数 − 现货；负值为贴水，保留正负号。"
@@ -35,39 +35,51 @@ def explanations(panel, spreads, single_q, end):
     if moves:
         _, root, pair, value, roll = max(moves)
         first += f"跨期变动最大：{root} {pair} {number(value, signed=True)}点" + ("（区间含换月）。" if roll else "。")
-    second = "实体 P25–P75，中线 P50，须 P5–P95；红菱形及旁边数字为当日实际点数，横轴 P 为当日在该窗口的历史百分位。"
-    complete = single_q[single_q.months.eq(3) & single_q.complete & single_q.percentile.notna()]
-    extremes = complete[complete.percentile.le(5) | complete.percentile.ge(95)]
-    if len(extremes):
-        picks = extremes.assign(distance=(extremes.percentile-50).abs()).sort_values("distance", ascending=False).head(3)
-        second += "3月尾部位置：" + "；".join(f"{r.root}{int(r.slot)-1:02d} P{r.percentile:.1f}%（{r.current:.1f}点）" for r in picks.itertuples()) + "。"
-    elif len(complete):
-        second += "已完整覆盖的单合约3月窗口中，当前未落入5%以下或95%以上尾部。"
-    else:
-        second += "历史覆盖不足，分位留空。"
-    third = "四档持仓用曲线、成交量用并列柱，颜色一致；单位为万手。跨期两腿直接参照对应档位，不虚构跨期成交量。"
+    def tail_note(q, key):
+        if q is None:
+            return ""
+        complete = q[q.complete & q.percentile.notna()]
+        extremes = complete[complete.percentile.le(5) | complete.percentile.ge(95)]
+        if len(extremes):
+            picks = extremes.assign(distance=(extremes.percentile-50).abs()).sort_values("distance", ascending=False).head(3)
+            labels = []
+            for r in picks.itertuples():
+                identity = f"{int(r.slot)-1:02d}" if key == "slot" else " " + r.pair
+                labels.append(f"{r.root}{identity} P{r.percentile:.1f}%（{r.current:.2f}%）")
+            return "60交易日尾部：" + "；".join(labels) + "。"
+        return "有效当前值未落入5%/95%尾部。" if len(complete) else "当前值或历史覆盖不足，分位留空。"
+    second = ("每品种四条年化曲线合并，右侧为此前60个交易日的分布，排除当日。"
+              "实体P25–P75、须P5–P95、中线P50；红菱形旁为当前实际年化值。"
+              "单合约剩余不足5日不计算年化，虚线仅延续显示，不进入分位；n为有效样本数。")
+    second += tail_note(single_q, "slot")
+    third = ("跨期仅展示01−02、02−03；年化为调整后价差÷现货×365÷两合约实际到期日间隔。"
+             "右侧使用此前60个交易日的同一跨期年化序列，排除当日，不直接相减两腿年化。")
+    third += tail_note(cross_q, "pair")
+    fourth = "每品种00—03四合约加总：柱形为总成交（左轴），曲线为总持仓（右轴），均为万手。任一合约缺值则总量留空。"
+    totals = activity_totals(panel)
     activity_rows, ratios = [], []
     days = sorted(panel.loc[panel.trade_date.lt(end), "trade_date"].unique())[-20:]
-    for row in latest.itertuples():
-        history = panel[panel.instrument_id.eq(row.contract) & panel.trade_date.isin(days)].volume
+    latest_totals = totals[totals.trade_date.eq(end)]
+    for row in latest_totals.itertuples():
+        history = totals[totals.root.eq(row.root) & totals.trade_date.isin(days)].volume
         median = history.median() if history.notna().sum() >= 10 else np.nan
         ratio = row.volume/median if np.isfinite(median) and median > 0 else np.nan
-        activity_rows.append({"root": row.root, "slot": row.slot, "contract": row.contract,
+        activity_rows.append({"root": row.root,
                               "volume": row.volume, "previous_20_sessions_median": median,
                               "valid_samples": int(history.notna().sum()), "volume_multiple": ratio})
         if np.isfinite(ratio):
-            ratios.append((ratio, row.root, row.slot))
+            ratios.append((ratio, row.root))
     if ratios:
-        ratio, root, slot = max(ratios)
-        third += f"相对前20交易日同一实际合约成交中位数，放量倍数最高为 {root}{int(slot)-1:02d} {ratio:.2f}倍"
-        third += "（达到2倍观察阈值）。" if ratio >= 2 else "（未达2倍观察阈值）。"
+        ratio, root = max(ratios)
+        fourth += f"相对前20交易日总成交中位数，最高为 {root} {ratio:.2f}倍"
+        fourth += "（达到2倍观察阈值）。" if ratio >= 2 else "（未达2倍观察阈值）。"
     else:
-        third += "同合约成交样本不足，未计算放量倍数。"
-    oi = latest[latest.oi_change.notna()]
+        fourth += "总成交历史样本不足，未计算放量倍数。"
+    oi = latest_totals[latest_totals.oi_change.notna()]
     if len(oi):
         row = oi.loc[oi.oi_change.abs().idxmax()]
-        third += f"同合约当日持仓变动最大：{row.root}{int(row.slot)-1:02d} {number(row.oi_change/10000, 2, True)}万手。"
-    return [first, second, third], pd.DataFrame(activity_rows)
+        fourth += f"四合约总持仓当日变化最大：{row.root} {number(row.oi_change/10000, 2, True)}万手。"
+    return [first, second, third, fourth], pd.DataFrame(activity_rows)
 
 
 def build(args):
@@ -87,8 +99,8 @@ def build(args):
             volume_info = {"status": "补充成交量不可用，保留原库字段及缺口", "reason": str(exc)}
     panel, dividend_info = adjust(panel, config, paths, args.dividends)
     spreads = calendar_series(panel)
-    single_q, cross_q = quantiles(panel, end, "slot"), quantiles(spreads, end, "pair")
-    texts, activity_table = explanations(panel, spreads, single_q, end)
+    single_q, cross_q = session_quantiles(panel, end, "slot"), session_quantiles(spreads, end, "pair")
+    texts, activity_table = explanations(panel, spreads, single_q, end, cross_q)
     created = timestamp()
     run_id = re.sub(r"[^0-9]", "", created)[:14]
     out = (Path(args.output) if args.output else ROOT / "exports/recent_brief" / str(end.date()) / run_id).resolve()
@@ -103,19 +115,23 @@ def build(args):
     source_label = source.get("label") or source.get("source", {}).get("label", "本地持久化行情库")
     source_line = "\n行情来源：" + source_label + ("；成交量补充：共享修订后日线缓存。" if volume_info.get("version") else "。")
     chart1_note = note + " 底部彩色短线标记换月；浅灰区为最近10个本地交易日。" + source_line
-    chart2_note = note + " 各格独立纵轴，不能按蜡烛高度跨格比较波动；当前日不进入历史样本。" + source_line
-    chart3_note = note + " 持仓变化比较同一实际合约；成交量仅按同交易日、同实际合约匹配。" + source_line
+    chart2_note = note + " 每行走势与蜡烛共用纵轴；不足5日的年化虚线仅用于显示，不进入分位。" + source_line
+    chart3_note = note + " 跨期年化=调整后价差÷现货×365÷实际到期日间隔；前者减后者，不是两腿年化相减。" + source_line
+    chart4_note = note + " 四合约任一缺值则总量留空；双轴用于分别观察成交和持仓，各自单位均为万手。" + source_line
     charts.setup()
-    files = ["01_近期基差与跨期.png", "02_基差分位蜡烛.png", "03_持仓与成交量.png"]
-    print("绘制 1/3：近期基差与跨期", flush=True)
+    files = ["01_近期基差与跨期.png", "02_单合约年化与60日分位.png",
+             "03_跨期年化与60日分位.png", "04_四合约总成交与总持仓.png"]
+    print("绘制 1/4：近期绝对基差与跨期", flush=True)
     charts.trends(panel, spreads, end, out/files[0], chart1_note, args.sessions)
-    print("绘制 2/3：基差分位蜡烛", flush=True)
-    charts.distributions(panel, single_q, cross_q, end, out/files[1], chart2_note)
-    print("绘制 3/3：持仓与成交量", flush=True)
-    charts.activity(panel, end, out/files[2], chart3_note, args.sessions)
+    print("绘制 2/4：单合约年化与60交易日分位", flush=True)
+    charts.annualized(panel, single_q, end, out/files[1], chart2_note, args.sessions)
+    print("绘制 3/4：跨期年化与60交易日分位", flush=True)
+    charts.annualized(spreads, cross_q, end, out/files[2], chart3_note, args.sessions, key="pair")
+    print("绘制 4/4：四合约总成交与总持仓", flush=True)
+    charts.activity(panel, end, out/files[3], chart4_note, args.sessions)
     tables = {"daily_basis": panel, "daily_calendar": spreads, "basis_quantiles": single_q,
               "calendar_quantiles": cross_q, "latest_contracts": snapshot_table(panel, end),
-              "activity_checks": activity_table}
+              "activity_checks": activity_table, "activity_totals": activity_totals(panel)}
     for name, frame in tables.items():
         frame.to_csv(out/f"{name}.csv", index=False, encoding="utf-8-sig")
     source_note = f"生成时间 {created}；行情截至 {end:%Y-%m-%d}，未更新至生成日。分红快照 {dividend_date}。"
@@ -137,14 +153,16 @@ def build(args):
             'CSV与run_manifest.json保存计算明细及来源。</footer></html>')
     (out/"index.html").write_text(html, encoding="utf-8")
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
-    manifest = {"version": 1, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 2, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
-                "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "quantile_months": WINDOWS},
-                "quantile_policy": "[end-N calendar months,end), exclude current; half-weight ties; incomplete windows blank",
-                "percentile_metric": "signed absolute dividend-adjusted basis points, not annualized",
+                "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": 60},
+                "quantile_policy": "exact previous 60 local sessions, exclude current; half-weight ties; known single-contract D<5 excluded; missing inputs/unknown calendar invalidate",
+                "percentile_metric": "dividend-adjusted annualized basis percent; calendar uses actual expiry gap and spot denominator",
+                "calendar_annualized_formula": "(left_adjusted_price-right_adjusted_price)/spot_close*36500/(right_expiry-left_expiry).days",
+                "activity_aggregation": "sum 4 contracts (00-03); any missing constituent makes total missing; total OI change is difference of daily sums",
                 "anomaly_policy": {"percentile_tails": [5,95], "volume_multiple": 2,
-                    "volume_reference": "previous 20 sessions, same actual contract; >=10 finite samples; exclude current"},
+                    "volume_reference": "previous 20 sessions, four-contract total; >=10 finite samples; exclude current"},
                 "code_sha256": code_hash, "explanations": texts,
                 "output_files": {p.name: {"sha256": sha256(p), "bytes": p.stat().st_size}
                                  for p in out.iterdir() if p.is_file()}}
@@ -154,7 +172,7 @@ def build(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="仅用本地真实行情生成3张基差/跨期总览和简短说明，不访问Wind")
+    parser = argparse.ArgumentParser(description="仅用本地真实行情生成4张基差/年化60日分位/四合约总量图，不访问Wind")
     parser.add_argument("--snapshot", type=Path, help="原项目raw_market.json格式的四品种快照；不导入/覆盖行情库")
     parser.add_argument("--database", type=Path, help="指定只读行情SQLite，默认选择配置下最新可用真实库")
     parser.add_argument("--as-of", help="截止日YYYY-MM-DD；显式日期不回退")

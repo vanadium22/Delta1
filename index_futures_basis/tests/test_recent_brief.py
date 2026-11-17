@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 
 from index_futures_basis.analytics import attach_dividends
-from index_futures_basis.recent_brief.data import (ReadOnlyStore, add_volumes, calendar_series,
-    change, load_market, quantiles)
+from index_futures_basis.recent_brief.data import (ReadOnlyStore, activity_totals, add_volumes, calendar_series,
+    change, load_market, quantiles, session_quantiles)
 from index_futures_basis.recent_brief.brief import explanations
 
 
@@ -46,6 +46,21 @@ class RecentBriefTests(unittest.TestCase):
         p["spot_close"] = np.nan
         p["basis_points"] = np.nan
         self.assertTrue(calendar_series(p).basis_points.notna().all())
+        self.assertTrue(calendar_series(p).annualized_basis_pct.isna().all())
+
+    def test_calendar_annualization_uses_spot_and_actual_expiry_gap(self):
+        p = panel()
+        spreads = calendar_series(p)
+        row = spreads[spreads.pair.eq("01−02")].iloc[-1]
+        expected = 7 / 1000 * 36500 / (pd.Timestamp("2026-04-20") - pd.Timestamp("2026-03-20")).days
+        self.assertAlmostEqual(row.annualized_basis_pct, expected)
+        legs = p[p.trade_date.eq(p.trade_date.max())].set_index("slot")
+        self.assertNotAlmostEqual(row.annualized_basis_pct,
+                                 legs.loc[2, "annualized_basis_pct"]-legs.loc[3, "annualized_basis_pct"])
+        p.loc[p.slot.eq(3), "expiry_date"] = pd.NaT
+        missing = calendar_series(p)
+        self.assertTrue(missing.basis_points.notna().all())
+        self.assertTrue(missing.annualized_basis_pct.isna().all())
 
     def test_missing_dividend_leg_does_not_become_zero(self):
         p = panel()
@@ -80,6 +95,68 @@ class RecentBriefTests(unittest.TestCase):
         q = quantiles(p, p.trade_date.max(), "slot").set_index("months")
         self.assertTrue(q.loc[3, "complete"])
         self.assertFalse(q.loc[12, "complete"])
+
+    def annual_history(self):
+        days = pd.bdate_range("2025-01-01", periods=100)
+        return pd.DataFrame({"trade_date": days, "root": "IF", "slot": 2,
+                             "annualized_basis_pct": 1., "days_to_expiry": 30., "calendar_known": True})
+
+    def test_sixty_sessions_excludes_current_and_weights_ties(self):
+        p = self.annual_history()
+        end = p.trade_date.max()
+        row = session_quantiles(p, end, "slot").iloc[0]
+        self.assertEqual(row.n, 60)
+        self.assertEqual(row.percentile, 50)
+        self.assertEqual(row.window_start, p.trade_date.iloc[-61])
+        self.assertEqual(row.sample_end, p.trade_date.iloc[-2])
+        p.loc[p.index[-1], "annualized_basis_pct"] = 10000
+        row = session_quantiles(p, end, "slot").iloc[0]
+        self.assertEqual(row.p95, 1)
+        self.assertEqual(row.percentile, 100)
+
+    def test_sixty_session_window_does_not_use_short_or_missing_history(self):
+        for field, value in [("calendar_known", False), ("annualized_basis_pct", np.nan)]:
+            p = self.annual_history()
+            p.loc[p.index[-3], field] = value
+            row = session_quantiles(p, p.trade_date.max(), "slot").iloc[0]
+            self.assertFalse(row.complete)
+            self.assertTrue(np.isnan(row.p50))
+        p = self.annual_history().tail(60)  # Only 59 prior sessions.
+        self.assertFalse(session_quantiles(p, p.trade_date.max(), "slot").iloc[0].complete)
+
+    def test_near_expiry_excluded_but_missing_expiry_not_discarded(self):
+        p = self.annual_history()
+        p.loc[p.index[-3], ["days_to_expiry", "annualized_basis_pct"]] = [1, np.nan]
+        p["annualized_plot_pct"] = 9999  # Display fills must not enter the candle sample.
+        row = session_quantiles(p, p.trade_date.max(), "slot").iloc[0]
+        self.assertTrue(row.complete)
+        self.assertEqual(row.n, 59)
+        self.assertEqual(row.near_expiry_excluded_n, 1)
+        self.assertEqual(row.p95, 1)
+        p.loc[p.index[-3], "days_to_expiry"] = np.nan
+        self.assertFalse(session_quantiles(p, p.trade_date.max(), "slot").iloc[0].complete)
+
+    def test_cross_sixty_session_percentile_uses_annualized_values(self):
+        p = self.annual_history().drop(columns=["slot", "days_to_expiry"])
+        p["pair"] = "01−02"
+        p["basis_points"] = -9999.
+        row = session_quantiles(p, p.trade_date.max(), "pair").iloc[0]
+        self.assertTrue(row.complete)
+        self.assertEqual(row.p50, 1)
+        self.assertEqual(row.percentile, 50)
+
+    def test_four_contract_totals_do_not_turn_missing_legs_into_partial_sums(self):
+        p = panel()
+        totals = activity_totals(p)
+        self.assertEqual(totals.iloc[-1].volume, 200)
+        self.assertEqual(totals.iloc[-1].open_interest, 1040)
+        self.assertEqual(totals.iloc[-1].oi_change, 40)
+        p.loc[p.index[-1], "volume"] = np.nan
+        missing = activity_totals(p).iloc[-1]
+        self.assertTrue(np.isnan(missing.volume))
+        self.assertEqual(missing.open_interest, 1040)
+        p["volume"] = 0
+        self.assertTrue(activity_totals(p).volume.eq(0).all())
 
     def test_change_preserves_missing_and_can_require_same_contract(self):
         p = panel().query("slot == 2").copy()
@@ -168,9 +245,9 @@ class RecentBriefTests(unittest.TestCase):
             r["volume"] = 10 if day != days[-1] else 40
             history.append(r)
         p = pd.concat(history, ignore_index=True)
-        q = quantiles(p, days[-1], "slot")
+        q = session_quantiles(p, days[-1], "slot")
         _, table = explanations(p, calendar_series(p), q, days[-1])
-        self.assertTrue(table.previous_20_sessions_median.eq(10).all())
+        self.assertTrue(table.previous_20_sessions_median.eq(40).all())
         self.assertTrue(table.volume_multiple.eq(4).all())
 
 
