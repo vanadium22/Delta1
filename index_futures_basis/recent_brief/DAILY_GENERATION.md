@@ -52,3 +52,5 @@ D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\
 ```
 
 每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，含8页Word/PDF、4张完整PNG和SVG、8份分段排版图、计算/卡片CSV及来源清单。不生成HTML，新旧批次独立保留。前端从latest.json读取真实批次，所以不依赖特定预览日期目录。
+
+生成时重新读取本地最新业务日期的分红，包含基差正式输入和看板已落地的分红缓存；不访问分红公盘。无需把最新文件手工钉到--dividends，日常默认按B1选最新。Word/PDF图片页只留图片与卡片及日期，全部图片后自动追加综合观察；规则和特征随narrative.json保留，分红校验CSV与源Excel快照同批次保存。

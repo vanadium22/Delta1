@@ -27,15 +27,14 @@ def page_plan(output, files):
                 with Image.open(target) as part:
                     ratio = part.height / part.width
                 # Same image rectangle in Word and PDF; no full-page tiny thumbnails.
-                height_limit = 8.2 if len(pages) < 2 else 9.0
-                width = min(PAGE_WIDTH-1.0, height_limit/ratio)
+                width = min(PAGE_WIDTH-1.0, 9.0/ratio)
                 pages.append({"title": TITLES[index], "part": half+1, "image": target,
                               "width": width, "height": width*ratio, "section": index})
     return pages
 
 
 def _notes(info, page, number):
-    source = f"行情截至 {info['as_of']}  分红快照 {info['dividend_date']}  生成 {info['created_at']}"
+    source = f"行情截至 {info['as_of']}  分红 {info['dividend_date']}"
     if number < 2:
         summary = "\n".join(f"{c['title']}：{c['value']}（{c['detail']}）" for c in info["summary_cards"][number*2:(number+1)*2])
     else:
@@ -101,18 +100,18 @@ def write_word(output, pages, info):
         p = document.add_paragraph()
         p.paragraph_format.space_after = Pt(0)
         p.add_run().add_picture(str(page["image"]), width=Inches(page["width"]), height=Inches(page["height"]))
-        document.add_paragraph(caption)
-        if number == 0:
-            document.add_paragraph(_source_note(info))
-        p = document.add_paragraph(f"{number+1} / {len(pages)}")
-        p.paragraph_format.space_after = Pt(0)
+        if number == len(pages)-1 and info.get("narrative"):
+            document.add_paragraph("综合观察", "Heading 1")
+            paragraph = document.add_paragraph(info["narrative"])
+            for run in paragraph.runs:
+                run.font.size = Pt(11)
+            paragraph.paragraph_format.line_spacing = 1.5
     document.core_properties.title = "股指基差简报"
     document.core_properties.author = ""
     document.save(output / WORD_NAME)
 
 
 def write_pdf(output, pages, info):
-    import textwrap
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
     from matplotlib.patches import FancyBboxPatch
@@ -138,10 +137,21 @@ def write_pdf(output, pages, info):
                 # Opaque RGB avoids image-mask artifacts in PDF readers.
                 ax.imshow(picture.convert("RGB"))
             ax.axis("off")
-            fig.text(.03, .085, "\n".join(textwrap.wrap(caption, width=115)), fontsize=9, va="top", color="black")
-            if number == 0:
-                fig.text(.03, .035, "\n".join(textwrap.wrap(_source_note(info), width=135)), fontsize=7, va="top", color="#405265")
-            fig.text(.97, .018, f"{number+1} / {len(pages)}", fontsize=8, ha="right", color="#405265")
+            if number == len(pages)-1 and info.get("narrative"):
+                import unicodedata
+                lines, line, used = [], "", 0
+                for char in info["narrative"]:
+                    width = 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                    if used+width > 190:
+                        lines.append(line)
+                        line, used = "", 0
+                    line += char
+                    used += width
+                if line:
+                    lines.append(line)
+                y = min(.34, top-page["height"]/PAGE_HEIGHT-.04)
+                fig.text(.04, y, "综合观察", fontsize=14, weight="bold", va="top", color="black")
+                fig.text(.04, y-.032, "\n".join(lines), fontsize=11, va="top", color="black", linespacing=1.65)
             pdf.savefig(fig, dpi=260)
             plt.close(fig)
 
@@ -151,4 +161,4 @@ def export_documents(output, files, info):
     pages = page_plan(output, files)
     write_word(output, pages, info)
     write_pdf(output, pages, info)
-    return {"word": WORD_NAME, "pdf": PDF_NAME, "pages": len(pages), "layout": "A3 landscape, two product rows per page"}
+    return {"word": WORD_NAME, "pdf": PDF_NAME, "pages": len(pages), "layout": "A3 landscape, images and cards; final data commentary only", "narrative_included": bool(info.get("narrative"))}

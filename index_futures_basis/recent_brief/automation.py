@@ -53,9 +53,10 @@ def input_fingerprint(args):
     if args.dividends:
         files.add(Path(args.dividends).resolve())
     else:
-        for value in config["dividends"]["directories"]:
-            directory = paths.resolve_module_setting(ROOT, value, paths.dividend_inputs, ("inputs", "input"))
-            files.update(p for p in directory.glob(config["dividends"].get("pattern", "*.xlsx")) if not p.name.startswith("~$"))
+        from .dividend_sources import local_directories
+        files.add(paths.repo_root/"dashboard/localsetting/native.json")
+        for value in local_directories(ROOT, config, paths):
+            files.update(p for p in Path(value).glob("*.xlsx") if not p.name.startswith("~$"))
     if not args.no_volume_supplement:
         datasets = [Path(args.volume_dataset)] if args.volume_dataset else [
             paths.root/"market/index_futures/dashboard/normalized"/n for n in ("backfilled_cn_index_future", "cn_index_future")]

@@ -17,6 +17,7 @@ from .charts import number
 from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_series,
                    change, load_market, session_quantiles, multi_session_quantiles, snapshot_table)
 from .metrics import highlights, series_metrics, total_metrics, activity_commentary
+from .narrative import compose
 
 
 def refresh_market(as_of=None, factory=None, volume_refresher=None):
@@ -136,6 +137,7 @@ def build(args):
     cross_metrics = series_metrics(spreads, end, "pair", cross_q)
     aggregate_metrics = total_metrics(panel, end)
     summary_cards = highlights(single_metrics, cross_metrics, aggregate_metrics)
+    narrative = compose(panel, spreads, single_tables, cross_tables, aggregate_metrics, end)
     texts, activity_table = explanations(panel, spreads, single_q, end, cross_q)
     created = timestamp()
     run_id = re.sub(r"[^0-9]", "", created)[:14] + "_" + uuid.uuid4().hex[:6]
@@ -170,6 +172,16 @@ def build(args):
               "basis_rank_tables": single_tables, "calendar_rank_tables": cross_tables,
               "activity_checks": activity_table, "activity_totals": activity_totals(panel),
               "basis_cards": single_metrics, "calendar_cards": cross_metrics, "activity_cards": aggregate_metrics}
+    audit = panel[["trade_date", "root", "slot", "instrument_id", "futures_close", "spot_close",
+                   "dividend_points", "raw_basis_points", "basis_points"]].copy()
+    audit["adjustment_check"] = audit.basis_points-audit.raw_basis_points-audit.dividend_points
+    tables["dividend_adjustment_audit"] = audit
+    if dividend_info.get("path") and dividend_info.get("sha256"):
+        dividend_bytes = Path(dividend_info["path"]).read_bytes()
+        if hashlib.sha256(dividend_bytes).hexdigest() != dividend_info["sha256"]:
+            raise ValueError("分红源文件在读取后已变化，请重新生成")
+        (out/"dividend_input_snapshot.xlsx").write_bytes(dividend_bytes)
+    (out/"narrative.json").write_text(json.dumps(narrative, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     for name, frame in tables.items():
         frame.to_csv(out/f"{name}.csv", index=False, encoding="utf-8-sig")
     source_note = f"生成时间 {created}；实际行情截至 {end:%Y-%m-%d}。分红快照 {dividend_date}。"
@@ -186,7 +198,8 @@ def build(args):
             source_note += " 使用本地实际可用数据；" + str(refresh_info.get("reason") or refresh_info.get("message") or "部分字段未更新")
     from .documents import export_documents
     document_info = {"as_of": str(end.date()), "created_at": created, "dividend_date": dividend_date,
-                     "summary_cards": summary_cards, "explanations": texts, "source_note": source_note}
+                     "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
+                     "narrative": narrative["text"]}
     print("排版 Word 与 PDF 简报…", flush=True)
     document_outputs = export_documents(out, files, document_info)
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
@@ -195,7 +208,7 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 6, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 7, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": [30, 60, 120], "summary_baseline_sessions": 60},
@@ -214,6 +227,7 @@ def build(args):
                     "single_contract_axes": "annualized time series 01-03 only, common axis; 00 current/ranks retained in table"},
                 "summary_cards": summary_cards,
                 "activity_commentary": activity_commentary(panel, end),
+                "narrative": narrative,
                 "summary_policy": "current level vs exact previous 60-session mean; select standardized deviations; today move compared with mean absolute daily move of 60 prior intervals; exclude 00 from annualized summary selection",
                 "market_refresh": getattr(args, "refresh_result", {"requested": False}),
                 "anomaly_policy": {"percentile_tails": [5,95], "volume_multiple": 2,

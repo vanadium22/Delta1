@@ -34,12 +34,16 @@ class DocumentTests(unittest.TestCase):
                 Image.new("RGB", (380, 560), "white").save(root/name)
             info = {"as_of": "2026-01-05", "created_at": "2026-01-06", "dividend_date": "2026-01-01",
                     "summary_cards": [{"title": "偏离60日均值", "value": "+1.0 点", "detail": "当前与历史均值", "direction": 1} for _ in range(4)],
-                    "explanations": ["说明"]*4, "source_note": "实际行情日期"}
+                    "explanations": ["说明"]*4, "source_note": "实际行情日期", "narrative": "当前基差与量仓的综合观察。"}
             result = export_documents(root, FIGURES, info)
             document = Document(root/WORD_NAME)
             self.assertEqual(len(document.inline_shapes), 8)
             self.assertEqual(len(document.tables), 2)
             self.assertIn("偏离60日均值", document.tables[0].cell(0, 0).text)
+            text = "\n".join(p.text for p in document.paragraphs)
+            self.assertNotIn("说明", text)
+            self.assertNotIn("实际行情日期", text)
+            self.assertTrue(text.endswith(info["narrative"]))
             pdf = (root/PDF_NAME).read_bytes()
             self.assertTrue(pdf.startswith(b"%PDF"))
             self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf)), result["pages"])

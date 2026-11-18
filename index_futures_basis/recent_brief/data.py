@@ -156,10 +156,15 @@ def add_volumes(panel, dataset):
 def adjust(panel, config, paths, dividend_file=None):
     cfg = dict(config["dividends"])
     cfg["allow_missing_values"] = True
-    cfg["directories"] = [str(paths.resolve_module_setting(ROOT, p, paths.dividend_inputs, ("inputs", "input")))
-                          for p in cfg["directories"]]
     if dividend_file:
         cfg.update(selection="fixed_file", file=str(Path(dividend_file).resolve()))
+    else:
+        # A fixed-file setting in the older App must not pin the daily brief to
+        # yesterday's dividend workbook. Explicit --dividends remains reproducible.
+        cfg["selection"] = "latest_snapshot"
+        cfg["pattern"] = "*.xlsx"
+        from .dividend_sources import local_directories
+        cfg["directories"] = local_directories(ROOT, config, paths)
     try:
         dividends, info = read_dividends(cfg, ROOT)
     except (ValueError, OSError) as exc:
@@ -172,6 +177,15 @@ def adjust(panel, config, paths, dividend_file=None):
         result.days_to_expiry.replace(0, np.nan)).where(result.days_to_expiry.ge(MIN_DAYS_TO_EXPIRY))
     result["annualized_plot_pct"] = result.annualized_basis_pct
     result["annualized_plot_filled"] = False
+    valid = result[["futures_close", "spot_close", "dividend_points", "basis_points"]].notna().all(axis=1)
+    residual = (result.basis_points-result.raw_basis_points-result.dividend_points).abs()
+    info["brief_selection"] = "explicit_file" if dividend_file else "latest_local_workbook_business_date"
+    info["adjustment_audit"] = {"formula": "F+G-S", "valid_rows": int(valid.sum()),
+        "missing_dividend_rows": int(result.dividend_points.isna().sum()),
+        "nonzero_dividend_rows": int((result.dividend_points.fillna(0) != 0).sum()),
+        "max_formula_residual": float(residual[valid].max()) if valid.any() else None}
+    if valid.any() and residual[valid].gt(1e-8).any():
+        raise ValueError("分红调整校验失败，未发布简报")
     return result, info
 
 

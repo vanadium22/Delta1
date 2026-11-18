@@ -12,7 +12,7 @@ import pandas as pd
 from ..analytics import NAMES
 from .charts import COLORS, INK, MUTED, RED, number, setup
 from .data import ORDER, PAIRS, activity_totals
-from .metrics import series_metrics, total_metrics, activity_commentary
+from .metrics import series_metrics, total_metrics
 
 STYLES = ("-", (0, (5, 2)), (0, (4, 2, 1, 2)), (0, (1, 1.5)))
 DPI = 200
@@ -20,8 +20,7 @@ DPI = 200
 
 def _header(fig, title, subtitle, note):
     fig.text(.055, .985, title, fontsize=25, weight="bold", va="top", color=INK)
-    fig.text(.055, .985-40/(72*fig.get_figheight()), subtitle, fontsize=11, va="top", color=MUTED)
-    fig.text(.055, .022, note, fontsize=9, va="bottom", color=MUTED, linespacing=1.6)
+    fig.text(.055, .985-40/(72*fig.get_figheight()), subtitle.split(" · ", 1)[0], fontsize=11, va="top", color=MUTED)
 
 
 def _card(fig, x, y, width, height, title, value, detail, secondary, color):
@@ -219,7 +218,6 @@ def _quantile_table(ax, qs, key, ids, current):
             if percentile <= 5 or percentile >= 95:
                 cell.set_facecolor("#fbe9e8" if percentile >= 95 else "#e8f1fc")
                 cell.get_text().set_color(RED if percentile >= 95 else COLORS[0])
-    ax.text(0, -.10, "排除当日；n为有效样本；—为覆盖不足", transform=ax.transAxes, fontsize=9, color=MUTED)
     return table
 
 
@@ -298,7 +296,6 @@ def activity(panel, end, output, note, sessions=60, metrics=None):
     days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[-sessions:]
     metrics = total_metrics(panel, end) if metrics is None else metrics
     totals = activity_totals(panel)
-    comments = activity_commentary(panel, end)
     fig = plt.figure(figsize=(19, 17))
     _header(fig, "股指期货 / 四合约总量与变化",
             f"行情截至 {end:%Y-%m-%d} · 四合约累和 · 总成交柱形读左轴，总持仓曲线读右轴 · 最近5日着色", note)
@@ -340,9 +337,6 @@ def activity(panel, end, output, note, sessions=60, metrics=None):
         right.tick_params(axis="y", labelsize=10, colors=COLORS[0])
         right.spines["right"].set_visible(True)
         right.spines["right"].set_color("#dce3e9")
-        import textwrap
-        fig.text(x, top-.368, "\n".join(textwrap.wrap(comments.get(root, "数据不足，暂不判断趋势。"), width=50)),
-                 fontsize=9.5, va="top", color=INK, linespacing=1.25)
         if not volume.notna().any() or not oi.notna().any():
             ax.text(.5, .45, "部分字段缺失，总量留空", transform=ax.transAxes, ha="center", color=MUTED)
     _save(fig, output)
