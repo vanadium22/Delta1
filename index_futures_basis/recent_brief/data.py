@@ -206,6 +206,8 @@ def calendar_series(panel):
                          "left_contract": a.instrument_id, "right_contract": b.instrument_id,
                          "left_expiry": a.expiry_date, "right_expiry": b.expiry_date,
                          "expiry_gap_days": gap, "spot_close": a.spot_close,
+                         "left_futures_close": a.futures_close, "right_futures_close": b.futures_close,
+                         "left_dividend_points": a.dividend_points, "right_dividend_points": b.dividend_points,
                          "basis_points": points,
                          "annualized_basis_pct": points / a.spot_close * 36500 / gap
                              if valid_gap and valid_spot else np.nan,
@@ -287,7 +289,9 @@ def snapshot_table(panel, end):
         if now.empty:
             continue
         row = now.iloc[0]
-        rows.append({"root": root, "slot": slot, "contract": row.instrument_id,
+        rows.append({"trade_date": end, "root": root, "slot": slot, "contract": row.instrument_id,
+                     "spot_close": row.spot_close, "futures_close": row.futures_close,
+                     "dividend_points": row.dividend_points,
                      "basis_points": row.basis_points,
                      "change_1d": change(g, end), "change_5d": change(g, end, lag=5),
                      "open_interest": row.open_interest, "oi_change": row.oi_change,

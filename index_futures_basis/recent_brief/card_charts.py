@@ -12,7 +12,7 @@ import pandas as pd
 from ..analytics import NAMES
 from .charts import COLORS, INK, MUTED, RED, number, setup
 from .data import ORDER, PAIRS, activity_totals
-from .metrics import series_metrics, total_metrics
+from .metrics import series_metrics, total_metrics, price_audit_lines
 
 STYLES = ("-", (0, (5, 2)), (0, (4, 2, 1, 2)), (0, (1, 1.5)))
 DPI = 200
@@ -23,18 +23,26 @@ def _header(fig, title, subtitle, note):
     fig.text(.055, .985-40/(72*fig.get_figheight()), subtitle.split(" · ", 1)[0], fontsize=11, va="top", color=MUTED)
 
 
-def _card(fig, x, y, width, height, title, value, detail, secondary, color):
+def _card(fig, x, y, width, height, title, value, detail, secondary, color, audit=()):
     fig.add_artist(FancyBboxPatch((x, y), width, height, transform=fig.transFigure,
                    boxstyle="round,pad=0.003,rounding_size=0.004", facecolor="#f5f8fb",
                    edgecolor="#e0e7ef", linewidth=.8, zorder=2))
     fig.add_artist(Rectangle((x, y+.006), .0023, height-.012, transform=fig.transFigure,
                              facecolor=color, edgecolor="none", zorder=3))
     pad = min(.009, width*.06)
-    for text, ypos, size, tone, weight in (
+    lines = (
         (title, y+height*.86, 10.5, MUTED, "normal"),
         (value, y+height*.58, 22, color, "bold"),
         (detail, y+height*.28, 10, INK, "normal"),
-        (secondary, y+height*.08, 9.8, MUTED, "normal")):
+        (secondary, y+height*.08, 9.8, MUTED, "normal"))
+    if audit:
+        lines = ((title, y+height*.90, 10.5, MUTED, "normal"),
+                 (value, y+height*.73, 22, color, "bold"),
+                 (detail, y+height*.55, 9.4, INK, "normal"),
+                 (secondary, y+height*.41, 9.4, MUTED, "normal"))
+        lines += tuple((line, y+height*pos, 9.0, INK, "normal")
+                       for line, pos in zip(audit, (.27, .16, .05)))
+    for text, ypos, size, tone, weight in lines:
         fig.text(x+pad, ypos, text, fontsize=size, va="center", color=tone, weight=weight, zorder=4)
 
 
@@ -227,7 +235,7 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
     ids = [2, 3, 4] if key == "slot" else list(PAIRS)
     table_ids = [1, 2, 3, 4] if key == "slot" else list(PAIRS)
     kind = "单合约" if key == "slot" else "跨期"
-    fig = plt.figure(figsize=(19, 28))
+    fig = plt.figure(figsize=(19, 30))
     _header(fig, f"股指期货 / {kind}年化与历史分位表",
             f"行情截至 {end:%Y-%m-%d} · T≥1均计算 · 卡片：当前值、1日/5日变化、分位日变 · " +
             ("年化走势仅01—03，00保留在表格" if key == "slot" else "跨期仅01−02、02−03；前30/60/120交易日分位"), note)
@@ -253,9 +261,10 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
                 secondary = f"60日 P{number(r.percentile, 1)}%  ·  分位日变 {number(r.percentile_change_1d, 1, True)}个百分点"
                 if r.roll_5d:
                     secondary += " · 含换月"
-            _card(fig, .06+i*(width+.010), top-.068, width, .048, label, value, detail, secondary, color)
-        trend = fig.add_axes([.06, top-.202, .47, .122])
-        rank_axis = fig.add_axes([.592, top-.202, .362, .122])
+            audit = price_audit_lines(r) if r is not None else ("指数 —", "期货 —", "分红 —")
+            _card(fig, .06+i*(width+.010), top-.088, width, .068, label, value, detail, secondary, color, audit)
+        trend = fig.add_axes([.06, top-.208, .47, .112])
+        rank_axis = fig.add_axes([.592, top-.208, .362, .112])
         _trend(trend, series, root, key, ids, days, "annualized_basis_pct", annual=True)
         _quantile_table(rank_axis, quantiles[quantiles.root.eq(root)], key, table_ids, current)
     _save(fig, output)
@@ -265,7 +274,7 @@ def trends(panel, spreads, end, output, note, sessions=60, single_metrics=None, 
     days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[-sessions:]
     single_metrics = series_metrics(panel, end, "slot") if single_metrics is None else single_metrics
     cross_metrics = series_metrics(spreads, end, "pair") if cross_metrics is None else cross_metrics
-    fig = plt.figure(figsize=(19, 28))
+    fig = plt.figure(figsize=(19, 30))
     _header(fig, "股指期货 / 去分红绝对基差与跨期",
             f"行情截至 {end:%Y-%m-%d} · 当前点数与1日/5日变化自动计算 · 阴影及加粗线为最近5个交易日", note)
     for row, root in enumerate(ORDER):
@@ -280,14 +289,17 @@ def trends(panel, spreads, end, output, note, sessions=60, single_metrics=None, 
                 rows = current[current[key].eq(identity)]
                 r = rows.iloc[0] if len(rows) else None
                 label = f"{root}{identity-1:02d}" if key == "slot" else f"{root} {identity}"
+                if r is not None and key == "slot":
+                    label += " · " + r.contract.replace(".CFE", "")
                 color = COLORS[i] if key == "slot" else COLORS[i+1]
                 value = number(r.basis_current, 1) + "点" if r is not None else "—"
                 detail = "日变 " + number(r.basis_change_1d, 1, True) + "点" if r is not None else "日变 —"
                 secondary = "5日 " + number(r.basis_change_5d, 1, True) + "点" if r is not None else "5日 —"
                 if r is not None and r.roll_5d:
                     secondary += " · 换月"
-                _card(fig, x+i*(card_width+.008), top-.068, card_width, .048, label, value, detail, secondary, color)
-            ax = fig.add_axes([x, top-.202, width, .122])
+                audit = price_audit_lines(r) if r is not None else ("指数 —", "期货 —", "分红 —")
+                _card(fig, x+i*(card_width+.008), top-.088, card_width, .068, label, value, detail, secondary, color, audit)
+            ax = fig.add_axes([x, top-.208, width, .112])
             _trend(ax, frame, root, key, ids, days, "basis_points")
     _save(fig, output)
 

@@ -7,6 +7,19 @@ import pandas as pd
 from .data import activity_totals, session_quantiles
 
 
+def price_audit_lines(row):
+    """Display the original same-day inputs, including genuine zero dividends."""
+    def value(field):
+        number = row.get(field, np.nan)
+        return f"{number:.4f}" if pd.notna(number) and np.isfinite(number) else "—"
+    if "left_futures_close" in row:
+        return [f"指数 {value('spot_close')}",
+                f"左腿期货 {value('left_futures_close')} / 分红 {value('left_dividend_points')}",
+                f"右腿期货 {value('right_futures_close')} / 分红 {value('right_dividend_points')}"]
+    return [f"指数 {value('spot_close')}", f"期货 {value('futures_close')}",
+            f"分红 {value('dividend_points')} 点"]
+
+
 def _before(series, end, lag):
     days = sorted(series.loc[series.trade_date.lt(end), "trade_date"].unique())
     return pd.Timestamp(days[-lag]) if len(days) >= lag else None
@@ -80,6 +93,10 @@ def series_metrics(series, end, key, current_quantiles=None):
                "days_to_expiry": now.get("days_to_expiry", np.nan),
                "basis_current": now.basis_points, "annual_current": now.annualized_basis_pct,
                "percentile": percentile}
+        for field in ("spot_close", "futures_close", "dividend_points", "left_futures_close",
+                      "right_futures_close", "left_dividend_points", "right_dividend_points"):
+            if field in now:
+                row[field] = now[field]
         for lag, day in dates.items():
             row[f"basis_change_{lag}d"] = _difference(group, end, day, "basis_points")
             # Percentage-point difference is the display unit; bp remains an audit column.
@@ -151,6 +168,7 @@ def highlights(single, cross, totals):
         if row.get("roll_5d", False):
             detail += "；近期含换月"
         cards.append({"title": title, "value": f"{delta:+.{digits}f} {units}", "detail": detail,
+                      "audit_lines": price_audit_lines(row), "trade_date": str(row.trade_date.date()),
                       "direction": int(np.sign(delta)), "baseline_sessions": 60, "selection_score": float(row[score])})
     candidates = []
     for _, row in totals.iterrows():

@@ -12,7 +12,7 @@ import pandas as pd
 from openpyxl import Workbook
 
 from index_futures_basis.recent_brief.data import adjust, calendar_series, multi_session_quantiles
-from index_futures_basis.recent_brief.metrics import total_metrics
+from index_futures_basis.recent_brief.metrics import total_metrics, series_metrics, price_audit_lines
 from index_futures_basis.recent_brief.narrative import classify_path, compose
 from index_futures_basis.tests.test_recent_brief import panel
 
@@ -40,8 +40,112 @@ class NarrativeTests(unittest.TestCase):
         report = compose(p,c,multi_session_quantiles(p,p.trade_date.max(),"slot"),
                          multi_session_quantiles(c,p.trade_date.max(),"pair"),
                          total_metrics(p,p.trade_date.max()),p.trade_date.max())
-        self.assertIn("40日历史不足", report["text"])
+        self.assertIn("30/60日历史不足", report["text"])
+        self.assertEqual([s["key"] for s in report["sections"]], ["absolute", "annualized", "activity", "calendar"])
         json.dumps(report,allow_nan=False)
+
+    def history(self):
+        base = panel().query("trade_date == trade_date.max()")
+        frames = []
+        for day in pd.bdate_range("2025-01-01", periods=100):
+            for root in ("IF", "IH", "IC", "IM"):
+                current = base.copy()
+                current["root"], current["trade_date"] = root, day
+                current["instrument_id"] = current.instrument_id.str.replace("IF", root)
+                current["roll_day"] = False
+                frames.append(current)
+        return pd.concat(frames, ignore_index=True)
+
+    def compose(self, p):
+        c = calendar_series(p)
+        return compose(p,c,None,None,None,p.trade_date.max())
+
+    def test_flat_market_does_not_force_anomalies_and_windows_are_explicit(self):
+        result = self.compose(self.history())
+        self.assertEqual(result["absolute"]["selected"], [])
+        self.assertEqual(result["annualized"]["selected"], [])
+        self.assertEqual(result["activity"]["selected"], [])
+        self.assertIn("未见明显", result["text"])
+        self.assertEqual({r["window"] for r in result["activity"]["features"]}, {7,30,60})
+        json.dumps(result,allow_nan=False)
+
+    def test_product_overview_uses_multiple_tenors_then_selects_bounded_exceptions(self):
+        p = self.history()
+        p["basis_points"] = p.basis_points.astype(float)
+        days = sorted(p.trade_date.unique())
+        for i, day in enumerate(days):
+            p.loc[p.root.eq("IF") & p.trade_date.eq(day) & p.slot.gt(1), "basis_points"] = -100+i*.8
+        result = self.compose(p)
+        self.assertTrue(result["absolute"]["overview"]["IF"]["majority"])
+        self.assertEqual(result["absolute"]["overview"]["IF"]["majority_count"], 3)
+        self.assertIn("IF近60日多数合约贴水幅度总体收敛", result["sections"][0]["text"])
+        self.assertLessEqual(len(result["absolute"]["selected"]), 2)
+        self.assertEqual(len({(r["root"],r["slot"]) for r in result["absolute"]["selected"]}), len(result["absolute"]["selected"]))
+
+    def test_annual_excludes_00_and_missing_rows_do_not_shrink_windows(self):
+        p = self.history()
+        end = p.trade_date.max()
+        p.loc[p.trade_date.eq(end) & p.slot.eq(1), "annualized_basis_pct"] = -9999
+        days = sorted(p.trade_date.unique())
+        p.loc[p.root.eq("IF") & p.slot.eq(2) & p.trade_date.eq(days[-12]), "annualized_basis_pct"] = np.nan
+        result = self.compose(p)
+        self.assertTrue(all(r["slot"] != 1 for r in result["annualized"]["features"]))
+        self.assertFalse(any(r["root"] == "IF" and r["slot"] == 2 for r in result["annualized"]["features"]))
+        # A genuinely complete 30-session history can be named explicitly.
+        p = p[p.trade_date.isin(days[-35:])]
+        result = self.compose(p)
+        self.assertEqual(result["absolute"]["overview"]["IC"]["window"], 30)
+
+    def test_recent_volatility_can_be_selected_even_when_current_near_history_mean(self):
+        p = self.history()
+        p["basis_points"] = p.basis_points.astype(float)
+        days = sorted(p.trade_date.unique())
+        for i, day in enumerate(days):
+            value = -100+(.5 if i%2 else -.5)
+            if i >= len(days)-7:
+                value = -100+(25 if i%2 else -25)
+            if i == len(days)-1:
+                value = -100
+            p.loc[p.root.eq("IF") & p.slot.eq(3) & p.trade_date.eq(day), "basis_points"] = value
+        result = self.compose(p)
+        picked = result["absolute"]["selected"]
+        self.assertTrue(any(r["root"] == "IF" and r["slot"] == 3 and r["volatility_expansion"] for r in picked))
+        self.assertIn("近7日日均变幅", result["sections"][0]["text"])
+        # A previously constant history has no meaningful volatility ratio.
+        mask = p.root.eq("IF") & p.slot.eq(3) & ~p.trade_date.isin(days[-7:])
+        p.loc[mask, "basis_points"] = -100.
+        result = self.compose(p)
+        self.assertTrue(any(r["volatility_expansion"] for r in result["absolute"]["selected"]))
+        self.assertIn("基本无波动", result["sections"][0]["text"])
+        json.dumps(result,allow_nan=False)
+
+    def test_activity_volume_means_are_disjoint_and_missing_constituents_stay_missing(self):
+        p = self.history()
+        days = sorted(p.trade_date.unique())
+        mask = p.root.eq("IF") & p.trade_date.isin(days[-7:])
+        p.loc[mask, "volume"] *= 2
+        result = self.compose(p)
+        volumes = [r for r in result["activity"]["features"] if r["root"] == "IF" and r["metric"] == "volume"]
+        self.assertEqual(len(volumes), 3)
+        self.assertTrue(all(abs(r["change_pct"]-100) < 1e-8 for r in volumes))
+        self.assertIn("IF近7日日均成交", result["sections"][2]["text"])
+        p.loc[p.root.eq("IF") & p.slot.eq(1) & p.trade_date.eq(days[-2]), "volume"] = np.nan
+        result = self.compose(p)
+        self.assertFalse(any(r["root"] == "IF" and r["metric"] == "volume" for r in result["activity"]["features"]))
+
+    def test_price_cards_show_raw_prices_and_genuine_zero_dividend(self):
+        p = panel()
+        p.loc[p.slot.eq(1), "dividend_points"] = 0.
+        single = series_metrics(p,p.trade_date.max(),"slot")
+        audit = price_audit_lines(single[single.slot.eq(1)].iloc[0])
+        self.assertEqual(audit, ["指数 1000.0000", "期货 990.0000", "分红 0.0000 点"])
+        c = calendar_series(p)
+        cross = series_metrics(c,p.trade_date.max(),"pair").iloc[0]
+        self.assertEqual(cross.left_futures_close, 980)
+        self.assertEqual(cross.right_dividend_points, 6)
+        self.assertIn("左腿期货 980.0000 / 分红 3.0000", price_audit_lines(cross))
+        single.loc[single.slot.eq(1), "dividend_points"] = np.nan
+        self.assertEqual(price_audit_lines(single[single.slot.eq(1)].iloc[0])[-1], "分红 — 点")
 
     def test_latest_local_dividend_uses_business_date_and_unpinned_file(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -12,6 +12,8 @@
 
 生成使用已有Python及项目已声明的python-docx/Matplotlib依赖，不需要Word或LibreOffice来生成PDF。Word与PDF同时生成完整后才替换latest；图片和文档布局分开，未来改图后可重新生成或重排。
 
+日常并非固定使用前一日收盘：默认北京时间15:05前取上一已收盘交易日，15:05后尝试更新当日；16:10任务正常更新后通常为当日。离线或更新失败只使用实际本地日期，报告抬头直接列行情日。新版首页为15号正文的四部分综合观察，后8页仍为图与卡片；价格卡下方可核对同日指数、实际合约价格和最新本地分红点数。
+
 ## 已有工作自动化App
 
 本机已登记并启用“股指基差每日Word与PDF简报”（工作日16:10），重复接入验证保留同一ID；没有启动后台或更改原邮件/日报/FOF任务。本机桌面为“工作自动化工作台”，源目录`P:\project\swhy\project\work_automation`；公司为`D:\WORKSPACE\MAIN\SwhySc\project\work_automation`。仍使用其0.6.0原生定时子任务，不另建Windows调度器、不接邮件、不更改日报或FOF。
@@ -51,6 +53,6 @@ D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\
 D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\recent_brief\latest.docx
 ```
 
-每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，含8页Word/PDF、4张完整PNG和SVG、8份分段排版图、计算/卡片CSV及来源清单。不生成HTML，新旧批次独立保留。前端从latest.json读取真实批次，所以不依赖特定预览日期目录。
+每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，默认9页Word/PDF、4张完整PNG和SVG、8份分段排版图、计算/卡片CSV及来源清单。不生成HTML，新旧批次独立保留。前端从latest.json读取真实批次，所以不依赖特定预览日期目录。
 
 生成时重新读取本地最新业务日期的分红，包含基差正式输入和看板已落地的分红缓存；不访问分红公盘。无需把最新文件手工钉到--dividends，日常默认按B1选最新。Word/PDF图片页只留图片与卡片及日期，全部图片后自动追加综合观察；规则和特征随narrative.json保留，分红校验CSV与源Excel快照同批次保存。

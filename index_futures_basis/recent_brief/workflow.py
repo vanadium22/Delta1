@@ -89,7 +89,7 @@ def _repackage(source, output=None):
     setup()
     documents = export_documents(output, FIGURES, info)
     overrides = [name for name,path in source_images.items() if sha256(path) != manifest.get("output_files", {}).get(path.name, {}).get("sha256")]
-    manifest.update(version=max(7, manifest.get("version", 7)), created_at=created, documents=documents, document_info=info,
+    manifest.update(version=max(8, manifest.get("version", 8)), created_at=created, documents=documents, document_info=info,
         document_rebuild={"source_batch": str(source), "recalculated_market": False,
                           "builder_sha256": sha256(Path(__file__).with_name("documents.py")),
                           "images_changed_since_source_manifest": overrides})

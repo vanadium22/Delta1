@@ -199,7 +199,7 @@ def build(args):
     from .documents import export_documents
     document_info = {"as_of": str(end.date()), "created_at": created, "dividend_date": dividend_date,
                      "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
-                     "narrative": narrative["text"]}
+                     "narrative": narrative["text"], "narrative_sections": narrative["sections"]}
     print("排版 Word 与 PDF 简报…", flush=True)
     document_outputs = export_documents(out, files, document_info)
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
@@ -208,8 +208,11 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 7, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 8, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
+                "price_policy": {"type": "daily_close", "fields": ["futures_close", "spot_close"],
+                    "refresh_ready_shanghai": f"{config['close_hour']:02d}:{config.get('close_minute', 0):02d}",
+                    "fallback": "actual local available date; explicit cutoff retained; never relabel an old close"},
                 "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": [30, 60, 120], "summary_baseline_sessions": 60},
                 "quantile_policy": "exact previous 30/60/120 local sessions, exclude current; half-weight ties; single-contract T>=1 included, T=0 excluded; missing inputs/unknown calendar invalidate",
