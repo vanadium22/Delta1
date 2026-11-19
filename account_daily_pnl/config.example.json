@@ -1,0 +1,10 @@
+{
+  "wind_futures_field": "settle",
+  "wind_timeout_seconds": 30,
+  "accounts": {
+    "2602": {"opening_equity": null, "cash_flows_confirmed_through": null},
+    "5526": {"opening_equity": null, "cash_flows_confirmed_through": null},
+    "5524": {"opening_equity": null, "cash_flows_confirmed_through": null}
+  },
+  "cash_movements": []
+}

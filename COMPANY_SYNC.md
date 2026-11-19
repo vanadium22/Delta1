@@ -11,11 +11,14 @@
 | securities_lending | 券源下载、查询、行业与金额筛选 | [券源交接](securities_lending/PROJECT_HANDOFF.md) |
 | script_making | 交易前日报查询、人工簿记和日报管理；兼容既有统计自动任务 | [日报交接](script_making/PROJECT_HANDOFF.md) |
 | statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
+| account_daily_pnl | 三账户场内持仓、总权益及单日盈亏日更，可补跑遗漏交易日 | [公司单日测试](account_daily_pnl/README.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
 | index_strategy | 历史 / 实时采集与兼容桌面工具 | [采集接口](index_strategy/instant_dld/README.md) |
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |
 
 ## 最近发布
+
+- 2026-11-19 新增三账户场内日更。公司拉取代码后，将单独交付的历史 Excel 包放入模块，再双击单日测试入口。常规入口按交易日下载和补跑，Wind 回补同日缺价，未核实资金口径在报表中明确提示。[场内日更交接](account_daily_pnl/PROJECT_HANDOFF.md)。
 
 - 2026-11-18 基差简报移除各页生成/口径/图注，图片与卡片后统一追加可编辑综合观察；本地最新分红按表内业务日选择，纳入已保存的看板缓存，新增源快照与F+G−S逐行校验。规则树+模板自动描述40日走势、年化/跨期分位及量仓，保存判定特征供后续扩展。58项相关测试通过，Word/PDF各8页逐页核验；本机最新分红仍9月18日，预览行情10月15日。既有自动任务和其他模块保持。[说明](index_futures_basis/recent_brief/README.md)。
 

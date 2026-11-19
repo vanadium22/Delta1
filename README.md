@@ -8,6 +8,7 @@
 |---|---|---|
 | 指数 / ETF / 期指看板 | [dashboard/start_presentation.vbs](dashboard/start_presentation.vbs) | [展示版说明](dashboard/README.md) · [公司测试步骤](dashboard/APP_COMPANY_TEST.md) |
 | 券源工作台 | [securities_lending/start.cmd](securities_lending/start.cmd) | [使用与筛选](securities_lending/README.md) |
+| 场内持仓与盈亏 | [account_daily_pnl/start.cmd](account_daily_pnl/start.cmd) | [公司单日测试与日更](account_daily_pnl/README.md) |
 | 日报下载、查询及邮件产物 | [script_making/start.cmd](script_making/start.cmd) | [日报说明](script_making/README.md) |
 | 独立股指基差报告 | [index_futures_basis/start.cmd](index_futures_basis/start.cmd) | [基差口径与报告](index_futures_basis/README.md) |
 | 指数策略采集 / 历史工具 | [index_strategy/start_app.cmd](index_strategy/start_app.cmd) | [工具说明](index_strategy/desktop/README.md) |

@@ -1,0 +1,8 @@
+/data/
+/outputs/
+/logs/
+/validation/
+/config.local.json
+/*.xls
+/*.xlsx
+/*.zip
