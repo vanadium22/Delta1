@@ -52,6 +52,8 @@ class DocumentTests(unittest.TestCase):
             self.assertEqual(result["pages"], 9)
             self.assertTrue(all((root/name).exists() for name in FIGURES))
             self.assertEqual(list(root.glob("*.html")), [])
+            from index_futures_basis.recent_brief.documents import _source
+            self.assertIn('早于行情62天',_source({**info,'dividend_warning':'早于行情62天，请检查分红更新'}))
 
     def test_incomplete_document_does_not_replace_successful_pointer(self):
         with tempfile.TemporaryDirectory() as directory:

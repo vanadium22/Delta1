@@ -146,6 +146,12 @@ def build(args):
     if (out / "run_manifest.json").exists():
         raise ValueError(f"输出目录已有批次，请换一个 --output 路径：{out}")
     dividend_date = dividend_info.get("snapshot_date", "逐日输入")
+    dividend_age = ((end-pd.Timestamp(dividend_date)).days
+                    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(dividend_date)) else None)
+    dividend_info["age_calendar_days"] = dividend_age
+    dividend_warning = f"早于行情{dividend_age}天，请检查分红更新" if dividend_age is not None and dividend_age > 7 else ""
+    if dividend_info.get("reason"):
+        dividend_warning = "分红缺失，调整后值留空"
     last = {root: (str(g.loc[g.futures_close.notna(), "trade_date"].max().date())
                    if g.futures_close.notna().any() else "缺失") for root, g in panel.groupby("root")}
     note = (f"本地真实行情截至 {end:%Y-%m-%d}；分红快照 {dividend_date}，按连续档位固定应用于整个历史，并非历史逐日预测。\n"
@@ -199,7 +205,8 @@ def build(args):
     from .documents import export_documents
     document_info = {"as_of": str(end.date()), "created_at": created, "dividend_date": dividend_date,
                      "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
-                     "narrative": narrative["text"], "narrative_sections": narrative["sections"]}
+                     "narrative": narrative["text"], "narrative_sections": narrative["sections"],
+                     "dividend_warning": dividend_warning}
     print("排版 Word 与 PDF 简报…", flush=True)
     document_outputs = export_documents(out, files, document_info)
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()

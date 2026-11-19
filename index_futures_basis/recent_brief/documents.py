@@ -34,7 +34,8 @@ def page_plan(output, files):
 
 
 def _source(info):
-    return f"行情截至 {info['as_of']}  日线收盘价  分红 {info['dividend_date']}"
+    warning = "  "+info["dividend_warning"] if info.get("dividend_warning") else ""
+    return f"行情截至 {info['as_of']}  日线收盘价  分红 {info['dividend_date']}"+warning
 
 
 def _sections(info):

@@ -16,6 +16,13 @@ def is_local(path):
     return True
 
 
+def profile_files(paths):
+    if not hasattr(paths, 'repo_root'):
+        return []
+    base = paths.repo_root/'dashboard/localsetting'
+    return [base/p/'native.json' for p in ('app', 'numeric_excel', '')]
+
+
 def local_directories(module_root, config, paths):
     cfg = config["dividends"]
     if paths is None:
@@ -26,29 +33,28 @@ def local_directories(module_root, config, paths):
     # A supplied isolated DataPaths determines the scope; never walk ancestors.
     if hasattr(paths, "repo_root"):
         dashboard = paths.repo_root/"dashboard"
-        local = dashboard/"localsetting"
-        file = local/"native.json"
-        try:
-            settings = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {}
-        except (OSError, ValueError):
-            settings = {}
-        for key in ("dividend_root", "overview_dividend_file"):
-            value = settings.get(key)
-            if not value or not is_local(value):
-                continue
-            path = Path(value)
-            path = path if path.is_absolute() else dashboard/path
-            if path.suffix.lower() == ".xlsx":
-                # Only expose that file's directory, still validating workbook B1/B/G.
-                path = path.parent
-            candidates.append(str(path))
-        cache = Path(settings.get("overview_dividend_cache") or local/"overview_dividends")
-        cache = cache if cache.is_absolute() else dashboard/cache
-        if is_local(cache):
-            raw = cache/"raw"
+        for file in profile_files(paths):
             try:
-                candidates.extend(str(day) for day in raw.iterdir()
-                                  if re.fullmatch(r"\d{4}-\d{2}-\d{2}",day.name) and day.is_dir())
-            except OSError:
-                pass
+                settings = json.loads(file.read_text(encoding="utf-8-sig")) if file.is_file() else {}
+            except (OSError, ValueError):
+                settings = {}
+            for key in ("dividend_root", "overview_dividend_file", "overview_dividend_source_dir"):
+                value = settings.get(key)
+                if not value or not is_local(value):
+                    continue
+                path = Path(value)
+                path = path if path.is_absolute() else paths.repo_root/path
+                if path.suffix.lower() == ".xlsx":
+                    path = path.parent
+                candidates.append(str(path))
+            cache = Path(settings.get("overview_dividend_cache") or file.parent/"overview_dividends")
+            cache = cache if cache.is_absolute() else paths.repo_root/cache
+            if is_local(cache):
+                candidates.append(str(cache))
+                raw = cache/"raw"
+                try:
+                    candidates.extend(str(day) for day in sorted(raw.iterdir())
+                                      if re.fullmatch(r"\d{4}-\d{2}-\d{2}",day.name) and day.is_dir())
+                except OSError:
+                    pass
     return list(dict.fromkeys(value for value in candidates if is_local(value)))

@@ -9,7 +9,7 @@ import pandas as pd
 
 from .data import ORDER, PAIRS, activity_totals
 
-RULE_VERSION = "descriptive-tree-v2"
+RULE_VERSION = "descriptive-tree-v3"
 WINDOWS = (30, 60)
 
 
@@ -33,7 +33,12 @@ def classify_path(values, sessions=40, minimum_move=3.):
     high, low = float(interior.max()), float(interior.min())
     noise = float(np.mean(np.abs(np.diff(size))))
     threshold = max(minimum_move, .15*float(np.ptp(size)), 2*noise)
-    if high-max(start,end) >= threshold:
+    peak, trough = int(interior.idxmax()), int(interior.idxmin())
+    if peak < trough and high-start >= threshold and high-low >= threshold and end-low >= threshold:
+        shape, text = "widen_narrow_widen", f"{state}幅度先扩大、后收敛，近期再扩大"
+    elif trough < peak and start-low >= threshold and high-low >= threshold and high-end >= threshold:
+        shape, text = "narrow_widen_narrow", f"{state}幅度先收敛、后扩大，近期再收敛"
+    elif high-max(start,end) >= threshold:
         shape, text = "widen_then_narrow", f"{state}幅度先扩大后收敛"
     elif min(start,end)-low >= threshold:
         shape, text = "narrow_then_widen", f"{state}幅度先收敛后扩大"
@@ -60,7 +65,7 @@ def _complete(group, field):
 def _overview(series, end, key, ids, field):
     """Require a two-thirds majority of tenors, not a hidden representative."""
     days = sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())
-    result, clauses = {}, []
+    result, clauses, grouped, divided = {}, [], {}, {}
     for root in ORDER:
         selected = None
         for window in (60, 30):
@@ -86,10 +91,64 @@ def _overview(series, end, key, ids, field):
         result[root] = selected
         if majority:
             scope = "全部" if count == len(ids) else "多数"
-            clauses.append(f"{root}近{selected['window']}日{scope}合约{text}")
+            grouped.setdefault((selected['window'], scope, text), []).append(root)
         else:
-            clauses.append(f"{root}近{selected['window']}日各期限走势分化")
-    return "；".join(clauses)+"。", result
+            divided.setdefault(selected['window'], []).append(root)
+    clauses = [f"{'、'.join(roots)}近{window}日{scope}合约{text}"
+               for (window,scope,text),roots in grouped.items()]+[
+                   f"{'、'.join(roots)}近{window}日各期限走势分化" for window,roots in divided.items()]+clauses
+    # Independent short-window observation; a quiet week can follow a large
+    # multi-month move, so do not infer it from the overall direction.
+    quiet = []
+    for root in ORDER:
+        matches = 0
+        for identity in ids:
+            group = _aligned(series, days[-30:], root, key, identity)
+            if len(group) != 30 or not _complete(group, field):
+                continue
+            moves = np.abs(np.diff(group[field].to_numpy(dtype=float)))
+            floor = .4 if field == 'annualized_basis_pct' else 3.
+            if moves[-7:].max() <= max(floor, 1.5*float(moves[:-7].mean())):
+                matches += 1
+        if matches >= math.ceil(len(ids)*2/3):
+            quiet.append(root)
+    text = "；".join(clauses)+"。"
+    if quiet:
+        text += "、".join(quiet)+"多数期限近一周未见明显大幅波动。"
+    return text, result
+
+
+def _annual_state(features):
+    groups = {}
+    for root in ORDER:
+        rows = [r for r in features if r['root'] == root and r['window'] == 60]
+        if len(rows) != 3:
+            continue
+        low = [r for r in rows if r['percentile'] <= 20]
+        high = [r for r in rows if r['percentile'] >= 80]
+        if len(low) >= 2:
+            label = '多数合约处于60日20%以下历史分位'
+            label += '，年化贴水较深' if all(r['current'] < 0 for r in low) else '，年化水平偏低'
+        elif len(high) >= 2:
+            label = '多数合约处于60日80%以上历史分位，年化水平偏高'
+        else:
+            continue
+        groups.setdefault(label, []).append(root)
+    return "；".join('、'.join(roots)+label for label,roots in groups.items())+("。" if groups else "")
+
+
+def _next_month(panel, end):
+    days = sorted(panel.loc[panel.trade_date.le(end),'trade_date'].unique())[-8:]
+    selected = []
+    if len(days) == 8:
+        for root in ORDER:
+            group = _aligned(panel, days, root, 'slot', 2)
+            if not _complete(group,'annualized_basis_pct') or group.roll_day.iloc[1:].eq(True).any():
+                continue
+            a,b = float(group.annualized_basis_pct.iloc[0]),float(group.annualized_basis_pct.iloc[-1])
+            if a < 0 and b < a-1:
+                selected.append(root)
+    return ('、'.join(selected)+'次月合约近7日年化贴水扩大较明显。') if selected else ''
 
 
 def _features(series, end, key, ids, field):
@@ -174,9 +233,15 @@ def _activity(panel, end):
     known = panel.groupby(["trade_date", "root"], as_index=False).calendar_known.all()
     totals = totals.merge(known, on=["trade_date", "root"])
     days = sorted(totals.loc[totals.trade_date.le(end), "trade_date"].unique())
-    features, overview, missing = [], [], []
+    features, overview, missing, positions = [], [], [], []
     for root in ORDER:
         group = totals[totals.root.eq(root)].set_index("trade_date").reindex(days)
+        history = group.iloc[:-1].tail(60)
+        if len(history) == 60 and _complete(history, 'open_interest') and _complete(group.tail(1), 'open_interest'):
+            current = float(group.open_interest.iloc[-1])
+            rank = 100*((history.open_interest < current).sum()+.5*(history.open_interest == current).sum())/60
+            if rank >= 80:
+                positions.append({'root': root, 'percentile': float(rank), 'current': current})
         root_rows = []
         for window in (7, 30, 60):
             oi = group.tail(window+1)
@@ -230,7 +295,10 @@ def _activity(panel, end):
         text += "已覆盖窗口内未见明显量仓变化。"
     if missing and overview:
         text += "、".join(missing)+"近期量仓历史不足。"
-    return text, {"features": features, "selected": picked}
+    high = sorted(positions, key=lambda r: (-r['percentile'],r['root']))[:2]
+    if high:
+        text += '、'.join(f"{r['root']}（P{r['percentile']:.1f}%）" for r in high)+'当前四合约总持仓处于近60日较高水平。'
+    return text, {"features": features, "selected": picked, "high_positions": high}
 
 
 def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
@@ -240,7 +308,8 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
     annual, annual_overview = _overview(panel, end, "slot", range(2,5), "annualized_basis_pct")
     absolute_features = _features(panel, end, "slot", range(1,5), "basis_points")
     annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct")
-    absolute_picks, annual_picks = _picks(absolute_features, "slot"), _picks(annual_features, "slot")
+    annual = _annual_state(annual_features)+annual+_next_month(panel, end)
+    absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
     absolute += _exception_text(absolute_picks, "slot") or ("当前未见明显绝对基差异常。" if absolute_features else "当前异常判断所需历史不足。")
     annual += _exception_text(annual_picks, "slot", True) or ("当前未见明显年化基差异常。" if annual_features else "当前异常判断所需历史不足。")
     activity, activity_evidence = _activity(panel, end)

@@ -181,6 +181,42 @@ class NarrativeTests(unittest.TestCase):
             self.assertEqual(revised_info["snapshot_date"],"2026-04-01")
             self.assertEqual(Path(revised_info["path"]),cached.resolve())
             self.assertTrue(revised.dividend_points.eq(9).all())
+            # Company current App / numeric profiles have independent raw caches.
+            current = save('dashboard/localsetting/app/overview_dividends/raw/2026-05-01/latest.xlsx','2026-05-01',11)
+            revised,info=adjust(p,cfg,paths)
+            self.assertEqual(info['snapshot_date'],'2026-05-01')
+            self.assertEqual(Path(info['path']),current.resolve())
+            private=root/'dashboard/localsetting/numeric_excel'
+            private.mkdir(parents=True,exist_ok=True)
+            (private/'native.json').write_text(json.dumps({'overview_dividend_cache':'saved_dividend_cache'}),encoding='utf-8-sig')
+            configured=save('saved_dividend_cache/raw/2026-06-01/current.xlsx','2026-06-01',13)
+            revised,info=adjust(p,cfg,paths)
+            self.assertEqual(info['snapshot_date'],'2026-06-01')
+            self.assertEqual(Path(info['path']),configured.resolve())
+
+    def test_three_stage_path_and_current_oi_high_position(self):
+        values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
+        self.assertEqual(classify_path(values,60)['shape'],'widen_narrow_widen')
+        p=self.history()
+        p['open_interest']=p.open_interest.astype(float)
+        days=sorted(p.trade_date.unique())
+        p.loc[p.root.eq('IC') & p.trade_date.eq(days[-1]),'open_interest'] *= 1.15
+        report=self.compose(p)
+        self.assertIn('IC（P100.0%）',report['text'])
+        self.assertNotIn('对冲需求显著',report['text'])
+        json.dumps(report,allow_nan=False)
+
+    def test_common_annual_state_and_next_month_are_not_hardcoded_to_reference(self):
+        p=self.history()
+        end=p.trade_date.max()
+        p.loc[p.trade_date.eq(end) & p.slot.gt(1),'annualized_basis_pct']=-50.
+        result=self.compose(p)
+        self.assertIn('IF、IH、IC、IM多数合约处于60日20%以下',result['text'])
+        self.assertIn('IF、IH、IC、IM次月合约近7日',result['text'])
+        self.assertEqual(len(result['annualized']['selected']),1)
+        p.loc[p.trade_date.eq(end),'roll_day']=True
+        result=self.compose(p)
+        self.assertNotIn('次月合约近7日',result['text'])
 
 
 if __name__ == "__main__":

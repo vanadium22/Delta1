@@ -53,8 +53,8 @@ def input_fingerprint(args):
     if args.dividends:
         files.add(Path(args.dividends).resolve())
     else:
-        from .dividend_sources import local_directories
-        files.add(paths.repo_root/"dashboard/localsetting/native.json")
+        from .dividend_sources import local_directories, profile_files
+        files.update(profile_files(paths))
         for value in local_directories(ROOT, config, paths):
             files.update(p for p in Path(value).glob("*.xlsx") if not p.name.startswith("~$"))
     if not args.no_volume_supplement:
