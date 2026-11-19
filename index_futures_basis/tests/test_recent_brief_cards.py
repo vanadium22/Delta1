@@ -153,7 +153,7 @@ class BriefCardTests(unittest.TestCase):
     def test_summary_uses_percentage_points_instead_of_basis_points(self):
         p = self.history()
         single = series_metrics(p, p.trade_date.max(), "slot")
-        cross = single.drop(columns="slot").assign(pair="01−02")
+        cross = single.drop(columns="slot").assign(pair="02−01")
         totals = total_metrics(panel(), panel().trade_date.max())
         cards = highlights(single, cross, totals)
         self.assertEqual(cards[1]["value"], "+3.05 个百分点")

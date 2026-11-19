@@ -18,6 +18,7 @@ from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_
                    change, load_market, session_quantiles, multi_session_quantiles, snapshot_table)
 from .metrics import highlights, series_metrics, total_metrics, activity_commentary
 from .narrative import compose
+from .overview import current_tables, ANNUAL_CLOSE_PP
 
 
 def refresh_market(as_of=None, factory=None, volume_refresher=None):
@@ -83,7 +84,7 @@ def explanations(panel, spreads, single_q, end, cross_q=None):
               "列出当前实际年化及前30、60、120交易日历史分位；均排除当日，并列值半权重。"
               "T≥1保留在表格，T=0留空；n为有效样本，覆盖不足标—，不缩短窗口。")
     second += tail_note(single_q, "slot")
-    third = ("跨期仅展示01−02、02−03；年化为调整后价差÷现货×365÷两合约实际到期日间隔。"
+    third = ("跨期仅展示02−01、03−02（远月减近月）；年化为调整后价差÷现货×365÷两合约实际到期日间隔。"
              "右侧表格列当前年化及前30/60/120交易日分位，排除当日，不直接相减两腿年化。")
     third += tail_note(cross_q, "pair")
     fourth = "每品种00—03四合约加总：柱形为总成交（左轴），曲线为总持仓（右轴），均为万手。任一合约缺值则总量留空。"
@@ -206,7 +207,9 @@ def build(args):
     document_info = {"as_of": str(end.date()), "created_at": created, "dividend_date": dividend_date,
                      "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
                      "narrative": narrative["text"], "narrative_sections": narrative["sections"],
+                     "current_tables": current_tables(panel, spreads, end),
                      "dividend_warning": dividend_warning}
+    (out/"current_tables.json").write_text(json.dumps(document_info["current_tables"], ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     print("排版 Word 与 PDF 简报…", flush=True)
     document_outputs = export_documents(out, files, document_info)
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest()
@@ -215,17 +218,18 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 8, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 9, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "price_policy": {"type": "daily_close", "fields": ["futures_close", "spot_close"],
                     "refresh_ready_shanghai": f"{config['close_hour']:02d}:{config.get('close_minute', 0):02d}",
                     "fallback": "actual local available date; explicit cutoff retained; never relabel an old close"},
-                "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "left_adjusted_price-right_adjusted_price",
+                "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "far_adjusted_price-near_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions, "annualized_quantile_sessions": [30, 60, 120], "summary_baseline_sessions": 60},
                 "quantile_policy": "exact previous 30/60/120 local sessions, exclude current; half-weight ties; single-contract T>=1 included, T=0 excluded; missing inputs/unknown calendar invalidate",
                 "minimum_days_to_expiry": 1,
                 "percentile_metric": "dividend-adjusted annualized basis percent; calendar uses actual expiry gap and spot denominator",
-                "calendar_annualized_formula": "(left_adjusted_price-right_adjusted_price)/spot_close*36500/(right_expiry-left_expiry).days",
+                "calendar_annualized_formula": "(far_adjusted_price-near_adjusted_price)/spot_close*36500/(far_expiry-near_expiry).days; left=far, right=near",
+                "annualized_group_policy": {"tolerance_pp": ANNUAL_CLOSE_PP, "within_product_only": True, "groups": [["00", "01"], ["02", "03"]]},
                 "activity_aggregation": "sum 4 contracts (00-03); any missing constituent makes total missing; total OI change is difference of daily sums",
                 "card_policy": {"changes": "1/5 exact local trading sessions; continuous slots/pairs, rolls marked; unknown calendar invalidates",
                     "annual_change_unit": "percentage-point difference; bp retained only in audit CSV, not displayed",

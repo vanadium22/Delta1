@@ -8,8 +8,9 @@ import numpy as np
 import pandas as pd
 
 from .data import ORDER, PAIRS, activity_totals
+from .overview import annualized_current
 
-RULE_VERSION = "descriptive-tree-v3"
+RULE_VERSION = "descriptive-tree-v4"
 WINDOWS = (30, 60)
 
 
@@ -62,6 +63,16 @@ def _complete(group, field):
                 and np.isfinite(group[field].to_numpy(dtype=float)).all())
 
 
+def _stable_identity(group):
+    """Never interpret a continuous-contract roll jump as a market trend."""
+    if 'roll_day' in group and group.roll_day.iloc[1:].eq(True).any():
+        return False
+    for field in ('instrument_id', 'left_contract', 'right_contract'):
+        if field in group and (group[field].isna().any() or group[field].nunique() != 1):
+            return False
+    return True
+
+
 def _overview(series, end, key, ids, field):
     """Require a two-thirds majority of tenors, not a hidden representative."""
     days = sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())
@@ -74,7 +85,7 @@ def _overview(series, end, key, ids, field):
             features = []
             for identity in ids:
                 group = _aligned(series, days[-window:], root, key, identity)
-                if not _complete(group, field):
+                if not _complete(group, field) or not _stable_identity(group):
                     break
                 features.append(classify_path(group[field], window, .4 if field == "annualized_basis_pct" else 3.))
             if len(features) == len(ids):
@@ -82,7 +93,7 @@ def _overview(series, end, key, ids, field):
                 break
         if selected is None:
             result[root] = {"complete": False}
-            clauses.append(f"{root}的30/60日历史不足")
+            clauses.append(f"{root}的30/60日历史不足或含换月，未据换档跳变判断走势")
             continue
         counts = Counter(f["text"] for f in selected["tenors"])
         text, count = counts.most_common(1)[0]
@@ -104,7 +115,7 @@ def _overview(series, end, key, ids, field):
         matches = 0
         for identity in ids:
             group = _aligned(series, days[-30:], root, key, identity)
-            if len(group) != 30 or not _complete(group, field):
+            if len(group) != 30 or not _complete(group, field) or not _stable_identity(group):
                 continue
             moves = np.abs(np.diff(group[field].to_numpy(dtype=float)))
             floor = .4 if field == 'annualized_basis_pct' else 3.
@@ -164,6 +175,8 @@ def _features(series, end, key, ids, field):
                 if len(days) < window:
                     continue
                 group = _aligned(series, days[-window:], root, key, identity)
+                if field == 'basis_points' and not _stable_identity(pd.concat([group, current])):
+                    continue
                 if field == "annualized_basis_pct" and key == "slot":
                     if not group.calendar_known.eq(True).all():
                         continue
@@ -308,7 +321,8 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
     annual, annual_overview = _overview(panel, end, "slot", range(2,5), "annualized_basis_pct")
     absolute_features = _features(panel, end, "slot", range(1,5), "basis_points")
     annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct")
-    annual = _annual_state(annual_features)+annual+_next_month(panel, end)
+    annual_current, annual_groups = annualized_current(panel, end)
+    annual = annual_current+"\n"+_annual_state(annual_features)+annual+_next_month(panel, end)
     absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
     absolute += _exception_text(absolute_picks, "slot") or ("当前未见明显绝对基差异常。" if absolute_features else "当前异常判断所需历史不足。")
     annual += _exception_text(annual_picks, "slot", True) or ("当前未见明显年化基差异常。" if annual_features else "当前异常判断所需历史不足。")
@@ -326,12 +340,12 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
             mixed.append(root)
     structure = []
     if positive:
-        structure.append("、".join(positive)+"两组调整后价差均为正，近腿高于远腿")
+        structure.append("、".join(positive)+"两组调整后价差均为正，远腿高于近腿")
     if negative:
-        structure.append("、".join(negative)+"两组调整后价差均为负，近腿低于远腿")
+        structure.append("、".join(negative)+"两组调整后价差均为负，远腿低于近腿")
     if mixed:
         structure.append("、".join(mixed)+"两组价差方向不一致或接近平水")
-    cross = "目前"+"；".join(structure)+"。" if structure else "当前跨期数据不足。"
+    cross = "按远月减近月（02−01、03−02），目前"+"；".join(structure)+"。" if structure else "当前跨期数据不足。"
     point_features = _features(spreads, end, "pair", PAIRS, "basis_points")
     cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct")
     point_picks, cross_picks = _picks(point_features, "pair", 1), _picks(cross_features, "pair", 1)
@@ -348,7 +362,7 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
         "text": "\n".join(s["title"]+"："+s["text"] for s in sections),
         "windows": {"basis": list(WINDOWS), "activity": [7,30,60]},
         "absolute": {"overview": absolute_overview, "features": absolute_features, "selected": absolute_picks},
-        "annualized": {"overview": annual_overview, "features": annual_features, "selected": annual_picks},
+        "annualized": {"current_groups": annual_groups, "overview": annual_overview, "features": annual_features, "selected": annual_picks},
         "activity": activity_evidence,
         "calendar": {"absolute_features": point_features, "annualized_features": cross_features,
                      "absolute_selected": point_picks, "annualized_selected": cross_picks},

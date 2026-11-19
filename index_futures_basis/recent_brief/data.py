@@ -18,8 +18,8 @@ from ..store import Store
 from shared_data import DataPaths
 
 ORDER = ("IF", "IH", "IC", "IM")
-# Literal subtraction, deliberately separate from the original report's far-near pairs.
-PAIRS = {"01−02": (2, 3), "02−03": (3, 4)}
+# Slots are one-based internally. Always subtract the near leg from the far leg.
+PAIRS = {"02−01": (3, 2), "03−02": (4, 3)}
 WINDOWS = (3, 6, 12)
 MIN_DAYS_TO_EXPIRY = 1
 
@@ -197,8 +197,8 @@ def calendar_series(panel):
             if left not in g.index or right not in g.index:
                 continue
             a, b = g.loc[left], g.loc[right]
-            gap = (b.expiry_date - a.expiry_date).days
-            valid_gap = pd.notna(gap) and gap > 0 and a.expiry_date >= day
+            gap = (a.expiry_date - b.expiry_date).days
+            valid_gap = pd.notna(gap) and gap > 0 and b.expiry_date > day
             valid_spot = np.isfinite(a.spot_close) and a.spot_close > 0 and np.isclose(
                 a.spot_close, b.spot_close, rtol=0, atol=1e-8)
             points = a.adjusted_futures_close - b.adjusted_futures_close

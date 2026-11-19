@@ -37,9 +37,9 @@ class RecentBriefTests(unittest.TestCase):
         np.testing.assert_allclose(p[p.trade_date.eq(p.trade_date.max())].basis_points, [-9,-17,-24,-30])
         spreads = calendar_series(p)
         values = spreads[spreads.trade_date.eq(p.trade_date.max())].set_index("pair").basis_points
-        self.assertEqual(values["01−02"], 7)
-        self.assertEqual(values["02−03"], 6)
-        self.assertEqual(set(values.index), {"01−02", "02−03"})
+        self.assertEqual(values["02−01"], -7)
+        self.assertEqual(values["03−02"], -6)
+        self.assertEqual(set(values.index), {"02−01", "03−02"})
 
     def test_cross_points_do_not_require_spot(self):
         p = panel()
@@ -51,12 +51,12 @@ class RecentBriefTests(unittest.TestCase):
     def test_calendar_annualization_uses_spot_and_actual_expiry_gap(self):
         p = panel()
         spreads = calendar_series(p)
-        row = spreads[spreads.pair.eq("01−02")].iloc[-1]
-        expected = 7 / 1000 * 36500 / (pd.Timestamp("2026-04-20") - pd.Timestamp("2026-03-20")).days
+        row = spreads[spreads.pair.eq("02−01")].iloc[-1]
+        expected = -7 / 1000 * 36500 / (pd.Timestamp("2026-04-20") - pd.Timestamp("2026-03-20")).days
         self.assertAlmostEqual(row.annualized_basis_pct, expected)
         legs = p[p.trade_date.eq(p.trade_date.max())].set_index("slot")
         self.assertNotAlmostEqual(row.annualized_basis_pct,
-                                 legs.loc[2, "annualized_basis_pct"]-legs.loc[3, "annualized_basis_pct"])
+                                 legs.loc[3, "annualized_basis_pct"]-legs.loc[2, "annualized_basis_pct"])
         p.loc[p.slot.eq(3), "expiry_date"] = pd.NaT
         missing = calendar_series(p)
         self.assertTrue(missing.basis_points.notna().all())
@@ -138,7 +138,7 @@ class RecentBriefTests(unittest.TestCase):
 
     def test_cross_sixty_session_percentile_uses_annualized_values(self):
         p = self.annual_history().drop(columns=["slot", "days_to_expiry"])
-        p["pair"] = "01−02"
+        p["pair"] = "02−01"
         p["basis_points"] = -9999.
         row = session_quantiles(p, p.trade_date.max(), "pair").iloc[0]
         self.assertTrue(row.complete)

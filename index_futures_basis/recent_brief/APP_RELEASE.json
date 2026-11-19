@@ -1,15 +1,35 @@
 {
-  "release": "2026-11-19-reference-style-dividend-profiles",
+  "release": "2026-11-19-product-tables-far-minus-near",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "manifest_version": 8,
-  "narrative_engine": "descriptive-tree-v3",
-  "layout": "A3 landscape, 1 observation page and 8 chart pages",
-  "price_checks": "same-day raw index close, actual futures close and dividend points; both calendar legs",
-  "narrative_windows_sessions": {"basis": [30, 60], "activity": [7, 30, 60]},
-  "tests": {"passed": 66, "resource_warnings_as_errors": true},
-  "visual_verification": "Word native render and generated PDF, all 9 pages each inspected",
-  "preview_market_date": "2026-10-15",
-  "latest_local_dividend_business_date": "2026-09-18",
+  "manifest_version": 9,
+  "narrative_engine": "descriptive-tree-v4",
+  "layout": "A3 landscape; 1 observation page, 2 product table pages, 8 chart pages",
+  "calendar_pairs": [
+    "02−01",
+    "03−02"
+  ],
+  "calendar_direction": "far minus near; positive expiry gap",
+  "annualized_grouping": {
+    "within_product_only": true,
+    "groups": [
+      [
+        "00",
+        "01"
+      ],
+      [
+        "02",
+        "03"
+      ]
+    ],
+    "tolerance_pp": 1.0
+  },
+  "tests": {
+    "passed": 75,
+    "resource_warnings_as_errors": true
+  },
+  "visual_verification": "Word native render and generated PDF; example 3 pages each, full report 11 pages each, all inspected",
+  "example_market_date": "2026-11-19",
+  "historical_validation_market_date": "2026-10-15",
   "company_live_wind_acceptance": "pending"
 }

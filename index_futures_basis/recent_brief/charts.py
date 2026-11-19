@@ -63,7 +63,7 @@ def trends(panel, spreads, end, output, note, sessions=60):
     fig.subplots_adjust(left=.055, right=.976, top=.834, bottom=.095, hspace=.78, wspace=.19)
     header(fig, "股指期货  /  近期基差与跨期", f"行情截至 {end:%Y-%m-%d}  ·  最近 {len(days)} 个本地交易日  ·  分红调整后，单位：点", note)
     fig.text(.055, .895, "单合约  00 / 01 / 02 / 03", fontsize=12, weight="bold")
-    fig.text(.576, .895, "跨期  01−02 / 02−03（前者减后者）", fontsize=12, weight="bold")
+    fig.text(.576, .895, "跨期  02−01 / 03−02（远月减近月）", fontsize=12, weight="bold")
     for row, root in enumerate(ORDER):
         for col, frame, key, ids in [(0, recent, "slot", range(1, 5)), (1, cross, "pair", PAIRS)]:
             ax = axes[row, col]

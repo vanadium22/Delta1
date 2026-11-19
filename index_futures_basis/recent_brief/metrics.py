@@ -14,8 +14,8 @@ def price_audit_lines(row):
         return f"{number:.4f}" if pd.notna(number) and np.isfinite(number) else "—"
     if "left_futures_close" in row:
         return [f"指数 {value('spot_close')}",
-                f"左腿期货 {value('left_futures_close')} / 分红 {value('left_dividend_points')}",
-                f"右腿期货 {value('right_futures_close')} / 分红 {value('right_dividend_points')}"]
+                f"远腿期货 {value('left_futures_close')} / 分红 {value('left_dividend_points')}",
+                f"近腿期货 {value('right_futures_close')} / 分红 {value('right_dividend_points')}"]
     return [f"指数 {value('spot_close')}", f"期货 {value('futures_close')}",
             f"分红 {value('dividend_points')} 点"]
 

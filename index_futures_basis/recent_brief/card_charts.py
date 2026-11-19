@@ -238,7 +238,7 @@ def annualized(series, quantiles, end, output, note, sessions=60, key="slot", me
     fig = plt.figure(figsize=(19, 30))
     _header(fig, f"股指期货 / {kind}年化与历史分位表",
             f"行情截至 {end:%Y-%m-%d} · T≥1均计算 · 卡片：当前值、1日/5日变化、分位日变 · " +
-            ("年化走势仅01—03，00保留在表格" if key == "slot" else "跨期仅01−02、02−03；前30/60/120交易日分位"), note)
+            ("年化走势仅01—03，00保留在表格" if key == "slot" else "跨期02−01、03−02（远减近）；前30/60/120交易日分位"), note)
     for row, root in enumerate(ORDER):
         top = .934-row*.222
         fig.text(.06, top, f"{root}  {NAMES[root]}", fontsize=16, weight="bold", va="top")

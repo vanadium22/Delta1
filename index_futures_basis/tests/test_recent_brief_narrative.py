@@ -141,9 +141,9 @@ class NarrativeTests(unittest.TestCase):
         self.assertEqual(audit, ["指数 1000.0000", "期货 990.0000", "分红 0.0000 点"])
         c = calendar_series(p)
         cross = series_metrics(c,p.trade_date.max(),"pair").iloc[0]
-        self.assertEqual(cross.left_futures_close, 980)
-        self.assertEqual(cross.right_dividend_points, 6)
-        self.assertIn("左腿期货 980.0000 / 分红 3.0000", price_audit_lines(cross))
+        self.assertEqual(cross.left_futures_close, 970)
+        self.assertEqual(cross.right_dividend_points, 3)
+        self.assertIn("远腿期货 970.0000 / 分红 6.0000", price_audit_lines(cross))
         single.loc[single.slot.eq(1), "dividend_points"] = np.nan
         self.assertEqual(price_audit_lines(single[single.slot.eq(1)].iloc[0])[-1], "分红 — 点")
 
