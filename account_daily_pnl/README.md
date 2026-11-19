@@ -8,7 +8,7 @@
 
 本次历史包截止 2026-11-18。以后要复测该日，可以在本目录执行 `.\test-yesterday.cmd --date 2026-11-18`。使用 11 月 18 日包测试 11 月 18 日时，BCT 流水和快照均可本地读取，Wind 用于缺少的前一交易日价格。若测试日超过数据包截止日，则按以下日更方式增量下载。
 
-运行依赖为 Python 3.10+、requests、openpyxl、时区数据。首次从原始 ZIP 直接导入旧版 XLS 时还需要 xlrd。已有 Python 命令但缺依赖时，可在本目录执行 `python -m pip install -r requirements.txt`。如果 WindPy 装在另一 Python 里，把 `config.example.json` 复制到数据目录的 `inputs/config.local.json`，加上本机 `wind_python` 解释器路径。默认复用公司仓库已配置的 Wind Python。
+启动入口复用公司已有的 `swhy_delta1` Python（默认 `D:\conda\envs\swhy_delta1\python.exe`），窗口首行显示实际解释器路径。程序依赖 requests、openpyxl 和时区数据。首次从原始 ZIP 直接导入旧版 XLS 时还需要 xlrd。如果 WindPy 装在另一 Python 里，把 `config.example.json` 复制到数据目录的 `inputs/config.local.json`，填写本机的 `wind_python` 解释器路径。
 
 ## 正式日更和中断补跑
 

@@ -193,6 +193,7 @@ def main(argv=None):
     parser.add_argument("--make-seed", type=Path, help="打包基准和目标日以前的历史 Excel")
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    print(f"Python：{sys.executable}", flush=True)
     try:
         with file_lock(args.data / ".writer.lock", timeout=3):
             run(args, args.data.resolve(), args.output.resolve(), datetime.now(ZoneInfo("Asia/Shanghai")))

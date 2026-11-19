@@ -5,9 +5,20 @@ title 三账户场内持仓与盈亏
 set "account_pnl_pause=1"
 if /i "%~1"=="--no-pause" set "account_pnl_pause=0"
 pushd "%~dp0.." || exit /b 1
+call "%~dp0..\index_futures_basis\resolve_python.cmd" >nul
+if not errorlevel 1 goto company_python
+if exist "P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe" (
+    set "BASIS_PYTHON=P:\code_content\python_work_env\conda_env\swhy_delta1\python.exe"
+    goto company_python
+)
 python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
 if errorlevel 1 goto try_py
 python -u -X utf8 -m account_daily_pnl %*
+set "account_pnl_result=%errorlevel%"
+goto finish
+
+:company_python
+"%BASIS_PYTHON%" -u -X utf8 -m account_daily_pnl %*
 set "account_pnl_result=%errorlevel%"
 goto finish
 
