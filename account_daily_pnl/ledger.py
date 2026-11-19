@@ -13,8 +13,18 @@ FUTURES_MULTIPLIERS = {"IF": 300, "IH": 300, "IC": 200, "IM": 200}
 NO_POSITION = (ZERO, ZERO)
 POSITIONS = ("交易日", "账户", "标的", "期初多仓", "期初空仓", "期末多仓", "期末空仓", "期末净仓",
              "前日价格", "前日来源", "日终价格", "日终来源", "乘数", "买入金额", "卖出金额", "费用",
-             "现金分红", "净市值或名义额", "单日盈亏", "状态")
-SUMMARY = ("交易日", "账户", "现货市值", "期货净名义额", "单日盈亏", "当日净入金", "总权益", "参考权益", "状态")
+             "现金分红", "净市值或名义额", "单日盈亏", "成交估值费前盈亏", "状态")
+SUMMARY_FIELDS = (
+    ("day", "交易日"), ("account", "账户"), ("spot", "现货市值"), ("futures", "期货净名义额"),
+    ("pnl", "单日盈亏"), ("net_flow", "当日净入金"), ("equity", "总权益"), ("reference", "参考权益"),
+    ("prior_equity", "期初总权益"), ("equity_pnl", "权益法单日盈亏"), ("gross_pnl", "成交估值费前盈亏"),
+    ("fees", "当日手续费"), ("modeled_pnl", "成交估值净盈亏"), ("difference", "权益法减成交估值"),
+    ("day_return", "日收益率"), ("history_pnl", "基准以来累计净盈亏"), ("ytd_pnl", "今年累计净盈亏"),
+    ("history_return", "基准以来累计收益率"), ("ytd_return", "今年累计收益率"),
+    ("pnl_source", "盈亏来源"), ("equity_source", "权益来源"), ("prior_source", "期初权益来源"),
+    ("history_source", "历史累计盈亏来源"), ("ytd_source", "今年累计盈亏来源"), ("status", "状态"),
+)
+SUMMARY = tuple(title for _, title in SUMMARY_FIELDS)
 
 
 def money(value):
@@ -64,6 +74,7 @@ class Day:
     persistent_issues: dict
     cash_issues: dict
     book_issues: list
+    fee_issues: set
 
     def valuation_keys(self):
         return ({(self.previous_date, code) for (_, code), legs in self.before.items() if net(legs)}
@@ -105,6 +116,7 @@ class Ledger:
         issues = defaultdict(list)
         identifiers = set()
         book_issues = []
+        fee_issues = set()
         for row in rows:
             if row["id"] in identifiers or not row["id"]:
                 raise ValueError(f"{day} 出现重复或空白流水 ID。")
@@ -133,6 +145,7 @@ class Ledger:
                 if kind != "DIVIDEND":
                     self.unresolved[account].add(message)
                 self.unresolved_cash[account].add(message)
+                fee_issues.add(account)
         for (account, code), sides in self.positions.items():
             if min(sides) < 0:
                 issues[account].append(f"{day} {code} 期货方向持仓为负，需核对开平或基准。")
@@ -140,7 +153,7 @@ class Ledger:
             self.cumulative[account] += move.cash
         return Day(day, previous_day, before, self.positions.copy(), dict(moves), dict(self.cumulative),
                    dict(issues), {account: tuple(sorted(messages)) for account, messages in self.unresolved.items()},
-                   {account: len(messages) for account, messages in self.unresolved_cash.items()}, book_issues)
+                   {account: len(messages) for account, messages in self.unresolved_cash.items()}, book_issues, fee_issues)
 
     def trade(self, account, code, row, move):
         factor = multiplier(code)
@@ -199,9 +212,12 @@ class Ledger:
         gross = money(row["dealBalance"])
         if money(row["dealAmount"]) != 0 or gross < 0:
             raise ValueError("现金分红的数量或金额与已核实样本不同。")
-        fee = money(row["fee"]) if row["fee"] is not None else ZERO
+        after_fee = money(row["dealBalanceWithFee"]) if row["dealBalanceWithFee"] is not None else None
+        fee = money(row["fee"]) if row["fee"] is not None else gross - money(after_fee)
         if fee < 0 or fee > gross:
             raise ValueError("现金分红费用无效。")
+        if after_fee is not None and abs(after_fee - (gross - fee)) > Decimal("0.01"):
+            raise ValueError("现金分红费后金额与原始手续费不一致。")
         move.dividend += gross
         move.fees += fee
 
@@ -212,6 +228,24 @@ def total(values):
 
 def rounded(value):
     return None if value is None else value.quantize(Decimal("0.01"))
+
+
+def account_equity(day, account, funding, baseline, net_values, cash, reliable):
+    opening = funding["equity"].get((baseline["day"], account), funding["opening"].get(account))
+    reported = funding["equity"].get((day, account))
+    if day == baseline["day"]:
+        return opening, "基准权益" if opening is not None else None, None
+    if reported is not None:
+        return reported, "结算单", None
+    if net_values is None or not reliable:
+        return None, None, None
+    deposits = sum((amount for (stamp, name), amount in funding["movements"].items()
+                    if name == account and baseline["day"] < stamp <= day), ZERO)
+    change = net_values + cash + deposits
+    if opening is not None and funding["confirmed_through"].get(account, "") >= day:
+        return opening + change, "模型权益", None
+    candidate = opening if opening is not None else baseline["equity_candidates"].get(account)
+    return None, None, None if candidate is None else money(candidate) + change
 
 
 def snapshot_checks(day, rows):
@@ -243,7 +277,7 @@ def report(day, ledger, baseline, prices, funding):
     for account in ACCOUNTS:
         positions = sorted({key for key in day.before.keys() | day.after.keys() | day.movements.keys()
                             if key[0] == account})
-        daily_pnl, marked_values, spot, futures = [], [], [], []
+        daily_pnl, opening_values, marked_values, spot, futures = [], [], [], [], []
         issues = list(day.current_issues.get(account, ()))
         unknown_replay = day.persistent_issues.get(account, ())
         unresolved_prices = 0
@@ -276,41 +310,65 @@ def report(day, ledger, baseline, prices, funding):
             if min(*before, *after) < 0:
                 state.append("开平数量待对账")
             daily_pnl.append(pnl)
+            opening_values.append(prev_value)
             marked_values.append(end_value)
             (futures if code.endswith(".CFE") else spot).append(end_value)
             details.append((day.date, account, code, *before, *after, net(after), *previous, *current,
                             factor, rounded(move.buys), rounded(move.sells), rounded(move.fees), rounded(move.dividend),
-                            rounded(end_value), rounded(pnl), "；".join(state)))
+                            rounded(end_value), rounded(pnl), rounded(None if pnl is None else pnl + move.fees),
+                            "；".join(state)))
         if unresolved_prices:
             issues.append(f"{unresolved_prices} 个标的存在价格缺项")
         if mixed_futures:
             issues.append("期货估值来源变化，核对 BCT 价格与 Wind 选取字段")
         if unknown_replay:
             issues.append(f"{len(unknown_replay)} 条累计流水需核对")
-        account_pnl = total(daily_pnl) if not unknown_replay and not day.current_issues.get(account) else None
-        equity = None
-        reference = None
+        reliable = not unknown_replay and not day.current_issues.get(account)
+        modeled_pnl = total(daily_pnl) if reliable else None
+        moves = [move for (name, _), move in day.movements.items() if name == account]
+        fees = None if account in day.fee_issues else sum((move.fees for move in moves), ZERO)
+        cash = day.cumulative.get(account, ZERO)
+        opening_cash = cash - sum((move.cash for move in moves), ZERO)
         closing = total(marked_values)
-        starting_funds = funding["opening"].get(account)
+        prior = total(opening_values)
+        initial_value = ledger.initial_values[account]
         complete = funding["confirmed_through"].get(account, "") >= day.date
-        deposits = sum((amount for (stamp, name), amount in funding["movements"].items()
-                        if name == account and baseline["day"] < stamp <= day.date), ZERO)
-        if closing is not None and not day.cash_issues.get(account) and not day.current_issues.get(account):
-            change = closing - ledger.initial_values[account] + day.cumulative.get(account, ZERO) + deposits
-            if starting_funds is not None and complete:
-                equity = starting_funds + change
-            else:
-                candidate = starting_funds if starting_funds is not None else baseline["equity_candidates"].get(account)
-                if candidate is not None:
-                    reference = money(candidate) + change
-        if starting_funds is None or not complete:
+        flow_key = day.date, account
+        net_flow = funding["movements"].get(flow_key, ZERO) if complete else None
+        valid_cash = reliable and not day.cash_issues.get(account)
+        equity, equity_source, reference = account_equity(
+            day.date, account, funding, baseline, None if closing is None else closing - initial_value, cash, valid_cash)
+        prior_equity, prior_source, _ = account_equity(
+            day.previous_date, account, funding, baseline, None if prior is None else prior - initial_value,
+            opening_cash, valid_cash)
+        equity_pnl = None
+        if equity is not None and prior_equity is not None and net_flow is not None and (
+                equity_source == prior_source or prior_source == "基准权益"):
+            equity_pnl = equity - prior_equity - net_flow
+        statement_pnl = equity_pnl if equity_source == "结算单" else None
+        pnl = statement_pnl if statement_pnl is not None else modeled_pnl
+        difference = statement_pnl - modeled_pnl if statement_pnl is not None and modeled_pnl is not None else None
+        if difference is not None and abs(difference) >= Decimal("0.01"):
+            issues.append("结算权益与成交估值存在差额")
+        if equity is None or not complete:
             issues.append("基准权益或资金流水覆盖待确认")
-        overview.append((day.date, account, rounded(total(spot)), rounded(total(futures)), rounded(account_pnl),
-                         rounded(funding["movements"].get((day.date, account), ZERO)) if complete else None,
-                         rounded(equity), rounded(reference), "；".join(issues)))
+        weighted_flow = funding["weighted"].get(flow_key, ZERO)
+        denominator = prior_equity + weighted_flow if (
+            prior_equity is not None and complete and equity_pnl is not None and weighted_flow is not None) else None
+        if denominator is not None and denominator <= 0:
+            denominator = None
+        if pnl is not None and complete and weighted_flow is None:
+            issues.append("该日资金流水缺少日内时点，收益率待核")
+        overview.append({
+            "day": day.date, "account": account, "spot": total(spot), "futures": total(futures), "pnl": pnl,
+            "net_flow": net_flow, "equity": equity, "reference": reference, "prior_equity": prior_equity,
+            "equity_pnl": equity_pnl, "gross_pnl": modeled_pnl + fees if modeled_pnl is not None and fees is not None else None,
+            "fees": fees, "modeled_pnl": modeled_pnl, "difference": difference, "denominator": denominator,
+            "day_return": pnl / denominator if pnl is not None and denominator is not None else None,
+            "modeled_history": closing - initial_value + cash if closing is not None and valid_cash else None,
+            "pnl_source": "结算权益差" if statement_pnl is not None else "成交估值" if modeled_pnl is not None else None,
+            "equity_source": equity_source, "prior_source": prior_source, "status": "；".join(issues),
+        })
         checks.extend((day.date, account, message) for message in issues)
         checks.extend((day.date, account, message) for message in unknown_replay if message not in issues)
-    combined = (day.date, "合计", *(total([row[i] for row in overview]) for i in range(2, 8)),
-                "；".join(row[1] for row in overview if row[-1]))
-    overview.append(combined)
     return overview, details, checks

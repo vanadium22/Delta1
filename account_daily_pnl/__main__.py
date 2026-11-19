@@ -10,12 +10,15 @@ from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
+from openpyxl import load_workbook
+
 from dashboard.marketdata.trading_calendar import trading_days
 from shared_data.io import atomic_json, file_lock
 from shared_data.paths import DataPaths
 
 from .baseline import ACCOUNTS, BASE_DAY, import_baseline
 from .ledger import Ledger, POSITIONS, SUMMARY, ZERO, money, report, snapshot_checks
+from .performance import PERIOD_COLUMNS, Performance, period_summary, sheet_rows
 from .prices import resolve
 from .seed import ARCHIVE_NAME, install_seed, make_seed
 from .sources import archive_missing, read_source, write_book
@@ -39,10 +42,40 @@ def date_text(value):
     return day
 
 
-def funding_config(config):
+def settlement_equities(path):
+    if not path.is_file():
+        return {}
+    workbook = load_workbook(path, data_only=True, read_only=True)
+    try:
+        sheet = workbook.active
+        sheet.reset_dimensions()
+        rows = sheet.values
+        header = next(rows, ())
+        try:
+            columns = tuple(header.index(name) for name in ("交易日", "账户", "总权益"))
+        except ValueError as exc:
+            raise ValueError(f"{path} 需要交易日、账户、总权益三列。") from exc
+        values = {}
+        for number, row in enumerate(rows, 2):
+            if not any(value is not None for value in row):
+                continue
+            stamp, account, amount = (row[index] if index < len(row) else None for index in columns)
+            day = date_text(str(stamp)[:10] if isinstance(stamp, (date, datetime)) else str(stamp))
+            account = str(account).strip()
+            key = day, account
+            if day < BASE_DAY or account not in ACCOUNTS or key in values:
+                raise ValueError(f"{path} 第 {number} 行的账户、日期或重复键有误。")
+            values[key] = money(amount)
+        return values
+    finally:
+        workbook.close()
+
+
+def funding_config(config, settlement_file):
     opening = {}
     complete = {}
     movements = defaultdict(lambda: ZERO)
+    weighted = defaultdict(lambda: ZERO)
     for account, values in config.get("accounts", {}).items():
         if account not in ACCOUNTS:
             raise ValueError(f"未知资金账户 {account}。")
@@ -57,8 +90,23 @@ def funding_config(config):
         stamp = date_text(entry["date"])
         if stamp <= BASE_DAY:
             raise ValueError("入出金业务日必须在基准日之后。")
-        movements[stamp, account] += money(entry["net_deposit"])
-    return {"opening": opening, "confirmed_through": complete, "movements": movements}
+        amount = money(entry["net_deposit"])
+        key = stamp, account
+        movements[key] += amount
+        weight = entry.get("weight")
+        if weight is not None:
+            weight = money(weight)
+            if not ZERO <= weight <= 1:
+                raise ValueError("资金流权重必须在 0 至 1 之间。")
+        if amount and (weight is None or weighted[key] is None):
+            weighted[key] = None
+        elif weighted[key] is not None:
+            weighted[key] += (weight or ZERO) * amount
+    equity = settlement_equities(settlement_file)
+    if any((BASE_DAY, account) in equity and equity[BASE_DAY, account] != amount for account, amount in opening.items()):
+        raise ValueError("基准日结算单总权益与本机 opening_equity 不一致，请核对。")
+    return {"opening": opening, "confirmed_through": complete, "movements": movements,
+            "equity": equity, "weighted": weighted}
 
 
 def snapshot_plan(days, target, previous_download):
@@ -92,46 +140,69 @@ def replay(root, days, baseline, targets):
     return ledger, frames
 
 
-def export_reports(root, outputs, days, selected, baseline, config, no_wind):
-    funding = funding_config(config)
-    ledger, frames = replay(root, days, baseline, selected)
-    exposure = set().union(*(frame.valuation_keys() for frame in frames))
+def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, only_day=False):
+    funding = funding_config(config, root / "inputs" / "账户总权益.xlsx")
+    trading_dates = set(days) | {BASE_DAY}
+    dated_inputs = funding["movements"].keys() | funding["equity"].keys()
+    if any(stamp <= days[-1] and stamp not in trading_dates for stamp, _ in dated_inputs):
+        raise ValueError("入出金和结算权益请填写其实际归属的交易日。")
+    full_history = not only_day
+    targets = set(selected)
+    if not full_history:
+        anchor = next((day for day in reversed(days) if day[:4] < days[-1][:4]), None)
+        if anchor:
+            targets.add(anchor)
+    ledger, frames = replay(root, days, baseline, targets)
+    exposure = set().union(*(frame.valuation_keys() if frame.date in selected else
+                             {(frame.date, code) for (_, code) in frame.after} for frame in frames))
     exposure = {key for key in exposure if key[0] != baseline["day"]}
     prices, source_errors = resolve(exposure, root, config, no_wind=no_wind)
     for message in source_errors:
         print(message, flush=True)
     report_state_path = root / "reports.json"
     report_state = read_json(report_state_path, {})
-    changed = False
     all_summaries = []
+    performance = Performance(funding, compound=full_history)
     for frame in frames:
         overview, detail, checks = report(frame, ledger, baseline, prices, funding)
+        overview = performance.apply(overview)
         day = frame.date
+        if day not in selected:
+            continue
         snapshot = root / "snapshots" / f"{day}.xlsx"
         if snapshot.is_file():
             checks.extend(snapshot_checks(frame, read_source(snapshot, "snapshot", day)))
-        if any(row[-1] for row in overview):
+        if any(row["status"] for row in overview):
             checks.extend((day, "行情", error) for error in source_errors[:10])
         output_path = outputs / f"场内账户_{day}.xlsx"
-        tables = [("账户统计", SUMMARY, overview), ("持仓明细", POSITIONS, detail), ("数据检查", DETAIL_STATUS, checks)]
+        tables = [("账户统计", SUMMARY, list(sheet_rows(overview))),
+                  ("持仓明细", POSITIONS, detail), ("数据检查", DETAIL_STATUS, checks)]
         fingerprint = hashlib.sha256(json.dumps(tables, ensure_ascii=False, default=str).encode()).hexdigest()
         if report_state.get(day) != fingerprint or not output_path.is_file():
             write_book(output_path, tables)
             report_state[day] = fingerprint
-            changed = True
         all_summaries.extend(overview)
-    if selected == set(days):
+    if full_history:
+        from .charts import CHART_VERSION, write_charts
+
         history_path = outputs / "逐交易日统计.xlsx"
-        if changed or not history_path.is_file() or report_state.get("_history_through") != frames[-1].date:
-            write_book(history_path, [("逐交易日统计", SUMMARY, all_summaries)])
-            report_state["_history_through"] = frames[-1].date
+        periods, annual = period_summary(all_summaries)
+        fingerprint = hashlib.sha256(json.dumps((CHART_VERSION, all_summaries),
+                                                ensure_ascii=False, default=str).encode()).hexdigest()
+        images = [outputs / name for name in ("历史至今_账户收益.png", f"{days[-1][:4]}年_账户收益.png")]
+        if report_state.get("_performance") != fingerprint or not history_path.is_file() or not all(p.is_file() for p in images):
+            write_book(history_path, [("收益概览", PERIOD_COLUMNS, periods),
+                                      ("逐交易日统计", SUMMARY, sheet_rows(all_summaries)),
+                                      ("今年逐日", SUMMARY, sheet_rows(annual))])
+            write_charts(images, all_summaries, annual)
+            report_state["_performance"] = fingerprint
         print(f"历史统计：{history_path}", flush=True)
-    elif changed:
-        report_state.pop("_history_through", None)
+        for path in images:
+            print(f"收益图：{path}", flush=True)
     atomic_json(report_state_path, report_state)
     print(f"本次目标日：{outputs / ('场内账户_' + frames[-1].date + '.xlsx')}", flush=True)
-    print(f"目标日有盈亏数值的账户：{sum(row[4] is not None for row in overview[:-1])}/{len(ACCOUNTS)}；"
-          f"有已核实输入的总权益：{sum(row[6] is not None for row in overview[:-1])}/{len(ACCOUNTS)}", flush=True)
+    print(f"目标日有盈亏数值的账户：{sum(row['pnl'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}；"
+          f"有已核实输入的总权益：{sum(row['equity'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}", flush=True)
 
 
 def run(args, root, outputs, now):
@@ -173,7 +244,8 @@ def run(args, root, outputs, now):
     if args.prepare:
         print(f"历史 Excel 和基准输入目录：{root}", flush=True)
         return
-    export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config, args.no_wind)
+    export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config, args.no_wind,
+                   only_day=args.only_day)
 
 
 def main(argv=None):

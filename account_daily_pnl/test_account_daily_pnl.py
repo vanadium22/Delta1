@@ -1,6 +1,6 @@
 import argparse
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -12,10 +12,10 @@ from openpyxl import load_workbook
 
 from account_daily_pnl import __main__ as app
 from account_daily_pnl.baseline import ACCOUNTS, BASE_DAY
-from account_daily_pnl.ledger import Ledger
+from account_daily_pnl.ledger import Ledger, report
 from account_daily_pnl.prices import resolve
 from account_daily_pnl.seed import INPUTS, install_seed, make_seed
-from account_daily_pnl.sources import read_source
+from account_daily_pnl.sources import read_source, write_book
 from shared_data.io import atomic_json, sha256
 
 
@@ -93,8 +93,41 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(read_source(self.root / "flows/2025-12-31.xlsx", "flow", "2025-12-31"), [])
         self.assertEqual([self.summary(day)["2602"]["单日盈亏"] for day in days], [109, -24, 38])
         self.assertEqual(self.summary(days[-1])["2602"]["总权益"], 1133)
+        latest = self.summary(days[-1])["2602"]
+        self.assertEqual(latest["基准以来累计净盈亏"], 123)
+        self.assertEqual(latest["今年累计净盈亏"], 38)
+        self.assertEqual(latest["当日手续费"], 1)
+        self.assertEqual(latest["成交估值费前盈亏"], 39)
+        self.assertAlmostEqual(latest["今年累计收益率"], 38 / 1095)
+        self.assertIsNone(latest["基准以来累计收益率"])
         self.assertIsNone(self.summary(days[-1])["5524"]["总权益"])
         self.assertEqual(sha256(self.outputs / "场内账户_2026-01-05.xlsx"), digest)
+        for name in ("历史至今_账户收益.png", "2026年_账户收益.png"):
+            self.assertEqual((self.outputs / name).read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_statement_equity_prefers_cash_adjusted_change_and_does_not_charge_fee_again(self):
+        config = {
+            "accounts": {"2602": {"cash_flows_confirmed_through": "2025-12-30"}},
+            "cash_movements": [{"date": "2025-12-30", "account": "2602", "net_deposit": 10, "weight": 1}],
+        }
+        atomic_json(self.root / "inputs/config.local.json", config)
+        write_book(self.root / "inputs/账户总权益.xlsx", [("结算单", ("交易日", "账户", "总权益"), [
+            (date(2025, 12, 29), "2602", 1000), (date(2025, 12, 30), "2602", 1120),
+        ])])
+        self.args.only_day = True
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31))
+        row = self.summary("2025-12-30")["2602"]
+        self.assertEqual(row["期初总权益"], 1000)
+        self.assertEqual(row["总权益"], 1120)
+        self.assertEqual(row["当日手续费"], 1)
+        self.assertEqual(row["成交估值净盈亏"], 109)
+        self.assertEqual(row["单日盈亏"], 110)
+        self.assertEqual(row["权益法减成交估值"], 1)
+        self.assertEqual(row["基准以来累计净盈亏"], 110)
+        self.assertAlmostEqual(row["日收益率"], 110 / 1010)
+        self.assertEqual(row["盈亏来源"], "结算权益差")
+        self.assertFalse((self.outputs / "逐交易日统计.xlsx").exists())
 
     def test_futures_legs_and_no_cash_bonus(self):
         self.baseline["positions"].append(
@@ -112,6 +145,24 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(result.after["5526", "IM2601.CFE"], (3, 1))
         self.assertEqual(result.movements["2602", "600000.SH"].cash, 5)
         self.assertFalse(result.current_issues)
+
+    def test_same_day_long_and_short_round_trips_net_both_fees_without_marks(self):
+        ledger = Ledger(self.baseline)
+        day = "2025-12-30"
+        common = {"code": "IM2601.CFE", "account": "5526"}
+        frame = ledger.advance(day, BASE_DAY, [
+            record(day, "long-open", "BUYER", 2, 5000, **common),
+            record(day, "long-close", "SELLER", 2, 5003, flag="CLOSE", **common),
+            record(day, "short-open", "SELLER", 1, 5010, **common),
+            record(day, "short-close", "BUYER", 1, 5008, flag="CLOSE", **common),
+        ])
+        funding = app.funding_config({}, self.root / "inputs/账户总权益.xlsx")
+        overview, _, _ = report(frame, ledger, self.baseline, {}, funding)
+        result = next(row for row in overview if row["account"] == "5526")
+        self.assertEqual(result["gross_pnl"], 1600)
+        self.assertEqual(result["fees"], 4)
+        self.assertEqual(result["pnl"], 1596)
+        self.assertNotIn(("5526", "IM2601.CFE"), frame.after)
 
     def test_seed_is_verified_and_repeatable(self):
         for name in INPUTS[1:]:

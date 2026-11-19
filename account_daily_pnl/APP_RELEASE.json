@@ -2,6 +2,7 @@
   "module": "account_daily_pnl",
   "release_date": "2026-11-19",
   "release_stage": "company-acceptance",
+  "performance_outputs": ["逐交易日统计.xlsx", "历史至今_账户收益.png", "目标年_账户收益.png"],
   "baseline": "2025-12-29",
   "prepared_through": "2026-11-18",
   "flow_days": 213,

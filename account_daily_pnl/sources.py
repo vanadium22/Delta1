@@ -121,16 +121,18 @@ class BctClient:
         return self.pages("excPositionSnapshotSearch", {"searchDate": day, "instrumentIds": None})
 
 
-def plain_cell(sheet, value, *, header=False):
+def plain_cell(sheet, value, *, header=False, number_format=None):
     if isinstance(value, (list, dict)):
         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    if isinstance(value, str) or header:
+    if isinstance(value, str) or header or number_format and value is not None:
         cell = WriteOnlyCell(sheet, value=value)
         if isinstance(value, str):
             cell.data_type = "s"
         if header:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="254462")
+        if number_format:
+            cell.number_format = number_format
         return cell
     return value
 
@@ -148,8 +150,11 @@ def write_book(path, tables):
                 width = 56 if column in {"状态", "检查说明", "trace"} else max(19, len(column) + 4)
                 sheet.column_dimensions[get_column_letter(index)].width = width
             sheet.append([plain_cell(sheet, value, header=True) for value in columns])
+            formats = ["0.00%" if column.endswith("收益率") else "yyyy-mm-dd"
+                       if column in {"交易日", "起始交易日", "截止交易日"} else None for column in columns]
             for row in rows:
-                sheet.append([plain_cell(sheet, value) for value in row])
+                sheet.append([plain_cell(sheet, value, number_format=number_format if not isinstance(value, str) else None)
+                              for value, number_format in zip(row, formats)])
         workbook.save(stage)
         stage.replace(path)
     finally:
