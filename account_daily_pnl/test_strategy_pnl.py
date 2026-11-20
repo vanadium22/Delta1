@@ -12,6 +12,7 @@ from script_making.storage import ReportError
 from shared_data.paths import DataPaths
 
 from .strategy_pnl import DESK, FIELDS, GROUPS, latest_report, summarize
+from .strategy_reconciliation import reconcile, source_reports
 
 
 def make_report(folder, day, rows):
@@ -49,9 +50,9 @@ class StrategyPnlTests(unittest.TestCase):
         ]
         result = summarize(make_report(self.root, "2026-11-19", rows))
         self.assertEqual(result["desk_rows"], 7)
-        self.assertEqual([value["rows"] for value in result["totals"].values()], [1, 4, 1, 3])
-        self.assertEqual([Decimal(value["realized"]) for value in result["totals"].values()], [5, 1, 12, 5])
-        self.assertEqual([Decimal(value["unrealized"]) for value in result["totals"].values()], [-5, 13, 1, 3])
+        self.assertEqual([value["rows"] for value in result["totals"].values()], [1, 4, 1, 3, 1])
+        self.assertEqual([Decimal(value["realized"]) for value in result["totals"].values()], [5, 1, 12, 5, -4])
+        self.assertEqual([Decimal(value["unrealized"]) for value in result["totals"].values()], [-5, 13, 1, 3, 10])
         self.assertEqual(result["by_start_date"]["2026-01-05"][GROUPS[3]]["rows"], 2)
         self.assertEqual(result["index_etfs"]["上证50"]["rows"], 1)
         self.assertEqual(result["unclassified"][0]["code"], "T2612.CFE")
@@ -79,3 +80,47 @@ class StrategyPnlTests(unittest.TestCase):
             self.assertEqual(mode, "company_sync")
             self.assertEqual(archived.read_bytes(), current.read_bytes())
             self.assertEqual(latest_report(paths, as_of), (archived, "company_sync"))
+
+    def test_reconciliation_uses_trading_day_and_year_end_anchors(self):
+        from .strategy_pnl import FUTURES, INDEX_ETF, OTHER_ETF, STOCK
+
+        def snapshot(futures, index, other, stock):
+            return {"unclassified": 0,
+                    "totals": {group: {"realized": str(value), "unrealized": "5"}
+                               for group, value in zip((FUTURES, INDEX_ETF, OTHER_ETF, STOCK),
+                                                       (futures, index, other, stock))}}
+
+        snapshots = {
+            "2025-12-29": snapshot(100, 20, 50, 30),
+            "2025-12-30": snapshot(110, 22, 51, 28),
+            "2025-12-31": snapshot(130, 30, 48, 33),
+            "2026-01-05": snapshot(100, 38, 50, 39),
+            "2026-01-07": snapshot(150, 44, 47, 48),
+        }
+        accounts = {"2025-12-31": {"net_pnl": "25", "ytd_net_pnl": "32"},
+                    "2026-01-05": {"net_pnl": "-20", "ytd_net_pnl": "-20"},
+                    "2026-01-07": {"net_pnl": "10", "ytd_net_pnl": "17"}}
+        days = ["2025-12-30", "2025-12-31", "2026-01-05", "2026-01-06", "2026-01-07"]
+        _, last_year, first_day, missing, after_gap = reconcile(days, snapshots, accounts)
+        self.assertEqual(last_year["annual"]["difference"], 2)
+        self.assertEqual(first_day["daily"], first_day["annual"])
+        first = first_day["daily"]
+        self.assertEqual((first["index_etf"], first["other_etf"], first["etf"]), (8, 2, 10))
+        self.assertEqual((first["difference"], first["excel_total"], first["replacement"]), (10, -14, -4))
+        self.assertEqual(missing["pending"][0], "缺有效日报 2026-01-06")
+        self.assertIsNone(after_gap["daily"]["excel_futures"])
+        self.assertEqual(after_gap["daily"]["actual_futures"], 10)
+        self.assertEqual(after_gap["annual"]["excel_futures"], 20)
+        self.assertEqual(after_gap["annual"]["difference"], -3)
+        self.assertEqual(after_gap["annual"]["replacement"], 45)
+
+    def test_backfill_checks_only_requested_older_dates(self):
+        paths = DataPaths.for_repo(self.root)
+        share = self.root / "for_jrcx"
+        source = share / "OTC-Quant" / "pybct" / "LH" / "D1策略台日报" / "report"
+        for day in ("2025-12-31", "2026-01-05", "2026-11-19"):
+            make_report(source, day, [])
+        with patch.dict(os.environ, {"SCRIPT_MAKING_SOURCE": str(share), "SCRIPT_MAKING_DATA": str(paths.reports)}):
+            archived, notes = source_reports(paths.repo_root, ["2025-12-31", "2026-11-19"], None, False)
+            self.assertEqual(set(archived), {"2025-12-31", "2026-11-19"})
+            self.assertEqual(notes, [])

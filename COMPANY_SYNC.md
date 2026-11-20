@@ -18,7 +18,7 @@
 
 ## 最近发布
 
-- 2026-11-20 PnL 第二步接入 D1 策略台日报。运行时核验最新交易日报，逐行汇总策略部交易台的股指期货、ETF、个股与四指数 ETF 子集，附起始日小计。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。
+- 2026-11-20 收益统计完整日更随账户 JSON 生成策略台 PnL 对账工作簿和图片。对比 Excel 股指期货与 5526 实盘净盈亏，含每日、年内累计、差额和替换后合计。日报同步回补对账所需交易日期，缺项按日期展示。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。
 
 - 2026-11-20 基差简报当前合约表的期货价、分红、基差、年化和指数统一显示两位小数，天数为整数，原始计算精度保留。20项相关测试及Word/PDF版式核验通过。公司pull后重新一键生成即可。[说明](index_futures_basis/recent_brief/README.md)。
 

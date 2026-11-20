@@ -149,7 +149,7 @@ def discover(root: Path, kind: str, start: date, cutoff: date) -> tuple[dict, li
     return candidates, errors
 
 
-def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
+def sync_download(settings, kind: str, as_of: date | None = None, *, required_dates=()) -> dict:
     cutoff = as_of or today()
     root = source_path(settings.get(), kind)
     base = archive_path(settings, kind)
@@ -182,7 +182,8 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
             start = min([recent, *damaged, *pending, *([max(verified)] if verified else [])])
             if kind == "pnl":
                 start = min(start, date(cutoff.year, 1, 1))
-            candidates, errors = discover(root, kind, start, cutoff)
+            backfill = {day for day in required_dates if day < cutoff} - set(verified)
+            candidates, errors = discover(root, kind, min([start, *backfill]), cutoff)
             if kind == "pnl":
                 # Grow the chart from the first available report of this year.
                 # Keep old archives and the existing pending/repair rules.
@@ -191,7 +192,9 @@ def sync_download(settings, kind: str, as_of: date | None = None) -> dict:
                 keep.update(day for day in candidates if recent <= day < date(cutoff.year, 1, 1))
                 if verified:
                     keep.add(max(verified))
-                candidates = {day: paths for day, paths in candidates.items() if day in keep}
+                candidates = {day: paths for day, paths in candidates.items() if day in keep or day in backfill}
+            elif backfill:
+                candidates = {day: paths for day, paths in candidates.items() if day >= start or day in backfill}
             pending.update(candidates)
             pending.update(damaged)
             manifest["pending_dates"] = sorted(day.isoformat() for day in pending)

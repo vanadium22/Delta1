@@ -305,10 +305,18 @@ def run(args, root, outputs, now):
         return
     complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
                               args.no_wind, only_day=args.only_day, log_detail=getattr(args, "wind_log_detail", False))
+    strategy_complete = True
+    if not args.only_day and not args.skip_strategy:
+        from .strategy_reconciliation import publish_strategy
+
+        strategy_complete = publish_strategy(REPO, root, outputs, days, source_dir=args.strategy_source_dir,
+                                             local_only=args.no_download)
+        if not strategy_complete:
+            print("策略台对账已生成，目标日有待补数据。请查看对账工作簿的「数据检查」。", flush=True)
     if not complete and (company_run or getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
         print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
         return 2
-    return 0
+    return 0 if strategy_complete else 2
 
 
 def main(argv=None):
@@ -317,9 +325,11 @@ def main(argv=None):
     parser.add_argument("--date", help="显式指定一个已完成交易日，默认前一个交易日")
     parser.add_argument("--only-day", action="store_true", help="仅导出目标日，优先续用已有日终持仓")
     parser.add_argument("--prepare", action="store_true", help="仅准备输入 Excel")
-    parser.add_argument("--no-download", action="store_true", help="仅使用现有 BCT 文件")
+    parser.add_argument("--no-download", action="store_true", help="仅使用现有 BCT 和策略台日报文件")
     parser.add_argument("--no-wind", action="store_true", help="仅使用已有行情，不调用 Wind")
     parser.add_argument("--wind-log-detail", action="store_true", help="列出 Wind 行情复用、新下载和仍待补的标的日")
+    parser.add_argument("--strategy-source-dir", type=Path, help="读取手动保存的策略台日报目录")
+    parser.add_argument("--skip-strategy", action="store_true", help="本次仅生成账户收益")
     parser.add_argument("--data", type=Path, default=paths.root / "account_daily_pnl")
     parser.add_argument("--output", type=Path, default=paths.export("account_daily_pnl"))
     parser.add_argument("--config", type=Path, help="本机行情或资金设置")

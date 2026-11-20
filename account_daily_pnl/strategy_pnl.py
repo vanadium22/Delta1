@@ -24,7 +24,10 @@ from .series import SERIES_FILENAME, load_series
 REPO = Path(__file__).resolve().parents[1]
 DESK = "策略部交易台"
 SHEET = "合约信息"
-GROUPS = ("股指期货", "全部ETF", "个股", "50/300/500/1000指数ETF")
+FUTURES, ETF, STOCK, INDEX_ETF, OTHER_ETF = GROUPS = (
+    "股指期货", "全部ETF", "个股", "50/300/500/1000指数ETF", "其他ETF",
+)
+SNAPSHOT_VERSION = 2
 INDEXES = {"50": "上证50", "300": "沪深300", "500": "中证500", "1000": "中证1000"}
 REALIZED = ("已实现资产收益_结算货币", "已实现利率收益_结算货币")
 UNREALIZED = ("待实现资产收益_结算货币", "待实现利率收益_结算货币")
@@ -49,7 +52,7 @@ class Totals:
 
 def classify(code, name):
     if re.fullmatch(r"(?:IF|IH|IC|IM)\d{4}\.CFE", code):
-        return GROUPS[0], None
+        return FUTURES, None
     if re.fullmatch(r"(?:5\d{5}\.SH|1[56]\d{4}\.SZ|\d{4,5}\.HK)", code):
         normalized = re.sub(r"\s+", "", unicodedata.normalize("NFKC", name).upper())
         if "联接" not in normalized and ("ETF" in normalized or "交易型开放式指数" in normalized):
@@ -57,9 +60,9 @@ def classify(code, name):
             index = INDEXES[shorthand[1]] if shorthand else next(
                 (label for label in INDEXES.values() if re.search(
                     rf"{label}(?:指数)?(?:增强)?(?:ETF|交易型开放式指数)", normalized)), None)
-            return GROUPS[1], index
+            return ETF, index
     if re.fullmatch(r"(?:(?:60|68|90)\d{4}\.SH|(?:00|20|30)\d{4}\.SZ|\d{6}\.BJ)", code):
-        return GROUPS[2], None
+        return STOCK, None
     return None, None
 
 
@@ -114,19 +117,19 @@ def summarize(path):
             if str(row["交易货币"]).strip().upper() != "CNY":
                 raise ReportError(f"{SHEET}第 {row_number} 行的交易货币需要核对结算币种后再汇总。")
             earnings = amount(row, REALIZED, row_number), amount(row, UNREALIZED, row_number)
-            totals[group].add(*earnings)
-            daily[start][group].add(*earnings)
+            categories = (ETF, INDEX_ETF if index else OTHER_ETF) if group == ETF else (group,)
+            for category in categories:
+                totals[category].add(*earnings)
+                daily[start][category].add(*earnings)
             if index:
-                totals[GROUPS[3]].add(*earnings)
-                daily[start][GROUPS[3]].add(*earnings)
                 indexes[index].add(*earnings)
     finally:
         book.close()
     if sha256(path) != fingerprint:
         raise ReportError("统计期间日报已更新，请重新运行。")
-    return {"schema_version": 1, "report_date": day.isoformat(), "source_sha256": fingerprint,
+    return {"schema_version": SNAPSHOT_VERSION, "report_date": day.isoformat(), "source_sha256": fingerprint,
             "currency": "CNY", "counterparty": DESK,
-            "desk_rows": sum(totals[group].rows for group in GROUPS[:3]) + len(unclassified),
+            "desk_rows": sum(totals[group].rows for group in (FUTURES, ETF, STOCK)) + len(unclassified),
             "totals": {group: totals[group].as_dict() for group in GROUPS},
             "index_etfs": {index: totals.as_dict() for index, totals in indexes.items()},
             "by_start_date": {start.isoformat(): {group: sums.as_dict() for group, sums in groups.items()}

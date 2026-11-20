@@ -6,11 +6,10 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from .baseline import ACCOUNTS
-
-
 COLORS = {"2602": "#2563B5", "5526": "#148579", "5524": "#BC652A", "合计": "#27374D"}
 CHART_VERSION = 2
+ACCOUNT_NOTES = ("单日及累计盈亏已扣流水手续费。权益与资金明细齐全时采用结算权益差。",
+                 "曲线断点表示该交易日缺少必要数据。逐日口径、费用和完整度见 Excel。")
 
 
 def chart_font():
@@ -46,35 +45,51 @@ def write_charts(paths, history, annual):
     del app
 
 
-def write_chart(path, timeline, title, cumulative_key, family):
+def write_strategy_chart(path, timeline, summary):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QGuiApplication
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    colors = {"Excel股指期货": "#2563B5", "5526实盘净盈亏": "#148579"}
+    notes = ("Excel 日度和年内累计使用同口径日报余额差。5526 使用账户净盈亏。",
+             "曲线断点及汇总中的「—」表示缺数据。来源、日期和口径详见对账 Excel。")
+    write_chart(path, timeline, "策略台 PnL 对账", "ytd_pnl", chart_font(),
+                palette=colors, summary=summary, notes=notes)
+    del app
+
+
+def write_chart(path, timeline, title, cumulative_key, family, *, palette=COLORS, summary=(), notes=ACCOUNT_NOTES):
     from PySide6.QtCore import QPointF, QRectF, Qt
-    from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
+    from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 
     series = defaultdict(list)
     days = list(dict.fromkeys(row["day"] for row in timeline))
     for row in timeline:
         series[row["account"]].append(row)
 
-    image = QImage(1440, 1010, QImage.Format.Format_RGB32)
+    image = QImage(1600 if summary else 1440, 1010, QImage.Format.Format_RGB32)
+    panel_end = 916 if summary else 1394
     image.fill(QColor("#F3F6FA"))
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    def text(x, y, label, *, size=16, color="#25354A", bold=False):
+    def text(x, y, label, *, size=16, color="#25354A", bold=False, align_right=False):
         font = QFont(family)
         font.setPixelSize(size)
         font.setBold(bold)
         painter.setFont(font)
         painter.setPen(QColor(color))
+        if align_right:
+            x -= QFontMetricsF(font).horizontalAdvance(label)
         painter.drawText(QPointF(x, y), label)
 
     def panel(top, label, metric):
-        painter.fillRect(QRectF(46, top, 1348, 361), QColor("#FFFFFF"))
+        painter.fillRect(QRectF(46, top, panel_end - 46, 361), QColor("#FFFFFF"))
         text(70, top + 37, label, size=23, bold=True)
         text(70, top + 69, "金额 · 万元", color="#5C6C80")
-        left, right, first_y, last_y = 150, 1354, top + 90, top + 303
+        left, right, first_y, last_y = 150, panel_end - 40, top + 90, top + 303
         by_account = {account: [float(row[metric]) / 10000 if row[metric] is not None else None
-                               for row in series[account]] for account in (*ACCOUNTS, "合计")}
+                               for row in series[account]] for account in palette}
         known = [value for points in by_account.values() for value in points if value is not None]
         floor, ceiling = min([0, *known]), max([0, *known])
         spread = ceiling - floor or 1
@@ -105,7 +120,7 @@ def write_chart(path, timeline, title, cumulative_key, family):
             label = days[index][2:] if days[0][:4] != days[-1][:4] else days[index][5:]
             text(x_at(index) - 32, last_y + 29, label, size=15, color="#5C6C80")
         for account, points in by_account.items():
-            color = QColor(COLORS[account])
+            color = QColor(palette[account])
             width = 3.0 if account == "合计" else 2.0
             painter.setPen(QPen(color, width, Qt.PenStyle.DashLine if account == "合计" else Qt.PenStyle.SolidLine))
             painter.setBrush(color)
@@ -118,20 +133,40 @@ def write_chart(path, timeline, title, cumulative_key, family):
                     painter.drawEllipse(point, 2.5 if account == "合计" else 2.0, 2.5 if account == "合计" else 2.0)
                 previous = point
         if not known:
-            text(574, top + 192, "该期间待补行情或权益数据", size=23, color="#5C6C80")
+            text((290 if summary else 574), top + 192,
+                 "该期间缺少可用对账数据" if summary else "该期间待补行情或权益数据", size=23, color="#5C6C80")
+
+    def summary_table():
+        painter.fillRect(QRectF(936, 152, 618, 742), QColor("#FFFFFF"))
+        text(965, 189, f"{days[-1]} PnL 汇总", size=23, bold=True)
+        text(965, 221, "金额 · 万元", color="#5C6C80")
+        text(1380, 272, "当日", bold=True, align_right=True)
+        text(1526, 272, "年内累计", bold=True, align_right=True)
+        for index, (label, daily, ytd) in enumerate(summary):
+            y = 323 + index * 57
+            bold = index in (1, 6, 7, 8)
+            if index in (0, 4, 7, 8):
+                painter.setPen(QPen(QColor("#E0E7EF"), 1))
+                painter.drawLine(QPointF(965, y - 33), QPointF(1526, y - 33))
+            text(965, y, label, size=19, bold=bold)
+            for x, value in ((1380, daily), (1526, ytd)):
+                text(x, y, "—" if value is None else f"{value / 10000:,.2f}",
+                     size=19, bold=bold, align_right=True)
 
     try:
         text(47, 76, title, size=38, bold=True)
         text(48, 117, f"{days[0]} 至 {days[-1]}  |  {len(days)} 个交易日", size=18, color="#50637C")
-        for index, (account, color) in enumerate(COLORS.items()):
-            left = 850 + index * 133
+        for index, (account, color) in enumerate(palette.items()):
+            left = 850 + index * (252 if summary else 133)
             painter.setPen(QPen(QColor(color), 4, Qt.PenStyle.DashLine if account == "合计" else Qt.PenStyle.SolidLine))
             painter.drawLine(QPointF(left, 108), QPointF(left + 27, 108))
             text(left + 36, 114, account, size=17, bold=True)
         panel(152, "单日净盈亏", "pnl")
-        panel(533, "累计净盈亏", cumulative_key)
-        text(48, 945, "单日及累计盈亏已扣流水手续费。权益与资金明细齐全时采用结算权益差。", size=17, color="#50637C")
-        text(48, 977, "曲线断点表示该交易日缺少必要数据。逐日口径、费用和完整度见 Excel。", size=17, color="#50637C")
+        panel(533, "年内累计净盈亏" if summary else "累计净盈亏", cumulative_key)
+        if summary:
+            summary_table()
+        for index, note in enumerate(notes):
+            text(48, 945 + index * 32, note, size=17, color="#50637C")
     finally:
         painter.end()
     with NamedTemporaryFile(dir=path.parent, suffix=".png", delete=False) as temporary:

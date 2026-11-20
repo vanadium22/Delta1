@@ -161,7 +161,7 @@ def plain_cell(sheet, value, *, header=False, number_format=None):
     return value
 
 
-def write_book(path, tables):
+def write_book(path, tables, *, column_widths=None, number_formats=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook(write_only=True)
     with NamedTemporaryFile(dir=path.parent, suffix=".xlsx", delete=False) as temporary:
@@ -172,10 +172,11 @@ def write_book(path, tables):
             sheet.freeze_panes = "A2"
             for index, column in enumerate(columns, 1):
                 width = 56 if column in {"状态", "检查说明", "trace"} else max(19, len(column) + 4)
-                sheet.column_dimensions[get_column_letter(index)].width = width
+                sheet.column_dimensions[get_column_letter(index)].width = (column_widths or {}).get(column, width)
             sheet.append([plain_cell(sheet, value, header=True) for value in columns])
             formats = ["0.00%" if column.endswith("收益率") else "yyyy-mm-dd"
-                       if column in {"交易日", "起始交易日", "截止交易日"} else None for column in columns]
+                       if column in {"交易日", "起始日", "起始交易日", "截止交易日"}
+                       else (number_formats or {}).get(column) for column in columns]
             for row in rows:
                 sheet.append([plain_cell(sheet, value, number_format=number_format if not isinstance(value, str) else None)
                               for value, number_format in zip(row, formats)])

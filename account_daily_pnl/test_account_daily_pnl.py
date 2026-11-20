@@ -71,7 +71,8 @@ class DailyReportTests(unittest.TestCase):
                   "cash_movements": [{"date": "2025-12-31", "account": "2602", "net_deposit": 10}]}
         atomic_json(self.root / "inputs/config.local.json", config)
         self.args = argparse.Namespace(seed=None, import_archive=None, date=None, config=None, bct_script=None,
-                                       no_download=False, make_seed=None, prepare=False, only_day=False, no_wind=True)
+                                       no_download=False, make_seed=None, prepare=False, only_day=False, no_wind=True,
+                                       skip_strategy=True, strategy_source_dir=None)
         FakeBct.downloads.clear()
 
     def summary(self, day):
@@ -82,6 +83,44 @@ class DailyReportTests(unittest.TestCase):
             return {r[1]: dict(zip(header, r)) for r in rows}
         finally:
             data.close()
+
+    def test_full_run_generates_strategy_workbook_and_chart_after_account_series(self):
+        from account_daily_pnl.strategy_pnl import DESK
+        from account_daily_pnl.strategy_reconciliation import BOOK_NAME, CHART_NAME
+        from account_daily_pnl.test_strategy_pnl import make_report
+
+        self.args.skip_strategy = False
+        self.args.strategy_source_dir = self.root / "strategy-source"
+        for stamp, futures in ((BASE_DAY, 40), ("2025-12-30", 15)):
+            make_report(self.args.strategy_source_dir, stamp, [
+                (DESK, BASE_DAY, "IF2512.CFE", "股指期货", "CNY", futures, 0, 5, 0),
+            ])
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+        self.assertTrue((self.outputs / SERIES_FILENAME).is_file())
+        self.assertGreater((self.outputs / CHART_NAME).stat().st_size, 0)
+        book = load_workbook(self.outputs / BOOK_NAME, read_only=True, data_only=True)
+        try:
+            metrics = {row[0]: row[1:] for row in book["收益汇总"].iter_rows(min_row=2, max_col=3, values_only=True)}
+            self.assertEqual(metrics["Excel股指期货"], (-25, -25))
+            self.assertEqual(metrics["5526实盘净盈亏"], (0, 0))
+            self.assertEqual(metrics["股指差额（5526 − Excel）"], (25, 25))
+            self.assertEqual(metrics["替换后合计"], (0, 0))
+            self.assertEqual(len(list(book["合约起始日"].values)), 2)
+        finally:
+            book.close()
+
+        (self.args.strategy_source_dir / "D1策略台日报_2025-12-30.xlsx").unlink()
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 2)
+        book = load_workbook(self.outputs / BOOK_NAME, read_only=True, data_only=True)
+        try:
+            metrics = {row[0]: row[1:] for row in book["收益汇总"].iter_rows(min_row=2, max_col=3, values_only=True)}
+            self.assertEqual(metrics["Excel股指期货"], (None, None))
+            self.assertEqual(metrics["5526实盘净盈亏"], (0, 0))
+            self.assertEqual(metrics["替换后合计"], (None, None))
+        finally:
+            book.close()
 
     def test_restart_backfills_skipped_trading_days(self):
         with (patch("account_daily_pnl.sources.BctClient", FakeBct),
