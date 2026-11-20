@@ -1,5 +1,7 @@
 # 三账户场内持仓与盈亏
 
+继续开发 PnL 第二步时，从 [项目交接](PROJECT_HANDOFF.md) 进入。日常使用按本页操作。
+
 ## 公司每天点击一次
 
 更新公司仓库后，登录 Wind、接通可访问 BCT 的公司网络，双击仓库根目录的 **收益统计.cmd**。它用公司 `swhy_delta1` 处理前一交易日，同时补齐漏跑的交易日并生成 Excel 和收益图片。原来已跑通的历史数据和本机加密登录设置会自动复用。
@@ -38,7 +40,7 @@
 
 1. 在公司 Git 根目录执行 `git pull --ff-only`。
 2. 把单独交付的 `account_daily_pnl_history.zip` 放到本目录，与 `test-yesterday.cmd` 同级。首次运行会核验并导入到本机的 `data/account_daily_pnl`。已下载文件按哈希复用。
-3. 打开本机 Wind 终端并确认已登录。双击 **test-yesterday.cmd**。它回放基准以来的持仓，只导出前一个交易日的报表。默认报表位置为仓库根目录的 `outputs/account_daily_pnl/场内账户_YYYY-MM-DD.xlsx`。窗口会显示日期、回放进度和保存位置，按键后关闭。
+3. 打开本机 Wind 终端并确认已登录。双击 **test-yesterday.cmd**。它优先续用已有日终持仓，只导出前一个交易日的报表。默认报表位置为仓库根目录的 `outputs/account_daily_pnl/场内账户_YYYY-MM-DD.xlsx`。窗口会显示日期、续算进度和保存位置，按键后关闭。
 
 本次历史包截止 2026-11-18。以后要复测该日，可以在本目录执行 `.\test-yesterday.cmd --date 2026-11-18`。使用 11 月 18 日包测试 11 月 18 日时，BCT 流水和快照均可本地读取，Wind 用于缺少的前一交易日价格。若测试日超过数据包截止日，则按以下日更方式增量下载。
 
@@ -46,7 +48,7 @@
 
 ## 正式日更和中断补跑
 
-- 双击 **start.cmd** 执行常规日更。可供公司计划任务调用的命令为 `start.cmd --no-pause`。需要下载 BCT 时，将本机已有可信 BCT 脚本路径配置到 `inputs/config.local.json` 的 `bct_script`，或用 `BCT_CREDENTIALS_SCRIPT` 环境变量指向脚本。也可使用本机环境变量 `BCT_USERNAME` 和 `BCT_PASSWORD`。凭据直接交给 BCT 登录，无需放进数据包。
+- 日常手动运行统一用根目录 **收益统计.cmd**。工作台调用模块内 `start.cmd --no-pause --scheduled`。本机 BCT 设置可通过 `inputs/config.local.json` 的 `bct_script` 或 `BCT_CREDENTIALS_SCRIPT` 指向既有可信脚本。也支持本机环境变量 `BCT_USERNAME` 和 `BCT_PASSWORD`。
 - 以北京时间取当天之前最近的交易日。程序从基准起核对交易流水存档，缺几天补几天。历史快照只补已结束月份的最后交易日。正常日更自最近成功下载日恢复，停跑期间遗漏的交易日逐日下载快照、流水和生成报表。节假日和周末按 [交易日历](../dashboard/marketdata/trading_calendar.py) 跳过。
 - `flows/`、`snapshots/`、`wind/` 分别保存按业务日命名的原始流水、BCT 快照和 Wind 缺价补录 Excel。BCT 的账簿和日期从接口校验，分页核对 `totalCount`。无成交的交易日保留有表头和零行元数据的有效流水文件。下载中断后，下一次运行复用已保存文件，继续缺项。源归档和正式报表逐文件原子写入。
 - 日更续算新增及改动的交易日，再用缓存汇总更新 `逐交易日统计.xlsx`、`历史至今_账户收益.png` 和目标年份的收益 PNG。统计表含「收益概览」「逐交易日统计」「今年逐日」，图片含三个账户与合计的单日、累计净盈亏。图表使用公司已有的 QtGui。缺行情时曲线留断点，区间的盈亏和费用覆盖日数在 Excel 中查看。

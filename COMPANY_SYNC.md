@@ -11,7 +11,7 @@
 | securities_lending | 券源下载、查询、行业与金额筛选 | [券源交接](securities_lending/PROJECT_HANDOFF.md) |
 | script_making | 交易前日报查询、人工簿记和日报管理；兼容既有统计自动任务 | [日报交接](script_making/PROJECT_HANDOFF.md) |
 | statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
-| account_daily_pnl | 三账户场内持仓、总权益及单日盈亏日更，可补跑遗漏交易日 | [公司单日测试](account_daily_pnl/README.md) |
+| account_daily_pnl | 三账户场内持仓、总权益及单日盈亏日更，可补跑遗漏交易日 | [第一步交接](account_daily_pnl/PROJECT_HANDOFF.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
 | index_strategy | 历史 / 实时采集与兼容桌面工具 | [采集接口](index_strategy/instant_dld/README.md) |
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |

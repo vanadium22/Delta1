@@ -1,6 +1,6 @@
 {
   "module": "account_daily_pnl",
-  "release_date": "2026-11-19",
+  "release_date": "2026-11-20",
   "release_stage": "company-acceptance",
   "performance_outputs": ["逐交易日统计.xlsx", "历史至今_账户收益.png", "目标年_账户收益.png"],
   "baseline": "2025-12-29",
@@ -11,6 +11,7 @@
   "recurring_entry": "start.cmd",
   "setup_entry": "setup-daily.cmd",
   "company_daily_entry": "../收益统计.cmd",
+  "handoff": "PROJECT_HANDOFF.md",
   "account_series": {"file": "account_daily_pnl.json", "schema_version": 1},
   "daily_checkpoint": {"file": "daily_cache.json", "schema_version": 1},
   "wind_log_detail_option": "--wind-log-detail",
