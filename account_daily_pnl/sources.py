@@ -240,7 +240,7 @@ def archive_snapshot(client, root, day):
     print(f"BCT 快照 {day}：{len(rows):,} 条 / 1 份 Excel", flush=True)
 
 
-def archive_missing(root, days, snapshots, credentials_path, *, batch_size=8):
+def archive_missing(root, days, snapshots, credentials_path, *, batch_size=8, client_factory=None):
     batches = []
     batch = []
     for day in days:
@@ -255,7 +255,7 @@ def archive_missing(root, days, snapshots, credentials_path, *, batch_size=8):
     missing_snapshots = [day for day in sorted(set(snapshots)) if not (root / "snapshots" / f"{day}.xlsx").is_file()]
     if not batches and not missing_snapshots:
         return
-    client = BctClient(credentials_path)
+    client = client_factory() if client_factory else BctClient(credentials_path)
     client.connect()
     tasks = [(archive_batch, days) for days in batches] + [(archive_snapshot, day) for day in missing_snapshots]
     with ThreadPoolExecutor(max_workers=3) as pool:

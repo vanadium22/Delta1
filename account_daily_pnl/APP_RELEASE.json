@@ -10,6 +10,8 @@
   "company_entry": "test-yesterday.cmd",
   "recurring_entry": "start.cmd",
   "setup_entry": "setup-daily.cmd",
+  "company_daily_entry": "../收益统计.cmd",
+  "account_series": {"file": "account_daily_pnl.json", "schema_version": 1},
   "work_automation": {"name": "三账户场内持仓与盈亏", "schedule": "weekdays 09:35 Asia/Shanghai", "catch_up": true},
   "company_checks": ["Wind 登录及缺价补录", "期货日终估值字段对账", "三账户基准资金及出入金覆盖确认"]
 }

@@ -75,8 +75,25 @@ def choose_bct_source():
     return Path(filename)
 
 
-def local_bct_source(root):
-    for directory in (root / "inputs", Path(__file__).resolve().parent, Path.home() / "Downloads"):
+def input_directories(root):
+    downloads = Path.home() / "Downloads"
+    if os.name == "nt":
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+                value, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
+                downloads = Path(os.path.expandvars(value))
+        except (OSError, TypeError):
+            pass
+    module = Path(__file__).resolve().parent
+    return (root / "inputs", module, module.parent, downloads, downloads / "Chrome",
+            downloads / "IDM" / "Compressed")
+
+
+def local_bct_source(root, *, allow_picker=True):
+    for directory in input_directories(root):
         for filename in ("download_trading_flow_add_holdexcel.py", "download_trading_flow.py", "1.zip"):
             candidate = directory / filename
             if candidate.is_file():
@@ -85,10 +102,12 @@ def local_bct_source(root):
                 except (OSError, ValueError, SyntaxError):
                     continue
                 return candidate
-    return choose_bct_source()
+    if allow_picker:
+        return choose_bct_source()
+    raise ValueError("找不到已有的 BCT 下载脚本，请在公司桌面双击收益统计.cmd 完成首次接入。")
 
 
-def configure_credentials(root, config, override):
+def configure_credentials(root, config, override, *, allow_picker=True):
     source = bct_credential_path(root, config, override)
     protected = protected_bct_path(root)
     if source is not None and not Path(source).is_file():
@@ -101,12 +120,13 @@ def configure_credentials(root, config, override):
         except (CredentialError, ValueError):
             source = None
     if source is None and not (os.environ.get("BCT_USERNAME") and os.environ.get("BCT_PASSWORD")):
-        source = local_bct_source(root)
+        source = local_bct_source(root, allow_picker=allow_picker)
     print("正在验证公司 BCT 登录...", flush=True)
     try:
-        BctClient(source).connect()
+        client = BctClient(source)
+        client.connect()
     except (ConnectionError, Timeout) as exc:
-        raise ValueError("BCT 登录连接失败。接通公司网络或 VPN 后再运行首次配置。") from exc
+        raise ValueError("BCT 登录连接失败，请接通公司网络或 VPN 后重试。") from exc
     except HTTPError as exc:
         status = exc.response.status_code
         raise ValueError(f"BCT 登录返回 HTTP {status}。请核对旧脚本的登录设置和账户权限。") from exc
@@ -114,6 +134,7 @@ def configure_credentials(root, config, override):
         username, password = login_values(source)
         save_config(protected, {"username": username, "password": password})
     print("BCT 登录已验证，已复用本机 Windows 用户的加密设置。", flush=True)
+    return client
 
 
 def configure_daily(repo, root, output, config, args):

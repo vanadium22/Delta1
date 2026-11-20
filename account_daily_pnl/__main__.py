@@ -21,6 +21,7 @@ from .ledger import Ledger, POSITIONS, SUMMARY, ZERO, money, report, snapshot_ch
 from .performance import PERIOD_COLUMNS, Performance, period_summary, sheet_rows
 from .prices import resolve
 from .seed import ARCHIVE_NAME, install_seed, make_seed
+from .series import SERIES_FILENAME, write_series
 from .sources import archive_missing, bct_credential_path, read_source, write_book
 
 
@@ -186,6 +187,7 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
         from .charts import CHART_VERSION, write_charts
 
         history_path = outputs / "逐交易日统计.xlsx"
+        series_path = outputs / SERIES_FILENAME
         periods, annual = period_summary(all_summaries)
         fingerprint = hashlib.sha256(json.dumps((CHART_VERSION, all_summaries),
                                                 ensure_ascii=False, default=str).encode()).hexdigest()
@@ -195,8 +197,12 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
                                       ("逐交易日统计", SUMMARY, sheet_rows(all_summaries)),
                                       ("今年逐日", SUMMARY, sheet_rows(annual))])
             write_charts(images, all_summaries, annual)
+            write_series(series_path, all_summaries)
             report_state["_performance"] = fingerprint
+        elif not series_path.is_file():
+            write_series(series_path, all_summaries)
         print(f"历史统计：{history_path}", flush=True)
+        print(f"账户收益数据：{series_path}", flush=True)
         for path in images:
             print(f"收益图：{path}", flush=True)
     atomic_json(report_state_path, report_state)
@@ -209,8 +215,18 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
 
 def run(args, root, outputs, now):
     implicit_seed = Path(__file__).with_name(ARCHIVE_NAME)
-    if args.seed or not (root / "download_state.json").is_file() and implicit_seed.is_file():
-        install_seed(root, args.seed or implicit_seed)
+    seed_path = args.seed
+    company_run = getattr(args, "company_run", False)
+    if seed_path is None and not (root / "download_state.json").is_file():
+        if implicit_seed.is_file():
+            seed_path = implicit_seed
+        elif company_run and not (root / "inputs" / "baseline.json").is_file():
+            from .setup_daily import input_directories
+
+            seed_path = next((folder / ARCHIVE_NAME for folder in input_directories(root)
+                              if (folder / ARCHIVE_NAME).is_file()), None)
+    if seed_path:
+        install_seed(root, seed_path)
     if args.import_archive:
         import_baseline(root, args.import_archive)
     baseline_path = root / "inputs" / "baseline.json"
@@ -242,7 +258,15 @@ def run(args, root, outputs, now):
     snapshots = snapshot_plan(days, target, previous)
     if not args.no_download:
         credentials = bct_credential_path(root, config, args.bct_script)
-        archive_missing(root, days, snapshots, credentials)
+        if company_run or getattr(args, "scheduled", False):
+            from functools import partial
+            from .setup_daily import configure_credentials
+
+            client = partial(configure_credentials, root, config, args.bct_script,
+                             allow_picker=company_run)
+            archive_missing(root, days, snapshots, credentials, client_factory=client)
+        else:
+            archive_missing(root, days, snapshots, credentials)
         if not previous or target > previous:
             atomic_json(state_path, {"version": STATE_VERSION, "latest_live_snapshot": target})
     if args.make_seed:
@@ -252,7 +276,7 @@ def run(args, root, outputs, now):
         return
     complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
                               args.no_wind, only_day=args.only_day)
-    if not complete and (getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
+    if not complete and (company_run or getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
         print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
         return 2
     return 0
@@ -277,6 +301,7 @@ def main(argv=None):
     parser.add_argument("--work-root", type=Path, help="显式指定工作自动化工作台目录")
     parser.add_argument("--task-time", default="09:35", help="首次登记时间，北京时间，默认 09:35")
     parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--company-run", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     print(f"Python：{sys.executable}", flush=True)

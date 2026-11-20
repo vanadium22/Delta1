@@ -15,6 +15,7 @@ from account_daily_pnl.baseline import ACCOUNTS, BASE_DAY
 from account_daily_pnl.ledger import Ledger, report
 from account_daily_pnl.prices import resolve
 from account_daily_pnl.seed import INPUTS, install_seed, make_seed
+from account_daily_pnl.series import SERIES_FILENAME, load_series
 from account_daily_pnl.setup_daily import configure_credentials, register_with_tasks, task_definition
 from account_daily_pnl.sources import bct_credential_path, login_values, read_source, write_book
 from shared_data.io import atomic_json, sha256
@@ -105,6 +106,15 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(sha256(self.outputs / "场内账户_2026-01-05.xlsx"), digest)
         for name in ("历史至今_账户收益.png", "2026年_账户收益.png"):
             self.assertEqual((self.outputs / name).read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+        series = load_series(self.outputs / SERIES_FILENAME, required_through=days[-1])
+        self.assertEqual(len(series["rows"]), 12)
+        row = next(item for item in series["rows"] if
+                   (item["trading_date"], item["account_id"]) == (days[-1], "2602"))
+        self.assertEqual((row["net_pnl"], row["fee"], row["closing_equity"]), ("38.00", "1.00", "1133.00"))
+        self.assertIsNone(row["since_baseline_return"])
+        self.assertEqual(series["rows"][-1]["account_id"], "total")
+        with self.assertRaises(ValueError):
+            load_series(self.outputs / SERIES_FILENAME, required_through="2026-01-06")
 
     def test_statement_equity_prefers_cash_adjusted_change_and_does_not_charge_fee_again(self):
         config = {
@@ -129,6 +139,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertAlmostEqual(row["日收益率"], 110 / 1010)
         self.assertEqual(row["盈亏来源"], "结算权益差")
         self.assertFalse((self.outputs / "逐交易日统计.xlsx").exists())
+        self.assertFalse((self.outputs / SERIES_FILENAME).exists())
 
     def test_futures_legs_and_no_cash_bonus(self):
         self.baseline["positions"].append(
@@ -230,6 +241,16 @@ class DailyReportTests(unittest.TestCase):
             self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 2)
         with patch("account_daily_pnl.__main__.export_reports", return_value=True):
             self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+
+    def test_company_entry_only_configures_credentials_if_downloads_are_needed(self):
+        self.args.company_run = True
+        self.args.only_day = True
+        client = FakeBct(None)
+        with patch("account_daily_pnl.setup_daily.configure_credentials", return_value=client) as configure:
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+        self.assertEqual(configure.call_count, 1)
+        self.assertTrue(configure.call_args.kwargs["allow_picker"])
 
     def test_wind_never_uses_a_different_date(self):
         class FakeWind:
