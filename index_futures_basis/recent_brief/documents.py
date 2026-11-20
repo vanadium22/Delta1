@@ -104,7 +104,7 @@ def _word_current_tables(document, info):
             heading.paragraph_format.space_before = Pt(10)
             spot = product['spot_close']
             heading.add_run(f"{product['root']}  {product['name']}    ")
-            run = heading.add_run("指数 "+(f"{spot:,.4f}" if spot is not None else "—"))
+            run = heading.add_run("指数 "+(f"{spot:,.2f}" if spot is not None else "—"))
             run.font.size = Pt(14)
             table = document.add_table(rows=1, cols=len(TABLE_HEADERS))
             table.autofit = False
@@ -238,7 +238,7 @@ def _pdf_current_tables(pdf, info):
             top = .865-index*.42
             spot = product['spot_close']
             fig.text(.03, top, f"{product['root']}  {product['name']}    指数 "+
-                     (f"{spot:,.4f}" if spot is not None else "—"), fontsize=17, weight="bold", va="top", color="#173c59")
+                     (f"{spot:,.2f}" if spot is not None else "—"), fontsize=17, weight="bold", va="top", color="#173c59")
             ax = fig.add_axes([.03, top-.357, .94, .317]); ax.axis('off')
             values = [table_cells(row) for row in product['rows']]
             table = ax.table(cellText=values, colLabels=TABLE_HEADERS, cellLoc='center',

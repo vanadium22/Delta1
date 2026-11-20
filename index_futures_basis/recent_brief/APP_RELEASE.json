@@ -1,5 +1,5 @@
 {
-  "release": "2026-11-20-single-line-tables-three-part-templates",
+  "release": "2026-11-20-two-decimal-current-tables",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 10,
@@ -34,7 +34,8 @@
   },
   "tests": {
     "passed": 79,
-    "resource_warnings_as_errors": true
+    "resource_warnings_as_errors": true,
+    "last_change_focused_passed": 20
   },
   "visual_verification": "Word native render and generated PDF; example 3 pages each, full report 11 pages each, all inspected",
   "example_market_date": "2026-11-19",
@@ -45,5 +46,10 @@
     "activity",
     "calendar"
   ],
-  "calendar_table_presentation": "single line; actual contracts and expiries blank; audit legs retained"
+  "calendar_table_presentation": "single line; actual contracts and expiries blank; audit legs retained",
+  "current_table_format": {
+    "decimal_places": 2,
+    "days_decimal_places": 0,
+    "raw_precision_preserved": true
+  }
 }

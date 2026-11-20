@@ -150,7 +150,7 @@ def table_cells(row):
         return f"{value:,.{digits}f}" if value is not None else "—"
     calendar = row['kind'] == 'calendar'
     return [row["label"], '' if calendar else str(row['contracts'][0] or '—'),
-            fmt(row["raw_price"], 4), fmt(row["dividend"], 4), fmt(row["basis_points"], 2),
+            fmt(row["raw_price"], 2), fmt(row["dividend"], 2), fmt(row["basis_points"], 2),
             fmt(row["annualized_basis_pct"], 2)+("%" if row["annualized_basis_pct"] is not None else ""),
             '' if calendar else row['expiries'][0] or '—',
             fmt(row["days"], 0)]
