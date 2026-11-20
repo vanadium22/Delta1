@@ -13,6 +13,7 @@
   "company_daily_entry": "../收益统计.cmd",
   "handoff": "PROJECT_HANDOFF.md",
   "account_series": {"file": "account_daily_pnl.json", "schema_version": 1},
+  "strategy_contract_series": {"entry": "python -m account_daily_pnl.strategy_pnl", "file": "strategy_contract_pnl_YYYY-MM-DD.json", "schema_version": 1},
   "daily_checkpoint": {"file": "daily_cache.json", "schema_version": 1},
   "wind_log_detail_option": "--wind-log-detail",
   "work_automation": {"name": "三账户场内持仓与盈亏", "schedule": "weekdays 09:35 Asia/Shanghai", "catch_up": true},
