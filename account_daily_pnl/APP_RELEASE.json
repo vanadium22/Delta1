@@ -16,6 +16,7 @@
   "strategy_contract_series": {"entry": "python -m account_daily_pnl.strategy_pnl", "file": "strategy_contract_pnl_YYYY-MM-DD.json", "schema_version": 2},
   "strategy_reconciliation_outputs": ["策略台PnL对账.xlsx", "策略台PnL对账.png"],
   "strategy_report_date_policy": "latest-readable-through-account-target",
+  "swap_report_status": "data/account_daily_pnl/swap_report_status.json",
   "daily_checkpoint": {"file": "daily_cache.json", "schema_version": 1},
   "wind_log_detail_option": "--wind-log-detail",
   "work_automation": {"name": "三账户场内持仓与盈亏", "schedule": "daily 09:25 Asia/Shanghai", "catch_up": true, "mail": "策略台PnL对账.xlsx + 策略台PnL对账.png"},

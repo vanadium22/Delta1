@@ -305,6 +305,22 @@ def run(args, root, outputs, now):
         return
     complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
                               args.no_wind, only_day=args.only_day, log_detail=getattr(args, "wind_log_detail", False))
+    if not args.only_day:
+        from .swap_report import check_swap
+
+        try:
+            swap = check_swap(REPO, target, local_only=args.no_download)
+            atomic_json(root / "swap_report_status.json", swap)
+            if swap["date"]:
+                print(f"收益互换日报：{swap['date']}，{swap['path']}", flush=True)
+            else:
+                print(f"收益互换日报：截至 {target} 暂无可读本地归档。", flush=True)
+            for note in swap["notes"][-3:]:
+                print(f"收益互换日报检查：{note}", flush=True)
+        except (OSError, ValueError) as exc:
+            atomic_json(root / "swap_report_status.json", {"requested_date": target, "date": None,
+                                                          "path": None, "notes": [str(exc)]})
+            print(f"收益互换日报检查失败：{exc}", flush=True)
     strategy_complete = True
     if not args.only_day and not args.skip_strategy:
         from .strategy_reconciliation import publish_strategy

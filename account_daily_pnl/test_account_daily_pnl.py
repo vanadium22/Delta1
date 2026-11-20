@@ -73,6 +73,10 @@ class DailyReportTests(unittest.TestCase):
         self.args = argparse.Namespace(seed=None, import_archive=None, date=None, config=None, bct_script=None,
                                        no_download=False, make_seed=None, prepare=False, only_day=False, no_wind=True,
                                        skip_strategy=True, strategy_source_dir=None)
+        mock_swap = patch("account_daily_pnl.swap_report.check_swap",
+                          return_value={"date": None, "path": None, "notes": []})
+        mock_swap.start()
+        self.addCleanup(mock_swap.stop)
         FakeBct.downloads.clear()
 
     def summary(self, day):
