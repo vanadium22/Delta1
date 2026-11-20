@@ -11,8 +11,8 @@ from openpyxl import Workbook
 from script_making.storage import ReportError
 from shared_data.paths import DataPaths
 
-from .strategy_pnl import DESK, FIELDS, GROUPS, latest_report, summarize
-from .strategy_reconciliation import reconcile, source_reports
+from .strategy_pnl import DESK, FIELDS, GROUPS, latest_report, source_reports, summarize
+from .strategy_reconciliation import reconcile
 
 
 def make_report(folder, day, rows):
@@ -64,22 +64,44 @@ class StrategyPnlTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportError, "第 3 行.*已实现利率收益"):
             summarize(path)
 
-    def test_local_and_company_sync_require_the_latest_trading_day(self):
+    def test_local_and_company_sync_use_newest_readable_day_at_or_before_target(self):
         paths = DataPaths.for_repo(self.root)
         as_of = date(2026, 11, 20)
         share = self.root / "for_jrcx"
         source = share / "OTC-Quant" / "pybct" / "LH" / "D1策略台日报" / "report"
-        make_report(source, "2026-11-18", [])
+        prior = make_report(source, "2026-11-18", [])
+        make_report(source, "2026-11-20", [])
+        latest = source / "D1策略台日报_2026-11-19.xlsx"
         with patch.dict(os.environ, {"SCRIPT_MAKING_SOURCE": str(share), "SCRIPT_MAKING_DATA": str(paths.reports)}):
             for directory in (source, None):
-                with self.assertRaisesRegex(ReportError, "应为 2026-11-19.*2026-11-18"):
-                    latest_report(paths, as_of, directory)
+                path, _, summary = latest_report(paths, as_of, directory)
+                self.assertEqual(path.read_bytes(), prior.read_bytes())
+                self.assertEqual(summary["requested_date"], "2026-11-19")
+                self.assertEqual(summary["report_date"], "2026-11-18")
+            latest.write_bytes(b"corrupt")
+            for directory in (source, None):
+                _, _, summary = latest_report(paths, as_of, directory)
+                self.assertEqual(summary["report_date"], "2026-11-18")
+                self.assertTrue(any(day == "2026-11-19" for day, _ in summary["source_checks"]))
             current = make_report(source, "2026-11-19", [])
-            self.assertEqual(latest_report(paths, as_of, source), (current, "local_directory"))
-            archived, mode = latest_report(paths, as_of)
-            self.assertEqual(mode, "company_sync")
+            self.assertEqual(latest_report(paths, as_of, source)[:2], (current, "local_directory"))
+            archived, mode, summary = latest_report(paths, as_of)
+            self.assertEqual(mode, "company_archive")
             self.assertEqual(archived.read_bytes(), current.read_bytes())
-            self.assertEqual(latest_report(paths, as_of), (archived, "company_sync"))
+            self.assertEqual(summary["report_date"], "2026-11-19")
+            self.assertEqual(latest_report(paths, as_of)[:2], (archived, "company_archive"))
+
+    def test_overdue_report_in_verified_local_archive_remains_readable_when_sync_fails(self):
+        paths = DataPaths.for_repo(self.root)
+        archive = paths.reports / "downloads" / "strategy"
+        file = make_report(archive / "2026-11-18", "2026-11-18", [])
+        as_of = date(2026, 11, 20)
+        with patch.dict(os.environ, {"SCRIPT_MAKING_DATA": str(paths.reports)}), \
+                patch("account_daily_pnl.strategy_pnl.sync_download", side_effect=ReportError("公盘不可访问")):
+            path, _, report = latest_report(paths, as_of)
+        self.assertEqual(path, file)
+        self.assertEqual(report["report_date"], "2026-11-18")
+        self.assertIn("公盘不可访问", report["source_checks"][0][1])
 
     def test_reconciliation_uses_trading_day_and_year_end_anchors(self):
         from .strategy_pnl import FUTURES, INDEX_ETF, OTHER_ETF, STOCK
@@ -107,7 +129,7 @@ class StrategyPnlTests(unittest.TestCase):
         first = first_day["daily"]
         self.assertEqual((first["index_etf"], first["other_etf"], first["etf"]), (8, 2, 10))
         self.assertEqual((first["difference"], first["excel_total"], first["replacement"]), (10, -14, -4))
-        self.assertEqual(missing["pending"][0], "缺有效日报 2026-01-06")
+        self.assertEqual(missing["notes"][0], "缺有效日报 2026-01-06")
         self.assertIsNone(after_gap["daily"]["excel_futures"])
         self.assertEqual(after_gap["daily"]["actual_futures"], 10)
         self.assertEqual(after_gap["annual"]["excel_futures"], 20)

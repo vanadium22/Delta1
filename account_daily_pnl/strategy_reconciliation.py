@@ -1,18 +1,19 @@
 """Compare same-day strategy report PnL with account 5526 after account publication."""
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 import json
 
-from script_making.downloads import archive_path, discover, local_files, sync_download
-from script_making.storage import ReportError, Settings
+from script_making.storage import ReportError
 from shared_data.io import atomic_json, sha256
 
 from .baseline import BASE_DAY
 from .ledger import rounded, total
 from .series import SERIES_FILENAME, load_series
 from .sources import write_book
-from .strategy_pnl import ETF, FUTURES, INDEX_ETF, OTHER_ETF, SNAPSHOT_VERSION, STOCK, summarize
+from .strategy_pnl import (
+    FUTURES, INDEX_ETF, OTHER_ETF, SNAPSHOT_VERSION, STOCK, WORKBOOK_ERRORS, source_reports, summarize,
+)
 
 
 BOOK_NAME = "策略台PnL对账.xlsx"
@@ -31,6 +32,7 @@ METRICS = (
 CURVES = {name: label for name, label in METRICS if name in {"excel_futures", "actual_futures"}}
 RULES = (
     ("策略台日报", "交易对手为策略部交易台。按日报交易日对齐，起始日用于合约明细汇总。"),
+    ("日报日期", "优先使用账户目标交易日的日报，缺失或不可读时使用此前最近一份可读日报。"),
     ("Excel 日 PnL", "相邻交易日报的累计余额差。余额为已实现及待实现的资产和利率收益之和。"),
     ("Excel 年内累计", "本日报余额减上年最后一份应有交易日报余额。前提是两期报表覆盖及累计口径一致。"),
     ("2025年覆盖", "与账户基准一致，自 2025-12-29 收盘起算，仅覆盖基准后的交易日。"),
@@ -40,37 +42,6 @@ RULES = (
 )
 
 
-def source_reports(repo, days, source_dir, local_only):
-    target = days[-1]
-    cutoff = date.fromisoformat(target) + timedelta(days=1)
-    notes = []
-    if source_dir is not None:
-        found, errors = discover(source_dir, "strategy", date.fromisoformat(days[0]), cutoff)
-        paths = {day.isoformat(): files[0] for day, files in found.items() if len(files) == 1}
-        notes.extend((day.isoformat(), "日报来源有多份同日文件") for day, files in found.items() if len(files) > 1)
-        notes.extend((target, error) for error in errors)
-        return paths, notes
-
-    settings = Settings(repo / "script_making")
-    archive = archive_path(settings, "strategy")
-    verified_latest = local_only
-    if not local_only:
-        try:
-            status = sync_download(settings, "strategy", cutoff, required_dates=map(date.fromisoformat, days))
-            observed = status["source_latest"] or "无"
-            confirmed = status["saved"] + status["reused"] + status["updated"]
-            verified_latest = observed == target and target in confirmed
-            notes.extend((target, error) for error in status["errors"])
-            if not verified_latest:
-                notes.append((target, f"同步未确认目标日报。应有 {target}，来源最新 {observed}。"))
-        except (OSError, ValueError, TimeoutError) as exc:
-            notes.append((target, f"日报同步失败。{exc}"))
-    paths = {record["date"]: archive / record["date"] / record["name"] for record in local_files(archive, "strategy")}
-    if not verified_latest:
-        paths.pop(target, None)
-    return paths, notes
-
-
 def load_snapshots(paths, days, cache_path):
     try:
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -78,20 +49,21 @@ def load_snapshots(paths, days, cache_path):
     except (OSError, ValueError, KeyError, TypeError):
         cached = {}
     snapshots, notes, latest = {}, [], None
-    for day in days:
+    for day in reversed(days):
         if day not in paths:
             continue
         try:
             previous = cached.get(day, {})
-            if day != days[-1] and previous.get("source_sha256") == sha256(paths[day]):
+            is_candidate = latest is None and day != BASE_DAY
+            if not is_candidate and isinstance(previous, dict) and previous.get("source_sha256") == sha256(paths[day]):
                 snapshots[day] = previous
                 continue
             report = summarize(paths[day])
             snapshots[day] = {"source_sha256": report["source_sha256"], "totals": report["totals"],
                               "unclassified": len(report["unclassified"])}
-            if day == days[-1]:
+            if is_candidate:
                 latest = report
-        except (OSError, ReportError) as exc:
+        except WORKBOOK_ERRORS as exc:
             notes.append((day, f"日报读取失败。{exc}"))
     atomic_json(cache_path, {"version": SNAPSHOT_VERSION, "days": cached | snapshots})
     return snapshots, latest, notes
@@ -123,23 +95,22 @@ def reconcile(days, snapshots, accounts):
         account = accounts.get(day, {})
         daily = comparisons(current, snapshots.get(previous), account.get("net_pnl"))
         annual = comparisons(current, snapshots.get(year_anchor), account.get("ytd_net_pnl"))
-        pending = []
+        notes = []
         if current is None:
-            pending.append(f"缺有效日报 {day}")
+            notes.append(f"缺有效日报 {day}")
         if previous not in snapshots:
-            pending.append(f"缺日度基准 {previous}")
+            notes.append(f"缺日度基准 {previous}")
         if year_anchor != previous and year_anchor not in snapshots:
-            pending.append(f"缺年内基准 {year_anchor}")
+            notes.append(f"缺年内基准 {year_anchor}")
         if daily["actual_futures"] is None:
-            pending.append("5526日净盈亏缺项")
+            notes.append("5526日净盈亏缺项")
         if annual["actual_futures"] is None:
-            pending.append("5526年内净盈亏缺项")
-        notes = list(pending)
+            notes.append("5526年内净盈亏缺项")
         if day[:4] == BASE_DAY[:4]:
             notes.append(f"账户基准后累计（{BASE_DAY}收盘起）")
         if current and current["unclassified"]:
             notes.append(f"日报有 {current['unclassified']} 行不在已识别分类")
-        results.append({"day": day, "daily": daily, "annual": annual, "notes": notes, "pending": pending})
+        results.append({"day": day, "daily": daily, "annual": annual, "notes": notes})
         previous = day
     return results
 
@@ -151,10 +122,20 @@ def publish_strategy(repo, root, outputs, days, *, source_dir=None, local_only=F
     requested = [BASE_DAY, *days]
     try:
         paths, source_notes = source_reports(repo, requested, source_dir, local_only)
-    except (OSError, ReportError, TimeoutError) as exc:
+    except (OSError, ReportError) as exc:
         paths, source_notes = {}, [(target, f"日报来源读取失败。{exc}")]
     snapshots, latest, snapshot_notes = load_snapshots(paths, requested, root / "strategy_contract_cache.json")
-    timeline = reconcile(days, snapshots, accounts)
+    if latest is None:
+        print(f"截至 {target} 未找到可读的策略台日报，本次未生成策略台对账。", flush=True)
+        for _, note in [*source_notes[-3:], *snapshot_notes[:3]]:
+            print(f"策略台数据检查：{note}", flush=True)
+        return False
+    report_day = latest["report_date"]
+    selection = f"账户截止 {target}，对账使用 {report_day} 日报及同日 5526。"
+    print(selection, flush=True)
+    if report_day < target:
+        source_notes.append((target, f"目标日报尚不可读。{selection}"))
+    timeline = reconcile([day for day in days if day <= report_day], snapshots, accounts)
     current = timeline[-1]
     latest_by_year = {row["day"][:4]: row for row in timeline}
     summary = [(label, rounded(current["daily"][key]), rounded(current["annual"][key])) for key, label in METRICS]
@@ -165,16 +146,15 @@ def publish_strategy(repo, root, outputs, days, *, source_dir=None, local_only=F
 
     metrics_columns = tuple(label.strip() for _, label in METRICS)
     columns = ("交易日", *metrics_columns, "状态")
-    summary_columns = (f"项目 · {target}", "当日（元）", "年内累计（元）")
+    summary_columns = (f"项目 · {report_day}", "当日（元）", "年内累计（元）")
     start_columns = ("起始日", "类别", "明细行数", "已实现余额（元）", "待实现余额（元）")
     source_checks = [(date.fromisoformat(day), note) for day, note in source_notes + snapshot_notes]
     checks = [(date.fromisoformat(row["day"]), note) for row in timeline for note in row["notes"]]
     start_rows = []
-    if latest:
-        for stamp, groups in latest["by_start_date"].items():
-            for group, sums in groups.items():
-                start_rows.append((date.fromisoformat(stamp), group, sums["rows"],
-                                   rounded(Decimal(sums["realized"])), rounded(Decimal(sums["unrealized"]))))
+    for stamp, groups in latest["by_start_date"].items():
+        for group, sums in groups.items():
+            start_rows.append((date.fromisoformat(stamp), group, sums["rows"],
+                               rounded(Decimal(sums["realized"])), rounded(Decimal(sums["unrealized"]))))
     tables = [
         ("收益汇总", summary_columns, summary),
         ("每日PnL", columns, (table_row(row, "daily") for row in timeline)),
@@ -192,13 +172,13 @@ def publish_strategy(repo, root, outputs, days, *, source_dir=None, local_only=F
 
     chart = outputs / CHART_NAME
     chart_rows = [{"day": row["day"], "account": label, "pnl": row["daily"][key],
-                   "ytd_pnl": row["annual"][key]} for row in timeline if row["day"][:4] == target[:4]
+                  "ytd_pnl": row["annual"][key]} for row in timeline if row["day"][:4] == report_day[:4]
                   for key, label in CURVES.items()]
     write_strategy_chart(chart, chart_rows, summary)
     print(f"策略台对账：{workbook}", flush=True)
     print(f"策略台对账图：{chart}", flush=True)
-    for _, note in [*source_notes[-3:], *snapshot_notes[-3:]]:
+    for _, note in [*source_notes[-3:], *snapshot_notes[:3]]:
         print(f"策略台数据检查：{note}", flush=True)
     if current["notes"]:
-        print(f"策略台 {target}：{'；'.join(current['notes'])}", flush=True)
-    return not current["pending"]
+        print(f"策略台 {report_day}：{'；'.join(current['notes'])}", flush=True)
+    return True

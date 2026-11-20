@@ -312,7 +312,7 @@ def run(args, root, outputs, now):
         strategy_complete = publish_strategy(REPO, root, outputs, days, source_dir=args.strategy_source_dir,
                                              local_only=args.no_download)
         if not strategy_complete:
-            print("策略台对账已生成，目标日有待补数据。请查看对账工作簿的「数据检查」。", flush=True)
+            print("账户收益已生成，策略台对账等待可读日报。", flush=True)
     if not complete and (company_run or getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
         print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
         return 2

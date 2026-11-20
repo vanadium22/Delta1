@@ -9,15 +9,18 @@ from pathlib import Path
 import re
 import sys
 import unicodedata
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from dashboard.marketdata.trading_calendar import trading_days
-from script_making.downloads import archive_path, discover, file_date, sync_download, validate_report
+from script_making.downloads import archive_path, discover, file_date, local_files, sync_download, validate_report
 from script_making.storage import ReportError, Settings, today
 from shared_data.io import atomic_json, sha256
 from shared_data.paths import DataPaths
 
+from .baseline import BASE_DAY
 from .series import SERIES_FILENAME, load_series
 
 
@@ -32,6 +35,7 @@ INDEXES = {"50": "上证50", "300": "沪深300", "500": "中证500", "1000": "�
 REALIZED = ("已实现资产收益_结算货币", "已实现利率收益_结算货币")
 UNREALIZED = ("待实现资产收益_结算货币", "待实现利率收益_结算货币")
 FIELDS = ("交易对手名称", "起始日", "标的物代码", "标的物名称", "交易货币", *REALIZED, *UNREALIZED)
+WORKBOOK_ERRORS = (OSError, ValueError, BadZipFile, InvalidFileException, SyntaxError, KeyError)
 
 
 @dataclass
@@ -137,25 +141,53 @@ def summarize(path):
             "unclassified": unclassified}
 
 
-def latest_report(paths, as_of, source_dir=None):
-    _, expected = trading_days(as_of, as_of, paths.root / "account_daily_pnl" / "calendar")
+def source_reports(repo, days, source_dir, local_only, *, backfill=True):
+    target = days[-1]
+    cutoff = date.fromisoformat(target) + timedelta(days=1)
+    notes = []
     if source_dir is not None:
-        candidates, errors = discover(source_dir, "strategy", as_of - timedelta(days=14), as_of)
-        target = date.fromisoformat(expected)
-        if candidates and max(candidates) == target and len(candidates[target]) == 1:
-            return candidates[target][0], "local_directory"
-        observed = max(candidates).isoformat() if candidates else "未找到"
-        detail = "；".join(errors)
-        raise ReportError(f"本地目录未找到唯一的最新日报。应为 {expected}，观察到 {observed}。{detail}")
+        found, errors = discover(source_dir, "strategy", date.fromisoformat(days[0]), cutoff)
+        reports = {day.isoformat(): files[0] for day, files in found.items() if len(files) == 1}
+        notes.extend((day.isoformat(), "日报来源有多份同日文件") for day, files in found.items() if len(files) > 1)
+        notes.extend((target, error) for error in errors)
+        return reports, notes
 
-    settings = Settings(paths.repo_root / "script_making")
-    result = sync_download(settings, "strategy", as_of)
-    observed = result["source_latest"] or "未找到"
-    confirmed = result["saved"] + result["updated"] + result["reused"]
-    if observed != expected or expected not in confirmed:
-        detail = "；".join(result["errors"])
-        raise ReportError(f"同步未确认最新日报。应为 {expected}，来源最新日期 {observed}。{detail}")
-    return archive_path(settings, "strategy") / expected / f"D1策略台日报_{expected}.xlsx", "company_sync"
+    settings = Settings(repo / "script_making")
+    archive = archive_path(settings, "strategy")
+    if not local_only:
+        try:
+            required = map(date.fromisoformat, days) if backfill else ()
+            status = sync_download(settings, "strategy", cutoff, required_dates=required)
+            confirmed = status["saved"] + status["reused"] + status["updated"]
+            notes.extend((target, error) for error in status["errors"])
+            if target not in confirmed:
+                observed = status["source_latest"] or "无"
+                notes.append((target, f"公盘本次未确认 {target} 日报，来源最新日期为 {observed}。"))
+        except (OSError, ValueError) as exc:
+            notes.append((target, f"日报同步失败。{exc}"))
+    reports = {record["date"]: archive / record["date"] / record["name"]
+               for record in local_files(archive, "strategy") if record["date"] <= target}
+    return reports, notes
+
+
+def latest_report(paths, as_of, source_dir=None):
+    first_day = date.fromisoformat(BASE_DAY) + timedelta(days=1)
+    days, _ = trading_days(first_day, as_of, paths.root / "account_daily_pnl" / "calendar")
+    if not days:
+        raise ReportError("尚无可用于策略台统计的已完成交易日。")
+    reports, notes = source_reports(paths.repo_root, days, source_dir, False, backfill=False)
+    for day in reversed(days):
+        if day in reports:
+            try:
+                result = summarize(reports[day])
+            except WORKBOOK_ERRORS as exc:
+                notes.append((day, f"日报读取失败。{exc}"))
+                continue
+            result["requested_date"] = days[-1]
+            result["source_checks"] = notes
+            return reports[day], "local_directory" if source_dir else "company_archive", result
+    detail = "；".join(f"{day} {note}" for day, note in notes[-3:])
+    raise ReportError(f"截至 {days[-1]} 未找到可读的策略台日报。{detail}")
 
 
 def account_coverage(path, report_date):
@@ -177,9 +209,11 @@ def main(argv=None):
         paths = DataPaths.for_repo(REPO)
         if args.workbook:
             workbook, freshness = args.workbook, "historical_replay"
+            result = summarize(workbook)
         else:
-            workbook, freshness = latest_report(paths, today(), args.source_dir)
-        result = summarize(workbook)
+            workbook, freshness, result = latest_report(paths, today(), args.source_dir)
+            if result["report_date"] != result["requested_date"]:
+                print(f"目标日报 {result['requested_date']} 尚不可读，使用 {result['report_date']}。")
         result["source_file"] = workbook.name
         result["freshness"] = freshness
         output_root = paths.export("account_daily_pnl")
@@ -198,7 +232,7 @@ def main(argv=None):
             print(f"{group} {metric['rows']} 行，已实现 {Decimal(metric['realized']):,.2f} 元，"
                   f"待实现 {Decimal(metric['unrealized']):,.2f} 元")
         return 0
-    except (OSError, ValueError) as exc:
+    except WORKBOOK_ERRORS as exc:
         print(f"统计失败：{exc}", file=sys.stderr)
         return 1
 

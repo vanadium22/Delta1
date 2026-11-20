@@ -110,17 +110,35 @@ class DailyReportTests(unittest.TestCase):
         finally:
             book.close()
 
-        (self.args.strategy_source_dir / "D1策略台日报_2025-12-30.xlsx").unlink()
         with patch("account_daily_pnl.sources.BctClient", FakeBct):
-            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 2)
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], "2025-12-31")
+        book = load_workbook(self.outputs / BOOK_NAME, read_only=True, data_only=True)
+        try:
+            self.assertEqual(book["收益汇总"]["A1"].value, "项目 · 2025-12-30")
+            dates = [row[0].date().isoformat() for row in list(book["每日PnL"].values)[1:]]
+            self.assertEqual(dates, ["2025-12-30"])
+            notes = [row[1] for row in list(book["数据检查"].values)[1:]]
+            self.assertTrue(any("账户截止 2025-12-31，对账使用 2025-12-30" in note for note in notes))
+        finally:
+            book.close()
+
+        (self.args.strategy_source_dir / f"D1策略台日报_{BASE_DAY}.xlsx").unlink()
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
         book = load_workbook(self.outputs / BOOK_NAME, read_only=True, data_only=True)
         try:
             metrics = {row[0]: row[1:] for row in book["收益汇总"].iter_rows(min_row=2, max_col=3, values_only=True)}
             self.assertEqual(metrics["Excel股指期货"], (None, None))
             self.assertEqual(metrics["5526实盘净盈亏"], (0, 0))
-            self.assertEqual(metrics["替换后合计"], (None, None))
         finally:
             book.close()
+
+        (self.args.strategy_source_dir / "D1策略台日报_2025-12-30.xlsx").unlink()
+        previous = [sha256(self.outputs / name) for name in (BOOK_NAME, CHART_NAME)]
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 2)
+        self.assertEqual([sha256(self.outputs / name) for name in (BOOK_NAME, CHART_NAME)], previous)
 
     def test_restart_backfills_skipped_trading_days(self):
         with (patch("account_daily_pnl.sources.BctClient", FakeBct),
