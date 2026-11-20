@@ -1,6 +1,8 @@
 import argparse
 from collections import Counter
+from contextlib import redirect_stdout
 from datetime import date, datetime
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -353,6 +355,35 @@ class DailyReportTests(unittest.TestCase):
         prices, _ = resolve(keys, self.root, {}, provider_class=FakeWind)
         self.assertEqual(prices[day, code], (5000, "Wind:settle"))
         self.assertEqual(calls, ["close"])
+
+    def test_wind_log_distinguishes_legacy_cache_new_download_and_pending(self):
+        class FakeWind:
+            def __init__(self, config):
+                pass
+
+            def series(self, code, fields, start, end):
+                return {start: {"close": 33}} if code == "600001.SH" else {}
+
+            def close(self):
+                pass
+
+        day = "2025-12-30"
+        write_book(self.root / f"wind/{day}.xlsx", [("Wind日线", CACHE_COLUMNS, [
+            (day, "600000.SH", 20, "close", "Wind")
+        ])])
+        keys = {(day, code) for code in ("600000.SH", "600001.SH", "600002.SH")}
+        log = StringIO()
+        with redirect_stdout(log):
+            prices, _ = resolve(keys, self.root, {}, provider_class=FakeWind, log_detail=True)
+        self.assertEqual(set(prices), {(day, "600000.SH"), (day, "600001.SH")})
+        for label, code in (("本地复用", "600000.SH"), ("新下载并保存", "600001.SH"), ("仍待补", "600002.SH")):
+            self.assertIn(f"Wind {label}：1 项", log.getvalue())
+            self.assertIn(f"{label} {day} close：{code}", log.getvalue())
+        repeat = StringIO()
+        with redirect_stdout(repeat):
+            resolve(keys, self.root, {}, no_wind=True)
+        self.assertIn("Wind 本地复用：2 项", repeat.getvalue())
+        self.assertIn("Wind 新下载并保存：0 项", repeat.getvalue())
 
 
 if __name__ == "__main__":

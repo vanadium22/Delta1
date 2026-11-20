@@ -52,7 +52,24 @@ def exact_spans(days, session_days):
         yield span
 
 
-def resolve(exposure, root, config, *, no_wind=False, provider_class=WindProvider, session_days=()):
+def log_wind_items(label, items, *, detail=False):
+    dates = sorted({day for day, _, _ in items})
+    scope = ""
+    if len(dates) == 1:
+        scope = f"（{dates[0]}）"
+    elif dates:
+        scope = f"（{len(dates)} 个交易日，{dates[0]} 至 {dates[-1]}）"
+    print(f"Wind {label}：{len(items)} 项{scope}。", flush=True)
+    if detail:
+        grouped = defaultdict(list)
+        for day, code, field in sorted(items):
+            grouped[day, field].append(code)
+        for (day, field), codes in sorted(grouped.items()):
+            print(f"  {label} {day} {field}：{', '.join(codes)}", flush=True)
+
+
+def resolve(exposure, root, config, *, no_wind=False, provider_class=WindProvider, session_days=(),
+            log_detail=False):
     required = defaultdict(set)
     for day, code in exposure:
         required[day].add(code)
@@ -60,6 +77,8 @@ def resolve(exposure, root, config, *, no_wind=False, provider_class=WindProvide
     source_errors = []
     caches = {}
     missing = defaultdict(set)
+    reused = set()
+    downloaded = set()
     for day, codes in sorted(required.items()):
         snapshot_file = root / "snapshots" / f"{day}.xlsx"
         if snapshot_file.is_file():
@@ -81,19 +100,32 @@ def resolve(exposure, root, config, *, no_wind=False, provider_class=WindProvide
             field = field_for(code, config)
             if (code, field) in cache:
                 marks[day, code] = cache[code, field], f"Wind:{field}"
+                reused.add((day, code, field))
             else:
                 missing[code].add(day)
-    if not missing:
+    requested = {(day, code, field_for(code, config)) for code, days in missing.items() for day in days}
+    print(f"Wind 缓存目录：{root / 'wind'}", flush=True)
+    print(f"本次估值需查 {sum(map(len, required.values()))} 项，BCT 快照覆盖 {len(marks) - len(reused)} 项。", flush=True)
+    log_wind_items("本地复用", reused, detail=log_detail)
+
+    def result():
+        log_wind_items("新下载并保存", downloaded, detail=log_detail)
+        log_wind_items("仍待补", requested - downloaded, detail=log_detail)
         return marks, source_errors
+
+    if not missing:
+        return result()
     if no_wind:
-        return marks, ["本次使用 --no-wind，缺价保留待补。"]
+        source_errors.append("本次使用 --no-wind，缺价保留待补。")
+        return result()
 
     executable = wind_executable(config, root)
     resolved = shutil.which(executable)
     if not resolved and Path(executable).is_file():
         resolved = str(Path(executable).resolve())
     if not resolved:
-        return marks, ["Wind Python 路径不存在，缺价保留待补。"]
+        source_errors.append("Wind Python 路径不存在，缺价保留待补。")
+        return result()
 
     print(f"Wind 待补 {len(missing)} 个标的、{sum(map(len, missing.values()))} 个标的交易日。", flush=True)
     provider = provider_class({"wind_python": resolved, "wind_timeout_seconds": float(config.get("wind_timeout_seconds", 30))})
@@ -120,9 +152,10 @@ def resolve(exposure, root, config, *, no_wind=False, provider_class=WindProvide
                     marks[day, code] = (price, f"Wind:{field}")
                     caches[day][code, field] = price
                     changed.add(day)
+                    downloaded.add((day, code, field))
     finally:
         provider.close()
         for day in sorted(changed):
             rows = ((day, code, price, field, "Wind") for (code, field), price in sorted(caches[day].items()))
             write_book(root / "wind" / f"{day}.xlsx", [("Wind日线", CACHE_COLUMNS, rows)])
-    return marks, source_errors
+    return result()

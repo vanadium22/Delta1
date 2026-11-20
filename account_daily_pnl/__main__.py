@@ -123,7 +123,7 @@ def snapshot_plan(days, target, previous_download):
     return keep
 
 
-def value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, entries):
+def value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, entries, log_detail):
     source_days = sorted({BASE_DAY, *days})
     market = price_inputs(root, source_days, config)
     funds = funding_inputs(days, funding)
@@ -151,8 +151,10 @@ def value_days(root, days, selected, targets, baseline, config, funding, no_wind
 
     if not candidates:
         print(f"本次沿用 {len(cached)} 个交易日已有盈亏。", flush=True)
+        print(f"Wind 缓存目录：{root / 'wind'}", flush=True)
+        print("Wind 新下载并保存：0 项（直接沿用已有盈亏）。", flush=True)
         return cached
-    prices, source_errors = resolve(exposure, root, config, no_wind=no_wind, session_days=days)
+    prices, source_errors = resolve(exposure, root, config, no_wind=no_wind, session_days=days, log_detail=log_detail)
     for message in source_errors:
         print(message, flush=True)
     market.update(price_inputs(root, sorted({day for day, _ in exposure}), config))
@@ -178,7 +180,7 @@ def value_days(root, days, selected, targets, baseline, config, funding, no_wind
     return cached
 
 
-def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, only_day=False):
+def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, only_day=False, log_detail=False):
     funding = funding_config(config, root / "inputs" / "账户总权益.xlsx")
     trading_dates = set(days) | {BASE_DAY}
     dated_inputs = funding["movements"].keys() | funding["equity"].keys()
@@ -191,7 +193,7 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
         if anchor:
             targets.add(anchor)
     ledger, cache = resume(root, days, baseline)
-    facts = value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, cache["days"])
+    facts = value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, cache["days"], log_detail)
     report_state_path = root / "reports.json"
     report_state = read_json(report_state_path, {})
     all_summaries = []
@@ -302,7 +304,7 @@ def run(args, root, outputs, now):
         print(f"历史 Excel 和基准输入目录：{root}", flush=True)
         return
     complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
-                              args.no_wind, only_day=args.only_day)
+                              args.no_wind, only_day=args.only_day, log_detail=getattr(args, "wind_log_detail", False))
     if not complete and (company_run or getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
         print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
         return 2
@@ -317,6 +319,7 @@ def main(argv=None):
     parser.add_argument("--prepare", action="store_true", help="仅准备输入 Excel")
     parser.add_argument("--no-download", action="store_true", help="仅使用现有 BCT 文件")
     parser.add_argument("--no-wind", action="store_true", help="仅使用已有行情，不调用 Wind")
+    parser.add_argument("--wind-log-detail", action="store_true", help="列出 Wind 行情复用、新下载和仍待补的标的日")
     parser.add_argument("--data", type=Path, default=paths.root / "account_daily_pnl")
     parser.add_argument("--output", type=Path, default=paths.export("account_daily_pnl"))
     parser.add_argument("--config", type=Path, help="本机行情或资金设置")
