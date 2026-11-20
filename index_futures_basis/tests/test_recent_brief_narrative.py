@@ -40,8 +40,8 @@ class NarrativeTests(unittest.TestCase):
         report = compose(p,c,multi_session_quantiles(p,p.trade_date.max(),"slot"),
                          multi_session_quantiles(c,p.trade_date.max(),"pair"),
                          total_metrics(p,p.trade_date.max()),p.trade_date.max())
-        self.assertIn("30/60日历史不足", report["text"])
-        self.assertEqual([s["key"] for s in report["sections"]], ["absolute", "annualized", "activity", "calendar"])
+        self.assertIn("60日分位待补", report["text"])
+        self.assertEqual([s["key"] for s in report["sections"]], ["annualized", "activity", "calendar"])
         json.dumps(report,allow_nan=False)
 
     def history(self):
@@ -78,7 +78,7 @@ class NarrativeTests(unittest.TestCase):
         result = self.compose(p)
         self.assertTrue(result["absolute"]["overview"]["IF"]["majority"])
         self.assertEqual(result["absolute"]["overview"]["IF"]["majority_count"], 3)
-        self.assertIn("IF近60日多数合约贴水幅度总体收敛", result["sections"][0]["text"])
+        self.assertNotIn("绝对基差", result["text"])
         self.assertLessEqual(len(result["absolute"]["selected"]), 2)
         self.assertEqual(len({(r["root"],r["slot"]) for r in result["absolute"]["selected"]}), len(result["absolute"]["selected"]))
 
@@ -110,13 +110,13 @@ class NarrativeTests(unittest.TestCase):
         result = self.compose(p)
         picked = result["absolute"]["selected"]
         self.assertTrue(any(r["root"] == "IF" and r["slot"] == 3 and r["volatility_expansion"] for r in picked))
-        self.assertIn("近7日日均变幅", result["sections"][0]["text"])
+        self.assertNotIn("绝对基差", result["text"])
         # A previously constant history has no meaningful volatility ratio.
         mask = p.root.eq("IF") & p.slot.eq(3) & ~p.trade_date.isin(days[-7:])
         p.loc[mask, "basis_points"] = -100.
         result = self.compose(p)
         self.assertTrue(any(r["volatility_expansion"] for r in result["absolute"]["selected"]))
-        self.assertIn("基本无波动", result["sections"][0]["text"])
+        self.assertTrue(any(r['move_multiple'] is None for r in result['absolute']['selected']))
         json.dumps(result,allow_nan=False)
 
     def test_activity_volume_means_are_disjoint_and_missing_constituents_stay_missing(self):
@@ -128,7 +128,7 @@ class NarrativeTests(unittest.TestCase):
         volumes = [r for r in result["activity"]["features"] if r["root"] == "IF" and r["metric"] == "volume"]
         self.assertEqual(len(volumes), 3)
         self.assertTrue(all(abs(r["change_pct"]-100) < 1e-8 for r in volumes))
-        self.assertIn("IF近7日日均成交", result["sections"][2]["text"])
+        self.assertIn("IF持仓平稳、成交扩张", result["sections"][1]["text"])
         p.loc[p.root.eq("IF") & p.slot.eq(1) & p.trade_date.eq(days[-2]), "volume"] = np.nan
         result = self.compose(p)
         self.assertFalse(any(r["root"] == "IF" and r["metric"] == "volume" for r in result["activity"]["features"]))
@@ -202,7 +202,7 @@ class NarrativeTests(unittest.TestCase):
         days=sorted(p.trade_date.unique())
         p.loc[p.root.eq('IC') & p.trade_date.eq(days[-1]),'open_interest'] *= 1.15
         report=self.compose(p)
-        self.assertIn('IC（P100.0%）',report['text'])
+        self.assertIn('特别地，IC合约的整体持仓量处于近期高位',report['text'])
         self.assertNotIn('对冲需求显著',report['text'])
         json.dumps(report,allow_nan=False)
 
@@ -211,12 +211,12 @@ class NarrativeTests(unittest.TestCase):
         end=p.trade_date.max()
         p.loc[p.trade_date.eq(end) & p.slot.gt(1),'annualized_basis_pct']=-50.
         result=self.compose(p)
-        self.assertIn('IF、IH、IC、IM多数合约处于60日20%以下',result['text'])
-        self.assertIn('IF、IH、IC、IM次月合约近7日',result['text'])
+        self.assertTrue(all(r['all']['percentile']==0 for r in result['annualized']['current_groups']['products']))
+        self.assertIn('年化贴水扩大较明显',result['sections'][0]['text'])
         self.assertEqual(len(result['annualized']['selected']),1)
         p.loc[p.trade_date.eq(end),'roll_day']=True
         result=self.compose(p)
-        self.assertNotIn('次月合约近7日',result['text'])
+        self.assertEqual(result['annualized']['current_groups']['selected_changes'],[])
 
 
 if __name__ == "__main__":

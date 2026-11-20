@@ -1,13 +1,14 @@
-"""Current product tables and conditional within-product annualized summaries."""
+"""Single-line current tables and per-product group means with historical ranks."""
 from __future__ import annotations
 
 import math
+import numpy as np
 import pandas as pd
 
 from ..analytics import NAMES
 from .data import ORDER, PAIRS
 
-ANNUAL_CLOSE_PP = 1.0
+ANNUAL_RANK_SESSIONS = 60
 
 
 def _number(value):
@@ -63,63 +64,93 @@ def current_tables(panel, spreads, end):
     return tables
 
 
-def annualized_current(panel, end, tolerance_pp=ANNUAL_CLOSE_PP):
-    """One product at a time; average complete, close, same-sign groups only."""
-    if not math.isfinite(tolerance_pp) or tolerance_pp < 0:
-        raise ValueError("年化接近阈值须为非负有限百分点")
-    current, evidence, sentences = panel[panel.trade_date.eq(pd.Timestamp(end))], [], []
-
-    def group(rows, slots):
-        values = [rows.get(slot) for slot in slots]
-        complete = all(v is not None for v in values)
-        spread = max(values)-min(values) if complete else None
-        close = complete and spread <= tolerance_pp and (min(values) >= 0 or max(values) <= 0)
-        return {"slots": [f"{i-1:02d}" for i in slots], "values_pct": values,
-                "complete": complete, "range_pp": spread, "close": close,
-                "mean_pct": sum(values)/len(values) if close else None}
-
+def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
+    """Current equal-weight group means ranked against their own daily means."""
+    end = pd.Timestamp(end)
+    days = sorted(panel.loc[panel.trade_date.lt(end), 'trade_date'].unique())[-max(sessions,7):]
+    calendar = pd.DatetimeIndex(days+[end])
+    history_days = calendar[:-1][-sessions:]
+    evidence, sentences, recent = [], [], []
     for root in ORDER:
-        rows, near_days = {}, None
-        for slot in range(1, 5):
-            matches = current[current.root.eq(root) & current.slot.eq(slot)]
-            if len(matches) == 1:
-                r = matches.iloc[0]
-                days = _number(r.get("days_to_expiry"))
-                rows[slot] = (_number(r.annualized_basis_pct)
-                              if r.get("calendar_known", False) == True and days is not None and days >= 1 else None)
-                if slot == 1:
-                    near_days = days
-        all_four, near, far = group(rows, (1,2,3,4)), group(rows, (1,2)), group(rows, (3,4))
-        item = {"root": root, "all": all_four, "near": near, "far": far}
-        if all_four["close"]:
-            text = f"{root}四档年化接近，00—03简单平均{all_four['mean_pct']:.2f}%"
-        else:
-            parts = []
-            for name, data, slots in (("近月00/01", near, (1,2)), ("远月02/03", far, (3,4))):
-                if data["close"]:
-                    parts.append(f"{name}年化接近，简单平均{data['mean_pct']:.2f}%")
-                else:
-                    parts.append("、".join(f"{slot-1:02d}为{rows[slot]:.2f}%" if rows.get(slot) is not None
-                                          else f"{slot-1:02d}缺失" for slot in slots))
-            text = root+"年化分档看："+"；".join(parts)
-        if near_days is not None and 1 <= near_days <= 3:
-            text += f"（00距到期{near_days:.0f}天，年化受短期限放大）"
-        item["text"] = text+"。"
-        evidence.append(item)
-        sentences.append(item["text"])
-    return "\n".join(sentences), {"tolerance_pp": tolerance_pp, "products": evidence,
-        "policy": "same product only; all four first, otherwise 00/01 and 02/03; complete same-sign groups; max-min <= tolerance; simple mean"}
+        item, phrases = {'root':root}, []
+        for key, label, slots in (('near','近月00/01',(1,2)), ('far','远月02/03',(3,4)), ('all','四档整体',(1,2,3,4))):
+            part = panel[panel.root.eq(root) & panel.slot.isin(slots) & panel.trade_date.isin(calendar)]
+            grouped = part.groupby('trade_date').agg(
+                count=('slot','size'), unique=('slot','nunique'),
+                known=('calendar_known',lambda v: v.eq(True).all()),
+                days_count=('days_to_expiry',lambda v: np.isfinite(v).sum()),
+                min_days=('days_to_expiry','min'),
+                value_count=('annualized_basis_pct',lambda v: np.isfinite(v).sum()),
+                mean=('annualized_basis_pct','mean'), roll=('roll_day','any')).reindex(calendar)
+            present = grouped['count'].eq(len(slots)) & grouped.unique.eq(len(slots))
+            known = present & grouped.known.eq(True) & grouped.days_count.eq(len(slots))
+            expired = known & grouped.min_days.lt(1)
+            valid = known & ~expired & grouped.value_count.eq(len(slots))
+            values = grouped['mean'].where(valid)
+            now = _number(values.loc[end])
+            history = values.reindex(history_days)
+            eligible = ~expired.reindex(history_days)
+            sample = history[eligible].dropna()
+            complete = bool(len(history_days) == sessions and len(sample) == int(eligible.sum()) and len(sample))
+            rank = (float(100*((sample < now).sum()+.5*(sample == now).sum())/len(sample))
+                    if complete and now is not None else None)
+            last = values.tail(8)
+            comparable = bool(len(last) == 8 and last.notna().all()
+                              and not grouped.roll.tail(7).eq(True).any())
+            change = float(last.iloc[-1]-last.iloc[0]) if comparable else None
+            row = {'slots':[f'{s-1:02d}' for s in slots], 'mean_pct':now, 'percentile':rank,
+                   'current_status':'expired' if bool(expired.loc[end]) else 'missing' if now is None else 'valid',
+                   'window_sessions':sessions, 'complete':complete, 'n':len(sample),
+                   'expiry_excluded_n':int((~eligible).sum()),
+                   'window_start':_date(history_days.min()) if len(history_days) else None,
+                   'window_end_exclusive':str(end.date()),
+                   'history_mean_pct':float(sample.mean()) if complete else None,
+                   'change_7d_pp':change}
+            item[key] = row
+            value = f'{now:.2f}%' if now is not None else '—'
+            percentile = (f'60日P{rank:.1f}%' if rank is not None else
+                          '含到期合约' if row['current_status'] == 'expired' else
+                          '当前数据缺失' if now is None else '60日分位待补')
+            phrases.append(f'{label}均值{value}（{percentile}）')
+            if change is not None:
+                recent.append({'root':root,'group':key,'label':label,'change_pp':change,'current':now,
+                               'noteworthy':abs(change)>=1.0})
+        item['text'] = root+'：'+'，'.join(phrases)+'。'
+        evidence.append(item); sentences.append(item['text'])
+    material = sorted((r for r in recent if r['noteworthy']), key=lambda r:-abs(r['change_pp']))
+    selected, used = [], set()
+    for row in material:
+        if row['root'] not in used:
+            selected.append(row); used.add(row['root'])
+        if len(selected) == 2:
+            break
+    if selected:
+        changes = []
+        for row in selected:
+            delta = row['change_pp']
+            direction = ('年化贴水扩大' if delta < 0 else '年化贴水收敛') if row['current'] < 0 else '年化水平变化'
+            changes.append(f"{row['root']}{row['label']}近7日{delta:+.2f}个百分点，{direction}较明显")
+        sentences.append('近期变化：'+'；'.join(changes)+'。')
+    else:
+        sentences.append('已覆盖分组近7日无明显大幅变化。' if recent else '近7日变化可比数据不足。')
+    current = panel[panel.trade_date.eq(end) & panel.slot.eq(1)]
+    if current.days_to_expiry.between(1,3).any():
+        sentences.append('00临近到期，短期限会放大近月及整体年化。')
+    return '\n'.join(sentences), {'products':evidence, 'recent_changes':recent,'selected_changes':selected,
+        'rank_sessions':sessions, 'change_threshold_pp':1.0,
+        'policy':'current same-product equal-weight means; ranks of historical daily group means, not averages of leg ranks; exclude current; known expired groups excluded, missing inputs invalidate window'}
 
 
-TABLE_HEADERS = ("连续档位", "实际合约", "期货价 /\n原始价差", "分红G /\n分红差", "去分红基差 /\n调整后价差", "年化基差", "到期日\n远腿 / 近腿", "剩余 /\n间隔天数")
-TABLE_WIDTHS = (1.2, 3.0, 2.0, 1.8, 2.0, 1.6, 2.4, 1.54)
+TABLE_HEADERS = ("连续档位", "实际合约", "期货价 /\n原始价差", "分红G /\n分红差", "去分红基差 /\n调整后价差", "年化基差", "到期日", "剩余 /\n间隔天数")
+TABLE_WIDTHS = (1.35, 2.1, 2.25, 2.0, 2.3, 1.7, 2.1, 1.74)
 
 
 def table_cells(row):
     def fmt(value, digits):
         return f"{value:,.{digits}f}" if value is not None else "—"
-    return [row["label"], "\n− ".join(str(v) if v else "—" for v in row["contracts"]),
+    calendar = row['kind'] == 'calendar'
+    return [row["label"], '' if calendar else str(row['contracts'][0] or '—'),
             fmt(row["raw_price"], 4), fmt(row["dividend"], 4), fmt(row["basis_points"], 2),
             fmt(row["annualized_basis_pct"], 2)+("%" if row["annualized_basis_pct"] is not None else ""),
-            "\n".join(v or "—" for v in row["expiries"]),
+            '' if calendar else row['expiries'][0] or '—',
             fmt(row["days"], 0)]

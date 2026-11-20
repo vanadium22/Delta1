@@ -123,6 +123,8 @@ def _word_current_tables(document, info):
                     cell.width = Inches(TABLE_WIDTHS[j])
                     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
                     pr = cell._tc.get_or_add_tcPr()
+                    if i > 0:
+                        pr.append(OxmlElement('w:noWrap'))
                     shade = OxmlElement('w:shd')
                     shade.set(qn('w:fill'), fill)
                     pr.append(shade)
@@ -134,7 +136,7 @@ def _word_current_tables(document, info):
                         borders.append(edge)
                     pr.append(borders)
                     margins = OxmlElement('w:tcMar')
-                    for side, val in (('top',65),('bottom',65),('left',90),('right',90)):
+                    for side, val in (('top',100),('bottom',100),('left',100),('right',100)):
                         item = OxmlElement('w:'+side)
                         item.set(qn('w:w'), str(val)); item.set(qn('w:type'), 'dxa')
                         margins.append(item)

@@ -18,7 +18,7 @@ from .data import (ORDER, PAIRS, activity_totals, add_volumes, adjust, calendar_
                    change, load_market, session_quantiles, multi_session_quantiles, snapshot_table)
 from .metrics import highlights, series_metrics, total_metrics, activity_commentary
 from .narrative import compose
-from .overview import current_tables, ANNUAL_CLOSE_PP
+from .overview import current_tables, ANNUAL_RANK_SESSIONS
 
 
 def refresh_market(as_of=None, factory=None, volume_refresher=None):
@@ -218,7 +218,7 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 9, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 10, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "price_policy": {"type": "daily_close", "fields": ["futures_close", "spot_close"],
                     "refresh_ready_shanghai": f"{config['close_hour']:02d}:{config.get('close_minute', 0):02d}",
@@ -229,7 +229,9 @@ def build(args):
                 "minimum_days_to_expiry": 1,
                 "percentile_metric": "dividend-adjusted annualized basis percent; calendar uses actual expiry gap and spot denominator",
                 "calendar_annualized_formula": "(far_adjusted_price-near_adjusted_price)/spot_close*36500/(far_expiry-near_expiry).days; left=far, right=near",
-                "annualized_group_policy": {"tolerance_pp": ANNUAL_CLOSE_PP, "within_product_only": True, "groups": [["00", "01"], ["02", "03"]]},
+                "annualized_group_policy": {"within_product_only": True, "groups": [["00", "01"], ["02", "03"], ["00", "01", "02", "03"]],
+                    "mean": "current equal-weight annualized levels", "rank_sessions": ANNUAL_RANK_SESSIONS,
+                    "rank_of": "historical daily group means; not mean of constituent ranks; exclude current"},
                 "activity_aggregation": "sum 4 contracts (00-03); any missing constituent makes total missing; total OI change is difference of daily sums",
                 "card_policy": {"changes": "1/5 exact local trading sessions; continuous slots/pairs, rolls marked; unknown calendar invalidates",
                     "annual_change_unit": "percentage-point difference; bp retained only in audit CSV, not displayed",

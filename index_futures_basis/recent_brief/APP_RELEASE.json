@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-19-product-tables-far-minus-near",
+  "release": "2026-11-20-single-line-tables-three-part-templates",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "manifest_version": 9,
-  "narrative_engine": "descriptive-tree-v4",
+  "manifest_version": 10,
+  "narrative_engine": "descriptive-tree-v5",
   "layout": "A3 landscape; 1 observation page, 2 product table pages, 8 chart pages",
   "calendar_pairs": [
     "02−01",
@@ -20,16 +20,30 @@
       [
         "02",
         "03"
+      ],
+      [
+        "00",
+        "01",
+        "02",
+        "03"
       ]
     ],
-    "tolerance_pp": 1.0
+    "mean": "current equal-weight levels",
+    "rank_sessions": 60,
+    "rank_of": "historical daily group means, excluding current"
   },
   "tests": {
-    "passed": 75,
+    "passed": 79,
     "resource_warnings_as_errors": true
   },
   "visual_verification": "Word native render and generated PDF; example 3 pages each, full report 11 pages each, all inspected",
   "example_market_date": "2026-11-19",
   "historical_validation_market_date": "2026-10-15",
-  "company_live_wind_acceptance": "pending"
+  "company_live_wind_acceptance": "pending",
+  "narrative_sections": [
+    "annualized",
+    "activity",
+    "calendar"
+  ],
+  "calendar_table_presentation": "single line; actual contracts and expiries blank; audit legs retained"
 }

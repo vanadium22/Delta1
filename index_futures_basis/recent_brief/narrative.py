@@ -10,7 +10,7 @@ import pandas as pd
 from .data import ORDER, PAIRS, activity_totals
 from .overview import annualized_current
 
-RULE_VERSION = "descriptive-tree-v4"
+RULE_VERSION = "descriptive-tree-v5"
 WINDOWS = (30, 60)
 
 
@@ -287,11 +287,8 @@ def _activity(panel, end):
             overview.append((root, oi_direction+"、"+vol_direction))
         else:
             missing.append(root)
-    groups = {}
-    for root, description in overview:
-        groups.setdefault(description, []).append(root)
-    clauses = ["、".join(roots)+description for description, roots in groups.items()]
-    text = "近7日，"+"；".join(clauses)+"。" if clauses else "近期量仓可比数据不足。"
+    clauses = [root+description for root, description in overview]
+    text = "；".join(clauses)+"。" if clauses else "近期量仓可比数据不足。"
     picked = []
     for metric in ("oi", "volume"):
         rows = [r for r in features if r["metric"] == metric and r["noteworthy"]]
@@ -299,33 +296,27 @@ def _activity(panel, end):
             continue
         row = max(rows, key=lambda r: (r["score"], r["window"], r["root"]))
         picked.append(row)
-        if metric == "oi":
-            text += f"{row['root']}四合约总持仓当前{row['current']/10000:.2f}万手，近{row['window']}日{row['change_pct']:+.1f}%。"
-        else:
-            text += (f"{row['root']}近7日日均成交{row['current']/10000:.2f}万手，"
-                     f"较此前{row['window']}日日均{row['change_pct']:+.1f}%。")
     if not picked and features:
-        text += "已覆盖窗口内未见明显量仓变化。"
+        text += "近期无明显大幅变化。"
     if missing and overview:
         text += "、".join(missing)+"近期量仓历史不足。"
     high = sorted(positions, key=lambda r: (-r['percentile'],r['root']))[:2]
     if high:
-        text += '、'.join(f"{r['root']}（P{r['percentile']:.1f}%）" for r in high)+'当前四合约总持仓处于近60日较高水平。'
+        text += '特别地，'+'和'.join(r['root'] for r in high)+'合约的整体持仓量处于近期高位。'
     return text, {"features": features, "selected": picked, "high_positions": high}
 
 
 def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
-    """Four front-page paragraphs and auditable evidence, shared by all entry points."""
+    """Three concise, data-filled front-page templates; retain calculation evidence."""
     end = pd.Timestamp(end)
     absolute, absolute_overview = _overview(panel, end, "slot", range(1,5), "basis_points")
     annual, annual_overview = _overview(panel, end, "slot", range(2,5), "annualized_basis_pct")
     absolute_features = _features(panel, end, "slot", range(1,5), "basis_points")
     annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct")
     annual_current, annual_groups = annualized_current(panel, end)
-    annual = annual_current+"\n"+_annual_state(annual_features)+annual+_next_month(panel, end)
+    annual = annual_current
     absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
     absolute += _exception_text(absolute_picks, "slot") or ("当前未见明显绝对基差异常。" if absolute_features else "当前异常判断所需历史不足。")
-    annual += _exception_text(annual_picks, "slot", True) or ("当前未见明显年化基差异常。" if annual_features else "当前异常判断所需历史不足。")
     activity, activity_evidence = _activity(panel, end)
     positive, negative, mixed, unavailable = [], [], [], []
     for root in ORDER:
@@ -345,7 +336,7 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
         structure.append("、".join(negative)+"两组调整后价差均为负，远腿低于近腿")
     if mixed:
         structure.append("、".join(mixed)+"两组价差方向不一致或接近平水")
-    cross = "按远月减近月（02−01、03−02），目前"+"；".join(structure)+"。" if structure else "当前跨期数据不足。"
+    cross = "目前"+"；".join(structure)+"。" if structure else "当前跨期数据不足。"
     point_features = _features(spreads, end, "pair", PAIRS, "basis_points")
     cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct")
     point_picks, cross_picks = _picks(point_features, "pair", 1), _picks(cross_features, "pair", 1)
@@ -356,7 +347,7 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
     if unavailable and structure:
         cross += "、".join(unavailable)+"当前跨期数据不足。"
     sections = [{"key": key, "title": title, "text": text} for key, title, text in (
-        ("absolute", "绝对基差", absolute), ("annualized", "年化基差", annual),
+        ("annualized", "年化基差", annual),
         ("activity", "持仓成交", activity), ("calendar", "跨期结构", cross))]
     return {"engine": RULE_VERSION, "as_of": str(end.date()), "sections": sections,
         "text": "\n".join(s["title"]+"："+s["text"] for s in sections),
