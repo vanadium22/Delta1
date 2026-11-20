@@ -1,10 +1,10 @@
 {
-  "release": "2026-11-20-two-decimal-current-tables",
+  "release": "2026-11-20-muted-opening-tables-compact-charts",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "manifest_version": 10,
+  "manifest_version": 11,
   "narrative_engine": "descriptive-tree-v5",
-  "layout": "A3 landscape; 1 observation page, 2 product table pages, 8 chart pages",
+  "layout": "A3 landscape; observations, one 16-contract matrix, one 8-spread table, then 8 chart pages; absolute last",
   "calendar_pairs": [
     "02−01",
     "03−02"
@@ -33,12 +33,14 @@
     "rank_of": "historical daily group means, excluding current"
   },
   "tests": {
-    "passed": 79,
+    "passed": 80,
     "resource_warnings_as_errors": true,
-    "last_change_focused_passed": 20
+    "brief": 67,
+    "desktop": 13,
+    "desktop_temp_directory": "workspace QA directory; avoids Windows redirected Temp atomic-rename WinError 650"
   },
-  "visual_verification": "Word native render and generated PDF; example 3 pages each, full report 11 pages each, all inspected",
-  "example_market_date": "2026-11-19",
+  "visual_verification": "generated PDF and native Word render: all 11 pages each; no green in opening tables, original chart colors preserved; 72 statistical groups verified",
+  "example_market_date": "2026-10-15",
   "historical_validation_market_date": "2026-10-15",
   "company_live_wind_acceptance": "pending",
   "narrative_sections": [
@@ -46,10 +48,43 @@
     "activity",
     "calendar"
   ],
-  "calendar_table_presentation": "single line; actual contracts and expiries blank; audit legs retained",
+  "calendar_table_presentation": "separate 8-row table; audit legs retained",
   "current_table_format": {
     "decimal_places": 2,
     "days_decimal_places": 0,
     "raw_precision_preserved": true
-  }
+  },
+  "palette": {
+    "green": false,
+    "saturation": "low",
+    "families": [
+      "blue-gray",
+      "gray-purple",
+      "warm-gray"
+    ],
+    "scope": "opening contract and calendar tables only",
+    "charts": "original preview colors unchanged"
+  },
+  "chart_order": [
+    "single_annualized",
+    "calendar_annualized",
+    "activity",
+    "absolute"
+  ],
+  "rank_statistics": [
+    "percentile",
+    "annualized_mean",
+    "annualized_median"
+  ],
+  "rank_windows_sessions": [
+    30,
+    60,
+    120
+  ],
+  "card_fields": [
+    "contract_or_metric",
+    "current",
+    "one_day_change"
+  ],
+  "figure_layout": "compact-v2"
 }

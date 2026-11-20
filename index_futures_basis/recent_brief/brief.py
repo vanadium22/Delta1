@@ -208,6 +208,7 @@ def build(args):
                      "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
                      "narrative": narrative["text"], "narrative_sections": narrative["sections"],
                      "current_tables": current_tables(panel, spreads, end),
+                     "figure_layout": "compact-v2",
                      "dividend_warning": dividend_warning}
     (out/"current_tables.json").write_text(json.dumps(document_info["current_tables"], ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     print("排版 Word 与 PDF 简报…", flush=True)
@@ -218,7 +219,7 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 10, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 11, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "price_policy": {"type": "daily_close", "fields": ["futures_close", "spot_close"],
                     "refresh_ready_shanghai": f"{config['close_hour']:02d}:{config.get('close_minute', 0):02d}",
@@ -238,7 +239,11 @@ def build(args):
                     "percentile_change": "current rank minus previous day's own trailing-60-session rank; percentage points",
                     "activity_relative_change": "(current/previous-1)*100; zero denominator unavailable"},
                 "rendering": {"png_dpi": charts.DPI, "png_width_pixels": 3800, "vector_svg": True,
-                    "rank_tables": "rows 00/01/02/03 or calendar pairs; columns current annualized value and P30/P60/P120, with sample counts",
+                    "rank_tables": "rows 00/01/02/03 or calendar pairs; current annualized value; each 30/60/120-session cell shows rank, mean and median; sample counts retained in CSV/JSON",
+                    "palette": {"opening_tables": "muted blue-gray, lavender and warm gray; no green",
+                                "charts": "original palette unchanged"},
+                    "cards": "contract or metric, current value and one-day change only",
+                    "document_chart_order": [files[i] for i in (1, 2, 3, 0)],
                     "current_marker": "no candles; historical ranks shown as Pxx% in tables",
                     "single_contract_axes": "annualized time series 01-03 only, common axis; 00 current/ranks retained in table"},
                 "summary_cards": summary_cards,

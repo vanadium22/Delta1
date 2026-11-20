@@ -44,6 +44,8 @@ class DocumentTests(unittest.TestCase):
             self.assertNotIn("说明", text)
             self.assertNotIn("实际行情日期", text)
             self.assertLess(text.index(info["narrative"]), text.index("近期绝对基差与跨期"))
+            self.assertLess(text.index("单合约年化与分位统计"),text.index("跨期年化与分位统计"))
+            self.assertLess(text.index("四合约总成交与总持仓"),text.index("近期绝对基差与跨期"))
             narrative_paragraph = next(p for p in document.paragraphs if p.text == info["narrative"])
             self.assertEqual(narrative_paragraph.runs[0].font.size.pt, 15)
             pdf = (root/PDF_NAME).read_bytes()

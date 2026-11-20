@@ -99,13 +99,13 @@ class BriefCardTests(unittest.TestCase):
         try:
             table = _quantile_table(ax, q, "slot", [1,2,3,4], metric)
             texts = [c.get_text().get_text() for c in table.get_celld().values()]
-            self.assertIn("30日分位", texts)
-            self.assertIn("60日分位", texts)
-            self.assertIn("120日分位", texts)
+            self.assertIn("30日", texts)
+            self.assertIn("60日", texts)
+            self.assertIn("120日", texts)
             self.assertIn("00", texts)
             self.assertIn("9.90%", texts)
-            self.assertIn("P100.0%\nn=60", texts)
-            self.assertIn("—\nn=99/120", texts)
+            self.assertIn("P100.00%\n均值 6.85%\n中位数 6.85%", texts)
+            self.assertIn("分位 —\n均值 —\n中位数 —", texts)
         finally:
             plt.close(fig)
 
@@ -118,6 +118,20 @@ class BriefCardTests(unittest.TestCase):
             _trend(ax, p, "IF", "slot", [2,3,4], sorted(p.trade_date.unique()), "annualized_basis_pct", annual=True)
             self.assertEqual(len(fig.axes), 1)
             self.assertEqual([x.get_text() for x in ax.get_legend().get_texts()], ["01","02","03"])
+        finally:
+            plt.close(fig)
+
+    def test_rank_table_keeps_history_statistics_when_current_is_unavailable(self):
+        p=self.history()
+        p.loc[p.index[-1],"annualized_basis_pct"]=np.nan
+        q=multi_session_quantiles(p,p.trade_date.max(),"slot")
+        metric=series_metrics(p,p.trade_date.max(),"slot")
+        fig,ax=plt.subplots(figsize=(8,6))
+        try:
+            table=_quantile_table(ax,q,"slot",[2],metric)
+            texts=[cell.get_text().get_text() for cell in table.get_celld().values()]
+            self.assertIn("分位 —\n均值 6.85%\n中位数 6.85%",texts)
+            self.assertNotIn("nan"," ".join(texts))
         finally:
             plt.close(fig)
 

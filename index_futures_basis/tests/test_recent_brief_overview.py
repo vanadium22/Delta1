@@ -192,15 +192,16 @@ class CurrentOverviewTests(unittest.TestCase):
                 Image.new('RGB',(380,560),'white').save(root/name)
             result = export_documents(root,FIGURES,info)
             document = Document(root/WORD_NAME)
-            self.assertEqual(len(document.tables), 4)
-            for table in document.tables:
-                self.assertEqual(len(table.rows), 7)
-                self.assertEqual(table.cell(5,0).text, '02−01')
-                self.assertEqual(table.cell(6,0).text, '03−02')
-            self.assertEqual(document.tables[0].cell(5,1).text,'')
-            self.assertEqual(document.tables[0].cell(5,6).text,'')
-            for row in document.tables[0].rows[5:]:
-                self.assertTrue(all('\n' not in cell.text for cell in row.cells))
+            self.assertEqual(len(document.tables), 2)
+            single, calendar = document.tables
+            self.assertEqual((len(single.rows),len(single.columns)), (17,9))
+            self.assertEqual((len(calendar.rows),len(calendar.columns)), (9,7))
+            self.assertEqual(calendar.cell(1,1).text,'02−01')
+            self.assertEqual(calendar.cell(2,1).text,'03−02')
+            self.assertEqual(single.cell(1,3).text,'990.00')
+            self.assertEqual(single.cell(1,4).text,'1.00')
+            for row in calendar.rows[1:]:
+                self.assertTrue(all('\n' not in cell.text for cell in row.cells[1:]))
             pdf = (root/PDF_NAME).read_bytes()
             self.assertEqual(len(re.findall(rb'/Type\s*/Page\b',pdf)),11)
             self.assertEqual(result['pages'],11)

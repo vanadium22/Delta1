@@ -6,23 +6,27 @@ import re
 import unicodedata
 
 from PIL import Image
-from .overview import TABLE_HEADERS, TABLE_WIDTHS, table_cells
+from .table_layout import write_word_tables as _word_current_tables, write_pdf_tables as _pdf_current_tables
+from .theme import setup as setup_theme
 
 WORD_NAME = "股指基差简报.docx"
 PDF_NAME = "股指基差简报.pdf"
-TITLES = ("近期绝对基差与跨期", "单合约年化与历史分位表", "跨期年化与历史分位表", "四合约总成交与总持仓")
+TITLES = ("近期绝对基差与跨期", "单合约年化与分位统计", "跨期年化与分位统计", "四合约总成交与总持仓")
 PAGE_WIDTH, PAGE_HEIGHT = 16.54, 11.69
 
 
-def page_plan(output, files):
+def page_plan(output, files, info=None):
     """Split at product-row boundaries, retaining the original four full charts."""
     output = Path(output)
     parts = output / "document_figures"
     parts.mkdir(exist_ok=True)
     pages = []
-    for index, filename in enumerate(files):
+    for index in (1, 2, 3, 0):
+        filename = files[index]
         with Image.open(output / filename) as image:
             bands = ((.95, .495), (.494, .048)) if index < 3 else ((.935, .500), (.497, .087))
+            if (info or {}).get("figure_layout") == "compact-v2":
+                bands = ((.95, .515), (.515, .075)) if index == 3 else ((.955, .4975), (.4975, .042))
             for half, (top, bottom) in enumerate(bands):
                 target = parts / f"{index+1:02d}_{half+1}.png"
                 image.crop((0, round((1-top)*image.height), image.width,
@@ -88,73 +92,6 @@ def _word_cards(document, cards):
         table.rows[index//2]._tr.get_or_add_trPr().append(no_split)
 
 
-def _word_current_tables(document, info):
-    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    from docx.shared import Inches, Pt, RGBColor
-    tables = info.get("current_tables", [])
-    for start in range(0, len(tables), 2):
-        title = document.add_paragraph("股指基差简报 当前合约与跨期", "Title")
-        title.paragraph_format.page_break_before = True
-        document.add_paragraph(_source(info))
-        for product in tables[start:start+2]:
-            heading = document.add_paragraph(style="Heading 1")
-            heading.paragraph_format.space_before = Pt(10)
-            spot = product['spot_close']
-            heading.add_run(f"{product['root']}  {product['name']}    ")
-            run = heading.add_run("指数 "+(f"{spot:,.2f}" if spot is not None else "—"))
-            run.font.size = Pt(14)
-            table = document.add_table(rows=1, cols=len(TABLE_HEADERS))
-            table.autofit = False
-            for column, width in zip(table.columns, TABLE_WIDTHS):
-                column.width = Inches(width)
-            rows = [list(TABLE_HEADERS)]+[table_cells(row) for row in product['rows']]
-            for i, values in enumerate(rows):
-                cells = table.rows[0].cells if i == 0 else table.add_row().cells
-                no_split = OxmlElement('w:cantSplit')
-                table.rows[i]._tr.get_or_add_trPr().append(no_split)
-                if i == 0:
-                    repeat = OxmlElement('w:tblHeader')
-                    table.rows[i]._tr.get_or_add_trPr().append(repeat)
-                fill = '244868' if i == 0 else 'EAF2F8' if i >= 5 else 'F4F7FA' if i % 2 == 0 else 'FFFFFF'
-                for j, (cell, value) in enumerate(zip(cells, values)):
-                    cell.width = Inches(TABLE_WIDTHS[j])
-                    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-                    pr = cell._tc.get_or_add_tcPr()
-                    if i > 0:
-                        pr.append(OxmlElement('w:noWrap'))
-                    shade = OxmlElement('w:shd')
-                    shade.set(qn('w:fill'), fill)
-                    pr.append(shade)
-                    borders = OxmlElement('w:tcBorders')
-                    for side in ('top','left','bottom','right'):
-                        edge = OxmlElement('w:'+side)
-                        for key, val in (('val','single'),('sz','4'),('color','D9D9D9')):
-                            edge.set(qn('w:'+key), val)
-                        borders.append(edge)
-                    pr.append(borders)
-                    margins = OxmlElement('w:tcMar')
-                    for side, val in (('top',100),('bottom',100),('left',100),('right',100)):
-                        item = OxmlElement('w:'+side)
-                        item.set(qn('w:w'), str(val)); item.set(qn('w:type'), 'dxa')
-                        margins.append(item)
-                    pr.append(margins)
-                    paragraph = cell.paragraphs[0]
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    paragraph.paragraph_format.line_spacing = Pt(19)
-                    paragraph.paragraph_format.space_after = Pt(0)
-                    paragraph.paragraph_format.space_before = Pt(0)
-                    snap = OxmlElement('w:snapToGrid')
-                    snap.set(qn('w:val'), '0')
-                    paragraph._p.get_or_add_pPr().append(snap)
-                    run = paragraph.add_run(value)
-                    run.font.size = Pt(12 if i == 0 else 14)
-                    run.bold = i == 0 or j in (0,4,5)
-                    run.font.color.rgb = RGBColor.from_string('FFFFFF' if i == 0 else
-                        'A4474F' if j in (4,5) and value.startswith('-') else '173C59')
-            document.add_paragraph().paragraph_format.space_after = Pt(4)
 
 
 def write_word(output, pages, info):
@@ -227,37 +164,12 @@ def _pdf_cards(fig, cards, top):
             fig.text(x+.008, y-.088-i*.013, line, fontsize=8.5, va="top", color="#405265")
 
 
-def _pdf_current_tables(pdf, info):
-    import matplotlib.pyplot as plt
-    tables = info.get("current_tables", [])
-    for start in range(0, len(tables), 2):
-        fig = plt.figure(figsize=(PAGE_WIDTH, PAGE_HEIGHT), facecolor="white")
-        fig.text(.03, .967, "股指基差简报 当前合约与跨期", fontsize=24, va="top", color="black")
-        fig.text(.03, .922, _source(info), fontsize=10, va="top", color="#405265")
-        for index, product in enumerate(tables[start:start+2]):
-            top = .865-index*.42
-            spot = product['spot_close']
-            fig.text(.03, top, f"{product['root']}  {product['name']}    指数 "+
-                     (f"{spot:,.2f}" if spot is not None else "—"), fontsize=17, weight="bold", va="top", color="#173c59")
-            ax = fig.add_axes([.03, top-.357, .94, .317]); ax.axis('off')
-            values = [table_cells(row) for row in product['rows']]
-            table = ax.table(cellText=values, colLabels=TABLE_HEADERS, cellLoc='center',
-                colWidths=[v/sum(TABLE_WIDTHS) for v in TABLE_WIDTHS], bbox=[0,0,1,1])
-            table.auto_set_font_size(False)
-            for (i,j), cell in table.get_celld().items():
-                value = cell.get_text().get_text()
-                cell.set_facecolor('#244868' if i == 0 else '#eaf2f8' if i >= 5 else '#f4f7fa' if i % 2 == 0 else 'white')
-                cell.set_edgecolor('#d9d9d9'); cell.set_linewidth(.6)
-                cell.get_text().set_fontsize(11.5 if i == 0 else 13.5)
-                cell.get_text().set_weight('bold' if i == 0 or j in (0,4,5) else 'normal')
-                cell.get_text().set_color('white' if i == 0 else '#a4474f' if j in (4,5) and value.startswith('-') else '#173c59')
-        pdf.savefig(fig, dpi=260)
-        plt.close(fig)
 
 
 def write_pdf(output, pages, info):
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
+    setup_theme()
     with PdfPages(output / PDF_NAME, metadata={"Title": "股指基差简报", "Author": ""}) as pdf:
         opening = _sections(info)
         if opening:
@@ -296,9 +208,9 @@ def write_pdf(output, pages, info):
 
 def export_documents(output, files, info):
     output = Path(output)
-    pages = page_plan(output, files)
+    pages = page_plan(output, files, info)
     write_word(output, pages, info)
     write_pdf(output, pages, info)
-    return {"word": WORD_NAME, "pdf": PDF_NAME, "pages": len(pages)+bool(_sections(info))+(len(info.get('current_tables', []))+1)//2,
-            "layout": "A3 landscape; opening observations, product current tables, then chart pages",
+    return {"word": WORD_NAME, "pdf": PDF_NAME, "pages": len(pages)+bool(_sections(info))+(2 if info.get('current_tables') else 0),
+            "layout": "A3 landscape; opening observations, one contract matrix, one calendar table, annualized/activity/absolute chart pages",
             "narrative_included": bool(_sections(info))}
