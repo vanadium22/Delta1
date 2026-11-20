@@ -12,6 +12,11 @@ from .theme import setup as setup_theme
 WORD_NAME = "股指基差简报.docx"
 PDF_NAME = "股指基差简报.pdf"
 TITLES = ("近期绝对基差与跨期", "单合约年化与分位统计", "跨期年化与分位统计", "四合约总成交与总持仓")
+SECTION_TITLES = ("单合约年化与分位统计", "跨期年化与分位统计（近半年走势）", "跨期绝对价差（近半年走势）",
+                  "四合约总成交与总持仓", "单合约绝对基差")
+SECTION_FIGURES = ("01_单合约年化与历史分位表.png", "02_跨期年化与历史分位表.png", "03_跨期绝对价差.png",
+                   "04_四合约总成交与总持仓.png", "05_单合约绝对基差.png")
+RAW_DIRECTORY = "unadjusted"
 PAGE_WIDTH, PAGE_HEIGHT = 16.54, 11.69
 
 
@@ -21,14 +26,16 @@ def page_plan(output, files, info=None):
     parts = output / "document_figures"
     parts.mkdir(exist_ok=True)
     pages = []
-    for index in (1, 2, 3, 0):
+    layout = (info or {}).get("figure_layout")
+    split = layout == "split-v3"
+    for index in (range(len(SECTION_TITLES)) if split else (1, 2, 3, 0)):
         filename = files[index]
-        title = TITLES[index]
-        if index in (0, 2) and (info or {}).get("calendar_chart_months"):
+        title = SECTION_TITLES[index] if split else TITLES[index]
+        if not split and index in (0, 2) and (info or {}).get("calendar_chart_months"):
             title += "（跨期走势近半年）" if index == 0 else "（近半年走势）"
         with Image.open(output / filename) as image:
             bands = ((.95, .495), (.494, .048)) if index < 3 else ((.935, .500), (.497, .087))
-            if (info or {}).get("figure_layout") == "compact-v2":
+            if layout in ("compact-v2", "split-v3"):
                 bands = ((.95, .515), (.515, .075)) if index == 3 else ((.955, .4975), (.4975, .042))
             for half, (top, bottom) in enumerate(bands):
                 target = parts / f"{index+1:02d}_{half+1}.png"
@@ -43,8 +50,8 @@ def page_plan(output, files, info=None):
 
 
 def _source(info):
-    warning = "  "+info["dividend_warning"] if info.get("dividend_warning") else ""
-    return f"行情截至 {info['as_of']}  {info.get('price_label', '日线收盘价')}  分红 {info['dividend_date']}"+warning
+    from .table_layout import source_line
+    return source_line(info)
 
 
 def _sections(info):

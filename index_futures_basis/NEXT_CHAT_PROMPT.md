@@ -1,5 +1,7 @@
 # 股指基差简报交接 · 2026-11-20
 
+最新版已改按实际合约和截止时刻向前匹配历史分红，同批生成两个13页版本，跨期绝对价差紧随跨期年化。历史Excel放公共inputs或其history子目录，下一批自动识别。以项目交接最上方及每日生成说明为准，下面旧版11页及最新单快照记录为前序。
+
 接续 `index_futures_basis` 的简报工作。当前功能以 `codex/company-apps` 的 Git HEAD 为准。本机发布工作区为 `P:/project/swhy/Delta1/company-apps-worktree`，用户原项目目录为 `P:/project/swhy/Delta1/project/index_futures_basis`。进入下一轮先核对分支、最新提交和工作区状态，读取 [项目交接](PROJECT_HANDOFF.md) 与 [每日生成说明](recent_brief/DAILY_GENERATION.md)。以最新需求和现有实现为准，保留其他模块的并行工作。
 
 ## 已确认版式和口径

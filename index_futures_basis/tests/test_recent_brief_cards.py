@@ -42,16 +42,13 @@ class BriefCardTests(unittest.TestCase):
     def test_day_one_calculates_real_annualized_value_and_day_zero_stays_missing(self):
         p = panel()
         p["days_to_expiry"] = 1
-        dividends = pd.DataFrame({"trade_date": [pd.Timestamp("2025-12-31")]*4,
-            "code": [f"IF{i:02d}.CFE" for i in range(4)], "dividend_points": [1,3,6,10]})
-        with patch("index_futures_basis.recent_brief.data.read_dividends", return_value=(dividends, {"application": "snapshot_continuous"})):
-            result, _ = adjust(p, {"dividends": {"directories": []}}, None)
-            np.testing.assert_allclose(result.annualized_basis_pct, result.basis_points/result.spot_close*36500)
-            self.assertFalse(result.annualized_plot_filled.any())
-            p["days_to_expiry"] = 0
-            expired, _ = adjust(p, {"dividends": {"directories": []}}, None)
-            self.assertTrue(expired.annualized_basis_pct.isna().all())
-            self.assertTrue(expired.annualized_plot_pct.isna().all())
+        result, _ = adjust(p, {"dividends": {}}, None, unadjusted=True)
+        np.testing.assert_allclose(result.annualized_basis_pct, result.basis_points/result.spot_close*36500)
+        self.assertFalse(result.annualized_plot_filled.any())
+        p["days_to_expiry"] = 0
+        expired, _ = adjust(p, {"dividends": {}}, None, unadjusted=True)
+        self.assertTrue(expired.annualized_basis_pct.isna().all())
+        self.assertTrue(expired.annualized_plot_pct.isna().all())
 
     def test_day_one_enters_full_sixty_session_sample(self):
         p = self.history()

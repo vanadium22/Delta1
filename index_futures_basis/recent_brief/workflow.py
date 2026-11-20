@@ -11,7 +11,7 @@ import uuid
 from ..analytics import sha256
 from ..config import ROOT, timestamp
 from .automation import publish_latest
-from .documents import PDF_NAME, WORD_NAME, export_documents
+from .documents import PDF_NAME, RAW_DIRECTORY, SECTION_FIGURES, WORD_NAME, export_documents
 
 FIGURES = ["01_近期基差与跨期.png", "02_单合约年化与历史分位表.png",
            "03_跨期年化与历史分位表.png", "04_四合约总成交与总持仓.png"]
@@ -33,6 +33,8 @@ def latest_paths(root=None):
     folder = Path(saved["output"])
     result = {"folder": folder, "pdf": folder/PDF_NAME, "word": folder/WORD_NAME,
               "as_of": saved["as_of"], "created_at": saved["created_at"]}
+    if saved.get("raw_pdf"):
+        result.update(raw_pdf=folder/RAW_DIRECTORY/PDF_NAME, raw_word=folder/RAW_DIRECTORY/WORD_NAME)
     if any(not result[key].is_file() for key in ("pdf", "word")):
         raise ValueError("最新记录尚无完整Word/PDF，请重新生成；旧图片仍保留")
     return result
@@ -49,7 +51,7 @@ def generate_for_service(service, as_of=None, refresh=True, progress=print):
         if refresh and service.mode == "wind":
             progress("检查并增量补齐期现货、持仓和成交量…")
             args.refresh_result = refresh_market(as_of, factory=lambda mode: service)
-        progress("生成四张合并图及Word/PDF，请稍候…")
+        progress("生成去分红和不去分红两套Word/PDF，请稍候…")
         folder = build(args)
         publish_latest(folder, ROOT/"exports/recent_brief")
         return {"folder": str(folder), "pdf": str(folder/PDF_NAME), "word": str(folder/WORD_NAME),
@@ -63,20 +65,42 @@ def repackage(source, output=None):
 
 def _repackage(source, output=None):
     source = Path(source).resolve()
+    if source.name == RAW_DIRECTORY and (source.parent/"run_manifest.json").is_file():
+        source = source.parent
     manifest = json.loads((source/"run_manifest.json").read_text(encoding="utf-8"))
     created = timestamp()
     output = Path(output).resolve() if output else source.parent/("repack_"+uuid.uuid4().hex[:10])
     if output.exists():
         raise ValueError("重排须使用新的输出目录，保留原批次")
+    from .charts import setup
+    setup()
+    if manifest.get("unadjusted_directory") == RAW_DIRECTORY:
+        raw = source/RAW_DIRECTORY
+        raw_manifest = json.loads((raw/"run_manifest.json").read_text(encoding="utf-8"))
+        _repack_version(raw, output/RAW_DIRECTORY, raw_manifest, created)
+    _repack_version(source, output, manifest, created)
+    publish_latest(output, ROOT/"exports/recent_brief")
+    print(str(output/PDF_NAME), flush=True)
+    print(str(output/WORD_NAME), flush=True)
+    return output
+
+
+def _repack_version(source, output, manifest, created):
     legacy = [FIGURES[0], "02_单合约年化与60日分位.png", "03_跨期年化与60日分位.png", FIGURES[3]]
-    source_images = {name: source/(name if (source/name).is_file() else old) for name,old in zip(FIGURES, legacy)}
+    split = (manifest.get("document_info") or {}).get("figure_layout") == "split-v3"
+    files = SECTION_FIGURES if split else FIGURES
+    if split:
+        legacy = files
+    source_images = {name: source/(name if (source/name).is_file() else old) for name,old in zip(files, legacy)}
     for name,path in source_images.items():
         if not path.is_file():
             raise ValueError("原批次缺少图片："+name)
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     for path in source.iterdir():
-        if path.is_file() and path.suffix in (".svg", ".csv", ".json") and path.name != "run_manifest.json":
+        if path.is_file() and path.suffix in (".svg", ".csv", ".json", ".xlsx") and path.name != "run_manifest.json":
             shutil.copy2(path, output/path.name)
+    if (source/"dividend_inputs").is_dir():
+        shutil.copytree(source/"dividend_inputs", output/"dividend_inputs")
     for name,path in source_images.items():
         shutil.copy2(path, output/name)
     info = manifest.get("document_info") or {"as_of": manifest["as_of"], "created_at": created,
@@ -85,9 +109,7 @@ def _repackage(source, output=None):
         "source_note": "沿用原批次行情和分红，仅重排图片；数据日期以报告注明为准。"}
     info = {**info, "created_at": created,
             "source_note": "本次仅重排已有图片，未重新计算行情。原批次说明："+info["source_note"]}
-    from .charts import setup
-    setup()
-    documents = export_documents(output, FIGURES, info)
+    documents = export_documents(output, files, info)
     overrides = [name for name,path in source_images.items() if sha256(path) != manifest.get("output_files", {}).get(path.name, {}).get("sha256")]
     manifest.update(version=max(8, manifest.get("version", 8)), created_at=created, documents=documents, document_info=info,
         document_rebuild={"source_batch": str(source), "recalculated_market": False,
@@ -96,7 +118,3 @@ def _repackage(source, output=None):
     manifest["output_files"] = {p.name: {"sha256": sha256(p), "bytes": p.stat().st_size}
                                 for p in output.iterdir() if p.is_file()}
     (output/"run_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    publish_latest(output, ROOT/"exports/recent_brief")
-    print(str(output/PDF_NAME), flush=True)
-    print(str(output/WORD_NAME), flush=True)
-    return output

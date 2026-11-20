@@ -14,16 +14,18 @@ from shared_data import DataPaths
 
 
 def publish_latest(output, root):
-    from .documents import WORD_NAME, PDF_NAME
+    from .documents import RAW_DIRECTORY, WORD_NAME, PDF_NAME
     import shutil
     output, root = Path(output).resolve(), Path(root).resolve()
     manifest = json.loads((output/"run_manifest.json").read_text(encoding="utf-8"))
     root.mkdir(parents=True, exist_ok=True)
     paths = {"word": output/WORD_NAME, "pdf": output/PDF_NAME}
+    if manifest.get("unadjusted_directory") == RAW_DIRECTORY:
+        paths.update(raw_word=output/RAW_DIRECTORY/WORD_NAME, raw_pdf=output/RAW_DIRECTORY/PDF_NAME)
     if any(not path.is_file() or path.stat().st_size == 0 for path in paths.values()):
         raise ValueError("Word/PDF未完整生成，保留之前成功简报")
     for key, path in paths.items():
-        target = root/("latest"+path.suffix)
+        target = root/(("latest_unadjusted" if key.startswith("raw_") else "latest")+path.suffix)
         tmp = root/("."+uuid.uuid4().hex+path.suffix)
         try:
             shutil.copyfile(path, tmp)
@@ -50,13 +52,13 @@ def input_fingerprint(args):
         databases = [Path(args.database)] if args.database else [base/m/"market.sqlite" for m in ("wind", "offline")]
         for db in databases:
             files.update((db, Path(str(db)+"-wal")))
-    if args.dividends:
-        files.add(Path(args.dividends).resolve())
-    else:
-        from .dividend_sources import local_directories, profile_files
+    from .dividend_sources import history_paths, profile_files
+    if not args.dividends:
         files.update(profile_files(paths))
-        for value in local_directories(ROOT, config, paths):
-            files.update(p for p in Path(value).glob("*.xlsx") if not p.name.startswith("~$"))
+    dividend_files, stores = history_paths(ROOT, config, paths, args.dividends)
+    files.update(dividend_files)
+    for store in stores:
+        files.update((store, Path(str(store)+"-wal")))
     if not args.no_volume_supplement:
         datasets = [Path(args.volume_dataset)] if args.volume_dataset else [
             paths.root/"market/index_futures/dashboard/normalized"/n for n in ("backfilled_cn_index_future", "cn_index_future")]

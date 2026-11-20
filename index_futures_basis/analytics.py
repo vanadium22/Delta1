@@ -203,13 +203,14 @@ def read_latest_snapshot(config, base):
     return data, info
 
 
-def read_continuous_snapshot(path, config):
+def read_continuous_snapshot(path, config, *, include_contracts=False):
     """A supplied static dividend assumption per 00..03 slot, not historical forecasts.
 
     Excel formulas are never executed and the original workbook is never saved.
     The report must disclose the source date and application across the whole window.
     """
     from openpyxl import load_workbook
+    from openpyxl.utils.cell import column_index_from_string
 
     source_bytes = Path(path).read_bytes()
     workbook = load_workbook(io.BytesIO(source_bytes), read_only=True, data_only=True)
@@ -217,23 +218,33 @@ def read_continuous_snapshot(path, config):
     try:
         sheet = workbook[sheet_name] if isinstance(sheet_name, str) else workbook.worksheets[sheet_name]
         date_cell = config.get("snapshot_date_cell", "B1")
-        snapshot_date = dates(pd.Series([sheet[date_cell].value]), "分红快照日期").iloc[0]
+        cached_date = sheet[date_cell].value
+        snapshot_date = dates(pd.Series([cached_date]), "分红快照日期").iloc[0]
         code_col = config.get("code_column", "B")
         dividend_col = config.get("dividend_column", "G")
         header_row = int(config.get("header_row", 3))
         if sheet[f"{dividend_col}{header_row}"].value != "分红":
             raise ValueError(f"{sheet.title}!{dividend_col}{header_row} 不是“分红”，请核对配置，不能误用期间分红列")
         records, cells = [], {}
-        for row in range(header_row + 1, sheet.max_row + 1):
-            code = normalize_code(sheet[f"{code_col}{row}"].value)
+        code_index = column_index_from_string(code_col) - 1
+        dividend_index = column_index_from_string(dividend_col) - 1
+        actual_index = column_index_from_string(config.get('contract_column', 'C')) - 1 if include_contracts else 0
+        values = sheet.iter_rows(min_row=header_row + 1, max_col=max(code_index, dividend_index, actual_index) + 1,
+                                 values_only=True)
+        for row, cells_in_row in enumerate(values, header_row + 1):
+            code = normalize_code(cells_in_row[code_index])
             if not re.fullmatch(r"(?:IF|IC|IM|IH)0[0-3]\.CFE", code):
                 continue
-            value = sheet[f"{dividend_col}{row}"].value
+            value = cells_in_row[dividend_index]
             if isinstance(value, bool) and not config.get("allow_missing_values"):
                 raise ValueError(f"{sheet.title}!{dividend_col}{row} 不是有效分红点数")
             if isinstance(value, bool):
                 value = np.nan
-            records.append({"trade_date": snapshot_date, "code": code, "dividend_points": value})
+            record = {"trade_date": snapshot_date, "code": code, "dividend_points": value}
+            if include_contracts:
+                actual = cells_in_row[actual_index]
+                record["source_contract"] = normalize_code(actual) if actual is not None else ""
+            records.append(record)
             cells[code] = f"{sheet.title}!{dividend_col}{row}"
         if not records:
             raise ValueError("未在快照中找到 00—03 连续档位及分红列")
@@ -251,6 +262,8 @@ def read_continuous_snapshot(path, config):
                 "snapshot_date": str(snapshot_date.date()), "date_cell": f"{sheet.title}!{date_cell}",
                 "cells": cells, "mapping_key": "continuous_code",
                 "limitation": "Single-date static assumptions applied to each continuous slot across the entire history; not point-in-time historical dividend forecasts."}
+        if include_contracts:
+            info["effective_from"] = pd.Timestamp(cached_date).isoformat()
         return d, info
     finally:
         workbook.close()

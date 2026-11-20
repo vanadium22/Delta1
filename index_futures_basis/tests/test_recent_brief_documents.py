@@ -18,7 +18,7 @@ from PIL import Image
 from index_futures_basis.desktop import Window
 from index_futures_basis.service import BasisService
 from index_futures_basis.recent_brief.automation import publish_latest
-from index_futures_basis.recent_brief.documents import export_documents, WORD_NAME, PDF_NAME
+from index_futures_basis.recent_brief.documents import export_documents, RAW_DIRECTORY, WORD_NAME, PDF_NAME
 from index_futures_basis.recent_brief.workflow import FIGURES, latest_paths, generate_for_service, repackage
 from index_futures_basis.recent_brief.work_automation import register_task
 
@@ -74,6 +74,19 @@ class DocumentTests(unittest.TestCase):
             self.assertEqual(latest_paths(root)["folder"], success.resolve())
             self.assertTrue((root/"latest.pdf").exists())
             self.assertTrue((root/"latest.docx").exists())
+            (failed/WORD_NAME).write_bytes(b"PK-test")
+            (failed/"run_manifest.json").write_text(json.dumps({"as_of": "2026-01-06", "created_at": "second",
+                "unadjusted_directory": RAW_DIRECTORY}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "未完整"):
+                publish_latest(failed, root)
+            self.assertEqual(before, (root/"latest.json").read_bytes())
+            raw = failed/RAW_DIRECTORY
+            raw.mkdir()
+            (raw/WORD_NAME).write_bytes(b"PK-raw")
+            (raw/PDF_NAME).write_bytes(b"%PDF-raw")
+            publish_latest(failed, root)
+            self.assertEqual(latest_paths(root)["raw_pdf"], raw/PDF_NAME)
+            self.assertEqual((root/"latest_unadjusted.pdf").read_bytes(), b"%PDF-raw")
 
     def test_demo_cannot_export_real_brief(self):
         with tempfile.TemporaryDirectory() as directory:

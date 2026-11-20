@@ -156,25 +156,30 @@ def add_volumes(panel, dataset):
                     "limitation": "修订后日线；仅按交易日与实际合约匹配成交量，不代表历史当时可知。"}
 
 
-def adjust(panel, config, paths, dividend_file=None):
+def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False):
     cfg = dict(config["dividends"])
     cfg["allow_missing_values"] = True
-    if dividend_file:
+    dividends = pd.DataFrame(columns=["trade_date", "code", "dividend_points"])
+    aligned = None
+    if unadjusted:
+        info = {"application": "not_applied", "snapshot_date": "不适用"}
+    elif cfg.get("layout", "snapshot_continuous") != "snapshot_continuous" and dividend_file and not Path(dividend_file).is_dir():
         cfg.update(selection="fixed_file", file=str(Path(dividend_file).resolve()))
+        try:
+            dividends, info = read_dividends(cfg, ROOT)
+        except (ValueError, OSError) as exc:
+            info = {"application": "exact_date", "snapshot_date": "缺失", "reason": str(exc)}
     else:
-        # A fixed-file setting in the older App must not pin the daily brief to
-        # yesterday's dividend workbook. Explicit --dividends remains reproducible.
-        cfg["selection"] = "latest_snapshot"
-        cfg["pattern"] = "*.xlsx"
-        from .dividend_sources import local_directories
-        cfg["directories"] = local_directories(ROOT, config, paths)
-    try:
-        dividends, info = read_dividends(cfg, ROOT)
-    except (ValueError, OSError) as exc:
-        dividends = pd.DataFrame(columns=["trade_date", "code", "dividend_points"])
-        info = {"application": "exact_date", "snapshot_date": "缺失", "reason": str(exc)}
+        from .dividend_history import align_history
+        aligned, info = align_history(panel, config, paths, dividend_file)
+        dividends = panel[["trade_date", "instrument_id"]].rename(columns={"instrument_id": "code"})
+        dividends = dividends.assign(dividend_points=aligned.dividend_points).dropna()
     result = attach_dividends(panel, dividends, panel.trade_date.min(),
-                              info.get("application", "exact_date"), allow_partial=True)
+                              "exact_date" if aligned is not None else info.get("application", "exact_date"),
+                              allow_partial=True)
+    if aligned is not None:
+        result[aligned.columns] = aligned
+        result["dividend_application"] = info["application"]
     # The brief has its own user-confirmed threshold; the original App is unchanged.
     result["annualized_basis_pct"] = (result.basis_points/result.spot_close*36500/
         result.days_to_expiry.replace(0, np.nan)).where(result.days_to_expiry.ge(MIN_DAYS_TO_EXPIRY))
@@ -182,9 +187,13 @@ def adjust(panel, config, paths, dividend_file=None):
     result["annualized_plot_filled"] = False
     valid = result[["futures_close", "spot_close", "dividend_points", "basis_points"]].notna().all(axis=1)
     residual = (result.basis_points-result.raw_basis_points-result.dividend_points).abs()
-    info["brief_selection"] = "explicit_file" if dividend_file else "latest_local_workbook_business_date"
-    info["adjustment_audit"] = {"formula": "F+G-S", "valid_rows": int(valid.sum()),
-        "missing_dividend_rows": int(result.dividend_points.isna().sum()),
+    observable = result.futures_close.notna() & result.spot_close.notna()
+    missing = observable & result.dividend_points.isna() & (not unadjusted)
+    info["brief_selection"] = "not_applied" if unadjusted else "explicit_input" if dividend_file else "daily_as_of_local_history"
+    info["adjustment_audit"] = {"formula": "F-S" if unadjusted else "F+G-S", "valid_rows": int(observable.sum() if unadjusted else valid.sum()),
+        "missing_dividend_rows": int(missing.sum()),
+        "missing_on_as_of": int((missing & result.trade_date.eq(result.trade_date.max())).sum()),
+        "first_missing_date": str(result.loc[missing, "trade_date"].min().date()) if missing.any() else None,
         "nonzero_dividend_rows": int((result.dividend_points.fillna(0) != 0).sum()),
         "max_formula_residual": float(residual[valid].max()) if valid.any() else None}
     if valid.any() and residual[valid].gt(1e-8).any():
@@ -211,6 +220,10 @@ def calendar_series(panel):
                          "expiry_gap_days": gap, "spot_close": a.spot_close,
                          "left_futures_close": a.futures_close, "right_futures_close": b.futures_close,
                          "left_dividend_points": a.dividend_points, "right_dividend_points": b.dividend_points,
+                         "left_dividend_source_date": a.get("dividend_source_date"),
+                         "right_dividend_source_date": b.get("dividend_source_date"),
+                         "left_dividend_source_sha256": a.get("dividend_source_sha256"),
+                         "right_dividend_source_sha256": b.get("dividend_source_sha256"),
                          "basis_points": points,
                          "annualized_basis_pct": points / a.spot_close * 36500 / gap
                              if valid_gap and valid_spot else np.nan,

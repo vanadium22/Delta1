@@ -1,10 +1,10 @@
 {
-  "release": "2026-11-20-half-year-calendar-and-180-session-ranks",
+  "release": "2026-11-20-dated-contract-dividends-dual-reports",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "manifest_version": 12,
-  "narrative_engine": "descriptive-tree-v6",
-  "layout": "A3 landscape; observations, one 16-contract matrix, one 8-spread table, then 8 chart pages; absolute last",
+  "manifest_version": 13,
+  "narrative_engine": "descriptive-tree-v7",
+  "layout": "two A3 landscape versions, each 13 pages with standalone calendar absolute spread",
   "calendar_pairs": [
     "02−01",
     "03−02"
@@ -40,7 +40,7 @@
     "desktop": 13,
     "desktop_temp_directory": "workspace QA directory; avoids Windows redirected Temp atomic-rename WinError 650"
   },
-  "visual_verification": "generated PDF and native Word render: 11 pages each, including half-year plots and all four cross rank windows; 32 cross statistical groups independently verified",
+  "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
   "example_market_date": "2026-10-15",
   "historical_validation_market_date": "2026-10-15",
   "company_live_wind_acceptance": "pending",
@@ -69,8 +69,9 @@
   "chart_order": [
     "single_annualized",
     "calendar_annualized",
+    "calendar_absolute",
     "activity",
-    "absolute"
+    "single_absolute"
   ],
   "rank_statistics": [
     "percentile",
@@ -87,12 +88,16 @@
     "current",
     "one_day_change"
   ],
-  "figure_layout": "compact-v2",
+  "figure_layout": "split-v3",
   "calendar_chart_months": 6,
   "calendar_rank_windows_sessions": [
     30,
     60,
     120,
     180
+  ],
+  "valuations": [
+    "adjusted",
+    "unadjusted"
   ]
 }

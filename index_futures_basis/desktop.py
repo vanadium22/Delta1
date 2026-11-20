@@ -400,6 +400,7 @@ class Window(QMainWindow):
         self.brief_generate = self.button("一键生成简报并打开PDF", self.generate_brief, True)
         brief_row.addWidget(self.brief_generate)
         brief_row.addWidget(self.button("查看最新PDF", lambda: self.open_brief("pdf")))
+        brief_row.addWidget(self.button("不去分红PDF", lambda: self.open_brief("raw_pdf")))
         brief_row.addWidget(self.button("查看最新Word", lambda: self.open_brief("word")))
         brief_row.addWidget(self.button("打开简报目录", lambda: self.open_brief("folder")))
         brief_row.addStretch()
@@ -413,7 +414,7 @@ class Window(QMainWindow):
         options.addWidget(self.button("修正图片后重排Word/PDF", self.repackage_brief))
         options.addStretch()
         layout.addLayout(options)
-        self.brief_note = self.hint("四张高清合并图，按品种分段排入Word/PDF；同时保留PNG、SVG和计算明细。生成完成后自动打开PDF。")
+        self.brief_note = self.hint("同批生成去分红和不去分红两套Word/PDF。生成后打开去分红PDF，两套文件均可从简报目录查看。")
         self.brief_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.brief_note)
         self.update_brief_note()
@@ -446,6 +447,8 @@ class Window(QMainWindow):
         from .recent_brief.workflow import latest_paths
         try:
             saved = latest_paths(self.service.root/"exports/recent_brief")
+            if kind not in saved:
+                raise ValueError("旧批次没有不去分红简报，请重新生成。")
             if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(saved[kind]))):
                 self.progress_label.setText("未能调用默认程序，请从简报目录打开："+str(saved[kind]))
             self.update_brief_note()

@@ -178,52 +178,53 @@ class NarrativeTests(unittest.TestCase):
         single.loc[single.slot.eq(1), "dividend_points"] = np.nan
         self.assertEqual(price_audit_lines(single[single.slot.eq(1)].iloc[0])[-1], "分红 — 点")
 
-    def test_latest_local_dividend_uses_business_date_and_unpinned_file(self):
+    def test_history_added_automatically_and_carries_only_same_actual_contract(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            def save(name, day, points):
-                book=Workbook();sheet=book.active;sheet.title="Sheet1";sheet['B1']=pd.Timestamp(day).to_pydatetime()
+
+            def save(name, day, points, actual="IF2602.CFE"):
+                book = Workbook()
+                sheet = book.active
+                sheet.title = "Sheet1"
+                sheet["B1"] = pd.Timestamp(day).to_pydatetime()
                 sheet["G3"] = "分红"
-                for i in range(4):
-                    sheet.cell(4+i,2,f"IF{i:02d}.CFE");sheet.cell(4+i,7,points)
-                path=root/name;path.parent.mkdir(parents=True,exist_ok=True);book.save(path);book.close();return path
-            old=save("2099_filename.xlsx","2026-01-01",1)
-            fresh=save("fresh_without_standard_name.xlsx","2026-02-01",7)
-            cfg={"dividends":{"selection":"fixed_file","file":str(old),"directories":[str(root)],
-                "layout":"snapshot_continuous","sheet":"Sheet1","header_row":3,"code_column":"B","dividend_column":"G"}}
-            paths=SimpleNamespace(dividend_inputs=root,resolve_module_setting=lambda *a:root)
-            p=panel()
-            result,info=adjust(p,cfg,paths)
-            self.assertEqual(info["snapshot_date"],"2026-02-01")
-            self.assertEqual(Path(info["path"]),fresh.resolve())
-            self.assertTrue(result.dividend_points.eq(7).all())
-            np.testing.assert_allclose(result.basis_points,result.raw_basis_points+7)
-            pinned,pin_info=adjust(p,cfg,paths,old)
-            self.assertEqual(pin_info["snapshot_date"],"2026-01-01")
-            self.assertTrue(pinned.dividend_points.eq(1).all())
-            save("newest_incomplete.xlsx","2026-03-01",None)
-            missing,missing_info=adjust(p,cfg,paths)
-            self.assertEqual(missing_info["snapshot_date"],"2026-03-01")
-            self.assertTrue(missing.dividend_points.isna().all())
-            self.assertTrue(missing.basis_points.isna().all())
-            paths.repo_root = root
-            cached = save("dashboard/localsetting/overview_dividends/raw/2026-04-01/cache.xlsx","2026-04-01",9)
-            revised,revised_info=adjust(p,cfg,paths)
-            self.assertEqual(revised_info["snapshot_date"],"2026-04-01")
-            self.assertEqual(Path(revised_info["path"]),cached.resolve())
-            self.assertTrue(revised.dividend_points.eq(9).all())
-            # Company current App / numeric profiles have independent raw caches.
-            current = save('dashboard/localsetting/app/overview_dividends/raw/2026-05-01/latest.xlsx','2026-05-01',11)
-            revised,info=adjust(p,cfg,paths)
-            self.assertEqual(info['snapshot_date'],'2026-05-01')
-            self.assertEqual(Path(info['path']),current.resolve())
-            private=root/'dashboard/localsetting/numeric_excel'
-            private.mkdir(parents=True,exist_ok=True)
-            (private/'native.json').write_text(json.dumps({'overview_dividend_cache':'saved_dividend_cache'}),encoding='utf-8-sig')
-            configured=save('saved_dividend_cache/raw/2026-06-01/current.xlsx','2026-06-01',13)
-            revised,info=adjust(p,cfg,paths)
-            self.assertEqual(info['snapshot_date'],'2026-06-01')
-            self.assertEqual(Path(info['path']),configured.resolve())
+                sheet["B4"], sheet["C4"], sheet["G4"] = "IF00.CFE", actual, points
+                path = root/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                book.save(path)
+                book.close()
+                return path
+
+            cfg = {"dividends": {"directories": [str(root)], "layout": "snapshot_continuous"}}
+            paths = SimpleNamespace(dividend_inputs=root, resolve_module_setting=lambda *a:root, repo_root=root)
+            base = panel().tail(4)
+            p = pd.concat([base.assign(trade_date=day) for day in pd.to_datetime(
+                ['2026-01-02', '2026-01-05', '2026-01-06', '2026-01-07'])], ignore_index=True)
+            late = p.trade_date.ge('2026-01-05')
+            p.loc[late & p.slot.isin([1, 2]), 'instrument_id'] = p.loc[late & p.slot.isin([1, 2]), 'instrument_id'].replace(
+                {'IF2602.CFE': 'IF2603.CFE', 'IF2603.CFE': 'IF2602.CFE'})
+            save('2099_filename.xlsx', '2026-01-05', 8)
+            save('newest_incomplete.xlsx', '2026-01-06', None)
+            save('after_cutoff.xlsx', '2026-01-06 15:30', 12)
+            save('future.xlsx', '2026-01-09', 50)
+            cached = save('dashboard/localsetting/app/overview_dividends/raw/2026-01-07/cache.xlsx', '2026-01-07', 0)
+            result, info = adjust(p, cfg, paths)
+            history = result[result.instrument_id.eq('IF2602.CFE')]
+            self.assertTrue(pd.isna(history.dividend_points.iloc[0]))
+            np.testing.assert_allclose(history.dividend_points.iloc[1:], [8, 8, 0])
+            self.assertTrue(result[result.instrument_id.eq('IF2603.CFE')].dividend_points.isna().all())
+            self.assertEqual(history.dividend_source_date.iloc[2], pd.Timestamp('2026-01-05'))
+            self.assertEqual(Path(info['path']), cached.resolve())
+            self.assertEqual(info['adjustment_audit']['first_missing_date'], '2026-01-02')
+            save('history/old.xlsx', '2026-01-02', 5)
+            revised, _ = adjust(p, cfg, paths)
+            self.assertEqual(revised[revised.instrument_id.eq('IF2602.CFE')].dividend_points.iloc[0], 5)
+            save('history/conflict.xlsx', '2026-01-02', 9)
+            conflict, _ = adjust(p, cfg, paths)
+            self.assertTrue(pd.isna(conflict[conflict.instrument_id.eq('IF2602.CFE')].dividend_points.iloc[0]))
+            raw, _ = adjust(p, cfg, paths, unadjusted=True)
+            np.testing.assert_allclose(raw.basis_points, raw.futures_close-raw.spot_close)
+            self.assertTrue(raw.dividend_points.isna().all())
 
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]

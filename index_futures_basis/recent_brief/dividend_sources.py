@@ -30,6 +30,8 @@ def local_directories(module_root, config, paths):
     candidates = [str(paths.resolve_module_setting(module_root,p,paths.dividend_inputs,("inputs","input")))
                   for p in cfg.get("directories", [])]
     candidates.append(str(paths.dividend_inputs))
+    if hasattr(paths, "dividend_archive"):
+        candidates.append(str(paths.dividend_archive))
     # A supplied isolated DataPaths determines the scope; never walk ancestors.
     if hasattr(paths, "repo_root"):
         dashboard = paths.repo_root/"dashboard"
@@ -58,3 +60,20 @@ def local_directories(module_root, config, paths):
                 except OSError:
                     pass
     return list(dict.fromkeys(value for value in candidates if is_local(value)))
+
+
+def history_paths(module_root, config, paths, explicit=None):
+    if explicit:
+        source = Path(explicit).resolve()
+        directories = [source] if source.is_dir() else []
+        if not directories:
+            return [source], []
+    else:
+        directories = list(map(Path, local_directories(module_root, config, paths)))
+    files = []
+    for directory in directories:
+        files.extend(sorted(directory.glob("*.xlsx")))
+        files.extend(sorted((directory / "history").rglob("*.xlsx")))
+    sources = list(dict.fromkeys(p.resolve() for p in files if not p.name.startswith(("~$", "."))))
+    stores = list(dict.fromkeys(p / "records.sqlite" for p in directories))
+    return sources, stores

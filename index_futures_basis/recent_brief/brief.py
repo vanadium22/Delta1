@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import uuid
 
 import numpy as np
@@ -52,7 +53,7 @@ def refresh_market(as_of=None, factory=None, volume_refresher=None):
     return info
 
 
-def explanations(panel, spreads, single_q, end, cross_q=None):
+def explanations(panel, spreads, single_q, end, cross_q=None, *, unadjusted=False):
     latest = snapshot_table(panel, end)
     available = latest[latest.change_5d.notna()]
     first = "绝对基差 = 期货收盘价 + 分红点数 − 现货；负值为贴水，保留正负号。"
@@ -113,6 +114,9 @@ def explanations(panel, spreads, single_q, end, cross_q=None):
     if len(oi):
         row = oi.loc[oi.oi_change.abs().idxmax()]
         fourth += f"四合约总持仓当日变化最大：{row.root} {number(row.oi_change/10000, 2, True)}万手。"
+    if unadjusted:
+        first = first.replace("期货收盘价 + 分红点数 − 现货", "期货收盘价 − 现货")
+        third = third.replace("调整后价差", "远月减近月的原始价差")
     return [first, second, third, fourth], pd.DataFrame(activity_rows)
 
 
@@ -131,7 +135,27 @@ def build(args):
             if args.volume_dataset:
                 raise
             volume_info = {"status": "补充成交量不可用，保留原库字段及缺口", "reason": str(exc)}
-    panel, dividend_info = adjust(panel, config, paths, args.dividends)
+    from .documents import RAW_DIRECTORY
+    created = timestamp()
+    run_id = re.sub(r"[^0-9]", "", created)[:14] + "_" + uuid.uuid4().hex[:6]
+    out = (Path(args.output) if args.output else ROOT / "exports/recent_brief" / str(end.date()) / run_id).resolve()
+    if (out / "run_manifest.json").exists() or (out / RAW_DIRECTORY / "run_manifest.json").exists():
+        raise ValueError(f"输出目录已有批次，请换一个 --output 路径：{out}")
+    raw = out / RAW_DIRECTORY
+    adjusted_panel, dividend_info = adjust(panel, config, paths, args.dividends)
+    raw_panel, raw_info = adjust(panel, config, paths, unadjusted=True)
+    charts.setup()
+    _build_version(raw_panel, raw_info, end, source, config, volume_info, args, created, raw, unadjusted=True)
+    _build_version(adjusted_panel, dividend_info, end, source, config, volume_info, args, created, out, raw_folder=raw)
+    return out
+
+
+def _build_version(panel, dividend_info, end, source, config, volume_info, args, created, out,
+                   *, unadjusted=False, raw_folder=None):
+    from .documents import RAW_DIRECTORY, SECTION_FIGURES, export_documents
+    out.mkdir(parents=True, exist_ok=True)
+    valuation = "unadjusted" if unadjusted else "adjusted"
+    valuation_label = "不去分红" if unadjusted else "去分红"
     spreads = calendar_series(panel)
     single_q, cross_q = session_quantiles(panel, end, "slot"), session_quantiles(spreads, end, "pair")
     single_tables = multi_session_quantiles(panel, end, "slot")
@@ -140,56 +164,60 @@ def build(args):
     cross_metrics = series_metrics(spreads, end, "pair", cross_q)
     aggregate_metrics = total_metrics(panel, end)
     summary_cards = highlights(single_metrics, cross_metrics, aggregate_metrics)
-    narrative = compose(panel, spreads, single_tables, cross_tables, aggregate_metrics, end)
-    texts, activity_table = explanations(panel, spreads, single_q, end, cross_q)
-    created = timestamp()
-    run_id = re.sub(r"[^0-9]", "", created)[:14] + "_" + uuid.uuid4().hex[:6]
-    out = (Path(args.output) if args.output else ROOT / "exports/recent_brief" / str(end.date()) / run_id).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    if (out / "run_manifest.json").exists():
-        raise ValueError(f"输出目录已有批次，请换一个 --output 路径：{out}")
+    narrative = compose(panel, spreads, single_tables, cross_tables, aggregate_metrics, end, unadjusted=unadjusted)
+    texts, activity_table = explanations(panel, spreads, single_q, end, cross_q, unadjusted=unadjusted)
     dividend_date = dividend_info.get("snapshot_date", "逐日输入")
-    dividend_age = ((end-pd.Timestamp(dividend_date)).days
-                    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(dividend_date)) else None)
+    date_for_age = dividend_info.get("oldest_current_source_date") or dividend_date
+    dividend_age = ((end-pd.Timestamp(date_for_age)).days
+                    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date_for_age)) else None)
     dividend_info["age_calendar_days"] = dividend_age
-    dividend_warning = f"早于行情{dividend_age}天，请检查分红更新" if dividend_age is not None and dividend_age > 7 else ""
-    if dividend_info.get("reason"):
-        dividend_warning = "分红缺失，调整后值留空"
+    audit_info = dividend_info["adjustment_audit"]
+    warnings = []
+    if dividend_age is not None and dividend_age > 7:
+        warnings.append(f"当日采用的最早分红早于行情{dividend_age}天")
+    if audit_info["missing_dividend_rows"]:
+        warnings.append(f"历史缺分红{audit_info['missing_dividend_rows']}条，缺值留空")
+    if audit_info["missing_on_as_of"]:
+        warnings.append(f"当日缺{audit_info['missing_on_as_of']}条")
+    dividend_warning = "  ".join(warnings)
     last = {root: (str(g.loc[g.futures_close.notna(), "trade_date"].max().date())
                    if g.futures_close.notna().any() else "缺失") for root, g in panel.groupby("root")}
-    note = (f"本地真实行情截至 {end:%Y-%m-%d}；分红快照 {dividend_date}，按连续档位固定应用于整个历史，并非历史逐日预测。\n"
-            "00当月 / 01次月 / 02季月一 / 03季月二；曲线随逐日实际合约映射滚动。缺失留空，分位覆盖不足不绘制。")
-    source_label = source.get("label") or source.get("source", {}).get("label", "本地持久化行情库")
-    source_line = "\n行情来源：" + source_label + ("；成交量补充：共享修订后日线缓存。" if volume_info.get("version") else "。")
-    chart1_note = note + " 阴影/加粗线为最近5日；变化按连续档位，换月在卡片标记。" + source_line
-    chart2_note = note + " 年化走势只画01—03；00保留当前年化和30/60/120交易日分位表。T≥1均计入，排除当日。" + source_line
-    chart3_note = note + " 跨期走势近半年；右侧为当前值及30/60/120/180交易日分位表。" + source_line
-    chart4_note = note + " 图下按各自连续增减、转向和量仓同向/分化自动总结；双轴交点不作信号。总量任一腿缺值则留空。" + source_line
-    charts.setup()
-    files = ["01_近期基差与跨期.png", "02_单合约年化与历史分位表.png",
-             "03_跨期年化与历史分位表.png", "04_四合约总成交与总持仓.png"]
-    print("绘制 1/4：近期绝对基差与跨期", flush=True)
-    charts.trends(panel, spreads, end, out/files[0], chart1_note, args.sessions, single_metrics, cross_metrics)
-    print("绘制 2/4：01—03年化与30/60/120交易日分位表", flush=True)
-    charts.annualized(panel, single_tables, end, out/files[1], chart2_note, args.sessions, metrics=single_metrics)
-    print("绘制 3/4：近半年跨期年化与30/60/120/180交易日分位表", flush=True)
-    charts.annualized(spreads, cross_tables, end, out/files[2], chart3_note, args.sessions, key="pair", metrics=cross_metrics)
-    print("绘制 4/4：四合约总成交与总持仓", flush=True)
-    charts.activity(panel, end, out/files[3], chart4_note, args.sessions, aggregate_metrics)
+    files = SECTION_FIGURES
+    print(f"绘制{valuation_label}版：年化、跨期绝对价差、量仓及单合约绝对基差", flush=True)
+    charts.annualized(panel, single_tables, end, out/files[0], valuation_label, args.sessions, metrics=single_metrics)
+    charts.annualized(spreads, cross_tables, end, out/files[1], valuation_label, key="pair", metrics=cross_metrics)
+    charts.trends(spreads, end, out/files[2], valuation_label, key="pair", metrics=cross_metrics)
+    if raw_folder:
+        for suffix in (".png", ".svg", ".layout.json"):
+            name = Path(files[3]).with_suffix(suffix).name
+            shutil.copy2(raw_folder/name, out/name)
+    else:
+        charts.activity(panel, end, out/files[3], "", args.sessions, aggregate_metrics)
+    charts.trends(panel, end, out/files[4], valuation_label, args.sessions, metrics=single_metrics)
     tables = {"daily_basis": panel, "daily_calendar": spreads, "basis_quantiles": single_q,
               "calendar_quantiles": cross_q, "latest_contracts": snapshot_table(panel, end),
               "basis_rank_tables": single_tables, "calendar_rank_tables": cross_tables,
               "activity_checks": activity_table, "activity_totals": activity_totals(panel),
               "basis_cards": single_metrics, "calendar_cards": cross_metrics, "activity_cards": aggregate_metrics}
-    audit = panel[["trade_date", "root", "slot", "instrument_id", "futures_close", "spot_close",
-                   "dividend_points", "raw_basis_points", "basis_points"]].copy()
-    audit["adjustment_check"] = audit.basis_points-audit.raw_basis_points-audit.dividend_points
+    audit_columns = ["trade_date", "root", "slot", "instrument_id", "futures_close", "spot_close",
+                     "dividend_points", "raw_basis_points", "basis_points", "dividend_application"]
+    audit = panel[audit_columns + [name for name in ("dividend_source_date", "dividend_effective_at",
+                   "dividend_source_sha256", "dividend_source_cell", "dividend_match") if name in panel]].copy()
+    audit["adjustment_check"] = audit.basis_points-audit.raw_basis_points-panel.dividend_adjustment_points
     tables["dividend_adjustment_audit"] = audit
-    if dividend_info.get("path") and dividend_info.get("sha256"):
-        dividend_bytes = Path(dividend_info["path"]).read_bytes()
-        if hashlib.sha256(dividend_bytes).hexdigest() != dividend_info["sha256"]:
+    snapshots = dividend_info.get("files", [])
+    if "files" not in dividend_info and dividend_info.get("path") and dividend_info.get("sha256"):
+        snapshots = [dividend_info]
+    for snapshot in snapshots:
+        dividend_bytes = Path(snapshot["path"]).read_bytes()
+        digest = hashlib.sha256(dividend_bytes).hexdigest()
+        if digest != snapshot["sha256"]:
             raise ValueError("分红源文件在读取后已变化，请重新生成")
-        (out/"dividend_input_snapshot.xlsx").write_bytes(dividend_bytes)
+        destination = out/"dividend_inputs"/(digest+Path(snapshot["path"]).suffix)
+        destination.parent.mkdir(exist_ok=True)
+        destination.write_bytes(dividend_bytes)
+        if snapshot is not dividend_info:
+            snapshot["batch_copy"] = destination.relative_to(out).as_posix()
     (out/"narrative.json").write_text(json.dumps(narrative, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     for name, frame in tables.items():
         frame.to_csv(out/f"{name}.csv", index=False, encoding="utf-8-sig")
@@ -205,12 +233,11 @@ def build(args):
         source_note += " 本次行情更新状态：" + refresh_label + "。"
         if refresh_info.get("state") != "complete":
             source_note += " 使用本地实际可用数据；" + str(refresh_info.get("reason") or refresh_info.get("message") or "部分字段未更新")
-    from .documents import export_documents
     document_info = {"as_of": str(end.date()), "created_at": created, "dividend_date": dividend_date,
                      "summary_cards": summary_cards, "explanations": texts, "source_note": source_note,
                      "narrative": narrative["text"], "narrative_sections": narrative["sections"],
                      "current_tables": current_tables(panel, spreads, end),
-                     "figure_layout": "compact-v2",
+                     "figure_layout": "split-v3", "valuation": valuation,
                      "calendar_chart_months": CALENDAR_CHART_MONTHS,
                      "dividend_warning": dividend_warning}
     (out/"current_tables.json").write_text(json.dumps(document_info["current_tables"], ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
@@ -222,12 +249,13 @@ def build(args):
         "calendar": json.loads(cross_metrics.to_json(orient="records", date_format="iso")),
         "activity": json.loads(aggregate_metrics.to_json(orient="records", date_format="iso"))}
     (out/"cards.json").write_text(json.dumps(cards_payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    manifest = {"version": 12, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
+    manifest = {"version": 13, "created_at": created, "as_of": str(end.date()), "latest_by_root": last,
                 "market_source": source, "volume_source": volume_info, "dividends": dividend_info,
                 "price_policy": {"type": "daily_close", "fields": ["futures_close", "spot_close"],
                     "refresh_ready_shanghai": f"{config['close_hour']:02d}:{config.get('close_minute', 0):02d}",
                     "fallback": "actual local available date; explicit cutoff retained; never relabel an old close"},
-                "valuation": "adjusted", "basis_formula": "F+G-S", "calendar_formula": "far_adjusted_price-near_adjusted_price",
+                "valuation": valuation, "basis_formula": "F-S" if unadjusted else "F+G-S",
+                "calendar_formula": "far_price-near_price" if unadjusted else "far_adjusted_price-near_adjusted_price",
                 "pairs": PAIRS, "windows": {"series_sessions": args.sessions,
                     "calendar_chart_months": CALENDAR_CHART_MONTHS,
                     "calendar_chart_start_inclusive": str((end-pd.DateOffset(months=CALENDAR_CHART_MONTHS)).date()),
@@ -236,8 +264,8 @@ def build(args):
                     "summary_baseline_sessions": 60},
                 "quantile_policy": "exact previous local sessions, exclude current; half-weight ties; single-contract T>=1 included, T=0 excluded; missing inputs/unknown calendar invalidate",
                 "minimum_days_to_expiry": 1,
-                "percentile_metric": "dividend-adjusted annualized basis percent; calendar uses actual expiry gap and spot denominator",
-                "calendar_annualized_formula": "(far_adjusted_price-near_adjusted_price)/spot_close*36500/(far_expiry-near_expiry).days; left=far, right=near",
+                "percentile_metric": "annualized basis percent for this valuation; calendar uses actual expiry gap and spot denominator",
+                "calendar_annualized_formula": "basis_points/spot_close*36500/(far_expiry-near_expiry).days; left=far, right=near",
                 "annualized_group_policy": {"within_product_only": True, "groups": [["00", "01"], ["02", "03"], ["00", "01", "02", "03"]],
                     "mean": "current equal-weight annualized levels", "rank_sessions": ANNUAL_RANK_SESSIONS,
                     "rank_of": "historical daily group means; not mean of constituent ranks; exclude current"},
@@ -251,7 +279,7 @@ def build(args):
                     "palette": {"opening_tables": "muted blue-gray, lavender and warm gray; no green",
                                 "charts": "original palette unchanged"},
                     "cards": "contract or metric, current value and one-day change only",
-                    "document_chart_order": [files[i] for i in (1, 2, 3, 0)],
+                    "document_chart_order": list(files),
                     "current_marker": "no candles; historical ranks shown as Pxx% in tables",
                     "single_contract_axes": "annualized time series 01-03 only, common axis; 00 current/ranks retained in table"},
                 "summary_cards": summary_cards,
@@ -265,6 +293,8 @@ def build(args):
                 "document_info": document_info, "documents": document_outputs,
                 "output_files": {p.name: {"sha256": sha256(p), "bytes": p.stat().st_size}
                                  for p in out.iterdir() if p.is_file()}}
+    if raw_folder:
+        manifest["unadjusted_directory"] = RAW_DIRECTORY
     (out/"run_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2, default=str, allow_nan=False), encoding="utf-8")
     print(str(out/document_outputs["pdf"]), flush=True)
     print(str(out/document_outputs["word"]), flush=True)
@@ -272,12 +302,12 @@ def build(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="生成基差Word/PDF简报及4张可独立修改的高清图；默认只读本地")
+    parser = argparse.ArgumentParser(description="生成基差Word/PDF简报双版本及可独立修改的高清图；默认只读本地")
     parser.add_argument("--repack", type=Path, help="将已有批次的图片重新排成新Word/PDF批次，不下载、不重新计算行情")
     parser.add_argument("--snapshot", type=Path, help="原项目raw_market.json格式的四品种快照；不导入/覆盖行情库")
     parser.add_argument("--database", type=Path, help="指定只读行情SQLite，默认选择配置下最新可用真实库")
     parser.add_argument("--as-of", help="截止日YYYY-MM-DD；显式日期不回退")
-    parser.add_argument("--dividends", type=Path, help="指定分红Excel；默认读取原项目配置的最新表内日期")
+    parser.add_argument("--dividends", type=Path, help="指定分红Excel或历史目录，默认读取本地输入及已归档历史")
     parser.add_argument("--volume-dataset", type=Path, help="可选normalized股指期货数据集，只补同日同合约成交量")
     parser.add_argument("--no-volume-supplement", action="store_true", help="不读取额外成交量缓存")
     parser.add_argument("--sessions", type=int, default=60, help="单合约和量仓走势图交易日数，默认60；跨期图按六个自然月")

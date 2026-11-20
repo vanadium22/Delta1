@@ -24,7 +24,7 @@ LOW_RANK, HIGH_RANK = "#E7F1FC", "#FAECE8"
 
 def _header(fig, title, subtitle, note):
     fig.text(.055, .985, title, fontsize=25, weight="bold", va="top", color=INK)
-    fig.text(.055, .985-40/(72*fig.get_figheight()), subtitle.split(" · ", 1)[0], fontsize=11, va="top", color=MUTED)
+    fig.text(.055, .985-40/(72*fig.get_figheight()), f"{subtitle}  {note}".strip(), fontsize=11, va="top", color=MUTED)
 
 
 
@@ -350,56 +350,39 @@ def annualized(
 
 
 def trends(
-    panel,
-    spreads,
+    series,
     end,
     output,
     note,
     sessions=60,
-    single_metrics=None,
-    cross_metrics=None,
+    key="slot",
+    metrics=None,
 ):
-    days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[
-        -sessions:
-    ]
-    cross_days = _calendar_chart_days(panel, end)
-    single_metrics = (
-        series_metrics(panel, end, "slot") if single_metrics is None else single_metrics
-    )
-    cross_metrics = (
-        series_metrics(spreads, end, "pair") if cross_metrics is None else cross_metrics
-    )
+    single = key == "slot"
+    days = (sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())[-sessions:]
+            if single else _calendar_chart_days(series, end))
+    metrics = series_metrics(series, end, key) if metrics is None else metrics
+    ids = [1, 2, 3, 4] if single else list(PAIRS)
     fig = plt.figure(figsize=(19, 26))
-    _header(fig, "去分红绝对基差与跨期",
-            f"行情截至 {end:%Y-%m-%d}  单合约近{sessions}个交易日  跨期走势近半年", note)
+    title = "单合约绝对基差" if single else "跨期绝对价差"
+    window = f"近{sessions}个交易日" if single else "近半年"
+    _header(fig, title, f"行情截至 {end:%Y-%m-%d}  {window}", note)
     for index, root in enumerate(ORDER):
         top = 0.94 - index * 0.225
         fig.text(
             0.055, top, f"{root}  {NAMES[root]}", fontsize=18, weight="bold", va="top"
         )
-        for frame, metrics, key, ids, x, width in (
-            (panel, single_metrics, "slot", [1, 2, 3, 4], 0.055, 0.51),
-            (spreads, cross_metrics, "pair", list(PAIRS), 0.625, 0.33),
-        ):
-            current = metrics[metrics.root.eq(root)]
-            card_width = (width - (len(ids) - 1) * 0.008) / len(ids)
-            for i, identity in enumerate(ids):
-                row = _metric(current, key, identity)
-                label = f"{identity-1:02d}" if key == "slot" else identity
-                _card(
-                    fig,
-                    x + i * (card_width + 0.008),
-                    top - 0.060,
-                    card_width,
-                    0.041,
-                    label,
-                    _value(_get(row, "basis_current"), "点"),
-                    "日变 " + _value(_get(row, "basis_change_1d"), "点", True),
-                    COLORS[i] if key == "slot" else COLORS[i + 1],
-                )
-            ax = fig.add_axes([x, top - 0.205, width, 0.135])
-            _trend(ax, frame, root, key, ids, days if key == "slot" else cross_days, "basis_points")
-            ax.tick_params(axis="both", labelsize=11)
+        current = metrics[metrics.root.eq(root)]
+        card_width = (0.9 - (len(ids) - 1) * 0.012) / len(ids)
+        for i, identity in enumerate(ids):
+            row = _metric(current, key, identity)
+            label = f"{identity-1:02d}" if single else identity
+            _card(fig, 0.055 + i * (card_width + 0.012), top - 0.060, card_width, 0.041,
+                  label, _value(_get(row, "basis_current"), "点"),
+                  "日变 " + _value(_get(row, "basis_change_1d"), "点", True), COLORS[i if single else i + 1])
+        ax = fig.add_axes([0.055, top - 0.205, 0.9, 0.135])
+        _trend(ax, series, root, key, ids, days, "basis_points")
+        ax.tick_params(axis="both", labelsize=11)
     _save(fig, output)
 
 

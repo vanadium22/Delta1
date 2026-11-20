@@ -6,10 +6,10 @@ from .theme import PRODUCT_COLORS, HEADER, BORDER, INK, RED
 
 def source_line(info):
     warning = "  " + info["dividend_warning"] if info.get("dividend_warning") else ""
-    return (
-        f"行情截至 {info['as_of']}  {info.get('price_label', '日线收盘价')}  分红 {info['dividend_date']}"
-        + warning
-    )
+    basis = "不去分红" if info.get("valuation") == "unadjusted" else f"分红 {info['dividend_date']}"
+    if info.get("valuation") == "adjusted":
+        basis = "去分红  " + basis
+    return f"行情截至 {info['as_of']}  {info.get('price_label', '日线收盘价')}  {basis}" + warning
 
 
 SINGLE_HEADERS = [
@@ -139,6 +139,8 @@ def write_word_tables(document, info):
         ("single", "股指基差简报 四品种合约总表", SINGLE_HEADERS, SINGLE_WIDTHS, 4),
         ("calendar", "股指基差简报 跨期结构表", CROSS_HEADERS, CROSS_WIDTHS, 2),
     ):
+        if info.get("valuation") == "unadjusted":
+            headers = [s.replace("去分红", "不去分红") for s in headers]
         heading = document.add_paragraph(title, "Title")
         heading.paragraph_format.page_break_before = True
         document.add_paragraph(source_line(info)).paragraph_format.space_after = Pt(12)
@@ -199,6 +201,8 @@ def write_pdf_tables(pdf, info):
         ("single", "股指基差简报 四品种合约总表", SINGLE_HEADERS, SINGLE_WIDTHS, 4),
         ("calendar", "股指基差简报 跨期结构表", CROSS_HEADERS, CROSS_WIDTHS, 2),
     ):
+        if info.get("valuation") == "unadjusted":
+            headers = [s.replace("去分红", "不去分红") for s in headers]
         fig = plt.figure(figsize=(16.54, 11.69), facecolor="white")
         fig.text(0.03, 0.967, title, fontsize=24, va="top", color="black")
         fig.text(0.03, 0.922, source_line(info), fontsize=10, va="top", color="#405265")

@@ -10,7 +10,7 @@ import pandas as pd
 from .data import CALENDAR_RANK_SESSIONS, ORDER, PAIRS, activity_totals
 from .overview import annualized_current
 
-RULE_VERSION = "descriptive-tree-v6"
+RULE_VERSION = "descriptive-tree-v7"
 WINDOWS = (30, 60)
 
 
@@ -71,6 +71,11 @@ def _stable_identity(group):
         if field in group and (group[field].isna().any() or group[field].nunique() != 1):
             return False
     return True
+
+
+def _dividend_changed(group):
+    fields = [name for name in ("dividend_points", "left_dividend_points", "right_dividend_points") if name in group]
+    return bool(fields and group[fields].diff().abs().gt(1e-8).any().any())
 
 
 def _overview(series, end, key, ids, field):
@@ -154,7 +159,7 @@ def _next_month(panel, end):
     if len(days) == 8:
         for root in ORDER:
             group = _aligned(panel, days, root, 'slot', 2)
-            if not _complete(group, 'annualized_basis_pct') or not _stable_identity(group):
+            if not _complete(group, 'annualized_basis_pct') or not _stable_identity(group) or _dividend_changed(group):
                 continue
             previous, current = map(float, group.annualized_basis_pct.iloc[[0, -1]])
             delta = current - previous
@@ -209,7 +214,7 @@ def _features(series, end, key, ids, field, windows=WINDOWS):
                 percentile = 100*((values < now).sum()+.5*(values == now).sum())/len(values)
                 recent_move = base_move = move_multiple = None
                 volatile = False
-                if key != 'pair' or stable:
+                if (key != 'pair' or stable) and not _dividend_changed(combined):
                     moves = np.abs(np.diff(np.r_[values, now]))
                     recent_move, base_move = float(moves[-7:].mean()), float(moves[:-7].mean())
                     move_multiple = recent_move/base_move if base_move > 1e-8 else None
@@ -325,7 +330,7 @@ def _activity(panel, end):
     return text, {"features": features, "selected": picked, "high_positions": high}
 
 
-def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
+def compose(panel, spreads, single_ranks, cross_ranks, totals, end, *, unadjusted=False):
     """Three concise, data-filled front-page templates; retain calculation evidence."""
     end = pd.Timestamp(end)
     absolute, absolute_overview = _overview(panel, end, "slot", range(1,5), "basis_points")
@@ -335,6 +340,15 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
     annual_current, annual_groups = annualized_current(panel, end)
     next_month_text, next_month_changes = _next_month(panel, end)
     annual = annual_current + '\n' + next_month_text
+    days = sorted(panel.loc[panel.trade_date.le(end), 'trade_date'].unique())[-2:]
+    updates = []
+    if not unadjusted and len(days) == 2:
+        for contract, group in panel[panel.trade_date.isin(days)].groupby('instrument_id'):
+            values = group.sort_values('trade_date').dividend_points
+            if contract and len(values) == 2 and values.notna().all() and abs(values.diff().iloc[-1]) > 1e-8:
+                updates.append({'contract': contract, 'change_points': float(values.diff().iloc[-1])})
+    if updates:
+        annual += f'\n当日{len(updates)}个实际合约的分红点数更新，去分红日变含此影响。'
     absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
     absolute += _exception_text(absolute_picks, "slot") or ("当前未见明显绝对基差异常。" if absolute_features else "当前异常判断所需历史不足。")
     activity, activity_evidence = _activity(panel, end)
@@ -372,14 +386,17 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
         cross += "、".join(unavailable)+"当前跨期数据不足。"
     if not point_long and not cross_long:
         cross += f"前{longest}个交易日可比历史不足。"
+    if unadjusted:
+        cross = cross.replace('调整后价差', '价差')
     sections = [{"key": key, "title": title, "text": text} for key, title, text in (
-        ("annualized", "去分红年化基差", annual),
+        ("annualized", "不去分红年化基差" if unadjusted else "去分红年化基差", annual),
         ("calendar", "跨期结构", cross), ("activity", "持仓成交", activity))]
     return {"engine": RULE_VERSION, "as_of": str(end.date()), "sections": sections,
         "text": "\n".join(s["title"]+"："+s["text"] for s in sections),
         "windows": {"basis": list(WINDOWS), "calendar": list(CALENDAR_RANK_SESSIONS), "activity": [7,30,60]},
         "absolute": {"overview": absolute_overview, "features": absolute_features, "selected": absolute_picks},
         "annualized": {"current_groups": annual_groups, "next_month_changes": next_month_changes,
+                       "dividend_updates_on_as_of": updates,
                        "overview": annual_overview, "features": annual_features, "selected": annual_picks},
         "activity": activity_evidence,
         "calendar": {"absolute_features": point_features, "annualized_features": cross_features,
