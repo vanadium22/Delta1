@@ -153,7 +153,8 @@ class Ledger:
             self.cumulative[account] += move.cash
         return Day(day, previous_day, before, self.positions.copy(), dict(moves), dict(self.cumulative),
                    dict(issues), {account: tuple(sorted(messages)) for account, messages in self.unresolved.items()},
-                   {account: len(messages) for account, messages in self.unresolved_cash.items()}, book_issues, fee_issues)
+                   {account: tuple(sorted(messages)) for account, messages in self.unresolved_cash.items()},
+                   book_issues, fee_issues)
 
     def trade(self, account, code, row, move):
         factor = multiplier(code)

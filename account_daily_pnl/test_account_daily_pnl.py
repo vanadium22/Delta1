@@ -13,11 +13,11 @@ from openpyxl import load_workbook
 from account_daily_pnl import __main__ as app
 from account_daily_pnl.baseline import ACCOUNTS, BASE_DAY
 from account_daily_pnl.ledger import Ledger, report
-from account_daily_pnl.prices import resolve
+from account_daily_pnl.prices import CACHE_COLUMNS, resolve
 from account_daily_pnl.seed import INPUTS, install_seed, make_seed
 from account_daily_pnl.series import SERIES_FILENAME, load_series
 from account_daily_pnl.setup_daily import configure_credentials, register_with_tasks, task_definition
-from account_daily_pnl.sources import bct_credential_path, login_values, read_source, write_book
+from account_daily_pnl.sources import bct_credential_path, login_values, read_source, write_book, write_source
 from shared_data.io import atomic_json, sha256
 
 
@@ -82,12 +82,14 @@ class DailyReportTests(unittest.TestCase):
             data.close()
 
     def test_restart_backfills_skipped_trading_days(self):
-        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+        with (patch("account_daily_pnl.sources.BctClient", FakeBct),
+              patch("account_daily_pnl.daily_cache.read_source", wraps=read_source) as load_flow):
             app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31))
             app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
             digest = sha256(self.outputs / "场内账户_2026-01-05.xlsx")
             app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
         days = ["2025-12-30", "2025-12-31", "2026-01-05"]
+        self.assertEqual([call.args[2] for call in load_flow.call_args_list], days)
         for day in days:
             self.assertEqual(FakeBct.downloads["flow", day], 1)
             self.assertEqual(FakeBct.downloads["snapshot", day], 1)
@@ -115,6 +117,37 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(series["rows"][-1]["account_id"], "total")
         with self.assertRaises(ValueError):
             load_series(self.outputs / SERIES_FILENAME, required_through="2026-01-06")
+
+    def test_historical_flow_edit_replays_only_from_its_trading_day(self):
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
+        first = sha256(self.outputs / "场内账户_2025-12-30.xlsx")
+        day = "2025-12-31"
+        write_source(self.root / "flows" / f"{day}.xlsx", "flow", day, [
+            record(day, "historical-edit", "BUYER", 1, 107),
+        ])
+        with (patch("account_daily_pnl.sources.BctClient", FakeBct),
+              patch("account_daily_pnl.daily_cache.read_source", wraps=read_source) as load_flow):
+            app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
+        self.assertEqual([call.args[2] for call in load_flow.call_args_list], [day, "2026-01-05"])
+        self.assertEqual(self.summary("2026-01-05")["2602"]["单日盈亏"], 41)
+        self.assertEqual(sha256(self.outputs / "场内账户_2025-12-30.xlsx"), first)
+
+    def test_historical_mark_edit_revalues_two_days_without_reopening_flows(self):
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31))
+            app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
+        day = "2025-12-31"
+        write_source(self.root / "snapshots" / f"{day}.xlsx", "snapshot", day, [{
+            "tradingDate": day, "instrumentId": "600000.SH", "instrumentQuote": 109,
+            "currencyCode": "CNY", "netPosition": 12,
+        }])
+        with (patch("account_daily_pnl.sources.BctClient", FakeBct),
+              patch("account_daily_pnl.daily_cache.read_source", wraps=read_source) as load_flow):
+            app.run(self.args, self.root, self.outputs, datetime(2026, 1, 6))
+        load_flow.assert_not_called()
+        self.assertEqual(self.summary(day)["2602"]["单日盈亏"], -12)
+        self.assertEqual(self.summary("2026-01-05")["2602"]["单日盈亏"], 26)
 
     def test_statement_equity_prefers_cash_adjusted_change_and_does_not_charge_fee_again(self):
         config = {
@@ -270,6 +303,56 @@ class DailyReportTests(unittest.TestCase):
         cached, notes = resolve(keys, self.root, {}, no_wind=True)
         self.assertEqual(cached, prices)
         self.assertTrue(notes)
+
+    def test_wind_does_not_requery_cached_marks_or_span_across_them(self):
+        calls = []
+        class FakeWind:
+            def __init__(self, config):
+                pass
+
+            def series(self, code, fields, start, end):
+                calls.append((code, fields, start, end))
+                return {start: {"close": 15}}
+
+            def close(self):
+                pass
+
+        dates = ["2025-12-30", "2025-12-31", "2026-01-05"]
+        code = "600000.SH"
+        write_book(self.root / "wind/2025-12-31.xlsx", [("Wind日线", CACHE_COLUMNS, [
+            ("2025-12-31", code, 22, "close", "Wind")
+        ])])
+        keys = {(day, code) for day in dates}
+        prices, _ = resolve(keys, self.root, {}, provider_class=FakeWind, session_days=dates)
+        self.assertEqual(len(prices), 3)
+        self.assertEqual(calls, [(code, ["close"], dates[0], dates[0]), (code, ["close"], dates[2], dates[2])])
+        self.assertEqual(resolve(keys, self.root, {}, provider_class=FakeWind, session_days=dates)[0], prices)
+        self.assertEqual(len(calls), 2)
+
+    def test_wind_keeps_both_fields_for_same_futures_contract_and_date(self):
+        calls = []
+
+        class FakeWind:
+            def __init__(self, config):
+                pass
+
+            def series(self, code, fields, start, end):
+                calls.extend(fields)
+                return {start: {fields[0]: 5050}}
+
+            def close(self):
+                pass
+
+        day, code = "2025-12-30", "IM2601.CFE"
+        keys = {(day, code)}
+        write_book(self.root / f"wind/{day}.xlsx", [("Wind日线", CACHE_COLUMNS, [
+            (day, code, 5000, "settle", "Wind")
+        ])])
+        prices, _ = resolve(keys, self.root, {"wind_futures_field": "close"}, provider_class=FakeWind)
+        self.assertEqual(prices[day, code], (5050, "Wind:close"))
+        prices, _ = resolve(keys, self.root, {}, provider_class=FakeWind)
+        self.assertEqual(prices[day, code], (5000, "Wind:settle"))
+        self.assertEqual(calls, ["close"])
 
 
 if __name__ == "__main__":

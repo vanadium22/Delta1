@@ -17,7 +17,8 @@ from shared_data.io import atomic_json, file_lock
 from shared_data.paths import DataPaths
 
 from .baseline import ACCOUNTS, BASE_DAY, import_baseline
-from .ledger import Ledger, POSITIONS, SUMMARY, ZERO, money, report, snapshot_checks
+from .daily_cache import digest, funding_inputs, price_inputs, resume, save, unpack_day
+from .ledger import POSITIONS, SUMMARY, ZERO, money, report, snapshot_checks
 from .performance import PERIOD_COLUMNS, Performance, period_summary, sheet_rows
 from .prices import resolve
 from .seed import ARCHIVE_NAME, install_seed, make_seed
@@ -122,23 +123,59 @@ def snapshot_plan(days, target, previous_download):
     return keep
 
 
-def replay(root, days, baseline, targets):
-    ledger = Ledger(baseline)
-    frames = []
-    previous_day = baseline["day"]
-    for index, day in enumerate(days, 1):
-        archive = root / "flows" / f"{day}.xlsx"
-        if not archive.is_file():
-            raise FileNotFoundError(f"缺少交易日 {day} 的流水 Excel：{archive}")
-        rows = read_source(archive, "flow", day)
-        rows.sort(key=lambda row: (str(row.get("dealDate")), str(row.get("dealTime")), str(row["id"])))
-        frame = ledger.advance(day, previous_day, rows)
-        if day in targets:
-            frames.append(frame)
-        previous_day = day
-        if index % 30 == 0 or index == len(days):
-            print(f"持仓回放 {index}/{len(days)} 个交易日，已到 {day}", flush=True)
-    return ledger, frames
+def value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, entries):
+    source_days = sorted({BASE_DAY, *days})
+    market = price_inputs(root, source_days, config)
+    funds = funding_inputs(days, funding)
+    candidates = {}
+    cached = {}
+    exposure = set()
+
+    def signature(day, previous):
+        return digest((market[day], market[previous], funds[day]))
+
+    for day in sorted(targets):
+        entry = entries[day]
+        current = entry.get("valuation")
+        previous = entry["frame"]["previous_date"]
+        changed = not current or current["inputs"] != signature(day, previous)
+        retry_missing = not no_wind and current and current["pending"] and day in selected
+        if not changed:
+            cached[day] = current
+        if changed or retry_missing:
+            frame = unpack_day(entry["frame"])
+            keys = (frame.valuation_keys() if day in selected else {(day, code) for _, code in frame.after})
+            keys = {key for key in keys if key[0] != BASE_DAY}
+            exposure.update(keys)
+            candidates[day] = frame, keys, changed
+
+    if not candidates:
+        print(f"本次沿用 {len(cached)} 个交易日已有盈亏。", flush=True)
+        return cached
+    prices, source_errors = resolve(exposure, root, config, no_wind=no_wind, session_days=days)
+    for message in source_errors:
+        print(message, flush=True)
+    market.update(price_inputs(root, sorted({day for day, _ in exposure}), config))
+    valued = 0
+    for day, (frame, keys, changed) in candidates.items():
+        old = cached.get(day)
+        if not changed and not any(tuple(key) in prices for key in old["pending"]):
+            continue
+        overview, detail, checks = report(frame, ledger, baseline, prices, funding)
+        if day in selected:
+            snapshot = root / "snapshots" / f"{day}.xlsx"
+            if snapshot.is_file():
+                checks.extend(snapshot_checks(frame, read_source(snapshot, "snapshot", day)))
+            if any(row["status"] for row in overview):
+                checks.extend((day, "行情", error) for error in source_errors[:10])
+        data = {"rows": overview, "detail": detail, "checks": checks, "pending": sorted(keys - prices.keys()),
+                "inputs": signature(day, frame.previous_date)}
+        cached[day] = data
+        if day in selected:
+            entries[day]["valuation"] = data
+            valued += 1
+    print(f"本次计算或更新 {valued} 个交易日的盈亏。", flush=True)
+    return cached
 
 
 def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, only_day=False):
@@ -153,31 +190,20 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
         anchor = next((day for day in reversed(days) if day[:4] < days[-1][:4]), None)
         if anchor:
             targets.add(anchor)
-    ledger, frames = replay(root, days, baseline, targets)
-    exposure = set().union(*(frame.valuation_keys() if frame.date in selected else
-                             {(frame.date, code) for (_, code) in frame.after} for frame in frames))
-    exposure = {key for key in exposure if key[0] != baseline["day"]}
-    prices, source_errors = resolve(exposure, root, config, no_wind=no_wind)
-    for message in source_errors:
-        print(message, flush=True)
+    ledger, cache = resume(root, days, baseline)
+    facts = value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, cache["days"])
     report_state_path = root / "reports.json"
     report_state = read_json(report_state_path, {})
     all_summaries = []
     performance = Performance(funding, compound=full_history)
-    for frame in frames:
-        overview, detail, checks = report(frame, ledger, baseline, prices, funding)
-        overview = performance.apply(overview)
-        day = frame.date
+    for day in sorted(targets):
+        data = facts[day]
+        overview = performance.apply([row.copy() for row in data["rows"]])
         if day not in selected:
             continue
-        snapshot = root / "snapshots" / f"{day}.xlsx"
-        if snapshot.is_file():
-            checks.extend(snapshot_checks(frame, read_source(snapshot, "snapshot", day)))
-        if any(row["status"] for row in overview):
-            checks.extend((day, "行情", error) for error in source_errors[:10])
         output_path = outputs / f"场内账户_{day}.xlsx"
         tables = [("账户统计", SUMMARY, list(sheet_rows(overview))),
-                  ("持仓明细", POSITIONS, detail), ("数据检查", DETAIL_STATUS, checks)]
+                  ("持仓明细", POSITIONS, data["detail"]), ("数据检查", DETAIL_STATUS, data["checks"])]
         fingerprint = hashlib.sha256(json.dumps(tables, ensure_ascii=False, default=str).encode()).hexdigest()
         if report_state.get(day) != fingerprint or not output_path.is_file():
             write_book(output_path, tables)
@@ -205,8 +231,9 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
         print(f"账户收益数据：{series_path}", flush=True)
         for path in images:
             print(f"收益图：{path}", flush=True)
+    save(root, cache)
     atomic_json(report_state_path, report_state)
-    print(f"本次目标日：{outputs / ('场内账户_' + frames[-1].date + '.xlsx')}", flush=True)
+    print(f"本次目标日：{outputs / ('场内账户_' + days[-1] + '.xlsx')}", flush=True)
     pnl_ready = sum(row["pnl"] is not None for row in overview[:-1])
     print(f"目标日有盈亏数值的账户：{pnl_ready}/{len(ACCOUNTS)}；"
           f"有已核实输入的总权益：{sum(row['equity'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}", flush=True)
@@ -286,7 +313,7 @@ def main(argv=None):
     paths = DataPaths.for_repo(REPO)
     parser = argparse.ArgumentParser(description="三账户场内持仓与收益日更")
     parser.add_argument("--date", help="显式指定一个已完成交易日，默认前一个交易日")
-    parser.add_argument("--only-day", action="store_true", help="仅导出目标日，仍回放历史持仓")
+    parser.add_argument("--only-day", action="store_true", help="仅导出目标日，优先续用已有日终持仓")
     parser.add_argument("--prepare", action="store_true", help="仅准备输入 Excel")
     parser.add_argument("--no-download", action="store_true", help="仅使用现有 BCT 文件")
     parser.add_argument("--no-wind", action="store_true", help="仅使用已有行情，不调用 Wind")
