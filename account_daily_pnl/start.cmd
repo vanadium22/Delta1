@@ -35,7 +35,9 @@ set "account_pnl_result=1"
 
 :finish
 popd
-if not "%account_pnl_result%"=="0" echo 运行失败，退出码 %account_pnl_result%。请查看上方说明。
+if "%account_pnl_result%"=="2" (
+    echo 已生成日报，部分盈亏待补。请查看上方说明。
+) else if not "%account_pnl_result%"=="0" echo 运行失败，退出码 %account_pnl_result%。请查看上方说明。
 if "%account_pnl_pause%"=="1" (
     echo 按任意键关闭窗口。
     pause >nul

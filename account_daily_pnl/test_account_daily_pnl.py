@@ -15,7 +15,8 @@ from account_daily_pnl.baseline import ACCOUNTS, BASE_DAY
 from account_daily_pnl.ledger import Ledger, report
 from account_daily_pnl.prices import resolve
 from account_daily_pnl.seed import INPUTS, install_seed, make_seed
-from account_daily_pnl.sources import read_source, write_book
+from account_daily_pnl.setup_daily import configure_credentials, register_with_tasks, task_definition
+from account_daily_pnl.sources import bct_credential_path, login_values, read_source, write_book
 from shared_data.io import atomic_json, sha256
 
 
@@ -177,6 +178,58 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(json.loads((company / "download_state.json").read_text(encoding="utf-8"))["latest_live_snapshot"],
                          "2025-12-30")
         self.assertEqual(sha256(company / "flows/2025-12-30.xlsx"), sha256(self.root / "flows/2025-12-30.xlsx"))
+
+    def test_workbench_registration_preserves_existing_schedule(self):
+        class Workbench:
+            def __init__(self):
+                self.items = []
+
+            def tasks(self):
+                return self.items
+
+            def save(self, value):
+                self.items.append(value)
+                return value
+
+        work = Workbench()
+        repo = Path(self.sandbox.name).resolve()
+        definition = task_definition(repo, self.root, self.outputs, None, "09:35")
+        saved, created = register_with_tasks(work, definition)
+        self.assertTrue(created)
+        self.assertTrue(saved["auto_catch_up"])
+        self.assertEqual(saved["schedule"], {"type": "weekdays", "time": "09:35"})
+        self.assertEqual(saved["result_mail"], "off")
+        self.assertEqual(saved["arguments"][:2], ["--no-pause", "--scheduled"])
+        self.assertNotIn("--bct-script", saved["arguments"])
+        saved["schedule"] = {"type": "weekdays", "time": "10:05"}
+        saved["enabled"] = False
+        existing, created = register_with_tasks(work, definition)
+        self.assertFalse(created)
+        self.assertFalse(existing["enabled"])
+        self.assertEqual(existing["schedule"]["time"], "10:05")
+        self.assertEqual(len(work.items), 1)
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI")
+    def test_bct_credentials_are_encrypted_and_reusable_without_original_script(self):
+        source = self.root / "inputs" / "fake.py"
+        source.write_text("bct_username, bct_password = 'mock_user', 'mock_secret'\n", encoding="utf8")
+        with patch("account_daily_pnl.setup_daily.BctClient") as client:
+            configure_credentials(self.root, {}, source)
+            client.assert_called_once_with(source)
+        protected = bct_credential_path(self.root, {})
+        raw = protected.read_text(encoding="utf8")
+        self.assertIn("windows-dpapi-current-user-v1", raw)
+        self.assertNotIn("mock_secret", raw)
+        source.unlink()
+        self.assertEqual(login_values(protected), ("mock_user", "mock_secret"))
+
+    def test_scheduled_partial_report_has_distinct_exit_status(self):
+        self.args.scheduled = True
+        self.args.no_download = True
+        with patch("account_daily_pnl.__main__.export_reports", return_value=False):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 2)
+        with patch("account_daily_pnl.__main__.export_reports", return_value=True):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
 
     def test_wind_never_uses_a_different_date(self):
         class FakeWind:

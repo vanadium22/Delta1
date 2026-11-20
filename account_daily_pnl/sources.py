@@ -29,6 +29,19 @@ FLOW_COLUMNS = (
 SNAPSHOT_COLUMNS = ("tradingDate", "instrumentId", "instrumentQuote", "currencyCode", "netPosition")
 
 
+def protected_bct_path(root):
+    return root / "inputs" / "bct-credentials.local.json"
+
+
+def bct_credential_path(root, config, override=None):
+    if override:
+        return override
+    protected = protected_bct_path(root)
+    if protected.is_file():
+        return protected
+    return config.get("bct_script") or os.environ.get("BCT_CREDENTIALS_SCRIPT")
+
+
 def login_values(path):
     if not path:
         username = os.environ.get("BCT_USERNAME")
@@ -37,9 +50,20 @@ def login_values(path):
             raise ValueError("需要 BCT 登录设置。请设置 BCT_USERNAME 和 BCT_PASSWORD，或指定 --bct-script。")
         return username, password
     path = Path(path)
+    if path.suffix.lower() == ".json":
+        from index_strategy.history.protected_config import load_config
+
+        value = load_config(path) if json.loads(path.read_text(encoding="utf-8-sig")).get("protected_credentials") else {}
+        username, password = value.get("username"), value.get("password")
+        if isinstance(username, str) and isinstance(password, str) and username and password:
+            return username, password
+        raise ValueError("BCT 本机加密登录设置无效，请重新运行首次配置。")
     if path.suffix.lower() == ".zip":
         with ZipFile(path) as archive:
-            source = archive.read("download_trading_flow_add_holdexcel.py")
+            try:
+                source = archive.read("download_trading_flow_add_holdexcel.py")
+            except KeyError:
+                raise ValueError("BCT 登录来源应为下载脚本或包含原下载脚本的 1.zip。") from None
     else:
         source = path.read_bytes()
     for node in ast.parse(source).body:

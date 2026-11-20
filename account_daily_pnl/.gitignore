@@ -3,6 +3,8 @@
 /logs/
 /validation/
 /config.local.json
+/download_trading_flow.py
+/download_trading_flow_add_holdexcel.py
 /*.xls
 /*.xlsx
 /*.zip

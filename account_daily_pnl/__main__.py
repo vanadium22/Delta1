@@ -21,7 +21,7 @@ from .ledger import Ledger, POSITIONS, SUMMARY, ZERO, money, report, snapshot_ch
 from .performance import PERIOD_COLUMNS, Performance, period_summary, sheet_rows
 from .prices import resolve
 from .seed import ARCHIVE_NAME, install_seed, make_seed
-from .sources import archive_missing, read_source, write_book
+from .sources import archive_missing, bct_credential_path, read_source, write_book
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -201,8 +201,10 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
             print(f"收益图：{path}", flush=True)
     atomic_json(report_state_path, report_state)
     print(f"本次目标日：{outputs / ('场内账户_' + frames[-1].date + '.xlsx')}", flush=True)
-    print(f"目标日有盈亏数值的账户：{sum(row['pnl'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}；"
+    pnl_ready = sum(row["pnl"] is not None for row in overview[:-1])
+    print(f"目标日有盈亏数值的账户：{pnl_ready}/{len(ACCOUNTS)}；"
           f"有已核实输入的总权益：{sum(row['equity'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}", flush=True)
+    return pnl_ready == len(ACCOUNTS)
 
 
 def run(args, root, outputs, now):
@@ -228,6 +230,10 @@ def run(args, root, outputs, now):
 
     config_file = args.config or root / "inputs" / "config.local.json"
     config = read_json(config_file, {})
+    if getattr(args, "setup_daily", False):
+        from .setup_daily import configure_daily
+
+        configure_daily(REPO, root, outputs, config, args)
     state_path = root / "download_state.json"
     state = read_json(state_path, {"version": STATE_VERSION})
     if state.get("version") != STATE_VERSION:
@@ -235,7 +241,7 @@ def run(args, root, outputs, now):
     previous = state.get("latest_live_snapshot")
     snapshots = snapshot_plan(days, target, previous)
     if not args.no_download:
-        credentials = args.bct_script or config.get("bct_script") or os.environ.get("BCT_CREDENTIALS_SCRIPT")
+        credentials = bct_credential_path(root, config, args.bct_script)
         archive_missing(root, days, snapshots, credentials)
         if not previous or target > previous:
             atomic_json(state_path, {"version": STATE_VERSION, "latest_live_snapshot": target})
@@ -244,8 +250,12 @@ def run(args, root, outputs, now):
     if args.prepare:
         print(f"历史 Excel 和基准输入目录：{root}", flush=True)
         return
-    export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config, args.no_wind,
-                   only_day=args.only_day)
+    complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
+                              args.no_wind, only_day=args.only_day)
+    if not complete and (getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
+        print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
+        return 2
+    return 0
 
 
 def main(argv=None):
@@ -263,16 +273,19 @@ def main(argv=None):
     parser.add_argument("--bct-script", type=Path, help="读取本机可信 BCT 脚本或 ZIP 的登录设置")
     parser.add_argument("--seed", type=Path, help="核验并导入本地历史数据包")
     parser.add_argument("--make-seed", type=Path, help="打包基准和目标日以前的历史 Excel")
+    parser.add_argument("--setup-daily", action="store_true", help="首次配置 BCT 并登记工作台日更任务")
+    parser.add_argument("--work-root", type=Path, help="显式指定工作自动化工作台目录")
+    parser.add_argument("--task-time", default="09:35", help="首次登记时间，北京时间，默认 09:35")
+    parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     print(f"Python：{sys.executable}", flush=True)
     try:
         with file_lock(args.data / ".writer.lock", timeout=3):
-            run(args, args.data.resolve(), args.output.resolve(), datetime.now(ZoneInfo("Asia/Shanghai")))
+            return run(args, args.data.resolve(), args.output.resolve(), datetime.now(ZoneInfo("Asia/Shanghai"))) or 0
     except Exception as exc:
         print(f"运行失败：{exc}", file=sys.stderr, flush=True)
         return 1
-    return 0
 
 
 if __name__ == "__main__":
