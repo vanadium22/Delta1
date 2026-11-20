@@ -140,6 +140,40 @@ class DailyReportTests(unittest.TestCase):
             self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 2)
         self.assertEqual([sha256(self.outputs / name) for name in (BOOK_NAME, CHART_NAME)], previous)
 
+    def test_mail_manifest_freezes_both_attachments_and_deduplicates(self):
+        from account_daily_pnl.daily_mail import create_manifest
+        from account_daily_pnl.strategy_reconciliation import BOOK_NAME, CHART_NAME
+
+        write_book(self.outputs / BOOK_NAME, [("收益汇总", ("项目 · 2026-11-18", "当日", "年内"),
+                                                [("合计", 12, 20)])])
+        (self.outputs / CHART_NAME).write_bytes(b"test image bytes")
+        first = create_manifest(self.outputs)
+        self.assertEqual(first["mail"]["to"], ["meiyifan@swhysc.com"])
+        self.assertEqual(len(first["mail"]["attachments"]), 2)
+        self.assertEqual(first["mail"]["attachments"][1]["also_attach"], True)
+        self.assertEqual(first, create_manifest(self.outputs))
+        frozen = Path(first["mail"]["attachments"][0]["path"])
+        write_book(self.outputs / BOOK_NAME, [("收益汇总", ("项目 · 2026-11-18", "当日", "年内"),
+                                                [("合计", 15, 20)])])
+        second = create_manifest(self.outputs)
+        self.assertNotEqual(first["delivery_key"], second["delivery_key"])
+        self.assertEqual(sha256(frozen), first["mail"]["attachments"][0]["sha256"])
+
+    def test_workbench_output_is_published_only_after_successful_full_run(self):
+        from account_daily_pnl.strategy_reconciliation import BOOK_NAME, CHART_NAME
+
+        write_book(self.outputs / BOOK_NAME, [("收益汇总", ("项目 · 2026-11-18", "当日"), [("合计", 12)])])
+        (self.outputs / CHART_NAME).write_bytes(b"test image bytes")
+        output = self.root / "workbench-result.json"
+        args = ["--data", str(self.root), "--output", str(self.outputs), "--scheduled", "--wa-output", str(output)]
+        with patch.object(app, "run", return_value=2):
+            self.assertEqual(app.main(args), 2)
+        self.assertFalse(output.exists())
+        with patch.object(app, "run", return_value=0):
+            self.assertEqual(app.main(args), 0)
+        manifest = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["mail"]["to"], ["meiyifan@swhysc.com"])
+
     def test_restart_backfills_skipped_trading_days(self):
         with (patch("account_daily_pnl.sources.BctClient", FakeBct),
               patch("account_daily_pnl.daily_cache.read_source", wraps=read_source) as load_flow):
@@ -282,7 +316,7 @@ class DailyReportTests(unittest.TestCase):
                          "2025-12-30")
         self.assertEqual(sha256(company / "flows/2025-12-30.xlsx"), sha256(self.root / "flows/2025-12-30.xlsx"))
 
-    def test_workbench_registration_preserves_existing_schedule(self):
+    def test_workbench_registration_updates_existing_task(self):
         class Workbench:
             def __init__(self):
                 self.items = []
@@ -291,25 +325,30 @@ class DailyReportTests(unittest.TestCase):
                 return self.items
 
             def save(self, value):
+                value = dict(value)
+                self.items = [item for item in self.items if item["id"] != value["id"]]
                 self.items.append(value)
                 return value
 
         work = Workbench()
         repo = Path(self.sandbox.name).resolve()
-        definition = task_definition(repo, self.root, self.outputs, None, "09:35")
+        definition = task_definition(repo, self.root, self.outputs, None, "09:25")
         saved, created = register_with_tasks(work, definition)
         self.assertTrue(created)
         self.assertTrue(saved["auto_catch_up"])
-        self.assertEqual(saved["schedule"], {"type": "weekdays", "time": "09:35"})
-        self.assertEqual(saved["result_mail"], "off")
+        self.assertEqual(saved["schedule"], {"type": "daily", "time": "09:25"})
+        self.assertEqual(saved["result_mail"], "queue")
         self.assertEqual(saved["arguments"][:2], ["--no-pause", "--scheduled"])
         self.assertNotIn("--bct-script", saved["arguments"])
         saved["schedule"] = {"type": "weekdays", "time": "10:05"}
         saved["enabled"] = False
+        saved["program"] = str(repo / "account_daily_pnl" / "start.cmd")
         existing, created = register_with_tasks(work, definition)
         self.assertFalse(created)
-        self.assertFalse(existing["enabled"])
-        self.assertEqual(existing["schedule"]["time"], "10:05")
+        self.assertTrue(existing["enabled"])
+        self.assertEqual(existing["schedule"], {"type": "daily", "time": "09:25"})
+        self.assertEqual(existing["result_mail"], "queue")
+        self.assertEqual(existing["program"], definition["program"])
         self.assertEqual(len(work.items), 1)
 
     @unittest.skipUnless(os.name == "nt", "Windows DPAPI")

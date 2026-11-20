@@ -16,37 +16,37 @@ from .sources import BctClient, bct_credential_path, login_values, protected_bct
 
 
 TASK_NAME = "三账户场内持仓与盈亏"
-DEFAULT_CLOCK = "09:35"
+DEFAULT_CLOCK = "09:25"
 
 
 def task_definition(repo, data, output, config, clock):
     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", clock):
         raise ValueError("日更时间请输入 HH:MM。")
-    program = repo / "account_daily_pnl" / "start.cmd"
+    program = repo / "account_daily_pnl" / "workbench_entry.py"
     arguments = ["--no-pause", "--scheduled", "--data", str(data), "--output", str(output)]
     if config is not None:
         arguments.extend(("--config", str(Path(config).resolve())))
     return {
         "id": "account-pnl-" + uuid5(NAMESPACE_URL, os.path.normcase(str(program))).hex,
-        "name": TASK_NAME, "program": str(program), "cwd": str(repo), "interpreter": "",
-        "arguments": arguments, "enabled": True, "schedule": {"type": "weekdays", "time": clock},
-        "auto_catch_up": True, "result_mail": "off",
+        "name": TASK_NAME, "program": str(program), "cwd": str(repo), "interpreter": sys.executable,
+        "arguments": arguments, "enabled": True, "schedule": {"type": "daily", "time": clock},
+        "auto_catch_up": True, "result_mail": "queue",
     }
 
 
 def register_with_tasks(tasks, definition):
     same_program = Path(definition["program"]).resolve()
+    old_program = same_program.with_name("start.cmd")
     existing = [item for item in tasks.tasks() if item["id"] == definition["id"] or item["name"] == TASK_NAME
-                or Path(item["program"]).resolve() == same_program]
+                or Path(item["program"]).resolve() in (same_program, old_program)]
     if not existing:
         return tasks.save(definition), True
-    if len(existing) != 1 or Path(existing[0]["program"]).resolve() != same_program:
+    if len(existing) != 1 or Path(existing[0]["program"]).resolve() not in (same_program, old_program):
         raise ValueError("工作台里已有同名或冲突的场内任务，请在定时子任务中核对其程序位置。")
     task = existing[0]
-    if (task.get("arguments") != definition["arguments"] or task.get("cwd") != definition["cwd"]
-            or task.get("result_mail", "off") != "off"):
-        raise ValueError("现有场内任务的目录或参数有冲突，请在工作台核对后再登记。")
-    return task, False
+    updated = {**definition, "id": task["id"], "arguments": task.get("arguments", definition["arguments"]),
+               "cwd": task.get("cwd", definition["cwd"])}
+    return tasks.save(updated), False
 
 
 def register_task(work_root, definition):
@@ -146,4 +146,4 @@ def configure_daily(repo, root, output, config, args):
     print(f"计划：{task['schedule'].get('time', '见工作台')}（北京时间）；"
           f"当前{'启用' if task['enabled'] else '暂停'}；"
           f"错过后自动补跑{'开启' if task.get('auto_catch_up') else '关闭'}。", flush=True)
-    print(f"工作台：{work_root}。现在开始按实际交易日试跑。", flush=True)
+    print(f"工作台：{work_root}。收件人：meiyifan@swhysc.com。现在开始按实际交易日试跑。", flush=True)

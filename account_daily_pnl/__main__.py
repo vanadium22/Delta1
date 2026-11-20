@@ -339,15 +339,23 @@ def main(argv=None):
     parser.add_argument("--make-seed", type=Path, help="打包基准和目标日以前的历史 Excel")
     parser.add_argument("--setup-daily", action="store_true", help="首次配置 BCT 并登记工作台日更任务")
     parser.add_argument("--work-root", type=Path, help="显式指定工作自动化工作台目录")
-    parser.add_argument("--task-time", default="09:35", help="首次登记时间，北京时间，默认 09:35")
+    parser.add_argument("--task-time", default="09:25", help="登记时间，北京时间，默认 09:25")
+    parser.add_argument("--wa-output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--company-run", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.wa_output and (args.only_day or args.prepare or args.skip_strategy):
+        parser.error("邮件任务需要完整账户及策略台对账。")
     print(f"Python：{sys.executable}", flush=True)
     try:
         with file_lock(args.data / ".writer.lock", timeout=3):
-            return run(args, args.data.resolve(), args.output.resolve(), datetime.now(ZoneInfo("Asia/Shanghai"))) or 0
+            result = run(args, args.data.resolve(), args.output.resolve(), datetime.now(ZoneInfo("Asia/Shanghai"))) or 0
+            if result == 0 and args.wa_output:
+                from .daily_mail import create_manifest
+
+                atomic_json(args.wa_output, create_manifest(args.output))
+            return result
     except Exception as exc:
         print(f"运行失败：{exc}", file=sys.stderr, flush=True)
         return 1
