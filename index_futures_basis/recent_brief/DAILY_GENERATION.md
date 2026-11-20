@@ -53,6 +53,6 @@ D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\
 D:\WORKSPACE\MAIN\SwhySc\DeltaOne\project\dashboard\index_futures_basis\exports\recent_brief\latest.docx
 ```
 
-每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，默认9页Word/PDF、4张完整PNG和SVG、8份分段排版图、计算/卡片CSV及来源清单。不生成HTML，新旧批次独立保留。前端从latest.json读取真实批次，所以不依赖特定预览日期目录。
+每批次保存于`index_futures_basis/exports/recent_brief/行情日/批次/`，包含11页Word/PDF、4张完整PNG及相应的SVG、8份分段排版图、计算与卡片CSV及来源清单。前端通过`latest.json`打开最近成功批次。
 
-生成时重新读取本地最新业务日期的分红，包含基差正式输入和看板已落地的分红缓存；不访问分红公盘。无需把最新文件手工钉到--dividends，日常默认按B1选最新。Word/PDF图片页只留图片与卡片及日期，全部图片后自动追加综合观察；规则和特征随narrative.json保留，分红校验CSV与源Excel快照同批次保存。
+生成时比较基差正式输入和看板已落地的本地分红缓存，按`Sheet1!B1`业务日期选择最新文件。Word/PDF首页为综合观察，接着是合约总表、跨期表和图表页。总结规则和特征保存在`narrative.json`，分红校验CSV与源Excel快照一并保存。
