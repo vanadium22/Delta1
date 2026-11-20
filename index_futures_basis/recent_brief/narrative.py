@@ -7,10 +7,10 @@ import math
 import numpy as np
 import pandas as pd
 
-from .data import ORDER, PAIRS, activity_totals
+from .data import CALENDAR_RANK_SESSIONS, ORDER, PAIRS, activity_totals
 from .overview import annualized_current
 
-RULE_VERSION = "descriptive-tree-v5"
+RULE_VERSION = "descriptive-tree-v6"
 WINDOWS = (30, 60)
 
 
@@ -150,19 +150,35 @@ def _annual_state(features):
 
 def _next_month(panel, end):
     days = sorted(panel.loc[panel.trade_date.le(end),'trade_date'].unique())[-8:]
-    selected = []
+    evidence, grouped = [], {}
     if len(days) == 8:
         for root in ORDER:
             group = _aligned(panel, days, root, 'slot', 2)
-            if not _complete(group,'annualized_basis_pct') or group.roll_day.iloc[1:].eq(True).any():
+            if not _complete(group, 'annualized_basis_pct') or not _stable_identity(group):
                 continue
-            a,b = float(group.annualized_basis_pct.iloc[0]),float(group.annualized_basis_pct.iloc[-1])
-            if a < 0 and b < a-1:
-                selected.append(root)
-    return ('、'.join(selected)+'次月合约近7日年化贴水扩大较明显。') if selected else ''
+            previous, current = map(float, group.annualized_basis_pct.iloc[[0, -1]])
+            delta = current - previous
+            direction = None
+            if abs(delta) >= 1:
+                if previous <= 0 and current <= 0:
+                    direction = '年化贴水扩大' if delta < 0 else '年化贴水收敛'
+                elif previous >= 0 and current >= 0:
+                    direction = '年化升水扩大' if delta > 0 else '年化升水收敛'
+                else:
+                    direction = '由贴水转为升水' if delta > 0 else '由升水转为贴水'
+                grouped.setdefault(direction, []).append(root)
+            evidence.append({'root': root, 'previous_pct': previous, 'current_pct': current,
+                             'change_pp': delta, 'direction': direction})
+    clauses = [f"{'四品种' if len(roots) == len(ORDER) else '、'.join(roots)}次月合约{direction}"
+               for direction, roots in grouped.items()]
+    if clauses:
+        text = '近7个交易日，' + '。'.join(clauses) + '。'
+    else:
+        text = '次月合约近7个交易日可比数据不足。' if not evidence else '次月合约近7个交易日可比数据未见明显变化。'
+    return text, evidence
 
 
-def _features(series, end, key, ids, field):
+def _features(series, end, key, ids, field, windows=WINDOWS):
     days = sorted(series.loc[series.trade_date.lt(end), "trade_date"].unique())
     rows = []
     for root in ORDER:
@@ -171,11 +187,13 @@ def _features(series, end, key, ids, field):
             if not _complete(current, field):
                 continue
             now = float(current[field].iloc[0])
-            for window in WINDOWS:
+            for window in windows:
                 if len(days) < window:
                     continue
                 group = _aligned(series, days[-window:], root, key, identity)
-                if field == 'basis_points' and not _stable_identity(pd.concat([group, current])):
+                combined = pd.concat([group, current])
+                stable = _stable_identity(combined)
+                if field == 'basis_points' and not stable and (key != 'pair' or window <= max(WINDOWS)):
                     continue
                 if field == "annualized_basis_pct" and key == "slot":
                     if not group.calendar_known.eq(True).all():
@@ -189,20 +207,23 @@ def _features(series, end, key, ids, field):
                 floor = .4 if field == "annualized_basis_pct" else 3.
                 score = abs(deviation)/max(std, floor)
                 percentile = 100*((values < now).sum()+.5*(values == now).sum())/len(values)
-                moves = np.abs(np.diff(np.r_[values, now]))
-                recent_move, base_move = float(moves[-7:].mean()), float(moves[:-7].mean())
-                move_multiple = recent_move/base_move if base_move > 1e-8 else None
-                volatile = bool(recent_move >= floor and
-                                (move_multiple >= 2.5 if move_multiple is not None else recent_move >= 2.5*floor))
+                recent_move = base_move = move_multiple = None
+                volatile = False
+                if key != 'pair' or stable:
+                    moves = np.abs(np.diff(np.r_[values, now]))
+                    recent_move, base_move = float(moves[-7:].mean()), float(moves[:-7].mean())
+                    move_multiple = recent_move/base_move if base_move > 1e-8 else None
+                    volatile = bool(recent_move >= floor and
+                                    (move_multiple >= 2.5 if move_multiple is not None else recent_move >= 2.5*floor))
                 level_extreme = bool(abs(deviation) >= floor and
                                      (score >= 1.5 or percentile <= 10 or percentile >= 90))
                 rows.append({"root": root, key: identity, "window": window, "n": len(values),
                     "current": now, "mean": mean, "deviation": deviation, "std": std,
                     "score": max(score, (move_multiple or recent_move/floor) if volatile else 0),
-                    "percentile": float(percentile), "change": float(now-values[0]),
+                    "percentile": float(percentile), "change": float(now-values[0]) if stable or key != 'pair' else None,
                     "recent_mean_abs_move": recent_move, "reference_mean_abs_move": base_move,
                     "move_multiple": move_multiple, "volatility_expansion": volatile,
-                    "roll": bool(pd.concat([group, current]).roll_day.eq(True).any()),
+                    "roll": not stable if key == 'pair' else bool(combined.roll_day.eq(True).any()),
                     "noteworthy": bool(level_extreme or volatile)})
     return rows
 
@@ -227,8 +248,8 @@ def _exception_text(picks, key, annual=False):
         identity = f"{int(row[key])-1:02d}" if key == "slot" else " "+row[key]
         unit, value_unit = ("个百分点", "%") if annual else ("点", "点")
         text = (f"{row['root']}{identity}当前{row['current']:.2f}{value_unit}，"
-                f"较前{row['window']}日均值{row['deviation']:+.2f}{unit}，"
-                f"处于该窗口P{row['percentile']:.1f}%")
+                f"较前{row['window']}个交易日均值{row['deviation']:+.2f}{unit}，"
+                f"处于P{row['percentile']:.1f}%")
         if annual and row["current"] < 0 and row["percentile"] <= 10:
             text += "，年化贴水较深"
         if row.get("volatility_expansion"):
@@ -236,7 +257,7 @@ def _exception_text(picks, key, annual=False):
             text += (f"，为此前{row['n']-7}日日均的{row['move_multiple']:.1f}倍"
                      if row['move_multiple'] is not None else f"，此前{row['n']-7}日基本无波动")
         if row["roll"]:
-            text += "，期间含换月"
+            text += "（连续档位，样本含换月）" if key == 'pair' else "，期间含换月"
         clauses.append(text)
     return "；".join(clauses)+"。" if clauses else ""
 
@@ -288,7 +309,7 @@ def _activity(panel, end):
         else:
             missing.append(root)
     clauses = [root+description for root, description in overview]
-    text = "；".join(clauses)+"。" if clauses else "近期量仓可比数据不足。"
+    text = "。".join(clauses)+"。" if clauses else "近期量仓可比数据不足。"
     picked = []
     for metric in ("oi", "volume"):
         rows = [r for r in features if r["metric"] == metric and r["noteworthy"]]
@@ -296,13 +317,11 @@ def _activity(panel, end):
             continue
         row = max(rows, key=lambda r: (r["score"], r["window"], r["root"]))
         picked.append(row)
-    if not picked and features:
-        text += "近期无明显大幅变化。"
     if missing and overview:
         text += "、".join(missing)+"近期量仓历史不足。"
     high = sorted(positions, key=lambda r: (-r['percentile'],r['root']))[:2]
     if high:
-        text += '特别地，'+'和'.join(r['root'] for r in high)+'合约的整体持仓量处于近期高位。'
+        text += '和'.join(r['root'] for r in high)+'四合约总持仓处于近期高位。'
     return text, {"features": features, "selected": picked, "high_positions": high}
 
 
@@ -314,7 +333,8 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
     absolute_features = _features(panel, end, "slot", range(1,5), "basis_points")
     annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct")
     annual_current, annual_groups = annualized_current(panel, end)
-    annual = annual_current
+    next_month_text, next_month_changes = _next_month(panel, end)
+    annual = annual_current + '\n' + next_month_text
     absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
     absolute += _exception_text(absolute_picks, "slot") or ("当前未见明显绝对基差异常。" if absolute_features else "当前异常判断所需历史不足。")
     activity, activity_evidence = _activity(panel, end)
@@ -336,24 +356,31 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end):
         structure.append("、".join(negative)+"两组调整后价差均为负，远腿低于近腿")
     if mixed:
         structure.append("、".join(mixed)+"两组价差方向不一致或接近平水")
-    cross = "目前"+"；".join(structure)+"。" if structure else "当前跨期数据不足。"
-    point_features = _features(spreads, end, "pair", PAIRS, "basis_points")
-    cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct")
-    point_picks, cross_picks = _picks(point_features, "pair", 1), _picks(cross_features, "pair", 1)
+    cross = "目前"+"。".join(structure)+"。" if structure else "当前跨期数据不足。"
+    point_features = _features(spreads, end, "pair", PAIRS, "basis_points", CALENDAR_RANK_SESSIONS)
+    cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct", CALENDAR_RANK_SESSIONS)
+    longest = CALENDAR_RANK_SESSIONS[-1]
+    point_long = [row for row in point_features if row['window'] == longest]
+    cross_long = [row for row in cross_features if row['window'] == longest]
+    point_picks = _picks(point_long, "pair", 1) or _picks(point_features, "pair", 1)
+    cross_picks = _picks(cross_long, "pair", 1) or _picks(cross_features, "pair", 1)
     cross += ("绝对价差方面，"+_exception_text(point_picks, "pair") if point_picks else
               "绝对价差未见明显异常。" if point_features else "绝对价差历史不足。")
     cross += ("跨期年化方面，"+_exception_text(cross_picks, "pair", True) if cross_picks else
               "跨期年化未见明显异常。" if cross_features else "跨期年化历史不足。")
     if unavailable and structure:
         cross += "、".join(unavailable)+"当前跨期数据不足。"
+    if not point_long and not cross_long:
+        cross += f"前{longest}个交易日可比历史不足。"
     sections = [{"key": key, "title": title, "text": text} for key, title, text in (
-        ("annualized", "年化基差", annual),
-        ("activity", "持仓成交", activity), ("calendar", "跨期结构", cross))]
+        ("annualized", "去分红年化基差", annual),
+        ("calendar", "跨期结构", cross), ("activity", "持仓成交", activity))]
     return {"engine": RULE_VERSION, "as_of": str(end.date()), "sections": sections,
         "text": "\n".join(s["title"]+"："+s["text"] for s in sections),
-        "windows": {"basis": list(WINDOWS), "activity": [7,30,60]},
+        "windows": {"basis": list(WINDOWS), "calendar": list(CALENDAR_RANK_SESSIONS), "activity": [7,30,60]},
         "absolute": {"overview": absolute_overview, "features": absolute_features, "selected": absolute_picks},
-        "annualized": {"current_groups": annual_groups, "overview": annual_overview, "features": annual_features, "selected": annual_picks},
+        "annualized": {"current_groups": annual_groups, "next_month_changes": next_month_changes,
+                       "overview": annual_overview, "features": annual_features, "selected": annual_picks},
         "activity": activity_evidence,
         "calendar": {"absolute_features": point_features, "annualized_features": cross_features,
                      "absolute_selected": point_picks, "annualized_selected": cross_picks},

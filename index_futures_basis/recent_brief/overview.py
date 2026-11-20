@@ -72,7 +72,7 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
     history_days = calendar[:-1][-sessions:]
     evidence, sentences, recent = [], [], []
     for root in ORDER:
-        item, phrases = {'root':root}, []
+        item = {'root':root}
         for key, label, slots in (('near','近月00/01',(1,2)), ('far','远月02/03',(3,4)), ('all','四档整体',(1,2,3,4))):
             part = panel[panel.root.eq(root) & panel.slot.isin(slots) & panel.trade_date.isin(calendar)]
             grouped = part.groupby('trade_date').agg(
@@ -107,15 +107,30 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
                    'history_mean_pct':float(sample.mean()) if complete else None,
                    'change_7d_pp':change}
             item[key] = row
-            value = f'{now:.2f}%' if now is not None else '—'
-            percentile = (f'60日P{rank:.1f}%' if rank is not None else
-                          '含到期合约' if row['current_status'] == 'expired' else
-                          '当前数据缺失' if now is None else '60日分位待补')
-            phrases.append(f'{label}均值{value}（{percentile}）')
             if change is not None:
                 recent.append({'root':root,'group':key,'label':label,'change_pp':change,'current':now,
                                'noteworthy':abs(change)>=1.0})
-        item['text'] = root+'：'+'，'.join(phrases)+'。'
+        near, far = item['near'], item['far']
+        near_text = '近月00/01均值—'
+        if near['mean_pct'] is not None:
+            near_text = f"近月00/01均值{near['mean_pct']:.2f}%"
+        elif near['current_status'] == 'expired':
+            legs = panel[panel.root.eq(root) & panel.trade_date.eq(end) & panel.slot.isin((1, 2))]
+            front, next_month = legs[legs.slot.eq(1)], legs[legs.slot.eq(2)]
+            if (len(front) == len(next_month) == 1 and front.iloc[0].days_to_expiry == 0
+                    and next_month.iloc[0].days_to_expiry >= 1):
+                value = _number(next_month.iloc[0].annualized_basis_pct)
+                if value is not None:
+                    near_text = f'当月到期，次月年化{value:.2f}%'
+                    item['expiry_day_next_month_pct'] = value
+            if 'expiry_day_next_month_pct' not in item:
+                near_text += '（含到期合约）'
+        far_text = '远月02/03均值—'
+        if far['mean_pct'] is not None:
+            rank = far['percentile']
+            rank_text = f'{sessions}日P{rank:.1f}%' if rank is not None else f'{sessions}日分位待补'
+            far_text = f"远月02/03均值{far['mean_pct']:.2f}%（{rank_text}）"
+        item['text'] = f'{root} {near_text}，{far_text}。'
         evidence.append(item); sentences.append(item['text'])
     material = sorted((r for r in recent if r['noteworthy']), key=lambda r:-abs(r['change_pp']))
     selected, used = [], set()
@@ -124,18 +139,9 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
             selected.append(row); used.add(row['root'])
         if len(selected) == 2:
             break
-    if selected:
-        changes = []
-        for row in selected:
-            delta = row['change_pp']
-            direction = ('年化贴水扩大' if delta < 0 else '年化贴水收敛') if row['current'] < 0 else '年化水平变化'
-            changes.append(f"{row['root']}{row['label']}近7日{delta:+.2f}个百分点，{direction}较明显")
-        sentences.append('近期变化：'+'；'.join(changes)+'。')
-    else:
-        sentences.append('已覆盖分组近7日无明显大幅变化。' if recent else '近7日变化可比数据不足。')
     current = panel[panel.trade_date.eq(end) & panel.slot.eq(1)]
     if current.days_to_expiry.between(1,3).any():
-        sentences.append('00临近到期，短期限会放大近月及整体年化。')
+        sentences.append('00临近到期，短期限会放大近月年化。')
     return '\n'.join(sentences), {'products':evidence, 'recent_changes':recent,'selected_changes':selected,
         'rank_sessions':sessions, 'change_threshold_pp':1.0,
         'policy':'current same-product equal-weight means; ranks of historical daily group means, not averages of leg ranks; exclude current; known expired groups excluded, missing inputs invalidate window'}

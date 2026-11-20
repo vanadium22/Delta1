@@ -63,13 +63,14 @@ class CurrentOverviewTests(unittest.TestCase):
         self.assertEqual(if_row['all']['mean_pct'], -6.75)
         self.assertIn('近月00/01均值-5.25%', text)
 
-    def test_all_three_means_are_always_present(self):
+    def test_all_three_means_are_audited_but_prose_highlights_near_and_far(self):
         p = self.snapshot((-5,-5.2,-5.4,-5.6))
         text, evidence = annualized_current(p, p.trade_date.max())
         row = evidence['products'][0]
         self.assertAlmostEqual(row['all']['mean_pct'], -5.3)
-        for label in ('近月00/01均值','远月02/03均值','四档整体均值'):
+        for label in ('近月00/01均值','远月02/03均值'):
             self.assertIn(label,row['text'])
+        self.assertNotIn('四档整体均值', text)
 
     def test_divergent_values_still_average_and_short_expiry_is_explained_once(self):
         p = self.snapshot((-125.5,-16.32,-9.62,-7.28))
@@ -90,8 +91,11 @@ class CurrentOverviewTests(unittest.TestCase):
             self.assertIsNone(evidence['products'][0]['all']['mean_pct'])
             self.assertIsNone(evidence['products'][0]['near']['mean_pct'])
             if column == 'days_to_expiry':
-                self.assertIn('含到期合约',text)
+                self.assertIn('当月到期，次月年化-5.00%',text)
                 self.assertEqual(evidence['products'][0]['near']['current_status'],'expired')
+                self.assertEqual(evidence['products'][0]['expiry_day_next_month_pct'], -5)
+            else:
+                self.assertNotIn('当月到期，次月年化', text)
         p = self.snapshot((-.1,.1,-5,-5))
         _, evidence = annualized_current(p, p.trade_date.max())
         self.assertEqual(evidence['products'][0]['near']['mean_pct'],0)

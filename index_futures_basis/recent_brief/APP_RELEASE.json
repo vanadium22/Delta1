@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-20-muted-opening-tables-compact-charts",
+  "release": "2026-11-20-half-year-calendar-and-180-session-ranks",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "manifest_version": 11,
-  "narrative_engine": "descriptive-tree-v5",
+  "manifest_version": 12,
+  "narrative_engine": "descriptive-tree-v6",
   "layout": "A3 landscape; observations, one 16-contract matrix, one 8-spread table, then 8 chart pages; absolute last",
   "calendar_pairs": [
     "02−01",
@@ -30,23 +30,24 @@
     ],
     "mean": "current equal-weight levels",
     "rank_sessions": 60,
-    "rank_of": "historical daily group means, excluding current"
+    "rank_of": "historical daily group means, excluding current",
+    "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 80,
+    "passed": 83,
     "resource_warnings_as_errors": true,
-    "brief": 67,
+    "brief": 70,
     "desktop": 13,
     "desktop_temp_directory": "workspace QA directory; avoids Windows redirected Temp atomic-rename WinError 650"
   },
-  "visual_verification": "generated PDF and native Word render: all 11 pages each; no green in opening tables, original chart colors preserved; 72 statistical groups verified",
+  "visual_verification": "generated PDF and native Word render: 11 pages each, including half-year plots and all four cross rank windows; 32 cross statistical groups independently verified",
   "example_market_date": "2026-10-15",
   "historical_validation_market_date": "2026-10-15",
   "company_live_wind_acceptance": "pending",
   "narrative_sections": [
     "annualized",
-    "activity",
-    "calendar"
+    "calendar",
+    "activity"
   ],
   "calendar_table_presentation": "separate 8-row table; audit legs retained",
   "current_table_format": {
@@ -86,5 +87,12 @@
     "current",
     "one_day_change"
   ],
-  "figure_layout": "compact-v2"
+  "figure_layout": "compact-v2",
+  "calendar_chart_months": 6,
+  "calendar_rank_windows_sessions": [
+    30,
+    60,
+    120,
+    180
+  ]
 }

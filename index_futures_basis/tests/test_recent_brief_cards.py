@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from index_futures_basis.recent_brief.automation import input_fingerprint, watch
-from index_futures_basis.recent_brief.card_charts import _candle_panel, _quantile_table, _trend
+from index_futures_basis.recent_brief.card_charts import _calendar_chart_days, _candle_panel, _quantile_table, _trend
 from index_futures_basis.recent_brief.data import adjust, session_quantiles, multi_session_quantiles
 from index_futures_basis.recent_brief.metrics import highlights, series_metrics, total_metrics, activity_commentary
 from index_futures_basis.recent_brief.brief import main, refresh_market
@@ -146,6 +146,33 @@ class BriefCardTests(unittest.TestCase):
         p.loc[p.index[-1], "annualized_basis_pct"] = -999
         revised = multi_session_quantiles(p, p.trade_date.max(), "slot").set_index("window_sessions")
         self.assertEqual(revised.loc[60,"mean"], result.loc[60,"mean"])
+
+    def test_calendar_chart_uses_six_months_but_rank_uses_180_prior_sessions(self):
+        days = pd.bdate_range(end='2025-10-31', periods=200)
+        end = days[-1]
+        p = pd.DataFrame({'trade_date': days, 'root': 'IF', 'pair': '02−01',
+                          'annualized_basis_pct': np.r_[np.arange(199.), 108.],
+                          'calendar_known': True})
+        self.assertEqual(_calendar_chart_days(p, end), list(days[days >= '2025-04-30']))
+        self.assertLess(len(_calendar_chart_days(p, end)), 180)
+        q = multi_session_quantiles(p, end, 'pair').set_index('window_sessions')
+        self.assertEqual(set(q.index), {30, 60, 120, 180})
+        self.assertEqual(q.loc[180, 'n'], 180)
+        self.assertEqual(q.loc[180, 'mean'], 108.5)
+        self.assertAlmostEqual(q.loc[180, 'percentile'], (89.5/180)*100)
+        fig, ax = plt.subplots()
+        try:
+            table = _quantile_table(ax, q.reset_index(), 'pair', ['02−01'],
+                                    p.tail(1).rename(columns={'annualized_basis_pct': 'annual_current'}))
+            self.assertEqual(table[0, 5].get_text().get_text(), '180日')
+            self.assertEqual(table[1, 5].get_text().get_text(), 'P49.72%\n均值 108.50%\n中位数 108.50%')
+        finally:
+            plt.close(fig)
+        p.loc[p.index[-151], 'calendar_known'] = False
+        incomplete = multi_session_quantiles(p, end, 'pair').set_index('window_sessions')
+        self.assertFalse(incomplete.loc[180, 'complete'])
+        self.assertTrue(pd.isna(incomplete.loc[180, 'mean']))
+        self.assertTrue(incomplete.loc[120, 'complete'])
 
     def test_activity_comments_describe_sustained_growth_and_reversal(self):
         days = pd.bdate_range("2026-01-01", periods=11)

@@ -22,6 +22,9 @@ ORDER = ("IF", "IH", "IC", "IM")
 PAIRS = {"02−01": (3, 2), "03−02": (4, 3)}
 WINDOWS = (3, 6, 12)
 MIN_DAYS_TO_EXPIRY = 1
+CALENDAR_CHART_MONTHS = 6
+SINGLE_RANK_SESSIONS = (30, 60, 120)
+CALENDAR_RANK_SESSIONS = (*SINGLE_RANK_SESSIONS, 180)
 
 
 class ReadOnlyStore(Store):
@@ -256,7 +259,8 @@ def session_quantiles(series, end, key, sessions=60):
 
 
 def multi_session_quantiles(series, end, key):
-    return pd.concat([session_quantiles(series, end, key, sessions=n) for n in (30, 60, 120)], ignore_index=True)
+    windows = SINGLE_RANK_SESSIONS if key == "slot" else CALENDAR_RANK_SESSIONS
+    return pd.concat([session_quantiles(series, end, key, sessions=n) for n in windows], ignore_index=True)
 
 
 def activity_totals(panel):

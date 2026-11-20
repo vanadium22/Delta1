@@ -23,6 +23,9 @@ def page_plan(output, files, info=None):
     pages = []
     for index in (1, 2, 3, 0):
         filename = files[index]
+        title = TITLES[index]
+        if index in (0, 2) and (info or {}).get("calendar_chart_months"):
+            title += "（跨期走势近半年）" if index == 0 else "（近半年走势）"
         with Image.open(output / filename) as image:
             bands = ((.95, .495), (.494, .048)) if index < 3 else ((.935, .500), (.497, .087))
             if (info or {}).get("figure_layout") == "compact-v2":
@@ -34,7 +37,7 @@ def page_plan(output, files, info=None):
                 with Image.open(target) as part:
                     ratio = part.height / part.width
                 width = min(PAGE_WIDTH-1.0, 10.0/ratio)
-                pages.append({"title": TITLES[index], "part": half+1, "image": target,
+                pages.append({"title": title, "part": half+1, "image": target,
                               "width": width, "height": width*ratio, "section": index})
     return pages
 

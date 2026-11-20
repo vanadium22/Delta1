@@ -41,7 +41,7 @@ class NarrativeTests(unittest.TestCase):
                          multi_session_quantiles(c,p.trade_date.max(),"pair"),
                          total_metrics(p,p.trade_date.max()),p.trade_date.max())
         self.assertIn("60日分位待补", report["text"])
-        self.assertEqual([s["key"] for s in report["sections"]], ["annualized", "activity", "calendar"])
+        self.assertEqual([s["key"] for s in report["sections"]], ["annualized", "calendar", "activity"])
         json.dumps(report,allow_nan=False)
 
     def history(self):
@@ -128,10 +128,41 @@ class NarrativeTests(unittest.TestCase):
         volumes = [r for r in result["activity"]["features"] if r["root"] == "IF" and r["metric"] == "volume"]
         self.assertEqual(len(volumes), 3)
         self.assertTrue(all(abs(r["change_pct"]-100) < 1e-8 for r in volumes))
-        self.assertIn("IF持仓平稳、成交扩张", result["sections"][1]["text"])
+        self.assertIn("IF持仓平稳、成交扩张", result["sections"][2]["text"])
         p.loc[p.root.eq("IF") & p.slot.eq(1) & p.trade_date.eq(days[-2]), "volume"] = np.nan
         result = self.compose(p)
         self.assertFalse(any(r["root"] == "IF" and r["metric"] == "volume" for r in result["activity"]["features"]))
+
+    def test_next_month_comment_groups_products_and_excludes_rolls(self):
+        p = self.history()
+        latest_next = p.trade_date.eq(p.trade_date.max()) & p.slot.eq(2)
+        p.loc[latest_next, 'annualized_basis_pct'] -= 2
+        report = self.compose(p)
+        self.assertIn('四品种次月合约年化贴水扩大', report['sections'][0]['text'])
+        p.loc[latest_next & p.root.eq('IM'), 'roll_day'] = True
+        report = self.compose(p)
+        self.assertIn('IF、IH、IC次月合约年化贴水扩大', report['sections'][0]['text'])
+        self.assertNotIn('IM', [row['root'] for row in report['annualized']['next_month_changes']])
+
+    def test_cross_comment_uses_long_distribution_and_labels_rolls(self):
+        days = pd.bdate_range('2025-01-01', periods=181)
+        base = panel().tail(4)
+        p = pd.concat([base.assign(trade_date=day) for day in days], ignore_index=True)
+        spreads = calendar_series(p)
+        pair = spreads.pair.eq('03−02')
+        spreads.loc[pair & spreads.trade_date.eq(days[-1]), ['basis_points', 'annualized_basis_pct']] = [-50, -30]
+        spreads.loc[pair & spreads.trade_date.eq(days[-4]), 'roll_day'] = True
+        result = compose(p, spreads, None, None, None, days[-1])
+        text = result['sections'][1]['text']
+        self.assertIn('调整后价差均为负，远腿低于近腿', text)
+        self.assertIn('IF 03−02当前-50.00点', text)
+        self.assertIn('IF 03−02当前-30.00%', text)
+        self.assertIn('前180个交易日', text)
+        self.assertIn('样本含换月', text)
+        selected = result['calendar']['annualized_selected'][0]
+        self.assertEqual(selected['n'], 180)
+        self.assertIsNone(selected['change'])
+        self.assertFalse(selected['volatility_expansion'])
 
     def test_price_cards_show_raw_prices_and_genuine_zero_dividend(self):
         p = panel()
@@ -202,7 +233,7 @@ class NarrativeTests(unittest.TestCase):
         days=sorted(p.trade_date.unique())
         p.loc[p.root.eq('IC') & p.trade_date.eq(days[-1]),'open_interest'] *= 1.15
         report=self.compose(p)
-        self.assertIn('特别地，IC合约的整体持仓量处于近期高位',report['text'])
+        self.assertIn('IC四合约总持仓处于近期高位',report['text'])
         self.assertNotIn('对冲需求显著',report['text'])
         json.dumps(report,allow_nan=False)
 
@@ -212,11 +243,12 @@ class NarrativeTests(unittest.TestCase):
         p.loc[p.trade_date.eq(end) & p.slot.gt(1),'annualized_basis_pct']=-50.
         result=self.compose(p)
         self.assertTrue(all(r['all']['percentile']==0 for r in result['annualized']['current_groups']['products']))
-        self.assertIn('年化贴水扩大较明显',result['sections'][0]['text'])
+        self.assertIn('四品种次月合约年化贴水扩大',result['sections'][0]['text'])
         self.assertEqual(len(result['annualized']['selected']),1)
         p.loc[p.trade_date.eq(end),'roll_day']=True
         result=self.compose(p)
         self.assertEqual(result['annualized']['current_groups']['selected_changes'],[])
+        self.assertEqual(result['annualized']['next_month_changes'],[])
 
 
 if __name__ == "__main__":

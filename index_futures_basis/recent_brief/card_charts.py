@@ -11,7 +11,8 @@ import pandas as pd
 
 from ..analytics import NAMES
 from .charts import COLORS, INK, MUTED, RED, number, setup
-from .data import ORDER, PAIRS, activity_totals
+from .data import (CALENDAR_CHART_MONTHS, CALENDAR_RANK_SESSIONS, ORDER, PAIRS,
+                   SINGLE_RANK_SESSIONS, activity_totals)
 from .metrics import series_metrics, total_metrics
 
 STYLES = ("-", (0, (5, 2)), (0, (4, 2, 1, 2)), (0, (1, 1.5)))
@@ -37,6 +38,11 @@ def _date_axis(ax, days):
     ax.grid(axis="y", color="#e4ebf2", linewidth=.75)
     ax.set_axisbelow(True)
     ax.margins(y=.12)
+
+
+def _calendar_chart_days(series, end):
+    start = end - pd.DateOffset(months=CALENDAR_CHART_MONTHS)
+    return sorted(series.loc[series.trade_date.between(start, end), "trade_date"].unique())
 
 
 def _save(fig, output):
@@ -235,6 +241,7 @@ def _card(fig, x, y, width, height, title, value, change, color):
 def _quantile_table(ax, qs, key, ids, current):
     """Each full window shows rank, annualized mean and annualized median."""
     ax.axis("off")
+    windows = SINGLE_RANK_SESSIONS if key == "slot" else CALENDAR_RANK_SESSIONS
     body = []
     for identity in ids:
         row = _metric(current, key, identity)
@@ -242,7 +249,7 @@ def _quantile_table(ax, qs, key, ids, current):
             f"{identity-1:02d}" if key == "slot" else identity,
             _value(_get(row, "annual_current"), "%"),
         ]
-        for window in (30, 60, 120):
+        for window in windows:
             matches = qs[qs[key].eq(identity) & qs.window_sessions.eq(window)]
             q = matches.iloc[0] if len(matches) else None
             if q is not None and q.complete == True:
@@ -262,8 +269,8 @@ def _quantile_table(ax, qs, key, ids, current):
         body.append(cells)
     table = ax.table(
         cellText=body,
-        colLabels=["合约", "当前年化", "30日", "60日", "120日"],
-        colWidths=[0.12, 0.18, 0.233, 0.233, 0.234],
+        colLabels=["合约" if key == "slot" else "跨期", "当前年化", *(f"{n}日" for n in windows)],
+        colWidths=[0.12, 0.18, *([0.70 / len(windows)] * len(windows))],
         cellLoc="center",
         bbox=[0, 0, 1, 1],
     )
@@ -291,13 +298,16 @@ def annualized(
 ):
     days = sorted(series.loc[series.trade_date.le(end), "trade_date"].unique())[
         -sessions:
-    ]
+    ] if key == "slot" else _calendar_chart_days(series, end)
     metrics = series_metrics(series, end, key) if metrics is None else metrics
     ids = [2, 3, 4] if key == "slot" else list(PAIRS)
     table_ids = [1, 2, 3, 4] if key == "slot" else ids
     fig = plt.figure(figsize=(19, 26))
     title = "单合约年化与分位统计" if key == "slot" else "跨期年化与分位统计"
-    _header(fig, title, f"行情截至 {end:%Y-%m-%d}", note)
+    subtitle = f"行情截至 {end:%Y-%m-%d}"
+    if key == "pair":
+        subtitle += "  跨期走势近半年"
+    _header(fig, title, subtitle, note)
     for index, root in enumerate(ORDER):
         top = 0.94 - index * 0.225
         fig.text(
@@ -325,11 +335,12 @@ def annualized(
                 + _value(_get(row, "annual_change_1d_pct_points"), "个百分点", True),
                 color,
             )
-        ax = fig.add_axes([0.055, top - 0.205, 0.46, 0.135])
+        trend_width, table_left = (0.46, 0.56) if key == "slot" else (0.41, 0.505)
+        ax = fig.add_axes([0.055, top - 0.205, trend_width, 0.135])
         _trend(ax, series, root, key, ids, days, "annualized_basis_pct", annual=True)
         ax.tick_params(axis="both", labelsize=11)
         _quantile_table(
-            fig.add_axes([0.56, top - 0.205, 0.395, 0.135]),
+            fig.add_axes([table_left, top - 0.205, 0.955 - table_left, 0.135]),
             quantiles[quantiles.root.eq(root)],
             key,
             table_ids,
@@ -351,6 +362,7 @@ def trends(
     days = sorted(panel.loc[panel.trade_date.le(end), "trade_date"].unique())[
         -sessions:
     ]
+    cross_days = _calendar_chart_days(panel, end)
     single_metrics = (
         series_metrics(panel, end, "slot") if single_metrics is None else single_metrics
     )
@@ -358,7 +370,8 @@ def trends(
         series_metrics(spreads, end, "pair") if cross_metrics is None else cross_metrics
     )
     fig = plt.figure(figsize=(19, 26))
-    _header(fig, "去分红绝对基差与跨期", f"行情截至 {end:%Y-%m-%d}", note)
+    _header(fig, "去分红绝对基差与跨期",
+            f"行情截至 {end:%Y-%m-%d}  单合约近{sessions}个交易日  跨期走势近半年", note)
     for index, root in enumerate(ORDER):
         top = 0.94 - index * 0.225
         fig.text(
@@ -385,7 +398,7 @@ def trends(
                     COLORS[i] if key == "slot" else COLORS[i + 1],
                 )
             ax = fig.add_axes([x, top - 0.205, width, 0.135])
-            _trend(ax, frame, root, key, ids, days, "basis_points")
+            _trend(ax, frame, root, key, ids, days if key == "slot" else cross_days, "basis_points")
             ax.tick_params(axis="both", labelsize=11)
     _save(fig, output)
 
