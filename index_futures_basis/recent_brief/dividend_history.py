@@ -62,18 +62,30 @@ def interpolate_history(matched, book, cutoff_offset):
     """Smooth retrospective observations using anchors known by the report cutoff."""
     cutoff_at = matched.pricing_at.max()
     cutoff_day = cutoff_at.normalize()
+    known = matched.calendar_known.eq(True) & matched.trade_date.le(cutoff_day)
+    sessions = matched.loc[known, "trade_date"].drop_duplicates().sort_values().tolist()
+
+    def effective_day(stamp):
+        day = stamp.normalize()
+        earliest = day + pd.Timedelta(days=1) if stamp - day > cutoff_offset else day
+        if sessions and day >= sessions[0]:
+            position = bisect_left(sessions, earliest)
+            if position < len(sessions):
+                return pd.Timestamp(sessions[position])
+        return earliest
+
     histories = {}
-    available = book[book.dividend_effective_at.le(cutoff_at)]
+    available = book[book.dividend_effective_at.le(matched.loc[known, "pricing_at"].max())]
     for contract, group in available.groupby("instrument_id"):
         histories[contract] = (group.dividend_effective_at.tolist(), list(group.itertuples(index=False)))
 
     borrowed = matched[matched.dividend_match.eq(PREVIOUS_CONTRACT)]
     borrowed_starts = borrowed.groupby(
         ["instrument_id", "dividend_source_contract", "dividend_effective_at"]).trade_date.transform("min")
-    valid = matched.calendar_known.eq(True) & matched.dividend_points.notna() & matched.trade_date.le(cutoff_day)
+    valid = known & matched.dividend_points.notna()
     changes = {}
     for row in matched[valid].itertuples():
-        start = borrowed_starts.get(row.Index, row.dividend_effective_at.normalize())
+        start = borrowed_starts.get(row.Index, effective_day(row.dividend_effective_at))
         if start >= row.trade_date:
             continue
         times, versions = histories.get(row.instrument_id, ([], []))
@@ -82,9 +94,7 @@ def interpolate_history(matched, book, cutoff_offset):
         if anchor is not None:
             if pd.isna(anchor.dividend_points):
                 continue
-            end = anchor.dividend_effective_at.normalize()
-            if anchor.dividend_effective_at - end > cutoff_offset:
-                end += pd.Timedelta(days=1)
+            end = effective_day(anchor.dividend_effective_at)
             if pd.notna(row.expiry_date) and end > row.expiry_date:
                 anchor = None
         if anchor is None:

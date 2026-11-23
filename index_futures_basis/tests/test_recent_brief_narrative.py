@@ -424,6 +424,44 @@ class NarrativeTests(unittest.TestCase):
             self.assertEqual(info["adjustment_audit"]["interpolated_dividend_rows"], 3)
             self.assertFalse(any(item["snapshot_date"] == "2026-01-12" for item in info["files"]))
 
+    def test_new_workbook_value_survives_a_later_snapshot_across_weekend(self):
+        from index_futures_basis.recent_brief.automation import input_fingerprint
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def save(day, points):
+                book = Workbook()
+                sheet = book.active
+                sheet.title = "Sheet1"
+                sheet["B1"], sheet["G3"] = day, "分红"
+                sheet["B4"], sheet["C4"], sheet["G4"] = "IF00.CFE", "IF2602.CFE", points
+                book.save(root/f"{day[:10]}.xlsx")
+                book.close()
+
+            days = pd.to_datetime(["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"])
+            p = pd.concat([panel().head(4).assign(trade_date=day) for day in days], ignore_index=True)
+            cfg = {"dividends": {"estimate_from_previous_contract": False}}
+            save("2026-01-02 15:30:00", 10)
+            first, _ = adjust(p[p.trade_date.le(days[1])], cfg, None, root)
+            value = first.loc[first.slot.eq(1) & first.trade_date.eq(days[1])].iloc[0]
+            self.assertEqual(value.dividend_points, 10)
+            self.assertFalse(value.dividend_is_estimated)
+
+            args = SimpleNamespace(snapshot=root/"market.json", dividends=root, no_volume_supplement=True)
+            before = input_fingerprint(args)
+            save("2026-01-07 15:30:00", 0)
+            self.assertNotEqual(before, input_fingerprint(args))
+            revised, _ = adjust(p, cfg, None, root)
+            contract = revised[revised.slot.eq(1)].set_index("trade_date")
+            self.assertEqual(contract.loc[days[1], "dividend_points"], 10)
+            self.assertFalse(contract.loc[days[1], "dividend_is_estimated"])
+            self.assertAlmostEqual(contract.loc[days[2], "dividend_points"], 20/3)
+            self.assertEqual(contract.loc[days[2], "dividend_anchor_date"], days[1])
+            self.assertEqual(contract.loc[days[2], "dividend_end_date"], days[-1])
+            self.assertEqual(contract.loc[days[-1], "dividend_points"], 0)
+            self.assertFalse(contract.loc[days[-1], "dividend_is_estimated"])
+
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
         self.assertEqual(classify_path(values,60)['shape'],'widen_narrow_widen')
