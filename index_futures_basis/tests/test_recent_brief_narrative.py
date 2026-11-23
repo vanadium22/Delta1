@@ -299,6 +299,49 @@ class NarrativeTests(unittest.TestCase):
                              "实际合约代码异常 1", "01-02 至 01-05"):
                 self.assertIn(expected, report)
 
+    def test_pending_contract_in_workbook_older_than_report_window(self):
+        from index_futures_basis.recent_brief.data import load_market
+        from index_futures_basis.store import Store
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            business_day, observation = "2025-09-30", "2025-10-09"
+            store = Store(root / "market.sqlite")
+            store.save_calendar(business_day, observation, {business_day, observation})
+            store.save_rows("mapping", [
+                (business_day, "IF", 2, "IF2510.CFE"),
+                (business_day, "IF", 3, "IF2511.CFE"),
+                (business_day, "IF", 4, "IF2511.CFE"),  # ambiguous source-day mapping
+                ("2025-10-01", "IF", 4, "IF2512.CFE"),  # non-trading day
+                (observation, "IF", 1, "IF2510.CFE"),
+                (observation, "IF", 2, "IF2511.CFE"),
+            ])
+            store.save_rows("contracts", [("IF2510.CFE", "2025-10-17")])
+            store.save_rows("quotes", [("IF2510.CFE", observation, "close", 1010),
+                                       ("000300.SH", observation, "close", 1000)])
+            earlier = {}
+            p, _, _, cfg, paths = load_market(database=store.path, as_of="2026-11-20",
+                                               earlier_mappings=earlier)
+            self.assertEqual(earlier, {(business_day, "IF01.CFE"): "IF2510.CFE"})
+            self.assertEqual(p.trade_date.min(), pd.Timestamp(observation))
+            file = root / "archived.xlsx"
+            book = Workbook()
+            sheet = book.active
+            sheet.title = "Sheet1"
+            sheet["B1"], sheet["G3"] = business_day, "分红"
+            sheet["B4"], sheet["C4"], sheet["G4"] = "IF01.CFE", "Fetching...", 5
+            sheet["B5"], sheet["C5"], sheet["G5"] = "IF02.CFE", "IF02.CFE", 9
+            book.save(file)
+            book.close()
+
+            result, info = adjust(p, cfg, paths, file, earlier_mappings=earlier)
+            matched = result.loc[result.dividend_points.notna()].iloc[0]
+            self.assertEqual(matched.instrument_id, "IF2510.CFE")
+            self.assertEqual(matched.dividend_source_date, pd.Timestamp(business_day))
+            self.assertEqual(matched.basis_points, 15)
+            self.assertEqual(info["input_inventory"][0]["bound_rows"], 1)
+            self.assertEqual(info["input_inventory"][0]["rejected_rows"], {"no_business_day_mapping": 1})
+
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
         self.assertEqual(classify_path(values,60)['shape'],'widen_narrow_widen')

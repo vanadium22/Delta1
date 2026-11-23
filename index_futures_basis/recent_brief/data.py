@@ -1,6 +1,7 @@
 """Freeze local evidence; preserve missing values and actual contract identities."""
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import contextmanager
 import hashlib
 import json
@@ -41,7 +42,16 @@ class ReadOnlyStore(Store):
             con.close()
 
 
-def load_market(snapshot=None, database=None, as_of=None):
+def earlier_contract_mappings(store, through):
+    calendar = store.calendar("", through)
+    mappings = store.mappings("", through)
+    occurrences = Counter((day, contract) for (day, _, _), contract in mappings.items())
+    return {(day, f"{root}{slot - 1:02d}.CFE"): contract
+            for (day, root, slot), contract in mappings.items()
+            if calendar.get(day) == 1 and occurrences[day, contract] == 1}
+
+
+def load_market(snapshot=None, database=None, as_of=None, *, earlier_mappings=None):
     paths = DataPaths.for_module(ROOT)
     config = load_config()
     if snapshot:
@@ -81,7 +91,8 @@ def load_market(snapshot=None, database=None, as_of=None):
             raise ValueError("没有可用的本地真实行情；请指定 --snapshot 或 --database。不会自动下载或生成演示。")
         store, latest = max(stores, key=lambda item: item[1])
         cutoff = pd.Timestamp(as_of or latest)
-        start = str((cutoff - pd.DateOffset(months=13) - pd.Timedelta(days=15)).date())
+        start = cutoff.normalize() - pd.DateOffset(months=13) - pd.Timedelta(days=15)
+        start_day, end_day = start.date().isoformat(), cutoff.date().isoformat()
         with store.connection() as con:
             con.execute("BEGIN")
             # All adapter reads share this transaction and one SQLite snapshot.
@@ -90,10 +101,13 @@ def load_market(snapshot=None, database=None, as_of=None):
                 def connection(self):
                     yield con
             frozen = Frozen(store.path)
-            panel, availability = local_panel(frozen, start, str(cutoff.date()))
-            quotes = frozen.quotes(start, str(cutoff.date()))
+            panel, availability = local_panel(frozen, start_day, end_day)
+            quotes = frozen.quotes(start_day, end_day)
             panel["volume"] = [quotes.get((r.instrument_id, str(r.trade_date.date()), "volume"), np.nan)
                                for r in panel.itertuples()]
+            if earlier_mappings is not None:
+                through = (start - pd.Timedelta(days=1)).date().isoformat()
+                earlier_mappings.update(earlier_contract_mappings(frozen, through))
             source = {"kind": "sqlite", "path": str(store.path), "source": frozen.meta("source", {}),
                       "availability": availability}
     source_text = json.dumps(source, ensure_ascii=False).lower()
@@ -156,7 +170,8 @@ def add_volumes(panel, dataset):
                     "limitation": "修订后日线；仅按交易日与实际合约匹配成交量，不代表历史当时可知。"}
 
 
-def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen_inputs=None):
+def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen_inputs=None,
+           earlier_mappings=None):
     cfg = dict(config["dividends"])
     cfg["allow_missing_values"] = True
     dividends = pd.DataFrame(columns=["trade_date", "code", "dividend_points"])
@@ -171,7 +186,8 @@ def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen
             info = {"application": "exact_date", "snapshot_date": "缺失", "reason": str(exc)}
     else:
         from .dividend_history import align_history
-        aligned, info = align_history(panel, config, paths, dividend_file, frozen_inputs=frozen_inputs)
+        aligned, info = align_history(panel, config, paths, dividend_file, frozen_inputs=frozen_inputs,
+                                      earlier_mappings=earlier_mappings)
         dividends = panel[["trade_date", "instrument_id"]].rename(columns={"instrument_id": "code"})
         dividends = dividends.assign(dividend_points=aligned.dividend_points).dropna()
     result = attach_dividends(panel, dividends, panel.trade_date.min(),

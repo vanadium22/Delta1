@@ -19,7 +19,7 @@ SOURCE_COLUMNS = ["dividend_source_date", "dividend_effective_at", "dividend_sou
 PENDING_CONTRACT = {"", "FETCHING...", "FETCHING…", "#GETTING_DATA", "#GETTING_DATA!"}
 
 
-def align_history(panel, config, paths, explicit, *, frozen_inputs=None):
+def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier_mappings=None):
     files, stores = history_paths(ROOT, config, paths, explicit)
     cutoff_offset = pd.Timedelta(hours=config.get("close_hour", 15), minutes=config.get("close_minute", 5))
     now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
@@ -42,6 +42,7 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None):
             errors.append({"path": str(path), "error": str(exc)})
     known = panel[panel.calendar_known.eq(True) & panel.instrument_id.ne("")]
     mappings = known.set_index(["trade_date", "continuous_code"]).instrument_id
+    earlier_mappings = earlier_mappings or {}
     for path in files:
         entry = {"path": str(path)}
         inventory.append(entry)
@@ -70,8 +71,9 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None):
                 continue
             actual = row.source_contract
             match = "actual_contract_in_workbook"
-            if actual in PENDING_CONTRACT:
-                actual = mappings.get((row.trade_date, row.code), "")
+            if actual in PENDING_CONTRACT or actual == row.code:
+                actual = mappings.get((row.trade_date, row.code), "") or earlier_mappings.get(
+                    (info["snapshot_date"], row.code), "")
                 match = "actual_contract_from_workbook_date_mapping"
                 if not actual:
                     rejected["no_business_day_mapping"] += 1

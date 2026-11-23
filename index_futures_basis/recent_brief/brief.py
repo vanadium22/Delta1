@@ -121,7 +121,9 @@ def explanations(panel, spreads, single_q, end, cross_q=None, *, unadjusted=Fals
 
 
 def build(args, *, inputs_ready=None):
-    panel, end, source, config, paths = load_market(args.snapshot, args.database, args.as_of)
+    earlier_mappings = {}
+    panel, end, source, config, paths = load_market(
+        args.snapshot, args.database, args.as_of, earlier_mappings=earlier_mappings)
     volume_info = {"status": "未使用额外成交量来源"}
     dataset = args.volume_dataset
     if dataset is None and not args.no_volume_supplement:
@@ -143,7 +145,8 @@ def build(args, *, inputs_ready=None):
         raise ValueError(f"输出目录已有批次，请换一个 --output 路径：{out}")
     raw = out / RAW_DIRECTORY
     frozen_inputs = {}
-    adjusted_panel, dividend_info = adjust(panel, config, paths, args.dividends, frozen_inputs=frozen_inputs)
+    adjusted_panel, dividend_info = adjust(panel, config, paths, args.dividends, frozen_inputs=frozen_inputs,
+                                           earlier_mappings=earlier_mappings)
     if inputs_ready is not None:
         inputs_ready(adjusted_panel, dividend_info, end, source)
     raw_panel, raw_info = adjust(panel, config, paths, unadjusted=True)

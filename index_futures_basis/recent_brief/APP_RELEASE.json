@@ -1,5 +1,5 @@
 {
-  "release": "2026-11-23-brief-dividend-input-resilience",
+  "release": "2026-11-23-brief-dividend-business-day-mapping",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 13,
@@ -34,10 +34,10 @@
     "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 72,
+    "passed": 73,
     "resource_warnings_as_errors": true,
-    "brief": 72,
-    "diagnostics": "original pending contract cells, a corrupt workbook and source replacement after read; both report pairs and frozen input hash verified"
+    "brief": 73,
+    "diagnostics": "original July workbook recovered in both-report build; dated mappings outside the brief window verified with a read-only SQLite fixture"
   },
   "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
   "example_market_date": "2026-10-15",
