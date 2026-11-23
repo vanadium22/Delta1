@@ -142,18 +142,20 @@ def build(args, *, inputs_ready=None):
     if (out / "run_manifest.json").exists() or (out / RAW_DIRECTORY / "run_manifest.json").exists():
         raise ValueError(f"输出目录已有批次，请换一个 --output 路径：{out}")
     raw = out / RAW_DIRECTORY
-    adjusted_panel, dividend_info = adjust(panel, config, paths, args.dividends)
+    frozen_inputs = {}
+    adjusted_panel, dividend_info = adjust(panel, config, paths, args.dividends, frozen_inputs=frozen_inputs)
     if inputs_ready is not None:
         inputs_ready(adjusted_panel, dividend_info, end, source)
     raw_panel, raw_info = adjust(panel, config, paths, unadjusted=True)
     charts.setup()
     _build_version(raw_panel, raw_info, end, source, config, volume_info, args, created, raw, unadjusted=True)
-    _build_version(adjusted_panel, dividend_info, end, source, config, volume_info, args, created, out, raw_folder=raw)
+    _build_version(adjusted_panel, dividend_info, end, source, config, volume_info, args, created, out,
+                   raw_folder=raw, frozen_inputs=frozen_inputs)
     return out
 
 
 def _build_version(panel, dividend_info, end, source, config, volume_info, args, created, out,
-                   *, unadjusted=False, raw_folder=None):
+                   *, unadjusted=False, raw_folder=None, frozen_inputs=None):
     from .documents import RAW_DIRECTORY, SECTION_FIGURES, export_documents
     out.mkdir(parents=True, exist_ok=True)
     valuation = "unadjusted" if unadjusted else "adjusted"
@@ -211,7 +213,9 @@ def _build_version(panel, dividend_info, end, source, config, volume_info, args,
     if "files" not in dividend_info and dividend_info.get("path") and dividend_info.get("sha256"):
         snapshots = [dividend_info]
     for snapshot in snapshots:
-        dividend_bytes = Path(snapshot["path"]).read_bytes()
+        dividend_bytes = (frozen_inputs or {}).get(snapshot["sha256"])
+        if dividend_bytes is None:
+            dividend_bytes = Path(snapshot["path"]).read_bytes()
         digest = hashlib.sha256(dividend_bytes).hexdigest()
         if digest != snapshot["sha256"]:
             raise ValueError("分红源文件在读取后已变化，请重新生成")

@@ -8,6 +8,12 @@ import sys
 import traceback
 from uuid import uuid4
 
+UNBOUND_LABELS = {
+    "no_business_day_mapping": "缺表日映射",
+    "invalid_contract_code": "实际合约代码异常",
+    "invalid_effective_date": "生效时间早于表日",
+}
+
 
 def describe_inputs(write, panel, info, end, source):
     write(f"行情 {panel.trade_date.min():%Y-%m-%d} 至 {end:%Y-%m-%d}，"
@@ -26,6 +32,13 @@ def describe_inputs(write, panel, info, end, source):
             write(f"  {name}  表日 {entry['snapshot_date']}  档位 {entry['slots']}  "
                   f"有效G {entry['valid_points']}  可绑定 {entry['bound_rows']}  "
                   f"采用 {matched.get(entry['sha256'], 0)}")
+            issues = [f"{UNBOUND_LABELS[key]} {n}" for key, n in entry.get("rejected_rows", {}).items()]
+            if entry["slots"] > entry["valid_points"]:
+                issues.append(f"G列缺失或无有效缓存 {entry['slots'] - entry['valid_points']}")
+            if entry.get("mapped_from_history"):
+                issues.append(f"使用表日实际合约映射 {entry['mapped_from_history']}")
+            if issues:
+                write("    " + "  ".join(issues))
     for item in info.get("source_errors", []):
         if Path(item["path"]).suffix.lower() != ".xlsx":
             write(f"  {Path(item['path']).name}  读取失败  {item['error']}")
@@ -39,8 +52,11 @@ def describe_inputs(write, panel, info, end, source):
               f"缺分红 {missing.sum()}（其中同刻冲突 {conflicts.sum()}）  "
               f"未知日历 {group.loc[~group.calendar_known.eq(True), 'trade_date'].nunique()} 日")
         if missing.any():
-            counts = group.loc[missing].groupby("instrument_id").size()
-            write("    缺分红合约及条数  " + "  ".join(f"{code} {n}" for code, n in counts.items()))
+            gaps = group.loc[missing].groupby("instrument_id", as_index=False).agg(
+                count=("trade_date", "size"), first=("trade_date", "min"), last=("trade_date", "max"))
+            write("    缺分红合约、条数及首末日期  " + "  ".join(
+                f"{row.instrument_id} {row.count}（{row.first:%m-%d} 至 {row.last:%m-%d}）"
+                for row in gaps.itertuples(index=False)))
 
 
 def run(args, folder):
@@ -93,6 +109,11 @@ def run(args, folder):
                     for days, group in ranks.groupby("window_sessions"):
                         write(f"  {label2} {days} 日  完整历史 {group.complete.sum()}/{len(group)}  "
                               f"可显示当前分位 {group.percentile.notna().sum()}/{len(group)}")
+                        visible = group[group.percentile.notna()]
+                        if not visible.empty:
+                            labels = [f"{r.root}{r.slot - 1:02d}" if name == "basis_rank_tables"
+                                      else f"{r.root} {r.pair}" for r in visible.itertuples()]
+                            write("    " + "、".join(labels))
             write("结果：两套简报生成成功")
         except Exception:
             write("结果：生成失败")

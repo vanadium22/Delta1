@@ -156,7 +156,7 @@ def add_volumes(panel, dataset):
                     "limitation": "修订后日线；仅按交易日与实际合约匹配成交量，不代表历史当时可知。"}
 
 
-def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False):
+def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen_inputs=None):
     cfg = dict(config["dividends"])
     cfg["allow_missing_values"] = True
     dividends = pd.DataFrame(columns=["trade_date", "code", "dividend_points"])
@@ -171,7 +171,7 @@ def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False):
             info = {"application": "exact_date", "snapshot_date": "缺失", "reason": str(exc)}
     else:
         from .dividend_history import align_history
-        aligned, info = align_history(panel, config, paths, dividend_file)
+        aligned, info = align_history(panel, config, paths, dividend_file, frozen_inputs=frozen_inputs)
         dividends = panel[["trade_date", "instrument_id"]].rename(columns={"instrument_id": "code"})
         dividends = dividends.assign(dividend_points=aligned.dividend_points).dropna()
     result = attach_dividends(panel, dividends, panel.trade_date.min(),

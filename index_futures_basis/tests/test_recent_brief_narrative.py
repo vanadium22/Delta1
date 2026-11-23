@@ -262,6 +262,43 @@ class NarrativeTests(unittest.TestCase):
                 for expected in ("broken.xlsx  读取失败", "内容相同", "采用 1", "缺分红 7"):
                     self.assertIn(expected, report)
 
+    def test_pending_contract_uses_only_known_business_day_mapping_and_freezes_source(self):
+        from index_futures_basis.recent_brief.diagnostics import describe_inputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "pending.xlsx"
+            book = Workbook()
+            sheet = book.active
+            sheet.title = "Sheet1"
+            sheet["B1"], sheet["G3"] = "2026-01-02T07:00:00+00:00", " 分红 "
+            for slot, (code, points) in enumerate(
+                [(" Fetching… ", 5), ("IC2603.CFE", 6), ("Fetching...", None), ("#GETTING_DATA", 0)]
+            ):
+                row = slot + 4
+                sheet[f"B{row}"], sheet[f"C{row}"], sheet[f"G{row}"] = f"IF0{slot}.CFE", code, points
+            book.save(file)
+            book.close()
+            original = file.read_bytes()
+
+            p = panel()
+            end = p.trade_date.max()
+            p.loc[p.trade_date.lt(end) & p.slot.eq(4), "calendar_known"] = False
+            frozen_inputs = {}
+            result, info = adjust(p, {"dividends": {}}, None, file, frozen_inputs=frozen_inputs)
+            self.assertEqual(result.dividend_points.dropna().tolist(), [5., 5.])
+            self.assertEqual(result.dividend_source_date.dropna().unique().tolist(), [pd.Timestamp("2026-01-02")])
+            entry = info["input_inventory"][0]
+            self.assertEqual(entry["mapped_from_history"], 1)
+            self.assertEqual(entry["rejected_rows"], {"invalid_contract_code": 1, "no_business_day_mapping": 1})
+            file.write_bytes(b"producer is replacing the workbook")
+            self.assertEqual(frozen_inputs, {entry["sha256"]: original})
+            lines = []
+            describe_inputs(lines.append, result, info, end, {"kind": "sqlite", "path": "market.sqlite"})
+            report = "\n".join(lines)
+            for expected in ("使用表日实际合约映射 1", "G列缺失或无有效缓存 1", "缺表日映射 1",
+                             "实际合约代码异常 1", "01-02 至 01-05"):
+                self.assertIn(expected, report)
+
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
         self.assertEqual(classify_path(values,60)['shape'],'widen_narrow_widen')

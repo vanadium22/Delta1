@@ -1,5 +1,5 @@
 {
-  "release": "2026-11-23-brief-history-diagnostics",
+  "release": "2026-11-23-brief-dividend-input-resilience",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 13,
@@ -34,10 +34,10 @@
     "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 71,
+    "passed": 72,
     "resource_warnings_as_errors": true,
-    "brief": 71,
-    "diagnostics": "two historical workbooks, both document pairs, and persisted missing-market failure"
+    "brief": 72,
+    "diagnostics": "original pending contract cells, a corrupt workbook and source replacement after read; both report pairs and frozen input hash verified"
   },
   "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
   "example_market_date": "2026-10-15",

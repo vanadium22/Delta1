@@ -203,7 +203,7 @@ def read_latest_snapshot(config, base):
     return data, info
 
 
-def read_continuous_snapshot(path, config, *, include_contracts=False):
+def read_continuous_snapshot(path, config, *, include_contracts=False, source_bytes=None):
     """A supplied static dividend assumption per 00..03 slot, not historical forecasts.
 
     Excel formulas are never executed and the original workbook is never saved.
@@ -212,7 +212,8 @@ def read_continuous_snapshot(path, config, *, include_contracts=False):
     from openpyxl import load_workbook
     from openpyxl.utils.cell import column_index_from_string
 
-    source_bytes = Path(path).read_bytes()
+    if source_bytes is None:
+        source_bytes = Path(path).read_bytes()
     workbook = load_workbook(io.BytesIO(source_bytes), read_only=True, data_only=True)
     sheet_name = config.get("sheet", "Sheet1")
     try:
@@ -220,10 +221,18 @@ def read_continuous_snapshot(path, config, *, include_contracts=False):
         date_cell = config.get("snapshot_date_cell", "B1")
         cached_date = sheet[date_cell].value
         snapshot_date = dates(pd.Series([cached_date]), "分红快照日期").iloc[0]
+        if include_contracts:
+            effective_at = pd.Timestamp(cached_date)
+            if effective_at.tzinfo is not None:
+                effective_at = effective_at.tz_convert("Asia/Shanghai").tz_localize(None)
+            snapshot_date = effective_at.normalize()
         code_col = config.get("code_column", "B")
         dividend_col = config.get("dividend_column", "G")
         header_row = int(config.get("header_row", 3))
-        if sheet[f"{dividend_col}{header_row}"].value != "分红":
+        header = sheet[f"{dividend_col}{header_row}"].value
+        if include_contracts and isinstance(header, str):
+            header = header.strip()
+        if header != "分红":
             raise ValueError(f"{sheet.title}!{dividend_col}{header_row} 不是“分红”，请核对配置，不能误用期间分红列")
         records, cells = [], {}
         code_index = column_index_from_string(code_col) - 1
@@ -263,7 +272,7 @@ def read_continuous_snapshot(path, config, *, include_contracts=False):
                 "cells": cells, "mapping_key": "continuous_code",
                 "limitation": "Single-date static assumptions applied to each continuous slot across the entire history; not point-in-time historical dividend forecasts."}
         if include_contracts:
-            info["effective_from"] = pd.Timestamp(cached_date).isoformat()
+            info["effective_from"] = effective_at.isoformat()
         return d, info
     finally:
         workbook.close()
