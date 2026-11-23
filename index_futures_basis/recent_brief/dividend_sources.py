@@ -23,18 +23,23 @@ def profile_files(paths):
     return [base/p/'native.json' for p in ('app', 'numeric_excel', '')]
 
 
-def local_directories(module_root, config, paths):
-    cfg = config["dividends"]
+def configured_directories(module_root, config, paths):
+    folders = config["dividends"].get("directories", [])
     if paths is None:
-        return [str(Path(module_root)/p) for p in cfg.get("directories", []) if is_local(p)]
-    candidates = [str(paths.resolve_module_setting(module_root,p,paths.dividend_inputs,("inputs","input")))
-                  for p in cfg.get("directories", [])]
+        return [str(Path(module_root)/p) for p in folders if is_local(p)]
+    return [str(paths.resolve_module_setting(module_root, p, paths.dividend_inputs, ("inputs", "input")))
+            for p in folders]
+
+
+def local_directories(module_root, config, paths):
+    candidates = configured_directories(module_root, config, paths)
+    if paths is None:
+        return candidates
     candidates.append(str(paths.dividend_inputs))
     if hasattr(paths, "dividend_archive"):
         candidates.append(str(paths.dividend_archive))
     # A supplied isolated DataPaths determines the scope; never walk ancestors.
     if hasattr(paths, "repo_root"):
-        dashboard = paths.repo_root/"dashboard"
         for file in profile_files(paths):
             try:
                 settings = json.loads(file.read_text(encoding="utf-8-sig")) if file.is_file() else {}
@@ -68,12 +73,19 @@ def history_paths(module_root, config, paths, explicit=None):
         directories = [source] if source.is_dir() else []
         if not directories:
             return [source], []
+        recursive = {source}
     else:
         directories = list(map(Path, local_directories(module_root, config, paths)))
+        recursive = set(map(Path, configured_directories(module_root, config, paths)))
+        recursive.update(Path(folder) for key in ("dividend_inputs", "dividend_archive")
+                         if (folder := getattr(paths, key, None)) is not None)
     files = []
     for directory in directories:
-        files.extend(sorted(directory.glob("*.xlsx")))
-        files.extend(sorted((directory / "history").rglob("*.xlsx")))
+        if directory in recursive:
+            files.extend(sorted(directory.rglob("*.xlsx")))
+        else:
+            files.extend(sorted(directory.glob("*.xlsx")))
+            files.extend(sorted((directory / "history").rglob("*.xlsx")))
     sources = list(dict.fromkeys(p.resolve() for p in files if not p.name.startswith(("~$", "."))))
     stores = list(dict.fromkeys(p / "records.sqlite" for p in directories))
     return sources, stores

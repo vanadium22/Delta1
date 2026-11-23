@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
@@ -225,6 +226,41 @@ class NarrativeTests(unittest.TestCase):
             raw, _ = adjust(p, cfg, paths, unadjusted=True)
             np.testing.assert_allclose(raw.basis_points, raw.futures_close-raw.spot_close)
             self.assertTrue(raw.dividend_points.isna().all())
+
+    def test_nested_history_survives_bad_workbook_and_mixed_datetime_precision(self):
+        from index_futures_basis.recent_brief.diagnostics import describe_inputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            month = root / "2026" / "01"
+            month.mkdir(parents=True)
+            book = Workbook()
+            sheet = book.active
+            sheet.title = "Sheet1"
+            sheet["B1"], sheet["G3"] = "2026-01-05", "分红"
+            sheet["B4"], sheet["C4"], sheet["G4"] = "IF00.CFE", "IF2602.CFE", 0
+            file = month / "day.xlsx"
+            book.save(file)
+            book.close()
+            (month / "duplicate.xlsx").write_bytes(file.read_bytes())
+            with ZipFile(file) as good, ZipFile(month / "broken.xlsx", "w") as bad:
+                for part in good.namelist():
+                    bad.writestr(part, b"<broken" if part == "xl/worksheets/sheet1.xml" else good.read(part))
+            p = panel()
+            p["trade_date"] = p.trade_date.astype("datetime64[ns]")
+            cfg = {"dividends": {"directories": [str(root)]}}
+            paths = SimpleNamespace(dividend_inputs=root, resolve_module_setting=lambda *a: root)
+            for explicit in (root, None):
+                result, info = adjust(p, cfg, paths, explicit)
+                self.assertEqual(len(info["input_inventory"]), 3)
+                self.assertEqual(len(info["files"]), 1)
+                self.assertEqual(len(info["source_errors"]), 1)
+                self.assertEqual(result.dividend_points.dropna().tolist(), [0.0])
+                lines = []
+                describe_inputs(lines.append, result, info, p.trade_date.max(), {"kind": "sqlite", "path": "market.sqlite"})
+                report = "\n".join(lines)
+                for expected in ("broken.xlsx  读取失败", "内容相同", "采用 1", "缺分红 7"):
+                    self.assertIn(expected, report)
 
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]

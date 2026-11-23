@@ -1,5 +1,5 @@
 {
-  "release": "2026-11-20-dated-contract-dividends-dual-reports",
+  "release": "2026-11-23-brief-history-diagnostics",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 13,
@@ -34,11 +34,10 @@
     "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 83,
+    "passed": 71,
     "resource_warnings_as_errors": true,
-    "brief": 70,
-    "desktop": 13,
-    "desktop_temp_directory": "workspace QA directory; avoids Windows redirected Temp atomic-rename WinError 650"
+    "brief": 71,
+    "diagnostics": "two historical workbooks, both document pairs, and persisted missing-market failure"
   },
   "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
   "example_market_date": "2026-10-15",

@@ -22,6 +22,7 @@ def align_history(panel, config, paths, explicit):
     cutoff_offset = pd.Timedelta(hours=config.get("close_hour", 15), minutes=config.get("close_minute", 5))
     now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
     errors, cached, records, sources = [], {}, [], {}
+    inventory = []
     for path in stores:
         try:
             for row in DividendStore(path.parent).read():
@@ -37,14 +38,23 @@ def align_history(panel, config, paths, explicit):
     known = panel[panel.calendar_known.eq(True) & panel.instrument_id.ne("")]
     mappings = known.set_index(["trade_date", "continuous_code"]).instrument_id
     for path in files:
+        entry = {"path": str(path)}
+        inventory.append(entry)
         try:
             rows, info = read_continuous_snapshot(path, {**config["dividends"], "allow_missing_values": True},
                                                   include_contracts=True)
-        except (OSError, ValueError, KeyError, TypeError, BadZipFile, InvalidFileException) as exc:
+        except (OSError, ValueError, KeyError, IndexError, TypeError, SyntaxError, BadZipFile, InvalidFileException) as exc:
             errors.append({"path": str(path), "error": str(exc)})
+            entry["error"] = f"{type(exc).__name__}: {exc}"
             continue
         digest = info["sha256"]
-        sources.setdefault(digest, {k: info[k] for k in ("path", "sha256", "snapshot_date", "date_cell")})
+        entry.update(sha256=digest, snapshot_date=info["snapshot_date"], slots=len(rows),
+                     valid_points=int(rows.dividend_points.notna().sum()))
+        if digest in sources:
+            entry["duplicate_of"] = sources[digest]["path"]
+            continue
+        sources[digest] = {k: info[k] for k in ("path", "sha256", "snapshot_date", "date_cell")}
+        before = len(records)
         for row in rows.itertuples():
             if not np.isfinite(row.dividend_points):
                 continue
@@ -62,6 +72,7 @@ def align_history(panel, config, paths, explicit):
                             "dividend_source_date": row.trade_date, "dividend_effective_at": effective,
                             "dividend_source_sha256": digest, "dividend_source_cell": info["cells"][row.code],
                             "dividend_match": match})
+        entry["bound_rows"] = len(records) - before
     left = panel[["trade_date", "instrument_id"]].copy()
     left["order"] = np.arange(len(left))
     left["pricing_at"] = (left.trade_date + cutoff_offset).clip(upper=now)
@@ -72,6 +83,9 @@ def align_history(panel, config, paths, explicit):
         book.loc[conflicts, "dividend_points"] = np.nan
         book.loc[conflicts, "dividend_match"] = "conflicting_same_effective_time"
         book = book.sort_values("dividend_effective_at", kind="stable").drop_duplicates(key)
+        # pandas 3 preserves input precision; merge_asof requires identical units.
+        left["pricing_at"] = left.pricing_at.astype("datetime64[ns]")
+        book["dividend_effective_at"] = book.dividend_effective_at.astype("datetime64[ns]")
         matched = pd.merge_asof(left.sort_values("pricing_at"), book, left_on="pricing_at",
                                 right_on="dividend_effective_at", by="instrument_id")
         matched = matched.sort_values("order")
@@ -88,7 +102,7 @@ def align_history(panel, config, paths, explicit):
             "application": "dated_actual_contract", "selection": "latest_known_same_contract_at_cutoff",
             "first_used_source_date": str(dates.min().date()) if len(dates) else None,
             "oldest_current_source_date": str(current.dividend_source_date.min().date()) if len(current) else None,
-            "files": [sources[sha] for sha in sorted(used)], "source_errors": errors,
+            "files": [sources[sha] for sha in sorted(used)], "source_errors": errors, "input_inventory": inventory,
             "cutoff_shanghai": f"{config.get('close_hour', 15):02d}:{config.get('close_minute', 5):02d}",
             "date_only_policy": "用可信表内业务日，未归档时不推定日内发布时间"}
     if not records or not len(dates):
