@@ -67,6 +67,7 @@ class NarrativeTests(unittest.TestCase):
         self.assertEqual(result["annualized"]["selected"], [])
         self.assertEqual(result["activity"]["selected"], [])
         self.assertIn("未见明显", result["text"])
+        self.assertIn("四品种均持仓平稳、成交平稳", result["sections"][2]["text"])
         self.assertEqual({r["window"] for r in result["activity"]["features"]}, {7,30,60})
         json.dumps(result,allow_nan=False)
 
@@ -133,6 +134,7 @@ class NarrativeTests(unittest.TestCase):
         p.loc[p.root.eq("IF") & p.slot.eq(1) & p.trade_date.eq(days[-2]), "volume"] = np.nan
         result = self.compose(p)
         self.assertFalse(any(r["root"] == "IF" and r["metric"] == "volume" for r in result["activity"]["features"]))
+        self.assertIn("IF持仓平稳、成交可比数据不足", result["sections"][2]["text"])
 
     def test_next_month_comment_groups_products_and_excludes_rolls(self):
         p = self.history()
@@ -156,7 +158,7 @@ class NarrativeTests(unittest.TestCase):
         result = compose(p, spreads, None, None, None, days[-1])
         text = result['sections'][1]['text']
         self.assertIn('调整后价差均为负，远腿低于近腿', text)
-        self.assertIn('IF 03−02当前-50.00点', text)
+        self.assertNotIn('IF 03−02当前-50.00点', text)
         self.assertIn('IF 03−02当前-30.00%', text)
         self.assertIn('前180个交易日', text)
         self.assertIn('样本含换月', text)
@@ -164,6 +166,42 @@ class NarrativeTests(unittest.TestCase):
         self.assertEqual(selected['n'], 180)
         self.assertIsNone(selected['change'])
         self.assertFalse(selected['volatility_expansion'])
+
+    def test_cross_names_two_annual_exceptions_and_uses_rank_table(self):
+        days = pd.bdate_range("2025-01-01", periods=181)
+        base = self.history().tail(16)
+        p = pd.concat([base.assign(trade_date=day) for day in days], ignore_index=True)
+        spreads = calendar_series(p)
+        end = days[-1]
+        for root, current in (("IF", -30), ("IH", -20)):
+            target = spreads.root.eq(root) & spreads.pair.eq("03−02")
+            spreads.loc[target & spreads.trade_date.eq(end), "annualized_basis_pct"] = current
+        spreads.loc[spreads.root.eq("IF") & spreads.trade_date.eq(days[-4]), "dividend_is_estimated"] = True
+        spreads.loc[spreads.root.eq("IM") & spreads.pair.eq("03−02")
+                    & spreads.trade_date.eq(days[-12]), "annualized_basis_pct"] = np.nan
+        ranks = multi_session_quantiles(spreads, end, "pair")
+        report = compose(p, spreads, None, ranks, None, end)
+        selected = report["calendar"]["annualized_selected"]
+        self.assertEqual({(r["root"], r["pair"]) for r in selected}, {("IF", "03−02"), ("IH", "03−02")})
+        for row in selected:
+            r = ranks.set_index(["root", "pair", "window_sessions"]).loc[row["root"], row["pair"], row["window"]]
+            self.assertEqual((row["current"], row["mean"], row["percentile"]), (r.current, r["mean"], r.percentile))
+        text = report["sections"][1]["text"]
+        self.assertIn("含分红估算", text)
+        self.assertIn("IC跨期年化未见明显异动", text)
+        self.assertIn("IM部分跨期历史不足", text)
+
+    def test_next_month_distinguishes_dividend_driven_move(self):
+        p = self.history()
+        last_if = p.root.eq("IF") & p.slot.eq(2) & p.trade_date.eq(p.trade_date.max())
+        p.loc[last_if, "dividend_points"] += 2
+        p.loc[last_if, "annualized_basis_pct"] += 2 * 36500 / 1000 / 60
+        report = self.compose(p)
+        text = report["sections"][0]["text"]
+        self.assertIn("IF次月合约近7个交易日年化变化含分红调整影响", text)
+        self.assertNotIn("贴水收敛", text)
+        changes = {row["root"]: row for row in report["annualized"]["next_month_changes"]}
+        self.assertAlmostEqual(changes["IF"]["change_at_start_dividend_pp"], 0)
 
     def test_price_cards_show_raw_prices_and_genuine_zero_dividend(self):
         p = panel()
@@ -498,7 +536,7 @@ class NarrativeTests(unittest.TestCase):
         days=sorted(p.trade_date.unique())
         p.loc[p.root.eq('IC') & p.trade_date.eq(days[-1]),'open_interest'] *= 1.15
         report=self.compose(p)
-        self.assertIn('IC四合约总持仓处于近期高位',report['text'])
+        self.assertIn('IC四合约总持仓处于近60个交易日高位',report['text'])
         self.assertNotIn('对冲需求显著',report['text'])
         json.dumps(report,allow_nan=False)
 

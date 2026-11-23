@@ -75,13 +75,14 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
         item = {'root':root}
         for key, label, slots in (('near','近月00/01',(1,2)), ('far','远月02/03',(3,4)), ('all','四档整体',(1,2,3,4))):
             part = panel[panel.root.eq(root) & panel.slot.isin(slots) & panel.trade_date.isin(calendar)]
-            grouped = part.groupby('trade_date').agg(
+            grouped = part.assign(estimated=part.get("dividend_is_estimated", False)).groupby('trade_date').agg(
                 count=('slot','size'), unique=('slot','nunique'),
                 known=('calendar_known',lambda v: v.eq(True).all()),
                 days_count=('days_to_expiry',lambda v: np.isfinite(v).sum()),
                 min_days=('days_to_expiry','min'),
                 value_count=('annualized_basis_pct',lambda v: np.isfinite(v).sum()),
-                mean=('annualized_basis_pct','mean'), roll=('roll_day','any')).reindex(calendar)
+                mean=('annualized_basis_pct','mean'), roll=('roll_day','any'),
+                estimated=('estimated','any')).reindex(calendar)
             present = grouped['count'].eq(len(slots)) & grouped.unique.eq(len(slots))
             known = present & grouped.known.eq(True) & grouped.days_count.eq(len(slots))
             expired = known & grouped.min_days.lt(1)
@@ -101,6 +102,8 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
             row = {'slots':[f'{s-1:02d}' for s in slots], 'mean_pct':now, 'percentile':rank,
                    'current_status':'expired' if bool(expired.loc[end]) else 'missing' if now is None else 'valid',
                    'window_sessions':sessions, 'complete':complete, 'n':len(sample),
+                   'estimated_sample_n':int(grouped.loc[sample.index, 'estimated'].eq(True).sum()),
+                   'current_dividend_is_estimated':bool(now is not None and grouped.estimated.eq(True).loc[end]),
                    'expiry_excluded_n':int((~eligible).sum()),
                    'window_start':_date(history_days.min()) if len(history_days) else None,
                    'window_end_exclusive':str(end.date()),
@@ -132,6 +135,10 @@ def annualized_current(panel, end, sessions=ANNUAL_RANK_SESSIONS):
             far_text = f"远月02/03均值{far['mean_pct']:.2f}%（{rank_text}）"
         item['text'] = f'{root} {near_text}，{far_text}。'
         evidence.append(item); sentences.append(item['text'])
+    far_groups = [item['far'] for item in evidence]
+    if any(row['percentile'] is not None and (row['estimated_sample_n'] or row['current_dividend_is_estimated'])
+           for row in far_groups):
+        sentences.append('远月分位含分红估算。')
     material = sorted((r for r in recent if r['noteworthy']), key=lambda r:-abs(r['change_pp']))
     selected, used = [], set()
     for row in material:

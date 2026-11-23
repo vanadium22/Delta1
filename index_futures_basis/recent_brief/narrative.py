@@ -10,7 +10,7 @@ import pandas as pd
 from .data import CALENDAR_RANK_SESSIONS, ORDER, PAIRS, activity_totals
 from .overview import annualized_current
 
-RULE_VERSION = "descriptive-tree-v7"
+RULE_VERSION = "descriptive-tree-v8"
 WINDOWS = (30, 60)
 
 
@@ -155,16 +155,24 @@ def _annual_state(features):
 
 def _next_month(panel, end):
     days = sorted(panel.loc[panel.trade_date.le(end),'trade_date'].unique())[-8:]
-    evidence, grouped = [], {}
+    evidence, grouped, dividend_effects = [], {}, []
     if len(days) == 8:
         for root in ORDER:
             group = _aligned(panel, days, root, 'slot', 2)
-            if not _complete(group, 'annualized_basis_pct') or not _stable_identity(group) or _dividend_changed(group):
+            if not _complete(group, 'annualized_basis_pct') or not _stable_identity(group):
                 continue
             previous, current = map(float, group.annualized_basis_pct.iloc[[0, -1]])
             delta = current - previous
+            dividend_change = 0.0
+            if _dividend_changed(group):
+                first, last = group.iloc[0], group.iloc[-1]
+                dividend_change = float((last.dividend_points-first.dividend_points) / last.spot_close
+                                        * 36500 / last.days_to_expiry)
+            comparable_change = delta - dividend_change
             direction = None
-            if abs(delta) >= 1:
+            if abs(delta) >= 1 and abs(dividend_change) >= .4:
+                dividend_effects.append(root)
+            if abs(delta) >= 1 and abs(comparable_change) >= 1 and delta * comparable_change > 0:
                 if previous <= 0 and current <= 0:
                     direction = '年化贴水扩大' if delta < 0 else '年化贴水收敛'
                 elif previous >= 0 and current >= 0:
@@ -173,19 +181,27 @@ def _next_month(panel, end):
                     direction = '由贴水转为升水' if delta > 0 else '由升水转为贴水'
                 grouped.setdefault(direction, []).append(root)
             evidence.append({'root': root, 'previous_pct': previous, 'current_pct': current,
-                             'change_pp': delta, 'direction': direction})
+                             'change_pp': delta, 'dividend_change_pp': dividend_change,
+                             'change_at_start_dividend_pp': comparable_change, 'direction': direction})
     clauses = [f"{'四品种' if len(roots) == len(ORDER) else '、'.join(roots)}次月合约{direction}"
                for direction, roots in grouped.items()]
     if clauses:
         text = '近7个交易日，' + '。'.join(clauses) + '。'
-    else:
+    elif not dividend_effects:
         text = '次月合约近7个交易日可比数据不足。' if not evidence else '次月合约近7个交易日可比数据未见明显变化。'
+    else:
+        text = ""
+    if dividend_effects:
+        names = "四品种" if len(dividend_effects) == len(ORDER) else "、".join(dividend_effects)
+        text += f"{names}次月合约近7个交易日年化变化含分红调整影响。"
     return text, evidence
 
 
-def _features(series, end, key, ids, field, windows=WINDOWS):
+def _features(series, end, key, ids, field, windows=WINDOWS, ranks=None):
     days = sorted(series.loc[series.trade_date.lt(end), "trade_date"].unique())
     rows = []
+    shared_ranks = (ranks.set_index(["root", key, "window_sessions"]).to_dict("index")
+                    if ranks is not None else None)
     for root in ORDER:
         for identity in ids:
             current = _aligned(series, [end], root, key, identity)
@@ -207,11 +223,18 @@ def _features(series, end, key, ids, field, windows=WINDOWS):
                 if not _complete(group, field):
                     continue
                 values = group[field].to_numpy(dtype=float)
-                mean, std = float(values.mean()), float(values.std())
+                if shared_ranks is not None:
+                    rank = shared_ranks.get((root, identity, window))
+                    if rank is None or not rank["complete"] or not np.isfinite(rank["percentile"]):
+                        continue
+                    now, mean, std, percentile = map(float, (rank["current"], rank["mean"],
+                                                              rank["std"], rank["percentile"]))
+                else:
+                    mean, std = float(values.mean()), float(values.std())
+                    percentile = 100*((values < now).sum()+.5*(values == now).sum())/len(values)
                 deviation = now-mean
                 floor = .4 if field == "annualized_basis_pct" else 3.
                 score = abs(deviation)/max(std, floor)
-                percentile = 100*((values < now).sum()+.5*(values == now).sum())/len(values)
                 recent_move = base_move = move_multiple = None
                 volatile = False
                 if (key != 'pair' or stable) and not _dividend_changed(combined):
@@ -229,14 +252,17 @@ def _features(series, end, key, ids, field, windows=WINDOWS):
                     "recent_mean_abs_move": recent_move, "reference_mean_abs_move": base_move,
                     "move_multiple": move_multiple, "volatility_expansion": volatile,
                     "roll": not stable if key == 'pair' else bool(combined.roll_day.eq(True).any()),
-                    "noteworthy": bool(level_extreme or volatile)})
+                    "noteworthy": bool(level_extreme or volatile),
+                    "contains_dividend_estimate": bool(combined["dividend_is_estimated"].eq(True).any())
+                    if "dividend_is_estimated" in combined else False})
     return rows
 
 
-def _picks(features, key, count=2):
+def _picks(features, key, count=2, *, preferred_window=None, exclude=()):
     candidates = sorted((f for f in features if f["noteworthy"]),
-                        key=lambda f: (-f["score"], -abs(f["percentile"]-50), -f["window"], f["root"], str(f[key])))
-    picked, used = [], set()
+                        key=lambda f: (preferred_window is not None and f["window"] != preferred_window,
+                                       -f["score"], -abs(f["percentile"]-50), -f["window"], f["root"], str(f[key])))
+    picked, used = [], set(exclude)
     for row in candidates:
         identity = (row["root"], row[key])
         if identity not in used:
@@ -252,19 +278,23 @@ def _exception_text(picks, key, annual=False):
     for row in picks:
         identity = f"{int(row[key])-1:02d}" if key == "slot" else " "+row[key]
         unit, value_unit = ("个百分点", "%") if annual else ("点", "点")
+        delta = row['deviation']
+        relation = f"{'低' if delta < 0 else '高'}{abs(delta):.2f}{unit}" if delta else "持平"
         text = (f"{row['root']}{identity}当前{row['current']:.2f}{value_unit}，"
-                f"较前{row['window']}个交易日均值{row['deviation']:+.2f}{unit}，"
-                f"处于P{row['percentile']:.1f}%")
-        if annual and row["current"] < 0 and row["percentile"] <= 10:
-            text += "，年化贴水较深"
+                f"较前{row['window']}个交易日均值{relation}，处于P{row['percentile']:.1f}%")
         if row.get("volatility_expansion"):
             text += f"，近7日日均变幅{row['recent_mean_abs_move']:.2f}{unit}"
             text += (f"，为此前{row['n']-7}日日均的{row['move_multiple']:.1f}倍"
                      if row['move_multiple'] is not None else f"，此前{row['n']-7}日基本无波动")
+        notes = []
         if row["roll"]:
-            text += "（连续档位，样本含换月）" if key == 'pair' else "，期间含换月"
+            notes.append("样本含换月")
+        if row["contains_dividend_estimate"]:
+            notes.append("含分红估算")
+        if notes:
+            text += "（"+"、".join(notes)+"）"
         clauses.append(text)
-    return "；".join(clauses)+"。" if clauses else ""
+    return "。".join(clauses)+"。" if clauses else ""
 
 
 def _activity(panel, end):
@@ -272,7 +302,7 @@ def _activity(panel, end):
     known = panel.groupby(["trade_date", "root"], as_index=False).calendar_known.all()
     totals = totals.merge(known, on=["trade_date", "root"])
     days = sorted(totals.loc[totals.trade_date.le(end), "trade_date"].unique())
-    features, overview, missing, positions = [], [], [], []
+    features, overview, positions = [], {}, []
     for root in ORDER:
         group = totals[totals.root.eq(root)].set_index("trade_date").reindex(days)
         history = group.iloc[:-1].tail(60)
@@ -307,14 +337,20 @@ def _activity(panel, end):
                     root_rows.append(row)
         oi7 = next((r for r in root_rows if r["metric"] == "oi" and r["window"] == 7), None)
         vol7 = next((r for r in root_rows if r["metric"] == "volume" and r["window"] == 7), None)
-        if oi7 and vol7:
+        if oi7:
             oi_direction = "增仓" if oi7["change_pct"] >= 5 else "减仓" if oi7["change_pct"] <= -5 else "持仓平稳"
-            vol_direction = "成交扩张" if vol7["change_pct"] >= 10 else "成交收缩" if vol7["change_pct"] <= -10 else "成交平稳"
-            overview.append((root, oi_direction+"、"+vol_direction))
         else:
-            missing.append(root)
-    clauses = [root+description for root, description in overview]
-    text = "。".join(clauses)+"。" if clauses else "近期量仓可比数据不足。"
+            oi_direction = "持仓可比数据不足"
+        if vol7:
+            vol_direction = "成交扩张" if vol7["change_pct"] >= 10 else "成交收缩" if vol7["change_pct"] <= -10 else "成交平稳"
+        else:
+            vol_direction = "成交可比数据不足"
+        overview.setdefault(oi_direction+"、"+vol_direction, []).append(root)
+    if list(overview) == ["持仓可比数据不足、成交可比数据不足"]:
+        text = "近期持仓和成交可比数据不足。"
+    else:
+        text = "，".join(("四品种均" if len(roots) == len(ORDER) else "、".join(roots))+description
+                        for description, roots in overview.items())+"。"
     picked = []
     for metric in ("oi", "volume"):
         rows = [r for r in features if r["metric"] == metric and r["noteworthy"]]
@@ -322,11 +358,9 @@ def _activity(panel, end):
             continue
         row = max(rows, key=lambda r: (r["score"], r["window"], r["root"]))
         picked.append(row)
-    if missing and overview:
-        text += "、".join(missing)+"近期量仓历史不足。"
     high = sorted(positions, key=lambda r: (-r['percentile'],r['root']))[:2]
     if high:
-        text += '和'.join(r['root'] for r in high)+'四合约总持仓处于近期高位。'
+        text += '、'.join(r['root'] for r in high)+'四合约总持仓处于近60个交易日高位。'
     return text, {"features": features, "selected": picked, "high_positions": high}
 
 
@@ -336,17 +370,27 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end, *, unadjuste
     absolute, absolute_overview = _overview(panel, end, "slot", range(1,5), "basis_points")
     annual, annual_overview = _overview(panel, end, "slot", range(2,5), "annualized_basis_pct")
     absolute_features = _features(panel, end, "slot", range(1,5), "basis_points")
-    annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct")
+    annual_features = _features(panel, end, "slot", range(2,5), "annualized_basis_pct", ranks=single_ranks)
     annual_current, annual_groups = annualized_current(panel, end)
     next_month_text, next_month_changes = _next_month(panel, end)
     annual = annual_current + '\n' + next_month_text
     days = sorted(panel.loc[panel.trade_date.le(end), 'trade_date'].unique())[-2:]
     updates = []
-    if not unadjusted and len(days) == 2:
+    if not unadjusted and len(days) == 2 and "dividend_source_date" in panel:
         for contract, group in panel[panel.trade_date.isin(days)].groupby('instrument_id'):
-            values = group.sort_values('trade_date').dividend_points
-            if contract and len(values) == 2 and values.notna().all() and abs(values.diff().iloc[-1]) > 1e-8:
-                updates.append({'contract': contract, 'change_points': float(values.diff().iloc[-1])})
+            if not contract or len(group) != 2:
+                continue
+            previous, current = group.sort_values('trade_date').itertuples(index=False)
+            valid = pd.notna(current.dividend_source_date) and not getattr(current, "dividend_is_estimated", False)
+            prior_source = (getattr(previous, "dividend_effective_at", previous.dividend_source_date),
+                            getattr(previous, "dividend_source_sha256", None))
+            current_source = (getattr(current, "dividend_effective_at", current.dividend_source_date),
+                              getattr(current, "dividend_source_sha256", None))
+            change = current.dividend_points-previous.dividend_points
+            source_changed = any(pd.notna(value) and (pd.isna(old) or value != old)
+                                 for old, value in zip(prior_source, current_source))
+            if valid and source_changed and np.isfinite(change) and abs(change) > 1e-8:
+                updates.append({'contract': contract, 'change_points': float(change)})
     if updates:
         annual += f'\n当日{len(updates)}个实际合约的分红点数更新，去分红日变含此影响。'
     absolute_picks, annual_picks = _picks(absolute_features, "slot", 1), _picks(annual_features, "slot", 1)
@@ -372,20 +416,28 @@ def compose(panel, spreads, single_ranks, cross_ranks, totals, end, *, unadjuste
         structure.append("、".join(mixed)+"两组价差方向不一致或接近平水")
     cross = "目前"+"。".join(structure)+"。" if structure else "当前跨期数据不足。"
     point_features = _features(spreads, end, "pair", PAIRS, "basis_points", CALENDAR_RANK_SESSIONS)
-    cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct", CALENDAR_RANK_SESSIONS)
+    cross_features = _features(spreads, end, "pair", PAIRS, "annualized_basis_pct", CALENDAR_RANK_SESSIONS,
+                               ranks=cross_ranks)
     longest = CALENDAR_RANK_SESSIONS[-1]
-    point_long = [row for row in point_features if row['window'] == longest]
-    cross_long = [row for row in cross_features if row['window'] == longest]
-    point_picks = _picks(point_long, "pair", 1) or _picks(point_features, "pair", 1)
-    cross_picks = _picks(cross_long, "pair", 1) or _picks(cross_features, "pair", 1)
-    cross += ("绝对价差方面，"+_exception_text(point_picks, "pair") if point_picks else
-              "绝对价差未见明显异常。" if point_features else "绝对价差历史不足。")
-    cross += ("跨期年化方面，"+_exception_text(cross_picks, "pair", True) if cross_picks else
-              "跨期年化未见明显异常。" if cross_features else "跨期年化历史不足。")
+    cross_picks = _picks(cross_features, "pair", 2, preferred_window=longest)
+    point_picks = _picks(point_features, "pair", 1, preferred_window=longest,
+                         exclude={(row["root"], row["pair"]) for row in cross_picks})
+    if cross_picks:
+        cross += "跨期年化方面，"+_exception_text(cross_picks, "pair", True)
+    if point_picks:
+        cross += "绝对价差方面，"+_exception_text(point_picks, "pair")
+    noteworthy_roots = {row["root"] for row in (*cross_features, *point_features) if row["noteworthy"]}
+    screened = {(row["root"], row["pair"]) for row in cross_features}
+    quiet = [root for root in ORDER if root not in noteworthy_roots
+             and all((root, pair) in screened for pair in PAIRS)]
+    if quiet:
+        cross += "、".join(quiet)+"跨期年化未见明显异动。"
     if unavailable and structure:
         cross += "、".join(unavailable)+"当前跨期数据不足。"
-    if not point_long and not cross_long:
-        cross += f"前{longest}个交易日可比历史不足。"
+    lacking_history = [root for root in ORDER if root not in unavailable
+                       and not all((root, pair) in screened for pair in PAIRS)]
+    if lacking_history:
+        cross += "、".join(lacking_history)+"部分跨期历史不足。"
     if unadjusted:
         cross = cross.replace('调整后价差', '价差')
     sections = [{"key": key, "title": title, "text": text} for key, title, text in (

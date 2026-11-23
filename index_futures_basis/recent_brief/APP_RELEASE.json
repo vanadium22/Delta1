@@ -1,9 +1,9 @@
 {
-  "release": "2026-11-23-brief-shared-proxy-dividend-anchor",
+  "release": "2026-11-23-brief-front-page-narrative",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 13,
-  "narrative_engine": "descriptive-tree-v7",
+  "narrative_engine": "descriptive-tree-v8",
   "layout": "two A3 landscape versions, each 13 pages with standalone calendar absolute spread",
   "calendar_pairs": [
     "02−01",
@@ -34,12 +34,12 @@
     "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 78,
+    "passed": 80,
     "resource_warnings_as_errors": true,
-    "brief": 78,
-    "diagnostics": "July IF calendar spread verified on real local market data; shared borrowed dividend observations interpolate from the same source date"
+    "brief": 80,
+    "diagnostics": "local complete brief replay and cross-spread prose reconciliation against the same batch rank tables"
   },
-  "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
+  "visual_verification": "reviewed the opening pages in native Word and generated PDF, 13 pages per valuation",
   "example_market_date": "2026-10-15",
   "historical_validation_market_date": "2026-10-15",
   "company_live_wind_acceptance": "pending",
