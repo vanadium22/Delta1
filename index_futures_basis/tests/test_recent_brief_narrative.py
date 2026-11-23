@@ -462,6 +462,34 @@ class NarrativeTests(unittest.TestCase):
             self.assertEqual(contract.loc[days[-1], "dividend_points"], 0)
             self.assertFalse(contract.loc[days[-1], "dividend_is_estimated"])
 
+    def test_roll_uses_shared_proxy_snapshot_date_before_actual_values_are_available(self):
+        from index_futures_basis.recent_brief.dividend_history import interpolate_history, PREVIOUS_CONTRACT
+
+        points = 81.47
+        source = pd.Timestamp("2026-04-09")
+        start, roll, new = pd.to_datetime(["2026-07-17", "2026-07-20", "2026-07-24"])
+        close = pd.Timedelta(hours=15, minutes=5)
+        contracts = ("IF2612.CFE", "IF2703.CFE")
+        book = pd.DataFrame([{
+            "instrument_id": contract, "dividend_effective_at": new, "dividend_points": 6.77,
+            "dividend_source_date": new, "dividend_source_sha256": "july", "dividend_source_cell": cell,
+        } for contract, cell in zip(contracts, ("G28", "G29"))])
+        matched = pd.DataFrame([{
+            "instrument_id": contract, "trade_date": day, "pricing_at": day + close, "calendar_known": True,
+            "expiry_date": pd.Timestamp("2026-12-18" if contract == contracts[0] else "2027-03-19"),
+            "dividend_match": PREVIOUS_CONTRACT if day < new else "actual_contract_in_workbook",
+            "dividend_source_contract": "IF2609.CFE" if day < new else contract,
+            "dividend_effective_at": source if day < new else new,
+            "dividend_points": points if day < new else 6.77,
+        } for contract, days in zip(contracts, ([start, roll, new], [roll, new])) for day in days])
+
+        result = interpolate_history(matched, book, close)
+        rolled = result[result.trade_date.eq(roll)]
+        expected = points + (6.77-points) * (roll-source) / (new-source)
+        np.testing.assert_allclose(rolled.dividend_points, [expected, expected])
+        self.assertTrue(rolled.dividend_anchor_date.eq(source).all())
+        self.assertTrue(result.loc[result.trade_date.eq(new), "dividend_points"].eq(6.77).all())
+
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
         self.assertEqual(classify_path(values,60)['shape'],'widen_narrow_widen')

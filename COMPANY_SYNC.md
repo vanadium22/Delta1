@@ -18,6 +18,8 @@
 
 ## 最近发布
 
+- 2026-11-23 股指基差简报统一同一借用分红快照的历史插值起点，修正 7 月换月附近的跨期分红跳变。[简报口径](index_futures_basis/recent_brief/README.md)。
+
 - 2026-11-23 股指基差简报以新分红快照首次生效的交易日作插值端点，保证当天采用原始分红点数。[简报口径](index_futures_basis/recent_brief/README.md)。
 
 - 2026-11-23 股指基差简报对历史分红作逐合约插值，缺下次快照且已到期时逐步衰减。未到期的末段沿用最近可用值。[简报口径](index_futures_basis/recent_brief/README.md)。

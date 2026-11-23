@@ -85,9 +85,7 @@ def interpolate_history(matched, book, cutoff_offset):
     valid = known & matched.dividend_points.notna()
     changes = {}
     for row in matched[valid].itertuples():
-        start = borrowed_starts.get(row.Index, effective_day(row.dividend_effective_at))
-        if start >= row.trade_date:
-            continue
+        start = effective_day(row.dividend_effective_at)
         times, versions = histories.get(row.instrument_id, ([], []))
         following = bisect_right(times, row.pricing_at)
         anchor = versions[following] if following < len(versions) else None
@@ -101,7 +99,10 @@ def interpolate_history(matched, book, cutoff_offset):
             end = row.expiry_date
             if pd.isna(end) or end > cutoff_day:
                 continue
-        if end < row.trade_date or end <= start:
+            start = borrowed_starts.get(row.Index, start)
+        # A borrowed snapshot and a later observed value define the historical
+        # interval by their dates, even if the contract first appears mid-interval.
+        if not start < row.trade_date <= end:
             continue
         end_points = anchor.dividend_points if anchor is not None else 0.0
         if row.dividend_points == end_points:
