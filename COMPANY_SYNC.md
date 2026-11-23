@@ -18,6 +18,8 @@
 
 ## 最近发布
 
+- 2026-11-23 股指基差简报对历史分红作逐合约插值，缺下次快照且已到期时逐步衰减。未到期的末段沿用最近可用值。[简报口径](index_futures_basis/recent_brief/README.md)。
+
 - 2026-11-23 股指基差简报以同品种较早且最接近的到期合约临时估算缺失分红，Word/PDF 及审计明细标明估算。真实分红按定价时点优先。[简报口径](index_futures_basis/recent_brief/README.md)。
 
 - 2026-11-23 股指基差简报诊断可按需从公司公盘补收历史分红 Excel，按表日归档后生成同日简报并汇总缺口。[操作说明](index_futures_basis/recent_brief/README.md)。

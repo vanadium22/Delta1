@@ -206,11 +206,13 @@ def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen
     observable = result.futures_close.notna() & result.spot_close.notna()
     missing = observable & result.dividend_points.isna() & (not unadjusted)
     estimated = observable & result.get("dividend_is_estimated", False)
+    interpolated = observable & result.get("dividend_interpolation", pd.Series(None, index=result.index)).notna()
     info["brief_selection"] = "not_applied" if unadjusted else "explicit_input" if dividend_file else "daily_as_of_local_history"
     info["adjustment_audit"] = {"formula": "F-S" if unadjusted else "F+G-S", "valid_rows": int(observable.sum() if unadjusted else valid.sum()),
         "missing_dividend_rows": int(missing.sum()),
         "missing_on_as_of": int((missing & result.trade_date.eq(result.trade_date.max())).sum()),
         "estimated_dividend_rows": int(estimated.sum()),
+        "interpolated_dividend_rows": int(interpolated.sum()),
         "estimated_on_as_of": int((estimated & result.trade_date.eq(result.trade_date.max())).sum()),
         "first_missing_date": str(result.loc[missing, "trade_date"].min().date()) if missing.any() else None,
         "nonzero_dividend_rows": int((result.dividend_points.fillna(0) != 0).sum()),

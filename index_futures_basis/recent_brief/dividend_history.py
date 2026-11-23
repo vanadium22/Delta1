@@ -17,7 +17,11 @@ from .dividend_sources import history_paths
 
 SOURCE_COLUMNS = ["dividend_source_contract", "dividend_source_date", "dividend_effective_at",
                   "dividend_source_sha256", "dividend_source_cell", "dividend_match", "dividend_is_estimated"]
+CURVE_COLUMNS = ["dividend_interpolation", "dividend_anchor_date", "dividend_anchor_points",
+                 "dividend_end_date", "dividend_end_points", "dividend_end_source_date",
+                 "dividend_end_source_sha256", "dividend_end_source_cell"]
 PREVIOUS_CONTRACT = "estimated_from_previous_contract"
+PREFERRED_DONORS = {"IF2607.CFE": "IF2606.CFE"}
 PENDING_CONTRACT = {"", "FETCHING...", "FETCHING…", "#GETTING_DATA", "#GETTING_DATA!"}
 WORKBOOK_ERRORS = (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError, SyntaxError,
                    BadZipFile, InvalidFileException)
@@ -36,7 +40,13 @@ def fill_from_previous_contract(matched, book):
     for row in matched.loc[missing].itertuples():
         earlier = contracts[row.instrument_id[:2]]
         boundary = bisect_left(earlier, row.instrument_id)
-        for contract in reversed(earlier[:boundary]):
+        if row.instrument_id in PREFERRED_DONORS:
+            candidates = [PREFERRED_DONORS[row.instrument_id]]
+        else:
+            candidates = reversed(earlier[:boundary])
+        for contract in candidates:
+            if contract not in histories:
+                continue
             times, versions = histories[contract]
             index = bisect_right(times, row.pricing_at) - 1
             if index >= 0 and pd.notna(versions[index].dividend_points):
@@ -46,6 +56,60 @@ def fill_from_previous_contract(matched, book):
         replacements = pd.DataFrame.from_dict(estimates, orient="index").drop(columns="instrument_id")
         replacements["dividend_match"] = PREVIOUS_CONTRACT
         matched.update(replacements)
+
+
+def interpolate_history(matched, book, cutoff_offset):
+    """Smooth retrospective observations using anchors known by the report cutoff."""
+    cutoff_at = matched.pricing_at.max()
+    cutoff_day = cutoff_at.normalize()
+    histories = {}
+    available = book[book.dividend_effective_at.le(cutoff_at)]
+    for contract, group in available.groupby("instrument_id"):
+        histories[contract] = (group.dividend_effective_at.tolist(), list(group.itertuples(index=False)))
+
+    borrowed = matched[matched.dividend_match.eq(PREVIOUS_CONTRACT)]
+    borrowed_starts = borrowed.groupby(
+        ["instrument_id", "dividend_source_contract", "dividend_effective_at"]).trade_date.transform("min")
+    valid = matched.calendar_known.eq(True) & matched.dividend_points.notna() & matched.trade_date.le(cutoff_day)
+    changes = {}
+    for row in matched[valid].itertuples():
+        start = borrowed_starts.get(row.Index, row.dividend_effective_at.normalize())
+        if start >= row.trade_date:
+            continue
+        times, versions = histories.get(row.instrument_id, ([], []))
+        following = bisect_right(times, row.pricing_at)
+        anchor = versions[following] if following < len(versions) else None
+        if anchor is not None:
+            if pd.isna(anchor.dividend_points):
+                continue
+            end = anchor.dividend_effective_at.normalize()
+            if anchor.dividend_effective_at - end > cutoff_offset:
+                end += pd.Timedelta(days=1)
+            if pd.notna(row.expiry_date) and end > row.expiry_date:
+                anchor = None
+        if anchor is None:
+            end = row.expiry_date
+            if pd.isna(end) or end > cutoff_day:
+                continue
+        if end < row.trade_date or end <= start:
+            continue
+        end_points = anchor.dividend_points if anchor is not None else 0.0
+        if row.dividend_points == end_points:
+            continue
+        weight = (row.trade_date - start) / (end - start)
+        changes[row.Index] = {
+            "dividend_points": row.dividend_points + weight * (end_points - row.dividend_points),
+            "dividend_interpolation": "between_snapshots" if anchor is not None else "to_expiry",
+            "dividend_anchor_date": start, "dividend_anchor_points": row.dividend_points,
+            "dividend_end_date": end, "dividend_end_points": end_points,
+            "dividend_end_source_date": anchor.dividend_source_date if anchor is not None else pd.NaT,
+            "dividend_end_source_sha256": anchor.dividend_source_sha256 if anchor is not None else None,
+            "dividend_end_source_cell": anchor.dividend_source_cell if anchor is not None else None,
+        }
+    curve = pd.DataFrame.from_dict(changes, orient="index")
+    matched["dividend_points"] = curve.get("dividend_points", pd.Series(dtype=float)).combine_first(
+        matched.dividend_points)
+    return matched.join(curve.reindex(columns=CURVE_COLUMNS))
 
 
 def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier_mappings=None):
@@ -123,7 +187,8 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
         if frozen_inputs is not None and entry["bound_rows"]:
             frozen_inputs[digest] = source_bytes
     estimate = config["dividends"].get("estimate_from_previous_contract", True)
-    left = panel[["trade_date", "instrument_id", "calendar_known"]].copy()
+    smooth = config["dividends"].get("interpolate_history", True)
+    left = panel[["trade_date", "instrument_id", "calendar_known", "expiry_date"]].copy()
     left["order"] = np.arange(len(left))
     left["pricing_at"] = (left.trade_date + cutoff_offset).clip(upper=now)
     if records:
@@ -141,16 +206,21 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
                                 right_on="dividend_effective_at", by="instrument_id")
         if estimate:
             fill_from_previous_contract(matched, book)
+        if smooth:
+            matched = interpolate_history(matched, book, cutoff_offset)
         matched = matched.sort_values("order")
     else:
         matched = left.assign(dividend_points=np.nan, dividend_source_contract=None, dividend_source_date=pd.NaT,
                               dividend_effective_at=pd.NaT, dividend_source_sha256=None,
                               dividend_source_cell=None, dividend_match=None)
-    matched["dividend_is_estimated"] = matched.dividend_match.eq(PREVIOUS_CONTRACT)
+    if "dividend_interpolation" not in matched:
+        matched[CURVE_COLUMNS] = None
+    matched["dividend_is_estimated"] = (matched.dividend_match.eq(PREVIOUS_CONTRACT)
+                                         | matched.dividend_interpolation.notna())
     dates = matched.dividend_source_date[matched.dividend_points.notna()]
     current = matched[matched.trade_date.eq(panel.trade_date.max()) & matched.dividend_points.notna()]
     latest = current.dividend_source_date.max()
-    used = {sha for sha in matched.dividend_source_sha256.dropna()}
+    used = set(matched.dividend_source_sha256.dropna()) | set(matched.dividend_end_source_sha256.dropna())
     if frozen_inputs is not None:
         for sha in frozen_inputs.keys() - used:
             del frozen_inputs[sha]
@@ -158,6 +228,7 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
     info = {**last_source, "snapshot_date": str(latest.date()) if pd.notna(latest) else "缺失",
             "application": "dated_actual_contract", "selection": "latest_known_same_contract_at_cutoff",
             "estimate_policy": "closest_earlier_same_product_contract_as_of" if estimate else "disabled",
+            "history_policy": "retrospective_linear_between_observations_or_to_expiry" if smooth else "as_of_only",
             "first_used_source_date": str(dates.min().date()) if len(dates) else None,
             "oldest_current_source_date": str(current.dividend_source_date.min().date()) if len(current) else None,
             "files": [sources[sha] for sha in sorted(used)], "source_errors": errors, "input_inventory": inventory,
@@ -166,4 +237,4 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
     if not records or not len(dates):
         info["reason"] = "无可用于行情日及实际合约的历史分红"
     matched["dividend_match"] = matched.dividend_match.fillna("no_prior_contract_record")
-    return matched[["dividend_points", *SOURCE_COLUMNS]].set_axis(panel.index), info
+    return matched[["dividend_points", *SOURCE_COLUMNS, *CURVE_COLUMNS]].set_axis(panel.index), info

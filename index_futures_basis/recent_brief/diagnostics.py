@@ -24,11 +24,14 @@ def describe_inputs(write, panel, info, end, source):
     observable = panel.futures_close.notna() & panel.spot_close.notna()
     write(f"合计  有期现价 {observable.sum()}  缺分红 {(observable & panel.dividend_points.isna()).sum()}")
     estimates = panel.loc[observable & panel.get("dividend_is_estimated", False)]
-    write(f"同品种较早合约估算 {len(estimates)} 条  当日 {estimates.trade_date.eq(end).sum()} 条")
+    interpolated = (estimates.dividend_interpolation.notna().sum() if "dividend_interpolation" in estimates else 0)
+    write(f"分红估算 {len(estimates)} 条  其中插值 {interpolated} 条  当日 {estimates.trade_date.eq(end).sum()} 条")
     if not estimates.empty:
-        substitutions = estimates.groupby(["instrument_id", "dividend_source_contract"]).size()
-        write("  估算目标 ← 来源合约及条数  " + "  ".join(
-            f"{target} ← {donor} {count}" for (target, donor), count in substitutions.items()))
+        borrowed = estimates[estimates.instrument_id.ne(estimates.dividend_source_contract)]
+        substitutions = borrowed.groupby(["instrument_id", "dividend_source_contract"]).size()
+        if not substitutions.empty:
+            write("  估算目标 ← 来源合约及条数  " + "  ".join(
+                f"{target} ← {donor} {count}" for (target, donor), count in substitutions.items()))
     write(f"发现 {len(inventory)} 份 Excel；下列采用数按合约×行情日计数")
     for entry in inventory:
         name = Path(entry["path"]).name

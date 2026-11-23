@@ -197,7 +197,7 @@ class NarrativeTests(unittest.TestCase):
                 return path
 
             cfg = {"dividends": {"directories": [str(root)], "layout": "snapshot_continuous",
-                                 "estimate_from_previous_contract": False}}
+                                 "estimate_from_previous_contract": False, "interpolate_history": False}}
             paths = SimpleNamespace(dividend_inputs=root, resolve_module_setting=lambda *a:root, repo_root=root)
             base = panel().tail(4)
             p = pd.concat([base.assign(trade_date=day) for day in pd.to_datetime(
@@ -324,7 +324,7 @@ class NarrativeTests(unittest.TestCase):
             earlier = {}
             p, _, _, cfg, paths = load_market(database=store.path, as_of="2026-11-20",
                                                earlier_mappings=earlier)
-            cfg["dividends"]["estimate_from_previous_contract"] = False
+            cfg["dividends"].update(estimate_from_previous_contract=False, interpolate_history=False)
             self.assertEqual(earlier, {(business_day, "IF01.CFE"): "IF2510.CFE"})
             self.assertEqual(p.trade_date.min(), pd.Timestamp(observation))
             file = root / "archived.xlsx"
@@ -385,6 +385,44 @@ class NarrativeTests(unittest.TestCase):
             describe_inputs(lines.append, result, info, result.trade_date.max(),
                             {"kind": "sqlite", "path": "market.sqlite"})
             self.assertIn("IF2603.CFE ← IF2602.CFE 1", "\n".join(lines))
+
+    def test_dividend_interpolation_keeps_anchors_and_holds_active_contract_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for day, points in (("2026-01-02", (10, 8, 6)), ("2026-01-06", (2, None, None)),
+                                ("2026-01-12", (80, 90, None))):
+                book = Workbook()
+                sheet = book.active
+                sheet.title = "Sheet1"
+                sheet["B1"], sheet["G3"] = day, "分红"
+                for slot, (contract, value) in enumerate(zip(("IF2603.CFE", "IF2604.CFE", "IF2606.CFE"), points), 1):
+                    row = slot + 3
+                    sheet[f"B{row}"], sheet[f"C{row}"], sheet[f"G{row}"] = f"IF0{slot-1}.CFE", contract, value
+                book.save(root/f"{day}.xlsx")
+                book.close()
+
+            days = pd.to_datetime(["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-09"])
+            p = pd.concat([panel().head(4).assign(trade_date=day) for day in days], ignore_index=True)
+            p.loc[p.slot.eq(2), "expiry_date"] = pd.Timestamp("2026-01-09")
+            p.loc[p.slot.eq(4), "instrument_id"] = "IF2607.CFE"
+            result, info = adjust(p, {"dividends": {}}, None, root)
+            matured = result[result.instrument_id.eq("IF2603.CFE")].set_index("trade_date")
+            self.assertEqual(matured.loc[days[0], "dividend_points"], 10)
+            self.assertEqual(matured.loc[days[1], "dividend_points"], 4)
+            self.assertEqual(matured.loc[days[2], "dividend_points"], 2)
+            self.assertEqual(matured.loc[days[-1], "dividend_points"], 0)
+            self.assertEqual(matured.loc[days[1], "dividend_end_date"], days[2])
+            self.assertEqual(matured.loc[days[1], "dividend_interpolation"], "between_snapshots")
+            self.assertTrue(matured.loc[days[1], "dividend_end_source_sha256"])
+            self.assertEqual(matured.loc[days[3], "dividend_interpolation"], "to_expiry")
+            active = result[result.instrument_id.eq("IF2604.CFE")]
+            self.assertTrue(active.dividend_points.eq(8).all())
+            self.assertFalse(active.dividend_is_estimated.any())
+            proxy = result[result.instrument_id.eq("IF2607.CFE")]
+            self.assertTrue(proxy.dividend_source_contract.eq("IF2606.CFE").all())
+            self.assertTrue(proxy.dividend_points.eq(6).all())
+            self.assertEqual(info["adjustment_audit"]["interpolated_dividend_rows"], 3)
+            self.assertFalse(any(item["snapshot_date"] == "2026-01-12" for item in info["files"]))
 
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
