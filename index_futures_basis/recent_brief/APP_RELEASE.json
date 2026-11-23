@@ -1,5 +1,5 @@
 {
-  "release": "2026-11-23-brief-dividend-share-backfill",
+  "release": "2026-11-23-brief-previous-contract-dividend-estimates",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "manifest_version": 13,
@@ -34,10 +34,10 @@
     "opening_text": "near mean and far mean with 60-session rank; valid next-month level on known front expiry; three groups retained in audit"
   },
   "tests": {
-    "passed": 74,
+    "passed": 75,
     "resource_warnings_as_errors": true,
-    "brief": 74,
-    "diagnostics": "share collection into a separate archive, verified by business date, hash, and both report pairs with real local input files"
+    "brief": 75,
+    "diagnostics": "real local replay through 2026-10-15 fills 1700 missing rows from previous contracts; provenance and rank-window counts recorded"
   },
   "visual_verification": "native Word and generated PDF, 13 pages per valuation; cross absolute spread immediately after cross annualized; 32 raw calendar rank records independently verified",
   "example_market_date": "2026-10-15",

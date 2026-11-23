@@ -23,6 +23,12 @@ def describe_inputs(write, panel, info, end, source):
     inventory = info.get("input_inventory", [])
     observable = panel.futures_close.notna() & panel.spot_close.notna()
     write(f"合计  有期现价 {observable.sum()}  缺分红 {(observable & panel.dividend_points.isna()).sum()}")
+    estimates = panel.loc[observable & panel.get("dividend_is_estimated", False)]
+    write(f"同品种较早合约估算 {len(estimates)} 条  当日 {estimates.trade_date.eq(end).sum()} 条")
+    if not estimates.empty:
+        substitutions = estimates.groupby(["instrument_id", "dividend_source_contract"]).size()
+        write("  估算目标 ← 来源合约及条数  " + "  ".join(
+            f"{target} ← {donor} {count}" for (target, donor), count in substitutions.items()))
     write(f"发现 {len(inventory)} 份 Excel；下列采用数按合约×行情日计数")
     for entry in inventory:
         name = Path(entry["path"]).name
@@ -124,6 +130,10 @@ def run(args, folder):
                             labels = [f"{r.root}{r.slot - 1:02d}" if name == "basis_rank_tables"
                                       else f"{r.root} {r.pair}" for r in visible.itertuples()]
                             write("    " + "、".join(labels))
+                            if "estimated_sample_n" in visible:
+                                included = (visible.estimated_sample_n.gt(0) | visible.current_dividend_is_estimated).sum()
+                                if included:
+                                    write(f"    其中含估算分红的分位 {included} 项")
             write("结果：两套简报生成成功")
         except Exception:
             write("结果：生成失败")

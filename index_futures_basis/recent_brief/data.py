@@ -205,10 +205,13 @@ def adjust(panel, config, paths, dividend_file=None, *, unadjusted=False, frozen
     residual = (result.basis_points-result.raw_basis_points-result.dividend_points).abs()
     observable = result.futures_close.notna() & result.spot_close.notna()
     missing = observable & result.dividend_points.isna() & (not unadjusted)
+    estimated = observable & result.get("dividend_is_estimated", False)
     info["brief_selection"] = "not_applied" if unadjusted else "explicit_input" if dividend_file else "daily_as_of_local_history"
     info["adjustment_audit"] = {"formula": "F-S" if unadjusted else "F+G-S", "valid_rows": int(observable.sum() if unadjusted else valid.sum()),
         "missing_dividend_rows": int(missing.sum()),
         "missing_on_as_of": int((missing & result.trade_date.eq(result.trade_date.max())).sum()),
+        "estimated_dividend_rows": int(estimated.sum()),
+        "estimated_on_as_of": int((estimated & result.trade_date.eq(result.trade_date.max())).sum()),
         "first_missing_date": str(result.loc[missing, "trade_date"].min().date()) if missing.any() else None,
         "nonzero_dividend_rows": int((result.dividend_points.fillna(0) != 0).sum()),
         "max_formula_residual": float(residual[valid].max()) if valid.any() else None}
@@ -236,6 +239,10 @@ def calendar_series(panel):
                          "expiry_gap_days": gap, "spot_close": a.spot_close,
                          "left_futures_close": a.futures_close, "right_futures_close": b.futures_close,
                          "left_dividend_points": a.dividend_points, "right_dividend_points": b.dividend_points,
+                         "left_dividend_source_contract": a.get("dividend_source_contract"),
+                         "right_dividend_source_contract": b.get("dividend_source_contract"),
+                         "dividend_is_estimated": bool(a.get("dividend_is_estimated", False)
+                                                       or b.get("dividend_is_estimated", False)),
                          "left_dividend_source_date": a.get("dividend_source_date"),
                          "right_dividend_source_date": b.get("dividend_source_date"),
                          "left_dividend_source_sha256": a.get("dividend_source_sha256"),
@@ -257,7 +264,7 @@ def quantiles(series, end, key):
 
 
 def session_quantiles(series, end, key, sessions=60):
-    """Annualized distributions over exactly N prior local sessions, never filled values."""
+    """Annualized distributions over exactly N prior local sessions."""
     end = pd.Timestamp(end)
     days = pd.DatetimeIndex(series.loc[series.trade_date.lt(end), "trade_date"].unique()).sort_values()[-sessions:]
     rows = []
@@ -277,6 +284,9 @@ def session_quantiles(series, end, key, sessions=60):
                "sample_start": values.index.min(), "sample_end": values.index.max(),
                "current": current, "n": len(values), "eligible_n": int(eligible.sum()),
                "expiry_day_excluded_n": int((~eligible).sum()), "complete": complete}
+        if "dividend_is_estimated" in g:
+            row["estimated_sample_n"] = int(history.loc[values.index, "dividend_is_estimated"].eq(True).sum())
+            row["current_dividend_is_estimated"] = bool(now.dividend_is_estimated.eq(True).any())
         row["mean"] = values.mean() if complete else np.nan
         row["std"] = values.std(ddof=0) if complete else np.nan
         for name, probability in (("p05", .05), ("p25", .25), ("p50", .5), ("p75", .75), ("p95", .95)):

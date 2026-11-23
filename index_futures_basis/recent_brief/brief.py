@@ -182,6 +182,9 @@ def _build_version(panel, dividend_info, end, source, config, volume_info, args,
     warnings = []
     if dividend_age is not None and dividend_age > 7:
         warnings.append(f"当日采用的最早分红早于行情{dividend_age}天")
+    if audit_info["estimated_dividend_rows"]:
+        warnings.append(f"分红估算{audit_info['estimated_dividend_rows']}条"
+                        f"（当日{audit_info['estimated_on_as_of']}条，分位含估算）")
     if audit_info["missing_dividend_rows"]:
         warnings.append(f"历史缺分红{audit_info['missing_dividend_rows']}条，缺值留空")
     if audit_info["missing_on_as_of"]:
@@ -208,8 +211,9 @@ def _build_version(panel, dividend_info, end, source, config, volume_info, args,
               "basis_cards": single_metrics, "calendar_cards": cross_metrics, "activity_cards": aggregate_metrics}
     audit_columns = ["trade_date", "root", "slot", "instrument_id", "futures_close", "spot_close",
                      "dividend_points", "raw_basis_points", "basis_points", "dividend_application"]
-    audit = panel[audit_columns + [name for name in ("dividend_source_date", "dividend_effective_at",
-                   "dividend_source_sha256", "dividend_source_cell", "dividend_match") if name in panel]].copy()
+    audit = panel[audit_columns + [name for name in ("dividend_source_contract", "dividend_source_date",
+                   "dividend_effective_at", "dividend_source_sha256", "dividend_source_cell",
+                   "dividend_match", "dividend_is_estimated") if name in panel]].copy()
     audit["adjustment_check"] = audit.basis_points-audit.raw_basis_points-panel.dividend_adjustment_points
     tables["dividend_adjustment_audit"] = audit
     snapshots = dividend_info.get("files", [])

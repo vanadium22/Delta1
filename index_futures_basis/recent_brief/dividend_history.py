@@ -1,5 +1,6 @@
 """Resolve remaining dividend points as of each daily observation."""
-from collections import Counter
+from bisect import bisect_left, bisect_right
+from collections import Counter, defaultdict
 from pathlib import Path
 import re
 import sqlite3
@@ -14,11 +15,37 @@ from ..analytics import read_continuous_snapshot
 from ..config import ROOT
 from .dividend_sources import history_paths
 
-SOURCE_COLUMNS = ["dividend_source_date", "dividend_effective_at", "dividend_source_sha256",
-                  "dividend_source_cell", "dividend_match"]
+SOURCE_COLUMNS = ["dividend_source_contract", "dividend_source_date", "dividend_effective_at",
+                  "dividend_source_sha256", "dividend_source_cell", "dividend_match", "dividend_is_estimated"]
+PREVIOUS_CONTRACT = "estimated_from_previous_contract"
 PENDING_CONTRACT = {"", "FETCHING...", "FETCHING…", "#GETTING_DATA", "#GETTING_DATA!"}
 WORKBOOK_ERRORS = (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError, SyntaxError,
                    BadZipFile, InvalidFileException)
+
+
+def fill_from_previous_contract(matched, book):
+    """Borrow a dated workbook observation from the closest earlier contract month."""
+    contracts = defaultdict(list)
+    histories = {}
+    for contract, group in book.groupby("instrument_id", sort=True):
+        contracts[contract[:2]].append(contract)
+        histories[contract] = (group.dividend_effective_at.tolist(), list(group.itertuples(index=False)))
+
+    missing = matched.dividend_match.isna() & matched.calendar_known.eq(True) & matched.instrument_id.ne("")
+    estimates = {}
+    for row in matched.loc[missing].itertuples():
+        earlier = contracts[row.instrument_id[:2]]
+        boundary = bisect_left(earlier, row.instrument_id)
+        for contract in reversed(earlier[:boundary]):
+            times, versions = histories[contract]
+            index = bisect_right(times, row.pricing_at) - 1
+            if index >= 0 and pd.notna(versions[index].dividend_points):
+                estimates[row.Index] = versions[index]._asdict()
+                break
+    if estimates:
+        replacements = pd.DataFrame.from_dict(estimates, orient="index").drop(columns="instrument_id")
+        replacements["dividend_match"] = PREVIOUS_CONTRACT
+        matched.update(replacements)
 
 
 def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier_mappings=None):
@@ -95,7 +122,8 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
                      rejected_rows=dict(rejected))
         if frozen_inputs is not None and entry["bound_rows"]:
             frozen_inputs[digest] = source_bytes
-    left = panel[["trade_date", "instrument_id"]].copy()
+    estimate = config["dividends"].get("estimate_from_previous_contract", True)
+    left = panel[["trade_date", "instrument_id", "calendar_known"]].copy()
     left["order"] = np.arange(len(left))
     left["pricing_at"] = (left.trade_date + cutoff_offset).clip(upper=now)
     if records:
@@ -108,13 +136,17 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
         # pandas 3 preserves input precision; merge_asof requires identical units.
         left["pricing_at"] = left.pricing_at.astype("datetime64[ns]")
         book["dividend_effective_at"] = book.dividend_effective_at.astype("datetime64[ns]")
+        book["dividend_source_contract"] = book.instrument_id
         matched = pd.merge_asof(left.sort_values("pricing_at"), book, left_on="pricing_at",
                                 right_on="dividend_effective_at", by="instrument_id")
+        if estimate:
+            fill_from_previous_contract(matched, book)
         matched = matched.sort_values("order")
     else:
-        matched = left.assign(dividend_points=np.nan, dividend_source_date=pd.NaT,
+        matched = left.assign(dividend_points=np.nan, dividend_source_contract=None, dividend_source_date=pd.NaT,
                               dividend_effective_at=pd.NaT, dividend_source_sha256=None,
                               dividend_source_cell=None, dividend_match=None)
+    matched["dividend_is_estimated"] = matched.dividend_match.eq(PREVIOUS_CONTRACT)
     dates = matched.dividend_source_date[matched.dividend_points.notna()]
     current = matched[matched.trade_date.eq(panel.trade_date.max()) & matched.dividend_points.notna()]
     latest = current.dividend_source_date.max()
@@ -125,6 +157,7 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
     last_source = sources[current.loc[current.dividend_source_date.eq(latest), "dividend_source_sha256"].iloc[0]] if len(current) else {}
     info = {**last_source, "snapshot_date": str(latest.date()) if pd.notna(latest) else "缺失",
             "application": "dated_actual_contract", "selection": "latest_known_same_contract_at_cutoff",
+            "estimate_policy": "closest_earlier_same_product_contract_as_of" if estimate else "disabled",
             "first_used_source_date": str(dates.min().date()) if len(dates) else None,
             "oldest_current_source_date": str(current.dividend_source_date.min().date()) if len(current) else None,
             "files": [sources[sha] for sha in sorted(used)], "source_errors": errors, "input_inventory": inventory,

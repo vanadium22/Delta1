@@ -196,7 +196,8 @@ class NarrativeTests(unittest.TestCase):
                 book.close()
                 return path
 
-            cfg = {"dividends": {"directories": [str(root)], "layout": "snapshot_continuous"}}
+            cfg = {"dividends": {"directories": [str(root)], "layout": "snapshot_continuous",
+                                 "estimate_from_previous_contract": False}}
             paths = SimpleNamespace(dividend_inputs=root, resolve_module_setting=lambda *a:root, repo_root=root)
             base = panel().tail(4)
             p = pd.concat([base.assign(trade_date=day) for day in pd.to_datetime(
@@ -248,7 +249,7 @@ class NarrativeTests(unittest.TestCase):
                     bad.writestr(part, b"<broken" if part == "xl/worksheets/sheet1.xml" else good.read(part))
             p = panel()
             p["trade_date"] = p.trade_date.astype("datetime64[ns]")
-            cfg = {"dividends": {"directories": [str(root)]}}
+            cfg = {"dividends": {"directories": [str(root)], "estimate_from_previous_contract": False}}
             paths = SimpleNamespace(dividend_inputs=root, resolve_module_setting=lambda *a: root)
             for explicit in (root, None):
                 result, info = adjust(p, cfg, paths, explicit)
@@ -284,7 +285,8 @@ class NarrativeTests(unittest.TestCase):
             end = p.trade_date.max()
             p.loc[p.trade_date.lt(end) & p.slot.eq(4), "calendar_known"] = False
             frozen_inputs = {}
-            result, info = adjust(p, {"dividends": {}}, None, file, frozen_inputs=frozen_inputs)
+            result, info = adjust(p, {"dividends": {"estimate_from_previous_contract": False}}, None, file,
+                                  frozen_inputs=frozen_inputs)
             self.assertEqual(result.dividend_points.dropna().tolist(), [5., 5.])
             self.assertEqual(result.dividend_source_date.dropna().unique().tolist(), [pd.Timestamp("2026-01-02")])
             entry = info["input_inventory"][0]
@@ -322,6 +324,7 @@ class NarrativeTests(unittest.TestCase):
             earlier = {}
             p, _, _, cfg, paths = load_market(database=store.path, as_of="2026-11-20",
                                                earlier_mappings=earlier)
+            cfg["dividends"]["estimate_from_previous_contract"] = False
             self.assertEqual(earlier, {(business_day, "IF01.CFE"): "IF2510.CFE"})
             self.assertEqual(p.trade_date.min(), pd.Timestamp(observation))
             file = root / "archived.xlsx"
@@ -341,6 +344,47 @@ class NarrativeTests(unittest.TestCase):
             self.assertEqual(matched.basis_points, 15)
             self.assertEqual(info["input_inventory"][0]["bound_rows"], 1)
             self.assertEqual(info["input_inventory"][0]["rejected_rows"], {"no_business_day_mapping": 1})
+
+    def test_estimates_use_latest_known_observation_of_closest_earlier_contract(self):
+        from index_futures_basis.recent_brief.data import session_quantiles
+        from index_futures_basis.recent_brief.diagnostics import describe_inputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def save(name, day, values):
+                book = Workbook()
+                sheet = book.active
+                sheet.title = "Sheet1"
+                sheet["B1"], sheet["G3"] = day, "分红"
+                for slot, (contract, points) in enumerate(values):
+                    row = slot + 4
+                    sheet[f"B{row}"], sheet[f"C{row}"], sheet[f"G{row}"] = f"{contract[:2]}0{slot}.CFE", contract, points
+                book.save(root/name)
+                book.close()
+
+            save("older.xlsx", "2026-01-02", [("IF2601.CFE", 7), ("IF2605.CFE", 20), ("IH2603.CFE", 90)])
+            save("near.xlsx", "2026-01-02 15:30:00", [("IF2602.CFE", 3)])
+            save("direct.xlsx", "2026-01-05", [("IF2604.CFE", 0)])
+            result, info = adjust(panel(), {"dividends": {}}, None, root)
+            first, latest = (result[result.trade_date.eq(day)].set_index("instrument_id")
+                             for day in result.trade_date.unique())
+            self.assertEqual(first.loc["IF2603.CFE", "dividend_source_contract"], "IF2601.CFE")
+            self.assertEqual(first.loc["IF2603.CFE", "dividend_points"], 7)
+            self.assertEqual(latest.loc["IF2603.CFE", "dividend_source_contract"], "IF2602.CFE")
+            self.assertEqual(latest.loc["IF2603.CFE", "dividend_points"], 3)
+            self.assertTrue(latest.loc["IF2603.CFE", "dividend_is_estimated"])
+            self.assertEqual(latest.loc["IF2604.CFE", "dividend_points"], 0)
+            self.assertFalse(latest.loc["IF2604.CFE", "dividend_is_estimated"])
+            self.assertEqual(latest.loc["IF2605.CFE", "dividend_points"], 20)
+            ranks = session_quantiles(result, result.trade_date.max(), "slot", sessions=1).set_index("slot")
+            self.assertEqual(ranks.loc[2, "estimated_sample_n"], 1)
+            self.assertTrue(ranks.loc[2, "current_dividend_is_estimated"])
+            self.assertTrue(ranks.loc[2, "complete"])
+            lines = []
+            describe_inputs(lines.append, result, info, result.trade_date.max(),
+                            {"kind": "sqlite", "path": "market.sqlite"})
+            self.assertIn("IF2603.CFE ← IF2602.CFE 1", "\n".join(lines))
 
     def test_three_stage_path_and_current_oi_high_position(self):
         values=-np.r_[np.linspace(10,70,20),np.linspace(70,10,20),np.linspace(10,45,20)]
