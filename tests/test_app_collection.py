@@ -28,6 +28,7 @@ class FakeClient:
 
 class AppCollectionTests(unittest.TestCase):
     def test_old_twenty_code_feed_can_update_indices_while_new_etfs_are_blocked(self):
+        from dashboard.marketdata.contract_reference import active_contracts
         from dashboard.native.collection import RollingResolver
         from dashboard.native.model import NativeModel
         from dashboard.native.market_overview import MarketOverviewEngine
@@ -58,7 +59,8 @@ class AppCollectionTests(unittest.TestCase):
             with RealtimeStore(root/'quotes') as store:store.batch(old)
             gate=patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='fixture'))
             with gate:
-                with network_lease(config):
+                with network_lease(config), patch('dashboard.marketdata.contract_reference.active_contracts',
+                        side_effect=lambda reference, _:active_contracts(reference,str(now.date()))):
                     state=engine.snapshot(now=now)['market_overview']
                     self.assertEqual(sum(r['quality']['usable'] for r in state['indices']),4)
                     self.assertTrue(all(r['price'] is None for r in state['etfs']))
@@ -111,12 +113,18 @@ class AppCollectionTests(unittest.TestCase):
             (local/'native.json').write_text(json.dumps(config))
             def bounded(*args,**kwargs):
                 kwargs.update(interval=.01,max_polls=3);return real_collect(*args,**kwargs)
+            committed=[]
+            def on_commit():
+                with RealtimeReader(local/'quotes').connect() as con:
+                    committed.append(con.execute('SELECT MAX(sequence) FROM quotes').fetchone()[0])
             with patch('dashboard.session_clock.session_policy',return_value=dict(allowed=True,reason='fixture')),\
                  patch('dashboard.native.collection.collect',side_effect=bounded):
-                job=CollectionJob(local);job.start(local/'quotes',['000300.SH'],{'000300.SH'},client_factory=lambda **kw:client)
+                job=CollectionJob(local,on_quotes_committed=on_commit)
+                job.start(local/'quotes',['000300.SH'],{'000300.SH'},client_factory=lambda **kw:client)
                 job.worker.join(8)
             self.assertFalse(job.running());self.assertTrue(client.closed)
             state=job.state();self.assertEqual(state['polls'],3);self.assertEqual(state['data_sequence'],2)
+            self.assertEqual(committed,[1,2])
             self.assertEqual(state['last_failure_status'],'timeout');self.assertEqual(state['valid_rows'],1)
             self.assertGreaterEqual(state['request_seconds'],.045);self.assertIn('storage_finished_at',state)
             with RealtimeReader(local/'quotes').connect() as con:

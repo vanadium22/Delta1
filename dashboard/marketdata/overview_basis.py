@@ -40,8 +40,10 @@ def calculate(future,spot,dividend,days,*,min_annual_days=DEFAULT_MIN_ANNUAL_DAY
 
 def input_token(config,metadata,day,local_root=None):
     from .overview_dividends import local_sources,directory
-    paths=local_sources(config)
-    if local_root:paths.append(directory(config,local_root)/'records.sqlite')
+    paths=local_sources(config,history=True)
+    if local_root:
+        records=directory(config,local_root)/'records.sqlite'
+        paths.extend((records, records.with_name(records.name+'-wal')))
     paths += [Path(config[k]) for k in ('daily_dividend_file','dividend_scenario_file') if config.get(k)]
     entries=[]
     for path in paths:
@@ -55,7 +57,14 @@ def load_dividends(config,metadata,day,local_root=None):
     mode=config.get('dividend_mode','fixed_snapshot')
     try:
         if mode=='daily_remaining':
-            return DividendBook.load('',daily_file=config.get('daily_dividend_file'),mode=mode)
+            original=DividendBook.load('',daily_file=config.get('daily_dividend_file'),mode=mode)
+            if original.reason:
+                return original
+            from .overview_dividends import DatedDividendBook, HISTORICAL_CUTOFF
+            rows=[dict(contract_id=r['instrument_id'],points=r['points'],source_business_date=r['date'],
+                       effective_from=r['date']+'T00:00:00+08:00',precision='day',source_kind='daily_concrete',
+                       revision=digest(r)) for r in original.info['rows']]
+            return DatedDividendBook(rows,metadata,anchor=day+HISTORICAL_CUTOFF,inherit_predecessor=False)
         from .overview_dividends import load
         return load(config,metadata,day,local_root)
     except Exception as exc:
@@ -67,3 +76,10 @@ def dividend_record(book,symbol,when):
     if hasattr(book,'resolve'):return book.resolve(symbol,when) or {}
     return dict((getattr(book,'info',{}) or {}).get('mapping',{}).get(symbol,{}),
         points=book.points(symbol,when),revision=getattr(book,'version',None))
+
+
+def historical_dividend(book,symbol,day):
+    from .overview_dividends import HISTORICAL_CUTOFF
+    if hasattr(book,'resolve_contract'):
+        return book.resolve_contract(symbol,day+HISTORICAL_CUTOFF) or {}
+    return dividend_record(book,symbol,day)

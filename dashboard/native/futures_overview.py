@@ -1,6 +1,7 @@
 """Overview pricing changes under the same explicit Excel dividend scenario."""
 import pandas as pd
 
+from dashboard.marketdata.overview_basis import historical_dividend
 from dashboard.marketdata.quote_quality import aligned_quotes, finite
 from .instruments import UNDERLYINGS
 
@@ -10,7 +11,7 @@ def previous_basis_change(row, spot,dividends=None):
     if row.get('basis_points') is None or not finite(f) or not finite(s) or min(f, s) <= 0:
         return None
     previous=row.get('basis_prev_day') or spot.get('prev_date') or spot.get('yesterday_date')
-    dividend=dividends.points(row['symbol'],previous) if dividends is not None and previous else row.get('dividend_points')
+    dividend=historical_dividend(dividends,row['symbol'],previous).get('points') if dividends is not None and previous else row.get('dividend_points')
     old=f-s+dividend if finite(dividend) else None
     return row['basis_points']-old if old is not None else None
 

@@ -15,7 +15,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
-def read_snapshot(directory):
+def read_snapshot(directory, *, allow_partial=False):
     snapshots = []
     source=Path(directory)
     for path in ([source] if source.is_file() else sorted(source.glob("*.xlsx"))):
@@ -26,18 +26,27 @@ def read_snapshot(directory):
             sheet = book["Sheet1"]
             stamp = sheet["B1"].value
             if not isinstance(stamp, (date, datetime)): raise ValueError(f"{path.name}: Sheet1!B1 缺少缓存快照日期")
-            points, raw_rows = {}, []
+            if allow_partial and sheet['G3'].value != '分红':
+                raise ValueError(f"{path.name}: Sheet1!G3 不是分红")
+            points, raw_rows, seen = {}, [], set()
             for row in sheet.iter_rows(values_only=True):
                 if len(row) < 7 or not isinstance(row[1], str) or not re.fullmatch(r"(?:IF|IH|IC|IM)0[0-3]\.CFE", row[1]): continue
                 alias, value = row[1], row[6]
-                if alias in points: raise ValueError(f"重复分红档位 {alias}")
+                if alias in seen: raise ValueError(f"重复分红档位 {alias}")
+                seen.add(alias)
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                    if allow_partial:
+                        continue
                     raise ValueError(f"{alias}: G列没有有效缓存分红点数")
                 points[alias] = float(value)
                 raw_rows.append(dict(alias=alias, source_contract=row[2], source_expiry=str(row[4]), points=float(value)))
-            if len(points) != 16: raise ValueError(f"{path.name}: 分红档位不足16个")
+            if not allow_partial and len(points) != 16: raise ValueError(f"{path.name}: 分红档位不足16个")
+            if not points: raise ValueError(f"{path.name}: 无有效分红值")
             content = {"date":str(pd.Timestamp(stamp).date()), "rows":raw_rows}
-            snapshots.append(dict(**content, points=points, content_hash=digest(content), path=str(path.resolve()), file_sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
+            snapshot = dict(**content, points=points, content_hash=digest(content), path=str(path.resolve()), file_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            if allow_partial and isinstance(stamp, datetime) and stamp.time() != datetime.min.time():
+                snapshot['business_at'] = stamp.isoformat()
+            snapshots.append(snapshot)
         finally: book.close()
     if not snapshots: raise ValueError("分红目录没有有效Excel缓存快照")
     latest = max(s["date"] for s in snapshots)

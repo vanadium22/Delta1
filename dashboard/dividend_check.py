@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 def audit(config, local_root, *, now=None, day=None):
     from .marketdata.contract_reference import latest_contracts
     from .marketdata.repository import ReferenceBook
-    from .marketdata.overview_basis import load_dividends
+    from .marketdata.overview_basis import dividend_record, historical_dividend, load_dividends
     from .marketdata.overview_percentiles import prior_days, dated_slots
     from .marketdata.overview_percentiles import HISTORICAL_DIVIDEND_POLICY
     from .marketdata.overview_dividends import directory
@@ -27,25 +27,27 @@ def audit(config, local_root, *, now=None, day=None):
     for root in ('IF','IH','IC','IM'):
         for slot in range(4):
             rows = dated_slots(meta, root, slot, prior_days(day))
-            missing = [dict(day=r['day'],contract=r['symbol']) for r in rows if not r['excluded'] and r['symbol'] and book.points(r['symbol'],r['day']) is None]
+            missing = [dict(day=r['day'],contract=r['symbol']) for r in rows if not r['excluded'] and r['symbol'] and
+                       historical_dividend(book,r['symbol'],r['day']).get('points') is None]
             slots[root+'0'+str(slot)+'.CFE'] = dict(dividend_missing=len(missing),missing=missing,
                 mapping_missing=sum(r['reason']=='mapping_missing' for r in rows),
                 rule_excluded=sum(r['excluded'] for r in rows),price_availability_tested=False)
     root = directory(config, local_root)
     from .marketdata.overview_dividends import local_sources,source_directory
     local_files=[]
-    for path in local_sources(config):
+    for path in local_sources(config,history=True):
         try:
             sha=hashlib.sha256(path.read_bytes()).hexdigest()
             file_dates=sorted({r['source_business_date'] for r in records if r['file_sha256']==sha})
             local_files.append(dict(path=str(path.resolve()),sha256=sha,business_dates=file_dates))
         except OSError as exc:local_files.append(dict(path=str(path),error_type=type(exc).__name__))
     current={}
-    selected_at=now if day==now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat() else day+'T15:00:00+08:00'
+    same_day=day==now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
     for root_name in ('IF','IH','IC','IM'):
         for slot in range(4):
             mapped=dated_slots(meta,root_name,slot,[day])[0]
-            symbol=mapped['symbol'];selected=book.resolve(symbol,selected_at)
+            symbol=mapped['symbol']
+            selected=dividend_record(book,symbol,now) if same_day else historical_dividend(book,symbol,day)
             current[root_name+'0'+str(slot)+'.CFE']=dict(contract_id=symbol,
                 **{k:(selected or {}).get(k) for k in ('points','source_business_date','effective_from','file_sha256','inherited_from','value_source_contract','source_kind')},
                 carried_forward=bool((selected or {}).get('source_business_date') and selected['source_business_date']<day),

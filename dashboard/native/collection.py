@@ -77,9 +77,10 @@ class RollingResolver:
 
 
 class CollectionJob:
-    def __init__(self,local_root,*,lifetime_stop=None):
+    def __init__(self,local_root,*,lifetime_stop=None,on_quotes_committed=None):
         self.local_root=Path(local_root)
         self.lifetime_stop=lifetime_stop
+        self.on_quotes_committed=on_quotes_committed
         self.worker=None
         self.stop_event=threading.Event()
         self.status={"status":"idle","rows":0,"polls":0,"error":None}
@@ -184,20 +185,6 @@ class CollectionJob:
                         http_record=dict(record)
                         started=time.perf_counter();self.status['stage']='validation_and_storage'
                         original(record)
-                        if auto_roll and time.monotonic()>=previous_close_due and not self.stop_event.is_set():
-                            previous_close_due=time.monotonic()+60
-                            from dashboard.marketdata.overview_http_closes import ingest
-                            from dashboard.marketdata.contract_reference import latest_contracts
-                            try:
-                                metadata=latest_contracts(ReferenceBook(getattr(resolver,'reference_file',reference_file)).data)
-                                captured=ingest(http_record,config or {},self.local_root,metadata,
-                                    raw_root=Path(root),raw_reference=record.get('raw_response_reference'),stop=self.stop_event.is_set)
-                            except (OSError,ValueError,TypeError,KeyError) as exc:
-                                captured=dict(status='unavailable',inserted=0,error_type=type(exc).__name__)
-                            from dashboard.marketdata.overview_http_closes import SESSION_PENDING
-                            if any(r.get('reason') in SESSION_PENDING for r in captured.get('rejected',[])):
-                                previous_close_due=time.monotonic()+10
-                            with self.lock:self.status['http_previous_close']=captured
                         with self.lock:
                             good=record.get("status") in {"success", "partial"}
                             self.status.update(status="running" if good else "disconnected",rows=self.status["rows"]+len(store.last_rows),
@@ -212,6 +199,22 @@ class CollectionJob:
                                 data_sequence=max((r['sequence'] for r in store.last_rows),default=self.status.get('data_sequence',0)),
                                 valid_rows=len(store.last_rows),validation_status=(store.last_report or {}).get('status'),
                                 invalid_symbols=(store.last_report or {}).get('failed_symbols',[]))
+                        if store.last_rows and self.on_quotes_committed is not None and not self.stop_event.is_set():
+                            self.on_quotes_committed()
+                        if auto_roll and time.monotonic()>=previous_close_due and not self.stop_event.is_set():
+                            previous_close_due=time.monotonic()+60
+                            from dashboard.marketdata.overview_http_closes import ingest
+                            from dashboard.marketdata.contract_reference import latest_contracts
+                            try:
+                                metadata=latest_contracts(ReferenceBook(getattr(resolver,'reference_file',reference_file)).data)
+                                captured=ingest(http_record,config or {},self.local_root,metadata,
+                                    raw_root=Path(root),raw_reference=record.get('raw_response_reference'),stop=self.stop_event.is_set)
+                            except (OSError,ValueError,TypeError,KeyError) as exc:
+                                captured=dict(status='unavailable',inserted=0,error_type=type(exc).__name__)
+                            from dashboard.marketdata.overview_http_closes import SESSION_PENDING
+                            if any(r.get('reason') in SESSION_PENDING for r in captured.get('rejected',[])):
+                                previous_close_due=time.monotonic()+10
+                            with self.lock:self.status['http_previous_close']=captured
                     store.batch=batch
                     collect(client,store,[symbols_file],interval=HEADLINE_INTERVAL_SECONDS,max_polls=1 if once else 0,
                             stop=SessionStop(self.stop_event, self._policy),resolver=resolver)

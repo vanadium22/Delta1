@@ -77,6 +77,21 @@ class OverviewUiTests(unittest.TestCase):
         self.addCleanup(lambda:(w.close(),pump(.1)))
         return w
 
+    def test_committed_quotes_trigger_ui_refresh_before_timer(self):
+        import threading
+        window=self.window()
+        window.timer.setInterval(60_000)
+        self.assertFalse(window.busy)
+        loaded=Mock()
+        window.loaded.connect(loaded)
+        worker=threading.Thread(target=window.quotes_committed.emit)
+        worker.start();worker.join()
+        loaded.assert_not_called()
+        deadline=time.monotonic()+2
+        while not loaded.called and time.monotonic()<deadline:
+            pump(.02)
+        loaded.assert_called_once()
+
     def test_three_pages_resize_scroll_and_nonoverlapping_card_contents(self):
         w=self.window()
         for width,height in ((860,620),(1100,760),(1440,900),(1920,1080)):

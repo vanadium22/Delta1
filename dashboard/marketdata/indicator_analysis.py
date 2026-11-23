@@ -9,8 +9,8 @@ from statistics import mean, median, stdev
 
 from dashboard.indicator_v6.sources import dates_between, SPOTS
 from dashboard.native.continuous import slot_map
-from .overview_basis import dividend_record,DEFAULT_MIN_ANNUAL_DAYS
-from .overview_percentiles import historical_dividend, prior_days
+from .overview_basis import dividend_record,historical_dividend,DEFAULT_MIN_ANNUAL_DAYS
+from .overview_percentiles import prior_days, rank_in_sorted
 
 SERIES = ('raw', 'adjusted', 'annual', 'calendar_03_02', 'calendar_02_01')
 CHARTS = {'adjusted': ('raw', 'adjusted'), 'annual': ('annual',),
@@ -101,7 +101,7 @@ def values(day, request, mapping, metadata, prices, book, *, current=False, at=N
         symbol = mapping.get(f'{root}0{slot}.CFE')
         expiry = metadata.get(symbol, {}).get('expiry_date')
         t = (date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
-        record = dividend_record(book, symbol, at or day) if current else historical_dividend(book, symbol, day)
+        record = dividend_record(book, symbol, at) if current and at else historical_dividend(book, symbol, day)
         legs[slot] = dict(symbol=symbol, F=prices.get(symbol), D=record.get('points'), T=t,
                           dividend=record, expiry=expiry)
     result = {}
@@ -166,69 +166,76 @@ def historical(plan_value, metadata, tables, book, *, stop=lambda: False,min_ann
     return output
 
 
-def statistics(rows, reference_days, current):
+def compile_statistics(rows, reference_days):
     by_day = {r['day']:r for r in rows}
     reference = [by_day.get(d, point(d, reason='history_missing')) for d in reference_days]
     excluded = [r['day'] for r in reference if r['excluded']]
     missing = [dict(day=r['day'], reason=r.get('reason') or 'history_missing') for r in reference
                if not r['excluded'] and not finite(r.get('value'))]
     valid = [r for r in reference if not r['excluded'] and finite(r.get('value'))]
-    samples = [r['value'] for r in valid]
+    samples = sorted(r['value'] for r in valid)
     complete = not missing and bool(samples)
-    avg = mean(samples) if complete else None
-    mid = median(samples) if complete else None
-    sigma = stdev(samples) if complete and len(samples) >= 2 else None
+    static = dict(mean=mean(samples) if complete else None, median=median(samples) if complete else None,
+                  std=stdev(samples) if complete and len(samples) >= 2 else None,
+                  complete=complete, samples=len(samples), requested=len(reference_days),
+                  excluded_dates=excluded, missing=missing,
+                  zero_dividend_dates=[r['day'] for r in valid if r.get('zero_dividend_symbols')],
+                  http_session_inferred_dates=[r['day'] for r in valid if r.get('http_session_inferred')],
+                  start=reference_days[0], end=reference_days[-1])
+    return samples, static
+
+
+def evaluate_statistics(compiled, current):
+    samples, static = compiled
+    sigma = static['std']
     x = current.get('value')
-    usable = complete and finite(x)
-    reason=('历史样本缺项' if missing else '有效历史样本不足' if not samples else
+    usable = static['complete'] and finite(x)
+    reason=('历史样本缺项' if static['missing'] else '有效历史样本不足' if not samples else
             current.get('reason') or '当前比较值缺失' if not finite(x) else
             '历史标准差为零' if sigma == 0 else '有效样本不足2个' if sigma is None else '')
-    return dict(mean=avg, median=mid, std=sigma, reason=reason,
-                z=(x-avg)/sigma if usable and sigma is not None and sigma > 0 else None,
-                percentile=100*(sum(v < x for v in samples)+.5*sum(v == x for v in samples))/len(samples) if usable else None,
-                complete=complete, samples=len(samples), requested=len(reference_days),
-                excluded_dates=excluded, missing=missing,
-                zero_dividend_dates=[r['day'] for r in valid if r.get('zero_dividend_symbols')],
-                http_session_inferred_dates=[r['day'] for r in valid if r.get('http_session_inferred')],
-                start=reference_days[0], end=reference_days[-1])
+    return dict(static, reason=reason,
+                z=(x-static['mean'])/sigma if usable and sigma is not None and sigma > 0 else None,
+                percentile=rank_in_sorted(samples,x) if usable else None)
 
 
-def display(plan_value, history, current):
-    result = {}
-    for key in SERIES:
-        latest = current[key]
-        rows = [r for r in history[key] if plan_value['start'] <= r['day'] < plan_value['pricing_day']]
-        rows.append(latest)
-        result[key] = dict(rows=rows, current=latest,
-                           statistics=statistics(history[key], plan_value['reference_days'], latest))
-    return dict(schema='indicator-analysis-v1', selection=plan_value['selection'],
-                pricing_day=plan_value['pricing_day'], start=plan_value['start'], end=plan_value['end'], series=result,
-                history_start=plan_value['days'][0], reference_days=plan_value['reference_days'],
+def statistics(rows, reference_days, current):
+    return evaluate_statistics(compile_statistics(rows, reference_days), current)
+
+
+def prepare_display(plan_value, history, request):
+    """Compile each visible channel's historical window once per publication."""
+    day=plan_value['pricing_day']
+    choices=chart_selections(request)
+    charts={}
+    series={}
+    for key, channels in CHARTS.items():
+        choice=choices[key]
+        start = str(date.fromisoformat(day)-timedelta(days=choice['window']-1))
+        reference_days = plan_value['reference_days'][-choice['stats']:]
+        charts[key] = dict(selection=choice,start=start,end=day,reference_days=reference_days)
+        for channel in channels:
+            rows = [r for r in history[channel] if start <= r['day'] < day]
+            series[channel] = (rows,compile_statistics(history[channel],reference_days))
+    first=next(iter(charts.values()))
+    output=dict(schema='indicator-analysis-v1',selection=request,pricing_day=day,start=first['start'],end=day,
+                history_start=plan_value['days'][0],reference_days=first['reference_days'],
                 mapping_policy='逐日挂牌/到期重建，换实际合约断线；非当时可得映射',
                 statistics_policy='指标计算窗口取定价日前交易日；样本标准差ddof=1；等值半权；未知缺项不跳过',
                 network_requested=False)
+    if 'charts' in request:
+        output['charts']=charts
+    return output,series
 
 
-def display_charts(plan_value, history, current, request):
-    """Slice one shared historical read into four independent chart results."""
-    if 'charts' not in request:
-        return display(plan_value, history, current)
-    selections = chart_selections(request)
-    day = plan_value['pricing_day']
-    output = None
-    chart_info = {}
-    combined = {}
-    for key, channels in CHARTS.items():
-        choice = selections[key]
-        start = str(date.fromisoformat(day)-timedelta(days=choice['window']-1))
-        individual = {**plan_value, 'selection': choice, 'start': start,
-                      'reference_days': prior_days(day, choice['stats'])}
-        rendered = display(individual, history, current)
-        if output is None:output = rendered
-        chart_info[key] = {k:rendered[k] for k in ('selection', 'start', 'end', 'reference_days')}
-        combined.update({channel:rendered['series'][channel] for channel in channels})
-    output.update(selection=request, charts=chart_info, series=combined)
-    return output
+def display(plan_value, history, current):
+    return display_charts(plan_value,history,current,plan_value['selection'])
+
+
+def display_charts(plan_value, history, current, request, *, prepared=None):
+    output, series = prepared or prepare_display(plan_value,history,request)
+    return dict(output,series={key:dict(rows=[*rows,current[key]],current=current[key],
+                      statistics=evaluate_statistics(compiled,current[key]))
+                for key,(rows,compiled) in series.items()})
 
 
 def summary(result):

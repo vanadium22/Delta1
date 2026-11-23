@@ -1,9 +1,23 @@
 {
-  "release": "2026-11-17-colleague-expiry-filter",
+  "historical_dividend_and_live_rank_20261123": {
+    "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
+    "scope": "historical last observed same concrete future at Shanghai 15:05, no zero estimates or predecessor inheritance in dashboard; missing windows explicit",
+    "realtime": "quote commit queues an immediate refresh; 3s watchdog and 30s full indicator redraw; unchanged 30s freshness and 3s pairing",
+    "benchmark": {
+      "case": "offline replay with 10000 observations and four indicator windows",
+      "baseline_warm_median_ms": 235.28,
+      "warm_median_ms": 69.72,
+      "warm_runs": 9,
+      "same_60_session_ranks": 16
+    },
+    "tests": {"passed": 578, "skipped": 0, "resource_warnings_as_errors": true},
+    "company_acceptance": "pending"
+  },
+  "release": "2026-11-23-dated-dividends-live-ranks",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
-  "base_commit": "ab97812f78aee01b4f1ac043dbf3c0c1a7ff5a09",
-  "status": "local_validated_colleague_package_company_acceptance_pending",
+  "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
+  "status": "local_validated_company_acceptance_pending",
   "company_entry": "dashboard/start_presentation.vbs",
   "company_cli_entry": "dashboard/start_presentation.cmd",
   "company_git_root": "D:/WORKSPACE/MAIN/SwhySc/DeltaOne/project/dashboard",

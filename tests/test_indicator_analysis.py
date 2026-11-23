@@ -116,10 +116,12 @@ class IndicatorFormulaTests(unittest.TestCase):
         self.assertFalse(result['series']['raw']['statistics']['complete'])
         self.assertTrue(result['series']['calendar_03_02']['statistics']['complete'])
 
-    def test_historical_missing_dividend_zero_is_derived_current_missing_is_not_zero(self):
+    def test_missing_dividend_blocks_adjusted_history_and_realtime(self):
         missing=SimpleNamespace(resolve=lambda s,d:None,version='missing')
         planned,meta,tables,history=fixture(book=missing)
-        self.assertTrue(history['annual'][-1]['zero_dividend_symbols'])
+        self.assertIsNone(history['annual'][-1]['value'])
+        self.assertIsNotNone(history['raw'][-1]['value'])
+        self.assertFalse(history['annual'][-1]['zero_dividend_symbols'])
         mapping=planned['mappings'][DAY]['mapping'];prices={s:r[DAY]['close'] for s,r in tables.items() if DAY in r}
         result=values(DAY,planned['selection'],mapping,meta,prices,missing,current=True)
         self.assertIsNone(result['annual']['value']);self.assertIsNotNone(result['raw']['value'])

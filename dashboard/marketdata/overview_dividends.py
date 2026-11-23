@@ -3,7 +3,7 @@
 The overview owns this store; the frozen Excel/research scenario APIs retain
 their original behavior. Date-only legacy observations retain that precision.
 """
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from contextlib import closing
 from datetime import date, datetime
 import json
@@ -16,6 +16,7 @@ from .dividends import digest, read_snapshot
 
 TZ = ZoneInfo('Asia/Shanghai')
 PARSER_VERSION = 'contract-dividends-v2'
+HISTORICAL_CUTOFF = 'T15:05:00+08:00'
 DEFAULT_SOURCE = r'\\192.168.91.230\FTPServer\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 LEGACY_DEFAULT_SOURCE = r'\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 MAPPED_DEFAULT_SOURCE = r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
@@ -44,44 +45,63 @@ def directory(config, local_root):
     return Path(config.get('overview_dividend_cache') or Path(local_root)/'overview_dividends')
 
 
-def local_sources(config):
+def local_sources(config, *, history=False):
     """Rendering may inspect local inputs, never the public-share directory."""
     result = []
-    for source in (config.get('dividend_root'), config.get('overview_dividend_file')):
+    sources = [config.get('dividend_root'), config.get('overview_dividend_file')]
+    if history:
+        from .paths import PATHS
+        sources.extend((PATHS.dividend_inputs, PATHS.dividend_archive))
+    for source in sources:
         if not source or remote(source):
             continue
         path = Path(source)
         try:
             result.extend([path] if path.is_file() else sorted(path.glob('*.xlsx')))
+            if history and path.is_dir():
+                result.extend(sorted((path/'history').rglob('*.xlsx')))
         except OSError:
             pass
     return list(dict.fromkeys(p for p in result if not p.name.startswith(('~$', '.'))))
 
 
-def records_from_file(path, *, first_seen=None, effective_from=None):
-    snapshot = read_snapshot(path)
+def records_from_file(path, *, first_seen=None, effective_from=None, metadata=None):
+    snapshot = read_snapshot(path) if metadata is None else read_snapshot(path, allow_partial=True)
     day = snapshot['date']
     # A filename clock is accepted only when its date agrees with the cached
     # business date. Legacy misleading filenames cannot assign an earlier date.
     match = re.search(r'(\d{4}-\d{2}-\d{2})[_ -](\d{2})(\d{2})(?:\D|$)', Path(path).stem)
-    precise = bool(match and match[1] == day)
-    effective = effective_from or (day+'T'+match[2]+':'+match[3]+':00' if precise else day+'T00:00:00')
+    workbook_clock = snapshot.get('business_at')
+    filename_clock = day+'T'+match[2]+':'+match[3]+':00' if match and match[1] == day else None
+    published_at = workbook_clock or filename_clock
+    effective = effective_from or published_at or day+'T00:00:00'
     effective = stamp(effective)
     if effective[:10] != day:
         raise ValueError('分红生效日期与表内业务日不符')
     result = []
     for item in snapshot['rows']:
         symbol = item['source_contract']
+        if metadata is not None and isinstance(symbol,str):
+            symbol = symbol.strip().upper()
+        source_kind = 'spreadsheet_concrete'
+        if metadata is not None and symbol in (None, ''):
+            from dashboard.native.continuous import slot_map
+            symbol = slot_map(metadata, item['alias'][:2], day)[0].get(item['alias'])
+            source_kind = 'spreadsheet_business_day_mapping'
         if (not isinstance(symbol, str) or not re.fullmatch(r'(IF|IH|IC|IM)\d{4}\.CFE', symbol)
                 or symbol[:2] != item['alias'][:2]):
+            if metadata is not None:
+                continue
             raise ValueError('分红C列须为同品种实际合约')
         row = dict(contract_id=symbol, points=item['points'], effective_from=effective,
-            effective_date=day, precision='minute' if precise else 'observed_revision' if effective_from else 'day',
-            source_business_date=day, source_published_at=effective if precise else None,
+            effective_date=day, precision='observed_revision' if effective_from else 'minute' if published_at else 'day',
+            source_business_date=day, source_published_at=stamp(published_at) if published_at else None,
             first_seen_at=stamp(first_seen or datetime.now(TZ)), file_sha256=snapshot['file_sha256'],
-            parser_version=PARSER_VERSION, source_kind='spreadsheet_concrete')
+            parser_version=PARSER_VERSION, source_kind=source_kind)
         row['revision'] = digest({k:v for k,v in row.items() if k != 'first_seen_at'})
         result.append(row)
+    if not result:
+        raise ValueError('分红表没有可绑定到实际合约的有效记录')
     return result
 
 
@@ -139,8 +159,9 @@ class DividendStore:
 class DatedDividendBook:
     mode = 'dated_contract'
 
-    def __init__(self, records, metadata, *, anchor=None, errors=()):
+    def __init__(self, records, metadata, *, anchor=None, errors=(), inherit_predecessor=True):
         self.metadata = metadata
+        self.inherit_predecessor = inherit_predecessor
         self.records = sorted({r['revision']:r for r in records}.values(), key=lambda r:(r['effective_from'], r['revision']))
         self.by_symbol = {}
         for row in self.records:
@@ -159,13 +180,21 @@ class DatedDividendBook:
         if not end:
             return None
         row = rows[end-1]
-        tied = [r for r in rows[:end] if r['effective_from'] == row['effective_from']]
+        start = bisect_left(self.times[symbol], row['effective_from'], 0, end)
+        tied = rows[start:end]
         if len({r['points'] for r in tied}) > 1:
-            return dict(points=None, reason='同日无时刻的分红版本冲突，待明确生效顺序')
+            return dict(points=None, reason='同一生效时刻的分红版本冲突，待明确生效顺序',
+                        revision=digest([r['revision'] for r in tied]))
         return dict(row, value_source_contract=symbol, source_snapshot=row['source_business_date'],
             expiry=self.metadata.get(symbol, {}).get('expiry_date'))
 
     def resolve(self, symbol, when):
+        return self._resolve(symbol, when, self.inherit_predecessor)
+
+    def resolve_contract(self, symbol, when):
+        return self._resolve(symbol, when, False)
+
+    def _resolve(self, symbol, when, inherit_predecessor):
         if not symbol or when is None:
             return None
         at = stamp(when)
@@ -175,7 +204,7 @@ class DatedDividendBook:
         direct = self._direct(symbol, at)
         if direct is not None:
             return direct
-        if not ref:
+        if not ref or not inherit_predecessor:
             return None
         earlier = sorted((s for s,r in self.metadata.items() if s[:2] == symbol[:2]
             and r['expiry_date'] < ref['expiry_date']), key=lambda s:self.metadata[s]['expiry_date'], reverse=True)
@@ -190,7 +219,7 @@ class DatedDividendBook:
         return row.get('points') if row else None
 
     def history_version(self, needed):
-        return digest([(r['symbol'], r['day'], (self.resolve(r['symbol'], r['day']) or {}).get('revision'))
+        return digest([(r['symbol'], r['day'], (self.resolve_contract(r['symbol'], r['day']+HISTORICAL_CUTOFF) or {}).get('revision'))
             for r in needed if r['symbol'] in self.metadata])
 
 
@@ -204,17 +233,20 @@ def load(config, metadata, day, local_root=None):
             errors.append(dict(stage='local_dividend_store', error_type=type(exc).__name__))
     imported = {(r['file_sha256'], r['contract_id']) for r in records}
     hashes = {r['file_sha256'] for r in records}
-    for path in local_sources(config):
+    for path in local_sources(config, history=True):
         try:
             import hashlib
-            if hashlib.sha256(path.read_bytes()).hexdigest() in hashes:
+            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            if file_hash in hashes:
                 continue
             # Store observations take precedence over rereading an older raw file
             # with unknown time; a persisted intraday revision keeps its clock.
-            records.extend(r for r in records_from_file(path) if (r['file_sha256'],r['contract_id']) not in imported)
+            records.extend(r for r in records_from_file(path, metadata=metadata)
+                           if (r['file_sha256'],r['contract_id']) not in imported)
+            hashes.add(file_hash)
         except Exception as exc:
             errors.append(dict(stage='local_dividend_file', error_type=type(exc).__name__))
-    return DatedDividendBook(records, metadata, anchor=day, errors=errors)
+    return DatedDividendBook(records, metadata, anchor=day+HISTORICAL_CUTOFF, errors=errors, inherit_predecessor=False)
 
 
 class DerivedCache:

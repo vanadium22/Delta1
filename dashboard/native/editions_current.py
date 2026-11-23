@@ -58,6 +58,7 @@ def freeze_window(state):
 
 class PresentationWindow(QMainWindow):
     loaded=Signal(object)
+    quotes_committed=Signal()
     frozen_payload=None
     presentation_mode=True
 
@@ -65,7 +66,8 @@ class PresentationWindow(QMainWindow):
         super().__init__();self.model=model;self.state=None;self.demo=False;self.busy=False;self.closing=False;self.pending=False;self.generation=0
         self.model.overview_stop=threading.Event();self.model.overview_write_cache=not bool(self.frozen_payload)
         self.market_mode=not self.frozen_payload or bool(self.frozen_payload['snapshots'][0].get('market_overview'))
-        self.collection=CollectionJob(model.local_root);self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
+        self.collection=CollectionJob(model.local_root,on_quotes_committed=self.quotes_committed.emit)
+        self.pool=QThreadPool(self);self.pool.setMaxThreadCount(1)
         self.resize(1580,980);self.setMinimumSize(860,620)
         from .card_style import CARD_STYLE
         self.setStyleSheet(CARD_STYLE)
@@ -143,6 +145,7 @@ class PresentationWindow(QMainWindow):
         if not self.market_mode and hasattr(self.quotes,'tabs'):self.quotes.tabs.setTabVisible(1,False)
         self.quotes.changed.connect(self.selection_changed)
         self.timer=QTimer(self);self.timer.setInterval(3000);self.timer.timeout.connect(self.refresh)
+        self.quotes_committed.connect(self.refresh_on_quotes,Qt.ConnectionType.QueuedConnection)
         self.page_scale.currentIndexChanged.connect(self.change_page_scale)
         QTimer.singleShot(0,lambda:self.change_page_scale(save=False))
         if not self.frozen_payload:self.timer.start()
@@ -155,6 +158,11 @@ class PresentationWindow(QMainWindow):
             from dashboard.marketdata.bars import _atomic_bytes,_json_bytes
             try:_atomic_bytes(Path(self.model.local_root)/'overview_ui.json',_json_bytes(dict(page_scale=mode)))
             except OSError:self.status.setToolTip('页面比例已应用；显示偏好暂未保存')
+
+    def refresh_on_quotes(self):
+        if self.closing or self.frozen_payload:return
+        self.timer.start()
+        self.refresh()
 
     def refresh(self):
         if self.closing:return

@@ -9,7 +9,7 @@ from unittest.mock import Mock,patch
 import pandas as pd
 
 from dashboard.indicator_v6.sources import SPOTS
-from dashboard.marketdata.overview_percentiles import prior_days,requirements,prepare as actual_prepare,evaluate,apply,SLOTS
+from dashboard.marketdata.overview_percentiles import prior_days,requirements,prepare as actual_prepare,compile_windows,evaluate,apply,SLOTS
 from tests.test_market_overview import ZERO_DIVIDENDS
 from dashboard.native.continuous import slot_map
 from dashboard.native.market_overview import MarketOverviewEngine
@@ -128,8 +128,16 @@ class ContinuousPercentileTests(unittest.TestCase):
         model=SimpleNamespace(config={},configure_repository=lambda _:repo,_live=lambda *args:deepcopy(live),live_rows=pd.DataFrame())
         with patch('dashboard.native.market_overview.ReferenceBook',return_value=reference),\
              patch('dashboard.native.market_overview.load_dividends',return_value=ZERO_DIVIDENDS),\
-             patch('dashboard.native.market_overview.latest_contracts',return_value=meta):
-            value=MarketOverviewEngine(model).snapshot(now=now)['market_overview']
+             patch('dashboard.native.market_overview.latest_contracts',return_value=meta),\
+             patch('dashboard.marketdata.overview_percentiles.compile_windows',wraps=compile_windows) as compile_sample:
+            engine=MarketOverviewEngine(model)
+            value=engine.snapshot(now=now)['market_overview']
+            reads=repo.read_window.call_count
+            live['IF2611.CFE']['close']=4001.
+            next_value=engine.snapshot(now=now)['market_overview']
+            self.assertEqual(repo.read_window.call_count,reads)
+            self.assertEqual(compile_sample.call_count,16)
+            self.assertEqual(next(r for r in next_value['futures'] if r['symbol']=='IF2611.CFE')['percentile_60'],100)
         rows=[r for r in value['futures'] if r['root']=='IF']
         self.assertEqual([r['symbol'] for r in rows],list(mapping['IF'].values()))
         for row,slot in zip(rows,SLOTS):
