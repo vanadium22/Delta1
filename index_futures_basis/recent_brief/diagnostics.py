@@ -1,6 +1,6 @@
 """Run the offline brief in an isolated batch and record shareable input coverage."""
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 import subprocess
@@ -21,6 +21,8 @@ def describe_inputs(write, panel, info, end, source):
     matched = (panel.loc[panel.dividend_points.notna(), "dividend_source_sha256"].value_counts()
                if "dividend_source_sha256" in panel else {})
     inventory = info.get("input_inventory", [])
+    observable = panel.futures_close.notna() & panel.spot_close.notna()
+    write(f"合计  有期现价 {observable.sum()}  缺分红 {(observable & panel.dividend_points.isna()).sum()}")
     write(f"发现 {len(inventory)} 份 Excel；下列采用数按合约×行情日计数")
     for entry in inventory:
         name = Path(entry["path"]).name
@@ -86,6 +88,14 @@ def run(args, folder):
             from .dividend_sources import history_paths, local_directories
 
             config, paths = load_config(), DataPaths.for_module(ROOT)
+            if args.backfill_share is not None:
+                from .share_history import collect
+                end = date.fromisoformat(args.as_of)
+                start = date.fromisoformat(args.history_from) if args.history_from else end - timedelta(days=480)
+                try:
+                    collect(paths, config, start.isoformat(), end.isoformat(), args.backfill_share, folder, write)
+                except OSError as exc:
+                    write(f"公盘补收中断，继续使用本地数据  {type(exc).__name__}: {exc}")
             dirs = [args.dividends] if args.dividends else local_directories(ROOT, config, paths)
             write("检查位置")
             for directory in dirs:
@@ -123,14 +133,28 @@ def run(args, folder):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="只读本地输入，独立生成两版简报并输出测试报告")
+    parser = argparse.ArgumentParser(description="独立生成两版简报并输出测试报告，可按需从公司公盘补收历史 Excel")
     market = parser.add_mutually_exclusive_group()
     market.add_argument("--database", type=Path)
     market.add_argument("--snapshot", type=Path)
     parser.add_argument("--as-of")
     parser.add_argument("--dividends", type=Path)
+    parser.add_argument("--backfill-share", nargs="?", const="", help="补收历史分红表，可选指定公盘目录")
+    parser.add_argument("--history-from", help="公盘补收起始业务日，默认截止日往前480个自然日")
     parser.set_defaults(volume_dataset=None, no_volume_supplement=False, sessions=60)
     args = parser.parse_args(argv)
+    if args.backfill_share is not None and (not args.as_of or args.dividends):
+        parser.error("--backfill-share 需要 --as-of，并使用已有本地分红目录和公共归档")
+    if args.history_from and args.backfill_share is None:
+        parser.error("--history-from 需要 --backfill-share")
+    try:
+        if args.as_of and date.fromisoformat(args.as_of).isoformat() != args.as_of:
+            raise ValueError
+        if args.history_from and (date.fromisoformat(args.history_from).isoformat() != args.history_from
+                                  or args.history_from > args.as_of):
+            raise ValueError
+    except ValueError:
+        parser.error("日期须为 YYYY-MM-DD，补收起始日须早于或等于截止日")
     stamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S")
     base = Path(__file__).resolve().parents[1] / "exports/recent_brief/diagnostics"
     return run(args, base / f"{stamp}_{uuid4().hex[:6]}")

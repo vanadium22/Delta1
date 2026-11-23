@@ -17,6 +17,8 @@ from .dividend_sources import history_paths
 SOURCE_COLUMNS = ["dividend_source_date", "dividend_effective_at", "dividend_source_sha256",
                   "dividend_source_cell", "dividend_match"]
 PENDING_CONTRACT = {"", "FETCHING...", "FETCHING…", "#GETTING_DATA", "#GETTING_DATA!"}
+WORKBOOK_ERRORS = (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError, SyntaxError,
+                   BadZipFile, InvalidFileException)
 
 
 def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier_mappings=None):
@@ -51,8 +53,7 @@ def align_history(panel, config, paths, explicit, *, frozen_inputs=None, earlier
             rows, info = read_continuous_snapshot(path, workbook_config, include_contracts=True,
                                                   source_bytes=source_bytes)
             sheet_effective = pd.Timestamp(info["effective_from"]).as_unit("ns")
-        except (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError, SyntaxError,
-                BadZipFile, InvalidFileException) as exc:
+        except WORKBOOK_ERRORS as exc:
             errors.append({"path": str(path), "error": str(exc)})
             entry["error"] = f"{type(exc).__name__}: {exc}"
             continue

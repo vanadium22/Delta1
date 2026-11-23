@@ -18,6 +18,8 @@
 
 ## 最近发布
 
+- 2026-11-23 股指基差简报诊断可按需从公司公盘补收历史分红 Excel，按表日归档后生成同日简报并汇总缺口。[操作说明](index_futures_basis/recent_brief/README.md)。
+
 - 2026-11-23 股指基差简报使用表内业务日和连续档位查询实际合约，兼容本地行情库中早于简报区间的历史映射。[说明](index_futures_basis/recent_brief/README.md)。
 
 - 2026-11-23 股指基差简报兼容分红表实际合约列等待行情，按表日历史映射恢复，生成批次保留原始输入，诊断细化历史缺口和分位覆盖。[基差交接](index_futures_basis/PROJECT_HANDOFF.md)。
