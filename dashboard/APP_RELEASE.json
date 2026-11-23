@@ -1,4 +1,13 @@
 {
+  "shared_dividend_curve_20261123": {
+    "base_commit": "c71f750",
+    "scope": "The brief and dashboard share the retrospective dividend curve. Market overview and indicator analysis price live quotes from observations known at the paired source time.",
+    "history": "Concrete contract first, dated earlier-contract estimates when absent, linear interpolation between known observations or to expiry, exact first-session anchor, explicit missing and conflict",
+    "roll_fix": "Borrowed observations share their source-session anchor through a roll when there is a following observed value. Expiry decay starts at first use when there is no following observation.",
+    "benchmark": {"observations": 10000, "warm_runs": 9, "before_ms": 71.37, "after_ms": 60.20, "same_60_session_ranks": 16},
+    "tests": {"dashboard_passed": 580, "brief_passed": 78, "skipped": 0, "resource_warnings_as_errors": true},
+    "company_acceptance": "pending"
+  },
   "historical_dividend_and_live_rank_20261123": {
     "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
     "scope": "historical last observed same concrete future at Shanghai 15:05, no zero estimates or predecessor inheritance in dashboard; missing windows explicit",
@@ -14,7 +23,7 @@
     "tests": {"passed": 578, "skipped": 0, "resource_warnings_as_errors": true},
     "company_acceptance": "pending"
   },
-  "release": "2026-11-23-dated-dividends-live-ranks",
+  "release": "2026-11-23-shared-dividend-curve-live-ranks",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
@@ -422,6 +431,7 @@
     "dashboard/marketdata/overview_display_cache.py",
     "dashboard/marketdata/overview_dividend_sync.py",
     "dashboard/marketdata/overview_dividends.py",
+    "dashboard/marketdata/dividend_curve.py",
     "dashboard/marketdata/overview_etf_history.py",
     "dashboard/marketdata/overview_http_closes.py",
     "dashboard/marketdata/overview_http_session.py",
@@ -621,7 +631,7 @@
       "preserve_ui_and_data"
     ]
   },
-  "overview_dividend_policy": "Dated actual-contract revisions/SHA/effective times; historical rows use their own known D. Confirmed Y mapped source; only old built-in UNC migrates at runtime without saving personal config, custom/empty retained. Scheduler fingerprint includes effective source. AM/PM bounded metadata/content deduplication, B1-based window filtering without filename-date exclusion, raw/history retained. Explicit SourceDirectory for Share/Import or local InputFile for Import, mutually exclusive; actual configured/effective sources and per-contract provenance audited. Original Excel/research API preserved. User 2026-11-10 exception: missing historical D may use a flagged zero calculation placeholder, never a false store observation; import real historical dated records to re-key and recompute placeholders, do not apply today D to past. Current D, true conflicts, price/mapping gaps and paused research unchanged. Numeric labels have no estimate suffix; tooltip/diagnostic retain assumption dates/counts.",
+  "overview_dividend_policy": "Market overview and indicators share the brief dividend curve for historical valuation. Primary inputs are dated actual-contract observations, followed by eligible earlier-contract estimates. Retrospective interpolation uses observations known by the evaluation cutoff, with expiry decay and first-session anchors. Live valuation uses only records known at paired quote source time. Missing inputs and conflicts are explicit. Source, dates and estimation provenance are retained in tooltips and audits.",
   "dividend_source": {
     "confirmed_directory": "Y:\\jrcx\\for_jrcx\\OTC-Quant\\pybct\\TZQ\\日终基差结果\\2026",
     "mapped_server": "192.168.91.230",

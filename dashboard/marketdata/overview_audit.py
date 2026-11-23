@@ -166,8 +166,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
     daily={}
     try:
         daily,required,errors=daily_inputs(config,local_root,pricing,metadata,repo=repo,frozen=frozen)
-        from .overview_basis import load_dividends
-        dividends=load_dividends(config,metadata,pricing,local_root)
+        from .overview_basis import load_dividends, dividend_history
+        dividends=dividend_history(load_dividends(config,metadata,pricing,local_root),pricing,stamp)
         result['errors'].extend(dict(stage='daily_read',**e) for e in errors)
         slots={};missing=defaultdict(set)
         for root in ROOTS:
@@ -179,7 +179,10 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
                 for window in checked['windows'].values():
                     if window['complete']:
                         window['reason']='历史窗口完整；本历史审计未计算当前分位，需另查页面的实时配对或收盘模式'
-                        if window.get('estimated'):window['reason']+='；历史缺分红暂按0估算 '+str(window['zero_dividend_count'])+'日'
+                        if window['zero_dividend_count']:
+                            window['reason']+='；历史缺分红暂按0估算 '+str(window['zero_dividend_count'])+'日'
+                        if window['dividend_estimated_count']:
+                            window['reason']+='；前序借用或历史插值 '+str(window['dividend_estimated_count'])+'日'
                     for row in window['missing']:
                         if row['reason'] in ('future_close_missing','index_close_missing'):
                             for symbol in row.get('missing_symbols') or [row.get('symbol') or ROOTS[root]]:missing[symbol].add(row['day'])
@@ -188,6 +191,8 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
             slots=slots,mapping_gaps=required['mapping_gaps'],dividend_version=dividends.version,dividend_reason=dividends.reason,
             dividend_missing=[dict(alias=alias,day=r['day'],symbol=r['symbol']) for alias,checked in slots.items() for r in checked['windows']['60']['missing'] if r['reason']=='dividend_missing'],
             zero_dividend_assumptions=[dict(alias=alias,**r) for alias,checked in slots.items() for r in checked['windows']['60']['zero_dividend_rows']],
+            dividend_estimates=[dict(alias=alias,**r) for alias,checked in slots.items()
+                                for r in checked['windows']['60']['dividend_estimated_rows']],
             daily_missing=[dict(symbol=s,dates=sorted(d)) for s,d in sorted(missing.items())],
             min_annual_days=annual_min_days(config),
             note=f'逐行读取可用已完成收盘；缺档案、缺行情和已知T<{annual_min_days(config)}规则排除分别列示；不把旧合约上市短误当连续窗口不足')

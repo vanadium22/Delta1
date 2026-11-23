@@ -93,7 +93,7 @@ def point(day, symbols=(), *, value=None, reason=None, excluded=False, **extra):
 
 
 def values(day, request, mapping, metadata, prices, book, *, current=False, at=None, source_at=None,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
-    """All legs belong to this day and use D known at the common pricing time."""
+    """Price each leg with the selected historical curve or live quote time."""
     root = request['root']
     spot = prices.get(SPOTS[root])
     legs = {}
@@ -110,8 +110,9 @@ def values(day, request, mapping, metadata, prices, book, *, current=False, at=N
         selected = [legs[s] for s in slots]
         symbols = [leg['symbol'] for leg in selected]
         zeros = [leg['symbol'] for leg in selected if leg['dividend'].get('estimated_zero')]
+        estimates = [leg['symbol'] for leg in selected if leg['dividend'].get('estimated')]
         inputs = dict(S=spot, legs=selected)
-        extra = dict(inputs=inputs, zero_dividend_symbols=zeros, source_at=source_at,
+        extra = dict(inputs=inputs, zero_dividend_symbols=zeros, estimated_dividend_symbols=estimates, source_at=source_at,
                      http_session_inferred=bool(set([SPOTS[root],*symbols]) & set(prices.get('_http_session_inferred_symbols',[]))))
         if any(not leg['symbol'] or leg['T'] is None for leg in selected):
             return point(day, symbols, reason='mapping_missing', **extra)
@@ -127,6 +128,7 @@ def values(day, request, mapping, metadata, prices, book, *, current=False, at=N
         if kind == 'raw':
             value = leg['F']-spot
             extra['zero_dividend_symbols'] = []
+            extra['estimated_dividend_symbols'] = []
         elif kind == 'adjusted':
             value = leg['F']-spot+leg['D']
         elif kind == 'annual':
@@ -180,6 +182,7 @@ def compile_statistics(rows, reference_days):
                   complete=complete, samples=len(samples), requested=len(reference_days),
                   excluded_dates=excluded, missing=missing,
                   zero_dividend_dates=[r['day'] for r in valid if r.get('zero_dividend_symbols')],
+                  estimated_dividend_dates=[r['day'] for r in valid if r.get('estimated_dividend_symbols')],
                   http_session_inferred_dates=[r['day'] for r in valid if r.get('http_session_inferred')],
                   start=reference_days[0], end=reference_days[-1])
     return samples, static
@@ -264,12 +267,13 @@ def summary(result):
             record=leg.get('dividend') if isinstance(leg.get('dividend'),dict) else {}
             legs.append({**{k:leg.get(k) for k in ('symbol','F','D','T','expiry')},
                 'dividend_source':leg.get('dividend_source') or record.get('source_snapshot') or record.get('source_business_date'),
-                'dividend_kind':leg.get('dividend_kind') or record.get('source_kind')})
+                'dividend_kind':leg.get('dividend_kind') or record.get('source_kind'),
+                'dividend_inherited_from':record.get('inherited_from'), 'dividend_interpolation':record.get('interpolation')})
         current_safe={k:current.get(k) for k in ('day','symbols','value','reason','excluded','source_at','http_session_inferred')}
         current_safe['calculation_inputs']=dict(S=inputs.get('S'),legs=legs)
         output['series'][key]=dict(current=current_safe,
             statistics={k:stats.get(k) for k in ('mean','median','std','z','percentile','reason','complete','samples','requested',
-                'excluded_dates','missing','zero_dividend_dates','http_session_inferred_dates','start','end')})
+                'excluded_dates','missing','zero_dividend_dates','estimated_dividend_dates','http_session_inferred_dates','start','end')})
     return output
 
 

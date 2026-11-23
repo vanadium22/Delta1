@@ -18,7 +18,7 @@ from tests.test_market_overview import observation
 
 
 class HistoricalDividendCoverageTests(unittest.TestCase):
-    def test_new_shared_workbook_is_discovered_and_only_changes_later_same_contract_rows(self):
+    def test_new_shared_workbook_updates_curve_and_keeps_first_effective_value(self):
         from openpyxl import Workbook
         from dashboard.marketdata.overview_basis import historical_dividend, input_token, load_dividends
         with tempfile.TemporaryDirectory() as tmp:
@@ -34,7 +34,7 @@ class HistoricalDividendCoverageTests(unittest.TestCase):
                     sheet.cell(i,2,alias);sheet.cell(i,3,contract);sheet.cell(i,7,points)
                 book.save(path);book.close()
             save(inputs/'first.xlsx','2026-10-23',
-                 [('IF00.CFE','IF2611.CFE',8),('IF01.CFE','IF2612.CFE',0)])
+                 [('IF00.CFE','IF2611.CFE',8),('IF01.CFE','Fetching...',0)])
             with patch('dashboard.marketdata.paths.PATHS',paths):
                 before=input_token(config,meta,DAY,root)
                 original=load_dividends(config,meta,DAY,root)
@@ -44,12 +44,102 @@ class HistoricalDividendCoverageTests(unittest.TestCase):
                 updated=load_dividends(config,meta,DAY,root)
             self.assertNotEqual(before,after)
             self.assertIsNone(historical_dividend(updated,'IF2611.CFE','2026-10-22').get('points'))
-            self.assertEqual(historical_dividend(updated,'IF2611.CFE','2026-10-26')['points'],8)
+            self.assertEqual(historical_dividend(original,'IF2611.CFE','2026-10-26')['points'],8)
+            self.assertEqual(historical_dividend(updated,'IF2611.CFE','2026-10-26')['points'],5.75)
             self.assertEqual(historical_dividend(updated,'IF2611.CFE',DAY)['points'],5)
             self.assertEqual(historical_dividend(updated,'IF2612.CFE',DAY)['points'],0)
-            self.assertIsNone(historical_dividend(updated,'IF2703.CFE',DAY).get('points'))
-            self.assertEqual(original.history_version([dict(symbol='IF2611.CFE',day='2026-10-26')]),
-                             updated.history_version([dict(symbol='IF2611.CFE',day='2026-10-26')]))
+            self.assertEqual(historical_dividend(updated,'IF2612.CFE',DAY)['source_kind'],
+                             'spreadsheet_business_day_mapping')
+            estimate=historical_dividend(updated,'IF2703.CFE',DAY)
+            self.assertEqual((estimate['points'],estimate['inherited_from']),(0,'IF2612.CFE'))
+            self.assertTrue(estimate['estimated'])
+            self.assertNotEqual(original.historical_view(DAY).version,updated.historical_view(DAY).version)
+            history=prepare('IF',2,meta,daily_data(meta),DAY,dividends=updated)
+            window=evaluate(history,0,history['current_symbol'])['windows']['20']
+            self.assertIn('2026-10-26',window['dividend_estimated_dates'])
+            self.assertEqual(window['zero_dividend_count'],0)
+
+    def test_shared_borrowed_snapshot_keeps_rolled_calendar_dividend_difference_zero(self):
+        from dashboard.marketdata.overview_basis import historical_dividend
+        from dashboard.marketdata.overview_dividends import OverviewDividendBook
+        from dashboard.native.continuous import slot_map
+
+        meta=metadata()
+        pricing_day='2026-07-24'
+        source='2026-04-09T00:00:00+08:00'
+        book=OverviewDividendBook([
+            record('IF2609.CFE',81.47,source),
+            record('IF2612.CFE',6.77,pricing_day+'T00:00:00+08:00'),
+            record('IF2703.CFE',6.77,pricing_day+'T00:00:00+08:00'),
+        ],meta,day=pricing_day)
+        view=book.historical_view(pricing_day)
+        mapping,_=slot_map(meta,'IF','2026-07-20')
+        self.assertEqual((mapping['IF02.CFE'],mapping['IF03.CFE']),('IF2612.CFE','IF2703.CFE'))
+        for day in ('2026-07-20','2026-07-21','2026-07-22','2026-07-23'):
+            near=historical_dividend(view,mapping['IF02.CFE'],day)
+            far=historical_dividend(view,mapping['IF03.CFE'],day)
+            self.assertEqual((near['anchor_date'],far['anchor_date']),('2026-04-09','2026-04-09'))
+            self.assertEqual(far['points']-near['points'],0)
+
+    def test_brief_and_dashboard_price_same_workbooks_and_live_respects_source_clock(self):
+        from openpyxl import Workbook
+        from dashboard.indicator_v6.sources import dates_between
+        from dashboard.marketdata.overview_basis import load_dividends, historical_dividend
+        from index_futures_basis.recent_brief.dividend_history import align_history
+
+        first, last = '2026-01-02', '2026-01-09'
+        expiries = {'03':last,'04':'2026-04-17','05':'2026-05-15','06':'2026-06-19','07':'2026-07-17'}
+        meta = {f'IF26{month}.CFE':dict(listing_date=first,expiry_date=end) for month,end in expiries.items()}
+        panel = pd.DataFrame([dict(trade_date=pd.Timestamp(day),instrument_id=symbol,
+                                   expiry_date=pd.Timestamp(ref['expiry_date']),calendar_known=True,
+                                   continuous_code='IF00.CFE')
+                              for day in dates_between(first,last) for symbol,ref in meta.items()])
+        panel = pd.concat([pd.DataFrame([dict(trade_date=pd.Timestamp('2025-12-31'),instrument_id='',
+                     expiry_date=pd.NaT,calendar_known=True,continuous_code='IF00.CFE')]),panel],ignore_index=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def save(name, when, values):
+                workbook=Workbook();sheet=workbook.active;sheet.title='Sheet1'
+                sheet['B1'],sheet['G3']=when,'分红'
+                for slot,(month,points) in enumerate(values):
+                    sheet.cell(slot+4,2,f'IF0{slot}.CFE');sheet.cell(slot+4,3,f'IF26{month}.CFE')
+                    sheet.cell(slot+4,7,points)
+                workbook.save(root/name);workbook.close()
+            save('start.xlsx',first+' 15:30:00',[('03',10),('05',90)])
+            save('preferred.xlsx','2026-01-05 10:00:00',[('06',6)])
+            save('later.xlsx','2026-01-07 15:30:00',[('03',2)])
+            save('conflict1.xlsx','2026-01-07 13:00:00',[('04',8)])
+            save('conflict2.xlsx','2026-01-07 13:00:00',[('04',1)])
+            paths=SimpleNamespace(dividend_inputs=root,dividend_archive=root/'archive')
+            with patch('dashboard.marketdata.paths.PATHS',paths):
+                book=load_dividends({},meta,last,root)
+            expected,_=align_history(panel,{'dividends':{}},None,root)
+        view=book.historical_view(last)
+        for row,want in zip(panel.itertuples(),expected.itertuples()):
+            if not row.instrument_id:
+                continue
+            got=historical_dividend(view,row.instrument_id,row.trade_date.date().isoformat())
+            if pd.isna(want.dividend_points):
+                self.assertIsNone(got.get('points'))
+            else:
+                self.assertAlmostEqual(got['points'],want.dividend_points)
+                self.assertEqual(got['value_source_contract'],want.dividend_source_contract)
+                self.assertEqual(got['estimated'],want.dividend_is_estimated)
+        later=historical_dividend(view,'IF2603.CFE','2026-01-06')
+        self.assertEqual((later['interpolation'],later['anchor_date'],later['end_date']),
+                         ('between_snapshots','2026-01-05','2026-01-08'))
+        self.assertEqual(later['end_source_cell'],'Sheet1!G4')
+        self.assertEqual(historical_dividend(view,'IF2603.CFE',last)['points'],0)
+        self.assertEqual(historical_dividend(view,'IF2606.CFE',last)['points'],6)
+        self.assertIsNone(book.resolve('IF2607.CFE','2026-01-05T09:59:59+08:00'))
+        self.assertEqual(book.resolve('IF2607.CFE','2026-01-05T10:00:00+08:00')['inherited_from'],'IF2606.CFE')
+        self.assertEqual(book.points('IF2603.CFE','2026-01-07T15:29:59+08:00'),10)
+        self.assertEqual(book.points('IF2603.CFE','2026-01-07T15:30:00+08:00'),2)
+        self.assertIsNone(book.points('IF2604.CFE','2026-01-07T13:00:00+08:00'))
+        morning=book.historical_view('2026-01-07','2026-01-07T11:00:00+08:00')
+        self.assertIs(morning,book.historical_view('2026-01-07','2026-01-07T11:00:03+08:00'))
+        self.assertEqual(historical_dividend(morning,'IF2603.CFE','2026-01-06')['points'],10)
+        self.assertNotEqual(morning.version,book.historical_view('2026-01-07','2026-01-07T13:00:00+08:00').version)
 
     def test_four_products_four_slots_keep_dated_gaps_without_estimates(self):
         meta=metadata();data=daily_data(meta);book=DatedDividendBook([],meta)

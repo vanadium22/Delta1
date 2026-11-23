@@ -25,11 +25,17 @@ def read_snapshot(directory, *, allow_partial=False):
             if "Sheet1" not in book: continue
             sheet = book["Sheet1"]
             stamp = sheet["B1"].value
+            if allow_partial and isinstance(stamp, str):
+                stamp = pd.Timestamp(stamp)
+                if pd.isna(stamp):
+                    raise ValueError(f"{path.name}: Sheet1!B1 缺少缓存快照日期")
+                if stamp.tzinfo:
+                    stamp = stamp.tz_convert('Asia/Shanghai').tz_localize(None)
             if not isinstance(stamp, (date, datetime)): raise ValueError(f"{path.name}: Sheet1!B1 缺少缓存快照日期")
-            if allow_partial and sheet['G3'].value != '分红':
+            if allow_partial and str(sheet['G3'].value).strip() != '分红':
                 raise ValueError(f"{path.name}: Sheet1!G3 不是分红")
             points, raw_rows, seen = {}, [], set()
-            for row in sheet.iter_rows(values_only=True):
+            for row_number, row in enumerate(sheet.iter_rows(values_only=True), 1):
                 if len(row) < 7 or not isinstance(row[1], str) or not re.fullmatch(r"(?:IF|IH|IC|IM)0[0-3]\.CFE", row[1]): continue
                 alias, value = row[1], row[6]
                 if alias in seen: raise ValueError(f"重复分红档位 {alias}")
@@ -39,7 +45,10 @@ def read_snapshot(directory, *, allow_partial=False):
                         continue
                     raise ValueError(f"{alias}: G列没有有效缓存分红点数")
                 points[alias] = float(value)
-                raw_rows.append(dict(alias=alias, source_contract=row[2], source_expiry=str(row[4]), points=float(value)))
+                record = dict(alias=alias, source_contract=row[2], source_expiry=str(row[4]), points=float(value))
+                if allow_partial:
+                    record['source_cell'] = f'Sheet1!G{row_number}'
+                raw_rows.append(record)
             if not allow_partial and len(points) != 16: raise ValueError(f"{path.name}: 分红档位不足16个")
             if not points: raise ValueError(f"{path.name}: 无有效分红值")
             content = {"date":str(pd.Timestamp(stamp).date()), "rows":raw_rows}

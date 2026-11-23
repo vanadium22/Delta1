@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QG
     QScrollArea, QFrame, QComboBox, QSpinBox, QAbstractSpinBox, QCheckBox, QPushButton, QToolTip, QSizePolicy)
 
 from dashboard.marketdata.indicator_analysis import CHARTS, selection, chart_selections, finite
+from dashboard.marketdata.overview_basis import dividend_estimate_label
 from .overview_pages import Panel, FlowGrid, lab, numeric
 from .theme import ACCENT, MUTED, TEXT, PANEL, BORDER, THEME
 
@@ -137,9 +138,12 @@ class IndicatorChart(Panel):
         detail=[display_policy(result['statistics_policy']),f"参考 {stats['start']} 至 {stats['end']}",
                 f'排除T<{min_days}：'+(', '.join(stats['excluded_dates']) or '无'),
                 '缺项：'+('; '.join(r['day']+' '+r['reason'] for r in stats['missing']) or '无'),
-                '历史D暂0：'+(', '.join(stats['zero_dividend_dates']) or '无'),
                 'HTTP日期推定：'+(', '.join(stats['http_session_inferred_dates']) or '无'),
                 '当前：'+str(latest.get('reason') or latest.get('source_at') or result['pricing_day'])]
+        if stats.get('zero_dividend_dates'):
+            detail.append('历史缺D暂0：'+', '.join(stats['zero_dividend_dates']))
+        if stats.get('estimated_dividend_dates'):
+            detail.append('前序借用或历史插值：'+', '.join(stats['estimated_dividend_dates']))
         self.footer.setToolTip('\n'.join(detail))
         self.stats_widget.setToolTip('\n'.join(detail))
         visible=[r for r in selected['rows'] if finite(r.get('value'))]
@@ -164,6 +168,10 @@ class IndicatorChart(Panel):
                 lines.append(str(leg['symbol'])+' F='+numeric(leg['F'],4)+' D='+numeric(leg['D'],4)+' T='+str(leg['T']))
                 record=leg.get('dividend',{})
                 lines.append('D来源 '+str(record.get('source_snapshot') or record.get('source_business_date') or record.get('source_kind') or '缺失'))
+                estimate=dividend_estimate_label(record.get('inherited_from'),record.get('interpolation'))
+                if estimate:lines.append(estimate)
+                if record.get('end_date'):
+                    lines.append(f"插值区间 {record['anchor_date']} 至 {record['end_date']}")
         if row.get('reason'):lines.append(row['reason'])
         if row.get('zero_dividend_symbols'):lines.append('历史缺D暂0：'+', '.join(row['zero_dividend_symbols']))
         if row.get('source_at'):lines.append('源时 '+row['source_at'])

@@ -10,8 +10,7 @@ from dashboard.marketdata.indicator_analysis import (SERIES, plan, historical, d
 from dashboard.marketdata.overview_daily import directory, read_day, merge_daily
 from dashboard.marketdata.overview_percentiles import final_rows
 from dashboard.marketdata.quote_quality import aligned_quotes
-from dashboard.marketdata.overview_basis import annual_min_days
-from dashboard.marketdata.overview_dividends import HISTORICAL_CUTOFF
+from dashboard.marketdata.overview_basis import annual_min_days, dividend_history
 from dashboard.session_clock import market_phase
 
 
@@ -42,6 +41,7 @@ class IndicatorAnalysisEngine:
                 self.plans.popitem(last=False)
         self.plans.move_to_end(plan_key)
         planned=self.plans[plan_key]
+        history_dividends = dividend_history(dividends, day, now)
         paths = [directory(self.model.config, self.model.local_root)/'days'/(d+'.json') for d in planned['days'] if d <= completed]
         signatures = []
         for path in paths:
@@ -55,7 +55,7 @@ class IndicatorAnalysisEngine:
         key = digest(dict(selection=planned['selection'], day=day, completed=completed,
                           versions={k:v['version'] for k,v in frozen.items()}, side=signatures,
                           metadata=contract_version,
-                          dividend=getattr(dividends,'version',None), roots=self.model.config.get('history_roots',[]),
+                          dividend=getattr(history_dividends,'version',None), roots=self.model.config.get('history_roots',[]),
                           repo_available=repo is not None,min_annual_days=min_days))
         cached = self.cache.get(key)
         cache_hit = cached is not None
@@ -79,7 +79,7 @@ class IndicatorAnalysisEngine:
                              if (r := v.get('rows',{}).get(symbol))]
                 tables[symbol] = {d:r for d,r in final_rows(merge_daily(frame, additions)).items()
                                   if planned['days'][0] <= d <= completed}
-            cached = dict(history=historical(planned, metadata, tables, dividends, stop=self.stopped,min_annual_days=min_days),
+            cached = dict(history=historical(planned, metadata, tables, history_dividends, stop=self.stopped,min_annual_days=min_days),
                           tables=tables, errors=errors, displays=OrderedDict())
             self.cache[key] = cached
             while len(self.cache) > 4:
@@ -99,8 +99,8 @@ class IndicatorAnalysisEngine:
                 rows = {s:table.get(day,{}) for s,table in cached['tables'].items()}
                 prices = {s:r.get('close') for s,r in rows.items()}
                 prices['_http_session_inferred_symbols'] = [s for s,r in rows.items() if r.get('source_date_basis')=='corroborated_live_session']
-                current = values(day,planned['selection'],mapping,metadata,prices,dividends,current=True,
-                                 at=day+HISTORICAL_CUTOFF,source_at=day+'T15:00:00+08:00',min_annual_days=min_days)
+                current = values(day,planned['selection'],mapping,metadata,prices,history_dividends,
+                                 source_at=day+'T15:00:00+08:00',min_annual_days=min_days)
                 for item in current.values():
                     if item['value'] is None:item['source_at']=None
             # An unavailable completed-day price may fall back to a real older

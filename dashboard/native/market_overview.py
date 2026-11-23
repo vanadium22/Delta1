@@ -4,10 +4,12 @@ Reads one frozen publication and one receipt cutoff. Never acquires data, repair
 history, changes a profile, or presents receipt time as the market source clock.
 """
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 import pandas as pd
 
-from dashboard.marketdata.overview_basis import calculate,FORMULA,input_token,load_dividends,dividend_record,historical_dividend,annual_min_days
+from dashboard.marketdata.overview_basis import (calculate, FORMULA, input_token, load_dividends, dividend_record,
+    historical_dividend, dividend_history, dividend_estimate_label, annual_min_days)
 from dashboard.indicator_v6.sources import dates_between
 from dashboard.marketdata.contract_reference import latest_contracts
 from dashboard.marketdata.quote_quality import aligned_quotes, finite, quote_quality
@@ -17,6 +19,7 @@ from .instruments import UNDERLYINGS
 from .overview_instruments import etfs, quote_registry
 
 
+@lru_cache(maxsize=32)
 def previous_session(day):
     days = dates_between(str(date.fromisoformat(day) - timedelta(days=35)), day)
     return next((d for d in reversed(days) if d < day), None)
@@ -130,10 +133,8 @@ def observed_series_many(rows, observations, now):
     native_sources=isinstance(sources.dtype,pd.DatetimeTZDtype)
     if not native_sources:
         sources = sources.map(timestamp)
-    if not isinstance(receipts.dtype,pd.DatetimeTZDtype):
-        receipts = receipts.map(timestamp)
-    source_clock = pd.to_datetime(sources, utc=True)
-    receipt_clock = pd.to_datetime(receipts, utc=True)
+    source_clock = sources if native_sources else pd.to_datetime(sources, utc=True)
+    receipt_clock = receipts if isinstance(receipts.dtype,pd.DatetimeTZDtype) else pd.to_datetime(receipts.map(timestamp), utc=True)
     local = source_clock.dt.tz_convert('Asia/Shanghai')
     pricing_dates={s:pd.Timestamp(r['source_at']).tz_convert('Asia/Shanghai').normalize() for s,r in cards.items()}
     minute = local.dt.hour*60+local.dt.minute
@@ -204,7 +205,7 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
         row.update(basis_prev_future=row.get('prev_close',q.get('prev_close')),
             basis_prev_spot=spot_row.get('prev_close') if spot_row else s.get('prev_close'),basis_prev_day=prior)
     t = (date.fromisoformat(expiry)-date.fromisoformat(day)).days if expiry else None
-    record=(historical_dividend(dividends,symbol,day) if mode=='completed_daily'
+    record=(historical_dividend(dividend_history(dividends,day,now),symbol,day) if mode=='completed_daily'
             else dividend_record(dividends,symbol,at));dividend=record.get('points')
     current=calculate(q.get('close'),s.get('close'),dividend,t,min_annual_days=min_annual_days)
     scenario=record
@@ -214,13 +215,15 @@ def futures_values(row, live, daily, metadata, now,spot_row=None,*,dividends=Non
                dividend_snapshot=scenario.get('source_snapshot'),dividend_version=getattr(dividends,'version',None),
                dividend_carried_forward=bool(scenario.get('source_snapshot') and scenario['source_snapshot']<day),
                dividend_file_sha256=record.get('file_sha256'),dividend_source_kind=record.get('source_kind'),
+               dividend_estimated=record.get('estimated',False),dividend_interpolation=record.get('interpolation'),
                basis_source_at=at.isoformat(),
                basis_kind=mode,pricing_day=day,pricing_at=at.isoformat(),basis_future_price=q['close'],basis_spot_price=s['close'],
                basis_future_source_at=pd.Timestamp(q.get('source_event_time',q.get('event_time'))).isoformat(),
                basis_spot_source_at=pd.Timestamp(s.get('source_event_time',s.get('event_time'))).isoformat(),
                dividend_revision=record.get('revision'),dividend_effective_from=record.get('effective_from'),dividend_precision=record.get('precision'))
-    row['basis_reason'] = (('收盘参考 ' if mode=='completed_daily' else '缓存参考 ')+day+' · ' if mode!='realtime' else '')+(FORMULA+f'；T<{min_annual_days}年化留空' if dividend is not None else record.get('reason') or '缺同合约分红；保留原始点基差')
-    if scenario.get('inherited_from'):row['basis_reason']+='；分红沿用 '+scenario['inherited_from']
+    row['basis_reason'] = (('收盘参考 ' if mode=='completed_daily' else '缓存参考 ')+day+' · ' if mode!='realtime' else '')+(FORMULA+f'；T<{min_annual_days}年化留空' if dividend is not None else record.get('reason') or '缺可用分红；保留原始点基差')
+    estimate = dividend_estimate_label(scenario.get('inherited_from'), scenario.get('interpolation'))
+    if estimate:row['basis_reason']+='；分红'+estimate
     if row['dividend_carried_forward']:row['basis_reason']+='；D来源 '+scenario['source_snapshot']+'，早于定价日'
     if t is None:row['basis_reason']+='；到期日缺失，年化留空'
 
@@ -386,6 +389,7 @@ class MarketOverviewEngine:
                                iopv_source_at=b['source_event_time'], premium_reason='ETF与IOPV源时及接收时差均不超过3秒')
             funds.append(row)
         futures = []
+        dated_dividends = {}
         for root, (_, name, _) in UNDERLYINGS.items():
             for slot, s in enumerate(s for s in contracts if s.startswith(root)):
                 row = quote_card(s, name, root, live, self.daily, now, previous, finalized=self.finalized)
@@ -401,16 +405,21 @@ class MarketOverviewEngine:
                 if target:
                     try:
                         price_requirements = required_history(target)
-                        revision_key=(self.dividends.version,target)
+                        if target not in dated_dividends:
+                            dated_dividends[target] = dividend_history(self.dividends,target,now)
+                        history_dividends = dated_dividends[target]
+                        revision_key=(history_dividends.version,target)
                         if revision_key not in self.dividend_versions:
-                            self.dividend_versions[revision_key]=(self.dividends.history_version(price_requirements['rows'])
-                                if hasattr(self.dividends,'history_version') else self.dividends.version)
-                        history_key=(root,slot,target,registry_day,self.dividend_versions[revision_key])
-                        if history_key not in self.percentiles:
-                            prepared=prepare(root,slot,metadata,self.daily,target,dividends=self.dividends,
+                            self.dividend_versions[revision_key]=(history_dividends.history_version(price_requirements['rows'])
+                                if hasattr(history_dividends,'history_version') else history_dividends.version)
+                        history_key=(root,slot,target,registry_day)
+                        revision = self.dividend_versions[revision_key]
+                        cached = self.percentiles.get(history_key)
+                        if cached is None or cached[0] != revision:
+                            prepared=prepare(root,slot,metadata,self.daily,target,dividends=history_dividends,
                                 cache=self.derived,current_day=registry_day,min_annual_days=min_days,finalized=self.finalized)
-                            self.percentiles[history_key]=(prepared,compile_windows(prepared))
-                        history,compiled=self.percentiles[history_key]
+                            self.percentiles[history_key]=(revision,prepared,compile_windows(prepared))
+                        _,history,compiled=self.percentiles[history_key]
                     except ValueError:pass
                 apply(row,history,compiled=compiled)
                 futures.append(row)

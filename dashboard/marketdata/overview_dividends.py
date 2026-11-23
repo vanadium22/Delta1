@@ -4,6 +4,7 @@ The overview owns this store; the frozen Excel/research scenario APIs retain
 their original behavior. Date-only legacy observations retain that precision.
 """
 from bisect import bisect_left, bisect_right
+from collections import OrderedDict
 from contextlib import closing
 from datetime import date, datetime
 import json
@@ -20,6 +21,9 @@ HISTORICAL_CUTOFF = 'T15:05:00+08:00'
 DEFAULT_SOURCE = r'\\192.168.91.230\FTPServer\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 LEGACY_DEFAULT_SOURCE = r'\\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
 MAPPED_DEFAULT_SOURCE = r'Y:\jrcx\for_jrcx\OTC-Quant\pybct\TZQ\日终基差结果\2026'
+HISTORICAL_POLICY = '按实际合约和定价时刻匹配，缺首份观测借用前序合约；历史在已知快照间插值，已到期尾段线性归零'
+MISSING_DIVIDEND = '定价时点缺实际合约及可用前序合约的分红'
+DIVIDEND_CONFLICT = '同一生效时刻的分红版本冲突，待明确生效顺序'
 
 
 def source_directory(config):
@@ -68,6 +72,9 @@ def local_sources(config, *, history=False):
 
 
 def records_from_file(path, *, first_seen=None, effective_from=None, metadata=None):
+    if metadata is not None:
+        from .dividend_curve import PENDING_CONTRACT
+
     snapshot = read_snapshot(path) if metadata is None else read_snapshot(path, allow_partial=True)
     day = snapshot['date']
     # A filename clock is accepted only when its date agrees with the cached
@@ -75,7 +82,7 @@ def records_from_file(path, *, first_seen=None, effective_from=None, metadata=No
     match = re.search(r'(\d{4}-\d{2}-\d{2})[_ -](\d{2})(\d{2})(?:\D|$)', Path(path).stem)
     workbook_clock = snapshot.get('business_at')
     filename_clock = day+'T'+match[2]+':'+match[3]+':00' if match and match[1] == day else None
-    published_at = workbook_clock or filename_clock
+    published_at = workbook_clock or (filename_clock if metadata is None else None)
     effective = effective_from or published_at or day+'T00:00:00'
     effective = stamp(effective)
     if effective[:10] != day:
@@ -86,9 +93,13 @@ def records_from_file(path, *, first_seen=None, effective_from=None, metadata=No
         if metadata is not None and isinstance(symbol,str):
             symbol = symbol.strip().upper()
         source_kind = 'spreadsheet_concrete'
-        if metadata is not None and symbol in (None, ''):
+        if metadata is not None and (symbol is None or symbol in PENDING_CONTRACT or symbol == item['alias']):
             from dashboard.native.continuous import slot_map
-            symbol = slot_map(metadata, item['alias'][:2], day)[0].get(item['alias'])
+            from dashboard.indicator_v6.sources import dates_between
+            try:
+                symbol = slot_map(metadata, item['alias'][:2], day)[0].get(item['alias']) if dates_between(day, day) else None
+            except ValueError:
+                symbol = None
             source_kind = 'spreadsheet_business_day_mapping'
         if (not isinstance(symbol, str) or not re.fullmatch(r'(IF|IH|IC|IM)\d{4}\.CFE', symbol)
                 or symbol[:2] != item['alias'][:2]):
@@ -100,6 +111,8 @@ def records_from_file(path, *, first_seen=None, effective_from=None, metadata=No
             source_business_date=day, source_published_at=stamp(published_at) if published_at else None,
             first_seen_at=stamp(first_seen or datetime.now(TZ)), file_sha256=snapshot['file_sha256'],
             parser_version=PARSER_VERSION, source_kind=source_kind)
+        if metadata is not None:
+            row['source_cell'] = item.get('source_cell')
         row['revision'] = digest({k:v for k,v in row.items() if k != 'first_seen_at'})
         result.append(row)
     if not result:
@@ -185,7 +198,7 @@ class DatedDividendBook:
         start = bisect_left(self.times[symbol], row['effective_from'], 0, end)
         tied = rows[start:end]
         if len({r['points'] for r in tied}) > 1:
-            return dict(points=None, reason='同一生效时刻的分红版本冲突，待明确生效顺序',
+            return dict(points=None, reason=DIVIDEND_CONFLICT,
                         revision=digest([r['revision'] for r in tied]))
         return dict(row, value_source_contract=symbol, source_snapshot=row['source_business_date'],
             expiry=self.metadata.get(symbol, {}).get('expiry_date'))
@@ -225,6 +238,142 @@ class DatedDividendBook:
             for r in needed if r['symbol'] in self.metadata])
 
 
+class OverviewDividendBook(DatedDividendBook):
+    """Point-in-time live lookup plus a bounded cache of retrospective curves."""
+    def __init__(self, records, metadata, *, day, errors=()):
+        super().__init__(records, metadata, errors=errors, inherit_predecessor=False)
+        self.day = day
+        self.donor_months = {root: sorted(s for s in self.by_symbol if s[:2] == root)
+                             for root in ('IF', 'IH', 'IC', 'IM')}
+        self.effective_times = [r['effective_from'] for r in self.records]
+        self.history = OrderedDict()
+        self.info.update(historical_policy=HISTORICAL_POLICY,
+                         mapping={s: row for s, ref in metadata.items()
+                                  if ref['listing_date'] <= day <= ref['expiry_date']
+                                  and (row := self.resolve(s, day+HISTORICAL_CUTOFF))
+                                  and row.get('points') is not None})
+
+    def resolve(self, symbol, when):
+        if not symbol or when is None:
+            return None
+        at = stamp(when)
+        ref = self.metadata.get(symbol)
+        if ref and at[:10] > ref['expiry_date']:
+            return None
+        direct = self._direct(symbol, at)
+        if direct is not None:
+            return direct
+        from .dividend_curve import PREVIOUS_CONTRACT, earlier_contracts
+
+        for donor in earlier_contracts(self.donor_months.get(symbol[:2], ()), symbol):
+            record = self._direct(donor, at)
+            if record is not None and record.get('points') is not None:
+                return dict(record, inherited_from=donor, expiry=ref['expiry_date'] if ref else None,
+                            source_kind=PREVIOUS_CONTRACT, estimated=True)
+        return None
+
+    def historical_view(self, day, now=None):
+        if not day:
+            day = self.day
+        cutoff = min(day+HISTORICAL_CUTOFF, stamp(now)) if now is not None else day+HISTORICAL_CUTOFF
+        end = bisect_right(self.effective_times, cutoff)
+        key = (day, cutoff[:10], end)
+        if key not in self.history:
+            available = self.records[:end]
+            version = digest(['dividend_curve_v1', day, cutoff[:10], [r['revision'] for r in available]])
+            self.history[key] = HistoricalDividendView(day, cutoff, available, self.metadata, version, self.info)
+            if len(self.history) > 4:
+                self.history.popitem(last=False)
+        self.history.move_to_end(key)
+        return self.history[key]
+
+
+class HistoricalDividendView:
+    def __init__(self, day, cutoff, records, metadata, version, info):
+        self.version = version
+        self.info = info
+        self.reason = '' if records else MISSING_DIVIDEND
+        self.rows = {}
+        self.resolved = {}
+        if not records:
+            return
+        import pandas as pd
+        from dashboard.indicator_v6.sources import dates_between
+        from .dividend_curve import match_curve
+        from .trading_calendar import HOLIDAYS
+
+        horizon = pd.Timestamp(day)
+        start = max(horizon-pd.DateOffset(months=13, days=15), pd.Timestamp(f'{min(HOLIDAYS)}-01-01'))
+        try:
+            sessions = dates_between(start.date().isoformat(), day)
+        except ValueError:
+            self.reason = '缺已核验交易日历，历史分红不可用'
+            self.info = {**info, 'historical_policy': self.reason}
+            return
+        if not sessions:
+            return
+        # Include every verified session even if there is a gap in the contract
+        # reference. An observed value becomes an anchor on that session.
+        entries = [(session, '', None) for session in sessions]
+        for symbol, ref in metadata.items():
+            first = bisect_left(sessions, ref['listing_date'])
+            last = bisect_right(sessions, ref['expiry_date'])
+            entries.extend((session, symbol, ref['expiry_date']) for session in sessions[first:last])
+        panel = pd.DataFrame(entries, columns=['trade_date', 'instrument_id', 'expiry_date'])
+        panel['trade_date'] = pd.to_datetime(panel.trade_date)
+        panel['expiry_date'] = pd.to_datetime(panel.expiry_date)
+        panel['calendar_known'] = True
+        panel['order'] = range(len(panel))
+        close = pd.Timedelta(hours=15, minutes=5)
+        panel['pricing_at'] = (panel.trade_date+close).clip(upper=pd.Timestamp(cutoff).tz_localize(None))
+        source = [dict(instrument_id=r['contract_id'], dividend_points=r['points'],
+                       dividend_source_date=pd.Timestamp(r['source_business_date']),
+                       dividend_effective_at=pd.Timestamp(r['effective_from']).tz_localize(None),
+                       dividend_source_sha256=r.get('file_sha256'), dividend_source_cell=r.get('source_cell'),
+                       dividend_match=r.get('source_kind', 'dated_concrete'), source_revision=r['revision'],
+                       source_precision=r.get('precision')) for r in records]
+        matched = match_curve(panel, source, close)
+        self.rows = {(r.instrument_id, r.trade_date.date().isoformat()): r
+                     for r in matched.itertuples(index=False) if r.instrument_id}
+
+    def historical_record(self, symbol, day):
+        key = (symbol, day)
+        if key in self.resolved:
+            return self.resolved[key]
+        row = self.rows.get(key)
+        if row is None:
+            return {'reason': self.reason or MISSING_DIVIDEND}
+        import pandas as pd
+
+        if pd.isna(row.dividend_points):
+            reason = DIVIDEND_CONFLICT if row.dividend_match == 'conflicting_same_effective_time' else MISSING_DIVIDEND
+            record = {'reason': reason, 'revision': row.source_revision if pd.notna(row.source_revision) else None}
+        else:
+            def optional(value):
+                return value if pd.notna(value) else None
+
+            def day_label(value):
+                return value.date().isoformat() if pd.notna(value) else None
+
+            source = row.dividend_source_contract
+            record = dict(points=float(row.dividend_points), value_source_contract=source,
+                          source_business_date=day_label(row.dividend_source_date),
+                          source_snapshot=day_label(row.dividend_source_date),
+                          effective_from=stamp(row.dividend_effective_at),
+                          file_sha256=optional(row.dividend_source_sha256),
+                          source_cell=optional(row.dividend_source_cell), precision=optional(row.source_precision),
+                          inherited_from=source if source != symbol else None, source_kind=row.dividend_match,
+                          estimated=bool(row.dividend_is_estimated), interpolation=optional(row.dividend_interpolation),
+                          anchor_date=day_label(row.dividend_anchor_date), anchor_points=optional(row.dividend_anchor_points),
+                          end_date=day_label(row.dividend_end_date), end_points=optional(row.dividend_end_points),
+                          end_source_date=day_label(row.dividend_end_source_date),
+                          end_source_sha256=optional(row.dividend_end_source_sha256),
+                          end_source_cell=optional(row.dividend_end_source_cell))
+            record['revision'] = digest([row.source_revision, record]) if record['estimated'] else row.source_revision
+        self.resolved[key] = record
+        return record
+
+
 def load(config, metadata, day, local_root=None):
     records = []
     errors = []
@@ -248,7 +397,7 @@ def load(config, metadata, day, local_root=None):
             hashes.add(file_hash)
         except Exception as exc:
             errors.append(dict(stage='local_dividend_file', error_type=type(exc).__name__))
-    return DatedDividendBook(records, metadata, anchor=day+HISTORICAL_CUTOFF, errors=errors, inherit_predecessor=False)
+    return OverviewDividendBook(records, metadata, day=day, errors=errors)
 
 
 class DerivedCache:

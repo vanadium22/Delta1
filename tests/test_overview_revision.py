@@ -46,7 +46,7 @@ class OverviewRevisionTests(unittest.TestCase):
         actual_futures_values(row,live,{},metadata(),NOW)
         self.assertEqual(row['raw_basis_points'],-10);self.assertIsNone(row['annual_pct'])
 
-    def test_dividend_loader_uses_only_same_contract_and_preserves_zero(self):
+    def test_dividend_loader_prefers_same_contract_and_marks_earlier_contract_estimates(self):
         meta=metadata()
         records=[dict(contract_id=symbol,points=value,effective_from='2026-09-18T00:00:00+08:00',
             source_business_date='2026-09-18',file_sha256='fixture',revision=symbol)
@@ -56,10 +56,12 @@ class OverviewRevisionTests(unittest.TestCase):
             with patch('dashboard.marketdata.overview_dividends.local_sources',return_value=[path]), \
                  patch('dashboard.marketdata.overview_dividends.records_from_file',return_value=records):
                 book=load_dividends(dict(dividend_root=str(path)),meta,DAY)
-        self.assertIsNone(book.points('IF2611.CFE',DAY))
-        self.assertNotIn('IF2611.CFE',book.info['mapping'])
+        self.assertEqual(book.points('IF2611.CFE',DAY),2)
+        self.assertEqual(book.info['mapping']['IF2611.CFE']['inherited_from'],'IF2610.CFE')
+        self.assertFalse(book.resolve('IF2612.CFE',DAY).get('estimated',False))
         self.assertEqual(book.points('IF2612.CFE',DAY),0)
-        self.assertIsNone(book.points('IF2703.CFE',DAY))
+        self.assertEqual(book.points('IF2703.CFE',DAY),0)
+        self.assertTrue(book.resolve('IF2703.CFE',DAY)['estimated'])
         self.assertIsNone(book.points('IF2608.CFE','2026-07-30'))
         self.assertIsNone(book.points('IH2611.CFE',DAY))
 

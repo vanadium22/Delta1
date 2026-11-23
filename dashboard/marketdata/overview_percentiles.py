@@ -2,7 +2,7 @@
 
 This is an overview distribution, separate from v6 A02's concrete-contract b.
 No network, future-day close or back-adjusted continuous price. Each historical
-day uses its actual dated contract and that time's dividend version.
+day uses its actual dated contract and the shared retrospective dividend curve.
 """
 from bisect import bisect_left, bisect_right
 from datetime import date,timedelta
@@ -10,14 +10,15 @@ from statistics import mean,median
 import pandas as pd
 
 from dashboard.indicator_v6.core import raw
-from .overview_basis import calculate,FORMULA,historical_dividend,DEFAULT_MIN_ANNUAL_DAYS
+from .overview_basis import calculate,FORMULA,historical_dividend,dividend_history,DEFAULT_MIN_ANNUAL_DAYS
+from .overview_dividends import HISTORICAL_POLICY
 from .dividends import digest
 from dashboard.indicator_v6.sources import dates_between,SPOTS
 from dashboard.native.continuous import slot_map
 
 WINDOWS=(20,60)
 SLOTS=(0,1,2,3)
-HISTORICAL_DIVIDEND_POLICY='按实际合约取历史截止时刻前最后有效分红；没有记录或同刻冲突时留空'
+HISTORICAL_DIVIDEND_POLICY=HISTORICAL_POLICY
 
 
 def rank_in_sorted(samples, value):
@@ -64,6 +65,7 @@ def final_rows(frame):
 
 def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day=None,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS,
             finalized=None):
+    dividends = dividend_history(dividends, day)
     days=prior_days(day);rows=dated_slots(metadata,root,slot,days,min_annual_days=min_annual_days)
     tables = {} if finalized is None else finalized
     if SPOTS[root] not in tables:
@@ -83,6 +85,11 @@ def prepare(root,slot,metadata,daily,day,*,dividends=None,cache=None,current_day
         item['dividend_reason']=record.get('reason')
         item['dividend_source_kind']=record.get('source_kind')
         item['dividend_revision']=record.get('revision');item['dividend_inherited_from']=record.get('inherited_from')
+        item['dividend_estimated']=record.get('estimated', False)
+        item['dividend_interpolation']=record.get('interpolation')
+        item['dividend_provenance']={k: record[k] for k in (
+            'source_cell','anchor_date','anchor_points','end_date','end_points',
+            'end_source_date','end_source_sha256','end_source_cell') if record.get(k) is not None}
         values=(cache.calculate(symbol,item['day'],f.get('close'),s.get('close'),dividend,item['days'],
             dividend_record=record,price_version=digest([f,s]),min_annual_days=min_annual_days) if cache is not None else
             calculate(f.get('close'),s.get('close'),dividend,item['days'],min_annual_days=min_annual_days))
@@ -111,21 +118,26 @@ def compile_windows(history):
         excluded=[r for r in rows if r['excluded']]
         missing=[r for r in rows if not r['excluded'] and r['annual_pct'] is None]
         good=[r for r in rows if not r['excluded'] and r['annual_pct'] is not None]
-        estimated=[r for r in rows if not r['excluded'] and r.get('dividend_estimated_zero')]
+        zeros=[r for r in rows if not r['excluded'] and r.get('dividend_estimated_zero')]
+        estimates=[r for r in good if r.get('dividend_estimated')]
         inferred=[r for r in good if r.get('http_session_inferred')]
         values=sorted(float(r['annual_pct']) for r in good)
         available=len(rows)==length and not missing and len(values)>=2
         counts={kind:sum(r['reason']==kind for r in missing) for kind in ('dividend_missing','future_close_missing','index_close_missing','mapping_missing')}
         missing_reason='；'.join(title+str(counts[k])+'日' for k,title in [('dividend_missing','分红缺'),('future_close_missing','期货收盘缺'),('index_close_missing','指数收盘缺'),('mapping_missing','映射缺')] if counts[k])
         suffix = ''
-        if estimated:suffix+='；历史缺分红暂按0估算 '+str(len(estimated))+'日'
+        if zeros:suffix+='；历史缺分红暂按0估算 '+str(len(zeros))+'日'
+        if estimates:suffix+='；前序借用或历史插值 '+str(len(estimates))+'日'
         if inferred:suffix+='；HTTP连续盘中核验昨收 '+str(len(inferred))+'日（日期推定）'
         static=dict(mean=mean(values) if available else None,median=median(values) if available else None,
             samples=len(good),calendar_days=length,expected_eligible=length-len(excluded),excluded=len(excluded),complete=available,
-            estimated=bool(estimated),zero_dividend_count=len(estimated),zero_dividend_dates=[r['day'] for r in estimated],
-            zero_dividend_rows=[dict(day=r['day'],symbol=r['symbol']) for r in estimated],
+            estimated=bool(zeros or estimates),zero_dividend_count=len(zeros),zero_dividend_dates=[r['day'] for r in zeros],
+            zero_dividend_rows=[dict(day=r['day'],symbol=r['symbol']) for r in zeros],
+            dividend_estimated_count=len(estimates),dividend_estimated_dates=[r['day'] for r in estimates],
+            dividend_estimated_rows=[dict(day=r['day'], symbol=r['symbol'],
+                inherited_from=r.get('dividend_inherited_from'), interpolation=r.get('dividend_interpolation')) for r in estimates],
             http_session_inferred_count=len(inferred),http_session_inferred_dates=[r['day'] for r in inferred],
-            dividend_observations_complete=not estimated and not any(r['reason']=='dividend_missing' for r in missing),
+            dividend_observations_complete=not (zeros or estimates) and not any(r['reason']=='dividend_missing' for r in missing),
             start=rows[0]['day'] if rows else None,end=rows[-1]['day'] if rows else None,missing_counts=counts,
             missing=[dict(day=r['day'],symbol=r['symbol'],reason=r['reason'],missing_symbols=r.get('missing_symbols',[])) for r in missing],
             excluded_dates=[r['day'] for r in excluded])

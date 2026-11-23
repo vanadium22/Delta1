@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 def audit(config, local_root, *, now=None, day=None):
     from .marketdata.contract_reference import latest_contracts
     from .marketdata.repository import ReferenceBook
-    from .marketdata.overview_basis import dividend_record, historical_dividend, load_dividends
+    from .marketdata.overview_basis import dividend_record, historical_dividend, load_dividends, dividend_history
     from .marketdata.overview_percentiles import prior_days, dated_slots
     from .marketdata.overview_percentiles import HISTORICAL_DIVIDEND_POLICY
     from .marketdata.overview_dividends import directory
@@ -21,15 +21,19 @@ def audit(config, local_root, *, now=None, day=None):
     day = day or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
     meta = latest_contracts(ReferenceBook(config.get('reference_file')).data)
     book = load_dividends(config, meta, day, local_root)
+    history = dividend_history(book, day, now)
     records = getattr(book, 'records', [])
     dates = sorted({r['source_business_date'] for r in records})
     slots = {}
     for root in ('IF','IH','IC','IM'):
         for slot in range(4):
             rows = dated_slots(meta, root, slot, prior_days(day))
-            missing = [dict(day=r['day'],contract=r['symbol']) for r in rows if not r['excluded'] and r['symbol'] and
-                       historical_dividend(book,r['symbol'],r['day']).get('points') is None]
+            eligible = [(r, historical_dividend(history,r['symbol'],r['day'])) for r in rows
+                        if not r['excluded'] and r['symbol']]
+            missing = [dict(day=r['day'],contract=r['symbol'],reason=d.get('reason')) for r,d in eligible
+                       if d.get('points') is None]
             slots[root+'0'+str(slot)+'.CFE'] = dict(dividend_missing=len(missing),missing=missing,
+                dividend_estimated=sum(bool(d.get('estimated')) for _,d in eligible),
                 mapping_missing=sum(r['reason']=='mapping_missing' for r in rows),
                 rule_excluded=sum(r['excluded'] for r in rows),price_availability_tested=False)
     root = directory(config, local_root)
@@ -38,7 +42,7 @@ def audit(config, local_root, *, now=None, day=None):
     for path in local_sources(config,history=True):
         try:
             sha=hashlib.sha256(path.read_bytes()).hexdigest()
-            file_dates=sorted({r['source_business_date'] for r in records if r['file_sha256']==sha})
+            file_dates=sorted({r['source_business_date'] for r in records if r.get('file_sha256')==sha})
             local_files.append(dict(path=str(path.resolve()),sha256=sha,business_dates=file_dates))
         except OSError as exc:local_files.append(dict(path=str(path),error_type=type(exc).__name__))
     current={}
@@ -47,14 +51,15 @@ def audit(config, local_root, *, now=None, day=None):
         for slot in range(4):
             mapped=dated_slots(meta,root_name,slot,[day])[0]
             symbol=mapped['symbol']
-            selected=dividend_record(book,symbol,now) if same_day else historical_dividend(book,symbol,day)
+            selected=dividend_record(book,symbol,now) if same_day else historical_dividend(history,symbol,day)
             current[root_name+'0'+str(slot)+'.CFE']=dict(contract_id=symbol,
-                **{k:(selected or {}).get(k) for k in ('points','source_business_date','effective_from','file_sha256','inherited_from','value_source_contract','source_kind')},
+                **{k:selected.get(k) for k in ('points','source_business_date','effective_from','file_sha256','inherited_from',
+                    'value_source_contract','source_kind','estimated','interpolation','anchor_date','end_date')},
                 carried_forward=bool((selected or {}).get('source_business_date') and selected['source_business_date']<day),
                 reason=(selected or {}).get('reason') or (None if selected else mapped['reason'] or book.reason or '待该实际合约在定价时点已知的分红输入'))
     return dict(schema='overview-dividend-audit-v1',checked_at=now.isoformat(),pricing_day=day,mode=book.mode,
         network_requested=False,configuration_changed=False,reason=book.reason,
-        record_count=len(records),file_versions=len({r['file_sha256'] for r in records}),
+        record_count=len(records),file_versions=len({r['file_sha256'] for r in records if r.get('file_sha256')}),
         oldest_business_day=dates[0] if dates else None,latest_business_day=dates[-1] if dates else None,
         precision_counts=dict(Counter(r.get('precision','day') for r in records)),
         policy=book.info.get('historical_policy'),percentile_dividend_policy=HISTORICAL_DIVIDEND_POLICY,errors=book.info.get('errors',[]),slots=slots,

@@ -1,17 +1,18 @@
 """Overview pricing changes under the same explicit Excel dividend scenario."""
 import pandas as pd
 
-from dashboard.marketdata.overview_basis import historical_dividend
+from dashboard.marketdata.overview_basis import historical_dividend, dividend_history
 from dashboard.marketdata.quote_quality import aligned_quotes, finite
 from .instruments import UNDERLYINGS
 
 
-def previous_basis_change(row, spot,dividends=None):
+def previous_basis_change(row, spot,dividends=None, *, now=None):
     f, s = row.get('basis_prev_future',row.get('prev_close')), row.get('basis_prev_spot',spot.get('prev_close'))
     if row.get('basis_points') is None or not finite(f) or not finite(s) or min(f, s) <= 0:
         return None
     previous=row.get('basis_prev_day') or spot.get('prev_date') or spot.get('yesterday_date')
-    dividend=historical_dividend(dividends,row['symbol'],previous).get('points') if dividends is not None and previous else row.get('dividend_points')
+    book = dividend_history(dividends, row.get('pricing_day'), now)
+    dividend=historical_dividend(book,row['symbol'],previous).get('points') if book is not None and previous else row.get('dividend_points')
     old=f-s+dividend if finite(dividend) else None
     return row['basis_points']-old if old is not None else None
 
@@ -20,9 +21,12 @@ def five_minute_basis_change(row, spot_id, observations, now,dividends=None):
     if row.get('basis_points') is None or not row.get('basis_source_at') or observations.empty:
         return None
     target = pd.Timestamp(row['basis_source_at'])-pd.Timedelta(minutes=5)
-    frame = observations[observations.instrument_id.isin([row['symbol'], spot_id])].copy()
-    sources = pd.to_datetime(frame.source_event_time, utc=True, errors='coerce')
-    receipts = pd.to_datetime(frame.observed_at, utc=True, errors='coerce')
+    frame = observations[observations.instrument_id.isin([row['symbol'], spot_id])]
+    sources, receipts = frame.source_event_time, frame.observed_at
+    if not isinstance(sources.dtype, pd.DatetimeTZDtype):
+        sources = pd.to_datetime(sources, utc=True, errors='coerce')
+    if not isinstance(receipts.dtype, pd.DatetimeTZDtype):
+        receipts = pd.to_datetime(receipts, utc=True, errors='coerce')
     frame = frame[sources.between(target-pd.Timedelta(seconds=3),target+pd.Timedelta(seconds=3)) &
                   receipts.le(min(now, target+pd.Timedelta(seconds=3)))]
     futures = frame[frame.instrument_id.eq(row['symbol'])].to_dict('records')
@@ -55,12 +59,12 @@ def details(rows, indices, live, observations, now,*,dividends=None):
                    previous_reason='较准确昨日收盘；不使用昨结算替代',
                    five_minute_reason='需要五分钟前同一合约及现货的同步观测')
         for contract in contracts:
-            contract['basis_change_previous']=previous_basis_change(contract,spot,dividends)
+            contract['basis_change_previous']=previous_basis_change(contract,spot,dividends,now=now)
         if contracts:
             near=contracts[0]
             group['basis_kind']=near.get('basis_kind')
             if near.get('basis_kind')=='completed_daily':group['previous_reason']='已完成收盘 '+str(near.get('pricing_day'))+' 相对其准确上一交易日；非当前盘中变化'
-            group['basis_change_previous']=previous_basis_change(near,spot,dividends)
+            group['basis_change_previous']=near['basis_change_previous']
             group['basis_change_5m']=five_minute_basis_change(near,spot_id,observations,now,dividends)
         if len(contracts)>=2:
             near,far=contracts[:2]

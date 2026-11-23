@@ -25,10 +25,21 @@ def input_summary(row):
     def number(key):
         value=row.get(key)
         return format(value,'.10g') if isinstance(value,Real) and not isinstance(value,bool) and isfinite(value) else '—'
+    estimate = dividend_estimate_label(row.get('dividend_inherited_from'), row.get('dividend_interpolation'))
     return ('F='+number('basis_future_price')+' · S='+number('basis_spot_price')+
         ' · D='+number('dividend_points')+' · T='+number('days')+'天\n定价日 '+str(row.get('pricing_day') or '—')+
         '；分红表业务日 '+str(row.get('dividend_snapshot') or '—')+
-        ('（沿用早于定价日的表）' if row.get('dividend_carried_forward') else ''))
+        ('（沿用早于定价日的表）' if row.get('dividend_carried_forward') else '')+
+        ('\n'+estimate if estimate else ''))
+
+
+def dividend_estimate_label(donor, interpolation):
+    labels = ['借用 '+donor] if donor else []
+    if interpolation == 'between_snapshots':
+        labels.append('快照间插值')
+    elif interpolation == 'to_expiry':
+        labels.append('沿到期日归零')
+    return '、'.join(labels)
 
 
 def calculate(future,spot,dividend,days,*,min_annual_days=DEFAULT_MIN_ANNUAL_DAYS):
@@ -60,11 +71,11 @@ def load_dividends(config,metadata,day,local_root=None):
             original=DividendBook.load('',daily_file=config.get('daily_dividend_file'),mode=mode)
             if original.reason:
                 return original
-            from .overview_dividends import DatedDividendBook, HISTORICAL_CUTOFF
+            from .overview_dividends import OverviewDividendBook
             rows=[dict(contract_id=r['instrument_id'],points=r['points'],source_business_date=r['date'],
                        effective_from=r['date']+'T00:00:00+08:00',precision='day',source_kind='daily_concrete',
                        revision=digest(r)) for r in original.info['rows']]
-            return DatedDividendBook(rows,metadata,anchor=day+HISTORICAL_CUTOFF,inherit_predecessor=False)
+            return OverviewDividendBook(rows,metadata,day=day)
         from .overview_dividends import load
         return load(config,metadata,day,local_root)
     except Exception as exc:
@@ -80,6 +91,13 @@ def dividend_record(book,symbol,when):
 
 def historical_dividend(book,symbol,day):
     from .overview_dividends import HISTORICAL_CUTOFF
+    book = dividend_history(book)
+    if hasattr(book,'historical_record'):
+        return book.historical_record(symbol,day)
     if hasattr(book,'resolve_contract'):
         return book.resolve_contract(symbol,day+HISTORICAL_CUTOFF) or {}
     return dividend_record(book,symbol,day)
+
+
+def dividend_history(book, day=None, now=None):
+    return book.historical_view(day, now) if hasattr(book, 'historical_view') else book
