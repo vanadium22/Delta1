@@ -2,6 +2,7 @@
   "historical_dividend_and_live_rank_20261123": {
     "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
     "scope": "historical last observed same concrete future at Shanghai 15:05, no zero estimates or predecessor inheritance in dashboard; missing windows explicit",
+    "shared_history": "recursive Excel discovery in managed dividend inputs and archive",
     "realtime": "quote commit queues an immediate refresh; 3s watchdog and 30s full indicator redraw; unchanged 30s freshness and 3s pairing",
     "benchmark": {
       "case": "offline replay with 10000 observations and four indicator windows",

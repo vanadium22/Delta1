@@ -23,7 +23,7 @@ class HistoricalDividendCoverageTests(unittest.TestCase):
         from dashboard.marketdata.overview_basis import historical_dividend, input_token, load_dividends
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
-            inputs=root/'inputs';history=inputs/'history';history.mkdir(parents=True)
+            inputs=root/'inputs';history=inputs/'2026'/'10';history.mkdir(parents=True)
             paths=SimpleNamespace(dividend_inputs=inputs,dividend_archive=root/'archive')
             meta=metadata();config={}
             def save(path, when, rows):

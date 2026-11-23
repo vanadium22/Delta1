@@ -49,17 +49,19 @@ def local_sources(config, *, history=False):
     """Rendering may inspect local inputs, never the public-share directory."""
     result = []
     sources = [config.get('dividend_root'), config.get('overview_dividend_file')]
+    recursive = set()
     if history:
         from .paths import PATHS
         sources.extend((PATHS.dividend_inputs, PATHS.dividend_archive))
+        recursive.update(Path(source) for source in (config.get('dividend_root'), PATHS.dividend_inputs,
+                                                     PATHS.dividend_archive) if source)
     for source in sources:
         if not source or remote(source):
             continue
         path = Path(source)
         try:
-            result.extend([path] if path.is_file() else sorted(path.glob('*.xlsx')))
-            if history and path.is_dir():
-                result.extend(sorted((path/'history').rglob('*.xlsx')))
+            files = path.rglob('*.xlsx') if path in recursive else path.glob('*.xlsx')
+            result.extend([path] if path.is_file() else sorted(files))
         except OSError:
             pass
     return list(dict.fromkeys(p for p in result if not p.name.startswith(('~$', '.'))))
