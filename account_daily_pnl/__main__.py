@@ -255,6 +255,11 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *,
 
 
 def run(args, root, outputs, now):
+    if getattr(args, "register_only", False):
+        from .setup_daily import configure_daily
+
+        configure_daily(REPO, root, outputs, args)
+        return 0
     implicit_seed = Path(__file__).with_name(ARCHIVE_NAME)
     seed_path = args.seed
     company_run = getattr(args, "company_run", False)
@@ -289,9 +294,11 @@ def run(args, root, outputs, now):
     config_file = args.config or root / "inputs" / "config.local.json"
     config = read_json(config_file, {})
     if getattr(args, "setup_daily", False):
-        from .setup_daily import configure_daily
+        from .setup_daily import configure_credentials, configure_daily
 
-        configure_daily(REPO, root, outputs, config, args)
+        configure_credentials(root, config, args.bct_script)
+        configure_daily(REPO, root, outputs, args)
+        print("开始试跑报表。试跑文件可在输出目录查看。", flush=True)
     state_path = root / "download_state.json"
     state = read_json(state_path, {"version": STATE_VERSION})
     if state.get("version") != STATE_VERSION:
@@ -390,6 +397,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=Path, help="核验并导入本地历史数据包")
     parser.add_argument("--make-seed", type=Path, help="打包基准和目标日以前的历史 Excel")
     parser.add_argument("--setup-daily", action="store_true", help="首次配置 BCT 并登记工作台日更任务")
+    parser.add_argument("--register-only", action="store_true", help="配合 --setup-daily，只更新本机工作台任务登记")
     parser.add_argument("--work-root", type=Path, help="显式指定工作自动化工作台目录")
     parser.add_argument("--task-time", default="09:25", help="登记时间，北京时间，默认 09:25")
     parser.add_argument("--wa-output", type=Path, help=argparse.SUPPRESS)
@@ -397,6 +405,8 @@ def main(argv=None):
     parser.add_argument("--company-run", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.register_only and (not args.setup_daily or args.scheduled or args.wa_output):
+        parser.error("请用 setup-daily.cmd --register-only 在任务运行之外更新工作台登记。")
     if args.wa_output and (args.only_day or args.prepare or args.skip_strategy):
         parser.error("邮件任务需要完整账户及策略台对账。")
     print(f"Python：{sys.executable}", flush=True)
@@ -408,6 +418,9 @@ def main(argv=None):
 
                 atomic_json(args.wa_output, create_manifest(args.output))
                 print("邮件结果已交给工作台，入队及投递状态请查看工作台。", flush=True)
+            elif result == 0 and args.scheduled:
+                print("工作台未请求邮件结果，本次只更新报表。请在公司电脑运行 "
+                      "account_daily_pnl\\setup-daily.cmd --register-only 更新任务登记。", flush=True)
             return result
     except Exception as exc:
         print(f"运行失败：{exc}", file=sys.stderr, flush=True)

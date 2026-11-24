@@ -18,6 +18,8 @@
 
 ## 最近发布
 
+- 2026-11-24 PnL 工作台旧任务可使用 `account_daily_pnl\setup-daily.cmd --register-only` 原地升级到发送邮件的 Python 入口。复用任务 ID 和原执行参数，登记时不试跑报表。日志会标出任务是否请求邮件结果。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。
+
 - 2026-11-24 PnL 日更自动发布数据可算到的最近交易日。策略台按日报和同日 5526 对齐，T−2 回退照常出表和生成邮件结果，下次运行自动检查更新。日志列明各报表实际日期。本地 28 项专项通过，公司工作台实测待验。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。
 
 - 2026-11-24 看板盘前按最近完成日读取合约。换月缺档时补核挂牌资料，已核验日线继续更新，并区分合约核验与 DDB 日线进度。[看板交接](dashboard/PROJECT_HANDOFF.md)。

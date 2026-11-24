@@ -188,6 +188,11 @@ class DailyReportTests(unittest.TestCase):
             self.assertEqual(app.main(args), 0)
         manifest = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(manifest["mail"]["to"], ["meiyifan@swhysc.com"])
+        log = StringIO()
+        with patch.object(app, "run", return_value=0), redirect_stdout(log):
+            self.assertEqual(app.main(args[:-2]), 0)
+        self.assertIn("工作台未请求邮件结果", log.getvalue())
+        self.assertIn("setup-daily.cmd --register-only", log.getvalue())
 
     def test_restart_backfills_skipped_trading_days(self):
         with (patch("account_daily_pnl.sources.BctClient", FakeBct),
@@ -365,6 +370,31 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(existing["result_mail"], "queue")
         self.assertEqual(existing["program"], definition["program"])
         self.assertEqual(len(work.items), 1)
+
+        existing["program"] = str(repo / "收益统计.cmd")
+        existing["arguments"] = ["--data", str(self.root / "company-data"), "--no-pause"]
+        updated, created = register_with_tasks(work, definition)
+        self.assertFalse(created)
+        self.assertEqual(updated["id"], saved["id"])
+        self.assertEqual(updated["arguments"], existing["arguments"] + ["--scheduled"])
+        self.assertEqual(updated["result_mail"], "queue")
+        self.assertEqual(updated["program"], definition["program"])
+
+    def test_register_only_updates_the_workbench_without_fetching_or_exporting(self):
+        data = self.root / "unprepared"
+        work_root = self.root / "workbench"
+        args = ["--setup-daily", "--register-only", "--data", str(data), "--output", str(self.outputs),
+                "--work-root", str(work_root)]
+        with (patch("account_daily_pnl.setup_daily.register_task", side_effect=lambda _, spec: (spec, False)) as register,
+              patch("account_daily_pnl.setup_daily.configure_credentials") as credentials,
+              patch.object(app, "export_reports") as export):
+            self.assertEqual(app.main(args), 0)
+        credentials.assert_not_called()
+        export.assert_not_called()
+        registration_root, definition = register.call_args.args
+        self.assertEqual(registration_root, work_root)
+        self.assertEqual(definition["result_mail"], "queue")
+        self.assertIn(str(data), definition["arguments"])
 
     @unittest.skipUnless(os.name == "nt", "Windows DPAPI")
     def test_bct_credentials_are_encrypted_and_reusable_without_original_script(self):

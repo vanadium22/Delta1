@@ -10,6 +10,7 @@
   "company_entry": "test-yesterday.cmd",
   "recurring_entry": "start.cmd",
   "setup_entry": "setup-daily.cmd",
+  "workbench_registration_only_option": "--register-only",
   "company_daily_entry": "../收益统计.cmd",
   "handoff": "PROJECT_HANDOFF.md",
   "account_series": {"file": "account_daily_pnl.json", "schema_version": 1},

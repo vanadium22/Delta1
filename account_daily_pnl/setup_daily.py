@@ -36,15 +36,18 @@ def task_definition(repo, data, output, config, clock):
 
 def register_with_tasks(tasks, definition):
     same_program = Path(definition["program"]).resolve()
-    old_program = same_program.with_name("start.cmd")
+    known_programs = (same_program, same_program.with_name("start.cmd"), same_program.parents[1] / "收益统计.cmd")
     existing = [item for item in tasks.tasks() if item["id"] == definition["id"] or item["name"] == TASK_NAME
-                or Path(item["program"]).resolve() in (same_program, old_program)]
+                or Path(item["program"]).resolve() in known_programs]
     if not existing:
         return tasks.save(definition), True
-    if len(existing) != 1 or Path(existing[0]["program"]).resolve() not in (same_program, old_program):
+    if len(existing) != 1 or Path(existing[0]["program"]).resolve() not in known_programs:
         raise ValueError("工作台里已有同名或冲突的场内任务，请在定时子任务中核对其程序位置。")
     task = existing[0]
-    updated = {**definition, "id": task["id"], "arguments": task.get("arguments", definition["arguments"]),
+    arguments = list(task.get("arguments", definition["arguments"]))
+    if "--scheduled" not in arguments:
+        arguments.append("--scheduled")
+    updated = {**definition, "id": task["id"], "arguments": arguments,
                "cwd": task.get("cwd", definition["cwd"])}
     return tasks.save(updated), False
 
@@ -137,13 +140,13 @@ def configure_credentials(root, config, override, *, allow_picker=True):
     return client
 
 
-def configure_daily(repo, root, output, config, args):
+def configure_daily(repo, root, output, args):
     work_root = args.work_root.resolve() if args.work_root else find_work_automation(repo / "account_daily_pnl")
     definition = task_definition(repo, root, output, args.config, args.task_time)
-    configure_credentials(root, config, args.bct_script)
     task, created = register_task(work_root, definition)
-    print(f"{'已登记' if created else '已找到'}工作台任务：{task['name']}。", flush=True)
+    print(f"{'已登记' if created else '已更新'}工作台任务：{task['name']}。", flush=True)
     print(f"计划：{task['schedule'].get('time', '见工作台')}（北京时间）；"
           f"当前{'启用' if task['enabled'] else '暂停'}；"
           f"错过后自动补跑{'开启' if task.get('auto_catch_up') else '关闭'}。", flush=True)
-    print(f"工作台：{work_root}。收件人：meiyifan@swhysc.com。现在开始按实际交易日试跑。", flush=True)
+    print(f"工作台：{work_root}。程序：{task['program']}。", flush=True)
+    print("程序结果邮件：成功后发送。收件人：meiyifan@swhysc.com。", flush=True)
