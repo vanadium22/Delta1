@@ -2,6 +2,7 @@ from decimal import Decimal
 import sqlite3
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QTabWidget,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -44,6 +45,32 @@ def card():
     return widget
 
 
+class MetricCard(QFrame):
+    def __init__(self, caption, *, primary=False):
+        super().__init__()
+        self.setObjectName('pnlHero' if primary else 'pnlCard')
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 9)
+        layout.setSpacing(3)
+        layout.addWidget(label(caption, 'pnlCaption'))
+        self.value = label('—', 'metricValue')
+        self.context = label('', 'pnlContext')
+        self.context.setMinimumWidth(0)
+        layout.addWidget(self.value)
+        layout.addWidget(self.context)
+        self.tone = None
+
+    def set_metric(self, value, context, *, digits=2, missing='待估值', color=False):
+        self.value.setText(fmt(value, digits, missing))
+        self.context.setText(context)
+        tone = 'gain' if color and value and value > 0 else 'loss' if color and value and value < 0 else 'metricValue'
+        if tone != self.tone:
+            self.tone = tone
+            self.value.setObjectName(tone)
+            self.value.style().unpolish(self.value)
+            self.value.style().polish(self.value)
+
+
 class Table(QTableWidget):
     def __init__(self, headers, widths):
         super().__init__(0, len(headers))
@@ -73,10 +100,31 @@ class Table(QTableWidget):
             self.setUpdatesEnabled(True)
 
 
+TRADE_BASIS_COLUMN = 3
+
+
+class TradeTable(Table):
+    def __init__(self):
+        super().__init__(('成交时间', '方向', '状态', '等价基差', 'ETF 份额', 'ETF 均价', 'ETF 金额', '期货手数',
+                          '期货价', '费用', '本笔已实现', '来源', '备注'),
+                         (157, 78, 92, 95, 94, 96, 110, 82, 90, 76, 105, 105, 135))
+
+    def fill(self, rows):
+        super().fill(rows)
+        for i, row in enumerate(rows):
+            for col in range(TRADE_BASIS_COLUMN, 11):
+                self.item(i, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            basis = self.item(i, TRADE_BASIS_COLUMN)
+            if row[TRADE_BASIS_COLUMN] != '—':
+                basis.setForeground(QColor('#126b60'))
+                font = basis.font()
+                font.setBold(True)
+                basis.setFont(font)
+                basis.setToolTip(f'{basis.text()} 点 · 查看折算明细')
+
+
 def trade_table():
-    return Table(('成交时间', '方向', '状态', 'ETF 份额', 'ETF 均价', 'ETF 金额', '期货手数',
-                  '期货价', '费用', '成交基差', '本笔已实现', '来源', '备注'),
-                 (165, 83, 105, 94, 96, 110, 82, 90, 76, 90, 105, 105, 135))
+    return TradeTable()
 
 
 def trade_display(row):
@@ -87,9 +135,9 @@ def trade_display(row):
     timestamp = row.get('time')
     if timestamp and timestamp.count(':') == 2 and timestamp.endswith(':00'):
         timestamp = timestamp[:-3]
-    return (timestamp, row['direction'], status, fmt(row.get('shares'), 0), fmt(row.get('etf_price'), 6),
+    return (timestamp, row['direction'], status, fmt(row.get('basis'), 4), fmt(row.get('shares'), 0), fmt(row.get('etf_price'), 6),
             fmt(row.get('amount')), fmt(row.get('lots'), 0), fmt(row.get('futures_price'), 4), fmt(row.get('fee')),
-            fmt(row.get('basis'), 4), fmt(row.get('realized')), origin, row.get('note'))
+            fmt(row.get('realized')), origin, row.get('note'))
 
 
 class FormDialog(QDialog):
@@ -312,7 +360,7 @@ class ImportDialog(QDialog):
             summary.setWordWrap(True)
             outer.addWidget(summary)
         footer = QHBoxLayout()
-        footer.addWidget(label('勾选要入库的工作表。每张表建立一组。', 'muted'))
+        footer.addWidget(label('勾选要入库的交易组。' if groups else '工作簿中暂无可导入的交易组。', 'muted'))
         footer.addStretch()
         footer.addWidget(button('取消', self.reject))
         confirm = button('确认入库', self.accept, True)
@@ -349,3 +397,62 @@ class ImportDialog(QDialog):
         table.fill([trade_display(row) for row in result['rows']])
         layout.addWidget(table)
         self.tabs.addTab(rows, f'流水（{len(group.trades)}）')
+        if group.marks is not None and not group.audit['warnings']:
+            self.tabs.setCurrentIndex(1)
+
+
+class BasisDialog(QDialog):
+    def __init__(self, rows, parent, *, selected=None):
+        super().__init__(parent)
+        self.entries = [row for row in rows if row.get('basis_detail')]
+        self.setWindowTitle('逐笔等价基差')
+        self.resize(900, 530)
+        layout = QVBoxLayout(self)
+        layout.addWidget(label('逐笔等价基差', 'dialogTitle'))
+        self.table = Table(('成交时间', '方向', 'ETF 金额（元）', '期货手数', '期货价（点）', '等价基差（点）', '来源'),
+                           (154, 80, 115, 82, 101, 111, 105))
+        self.table.fill([self._display(row) for row in self.entries])
+        layout.addWidget(self.table, 1)
+        panel = card()
+        breakdown = QVBoxLayout(panel)
+        self.detail_caption = label('', 'sectionTitle')
+        self.equation = label('', 'equivalentEquation')
+        self.origin = label('', 'muted')
+        for widget in (self.detail_caption, self.equation, self.origin):
+            widget.setWordWrap(True)
+            breakdown.addWidget(widget)
+        layout.addWidget(panel)
+        footer = QHBoxLayout()
+        footer.addStretch()
+        footer.addWidget(button('关闭', self.accept))
+        layout.addLayout(footer)
+        self.table.currentCellChanged.connect(lambda row, *_: self.show_formula(row))
+        if self.entries:
+            index = next((i for i, row in enumerate(self.entries) if row is selected), 0)
+            self.table.setCurrentCell(index, 0)
+        else:
+            self.show_formula(-1)
+
+    @staticmethod
+    def _display(row):
+        detail = row['basis_detail']
+        direction = row['direction']
+        if detail.get('future_origin'):
+            direction = '买基差' if direction == 'ETF买入' else '卖基差'
+        return (trade_display(row)[0], direction, fmt(detail['amount']), fmt(detail['lots'], 0),
+                fmt(detail['futures_price'], 4), fmt(detail['value'], 4), row.get('origin'))
+
+    def show_formula(self, index):
+        if index < 0:
+            self.detail_caption.setText('暂无已入账的双腿成交')
+            self.equation.clear()
+            self.origin.clear()
+            return
+        row = self.entries[index]
+        detail = row['basis_detail']
+        self.detail_caption.setText(f"{self._display(row)[1]}　等价基差 {fmt(detail['value'], 4)} 点")
+        self.equation.setText(f"ETF 金额 {fmt(detail['amount'])} ÷（{fmt(detail['lots'], 0)} 手 × "
+                              f"{fmt(detail['multiplier'], 0)}）= {fmt(detail['etf_points'], 4)} 点\n"
+                              f"{fmt(detail['etf_points'], 4)} − {fmt(detail['futures_price'], 4)} = {fmt(detail['value'], 4)} 点")
+        sources = dict.fromkeys(filter(None, (row.get('origin'), detail.get('future_origin'), row.get('import_origin'))))
+        self.origin.setText('　·　'.join(filter(None, (*sources, row.get('note')))))

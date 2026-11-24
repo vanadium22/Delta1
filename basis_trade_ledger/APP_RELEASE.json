@@ -2,8 +2,10 @@
   "module": "basis_trade_ledger",
   "release_date": "2026-11-24",
   "release_stage": "local-validation",
+  "excel_exchange_version": 1,
+  "realtime_poll_seconds": 3,
   "company_entry": "start.cmd",
   "handoff": "PROJECT_HANDOFF.md",
   "data": {"path_relative_to_shared_root": "basis_trade_ledger/ledger.sqlite", "schema_version": 1},
-  "company_checks": ["公司机启动", "共享行情库按实际标的代码读取"]
+  "company_checks": ["连续交易时段网厅直连和实际合约覆盖", "公司机 Dashboard 共享缓存随行情更新"]
 }

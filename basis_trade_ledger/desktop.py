@@ -1,21 +1,36 @@
+from datetime import datetime, timedelta
+from pathlib import Path
 import sqlite3
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
+    QListWidget, QListWidgetItem, QMainWindow, QMenu, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from script_making.desktop_theme import STYLE
 
-from .model import LEGS, calculate, date_time, now, number
-from .widgets import (GROUP_FIELDS, PLAN_FIELDS, FormDialog, ImportDialog, Table, TradeEditor, audit_display,
-                      button, card, fmt, label, trade_display, trade_table)
+from .model import LEGS, calculate, date_time, now, number, revalue
+from .quotes import POLL_MS, MarketQuotes, compatible_marks
+from .widgets import (GROUP_FIELDS, PLAN_FIELDS, TRADE_BASIS_COLUMN, BasisDialog, FormDialog, ImportDialog, MetricCard,
+                      Table, TradeEditor, audit_display, button, card, fmt, label, trade_display, trade_table)
 
 
 LEDGER_STYLE = """
-QLabel#metricValue { font-size: 22px; font-weight: 700; color: #15354e; }
+QFrame#pnlCard { background: white; border: 1px solid #dbe6ed; border-radius: 9px; }
+QFrame#pnlHero { background: #17364d; border: 1px solid #17364d; border-radius: 9px; }
+QFrame#pnlHero QLabel#pnlCaption, QFrame#pnlHero QLabel#pnlContext { color: #c3d9e4; }
+QFrame#pnlHero QLabel#metricValue { color: #f3f9fb; }
+QFrame#pnlHero QLabel#gain { color: #ffb0a6; }
+QFrame#pnlHero QLabel#loss { color: #92e1c5; }
+QLabel#pnlCaption { color: #4a667b; font-weight: 600; }
+QLabel#pnlContext { color: #5d7485; font-size: 11px; }
+QLabel#metricValue { font-size: 22px; font-weight: 700; color: #16384f; }
 QLabel#gain { font-size: 22px; font-weight: 700; color: #a73440; }
 QLabel#loss { font-size: 22px; font-weight: 700; color: #197363; }
+QLabel#equivalentEquation { background: #eef6f7; color: #173c4d; padding: 9px; border-radius: 5px; }
+QLabel#quoteStatus { color: #355c70; padding: 4px 8px; border: 1px solid #dce9ed; border-radius: 4px; background: #eaf4f5; }
+QPushButton#autoQuotes:checked { background: #def2ed; color: #126b60; border-color: #85bdb1; }
+QPushButton#basisLink { background: #e7f3f1; border: 1px solid #c7e3de; color: #126b60; font-weight: 600; }
 QLabel#groupTitle { font-size: 21px; font-weight: 700; }
 QLabel#sectionTitle { color: #223d56; }
 QFrame#card QLabel { border: none; background: transparent; }
@@ -32,6 +47,8 @@ LEG_NAMES = dict(zip(LEGS, ('ETF', '股指期货', '跟踪指数')))
 
 
 class Task(QThread):
+    partial = Signal(object)
+
     def __init__(self, operation, parent):
         super().__init__(parent)
         self.operation = operation
@@ -56,6 +73,14 @@ class LedgerWindow(QMainWindow):
         self.config = self.audit = None
         self.rows = []
         self.job = None
+        self.quote_job = None
+        self.closing = False
+        self.market = MarketQuotes(paths)
+        self.market_update = None
+        self.market_by_group = {}
+        self.refresh_pending = False
+        self.quote_timer = QTimer(self, interval=POLL_MS)
+        self.quote_timer.timeout.connect(lambda: self.refresh_quotes(force=False))
         self.painted = False
         self.setWindowTitle('基差交易台账')
         self.resize(1300, 800)
@@ -69,6 +94,14 @@ class LedgerWindow(QMainWindow):
         toolbar.addStretch()
         self.import_button = button('导入 Excel', self.pick_workbook)
         toolbar.addWidget(self.import_button)
+        self.export_button = button('导出 Excel', lambda: None)
+        self.export_menu = QMenu(self.export_button)
+        self.export_current = self.export_menu.addAction('导出当前组', lambda: self.export_workbook('current'))
+        self.export_current.setEnabled(False)
+        self.export_menu.addAction('导出全部组', lambda: self.export_workbook('all'))
+        self.export_menu.addAction('导出空白模板', lambda: self.export_workbook('template'))
+        self.export_button.setMenu(self.export_menu)
+        toolbar.addWidget(self.export_button)
         self.new_button = button('新建交易组', self.create_group, True)
         toolbar.addWidget(self.new_button)
         outer.addLayout(toolbar)
@@ -128,24 +161,34 @@ class LedgerWindow(QMainWindow):
         header.addLayout(titles, 1)
         self.audit_button = button('导入核对', self.show_audit)
         header.addWidget(self.audit_button)
-        self.refresh_button = button('刷新本地行情', self.refresh_quotes)
+        self.auto_quotes = button('自动行情', self.toggle_quotes)
+        self.auto_quotes.setObjectName('autoQuotes')
+        self.auto_quotes.setCheckable(True)
+        header.addWidget(self.auto_quotes)
+        self.refresh_button = button('刷新报价', lambda: self.refresh_quotes())
         header.addWidget(self.refresh_button)
         header.addWidget(button('手填估值', self.manual_marks))
         detail.addLayout(header)
 
         metrics = QHBoxLayout()
         self.metrics = {}
-        for key, caption in (('etf', 'ETF 净仓 · 份'), ('futures', '期货净仓 · 手'), ('realized', '已实现 · 元'),
-                             ('floating', '浮动 · 元'), ('total', '总盈亏 · 元')):
-            panel = card()
-            layout = QVBoxLayout(panel)
-            layout.setSpacing(2)
-            layout.addWidget(label(caption, 'muted'))
-            value = label('—', 'metricValue')
-            layout.addWidget(value)
-            self.metrics[key] = value
-            metrics.addWidget(panel, 1)
+        self.metric_cards = {}
+        for key, caption in (('total', '总盈亏 · 元'), ('realized', '已实现 · 元'), ('floating', '浮盈亏 · 元'),
+                             ('etf', 'ETF 净仓 · 份'), ('futures', '期货净仓 · 手')):
+            panel = MetricCard(caption, primary=key == 'total')
+            self.metric_cards[key] = panel
+            self.metrics[key] = panel.value
+            metrics.addWidget(panel, 6 if key == 'total' else 5)
         detail.addLayout(metrics)
+        basis_strip = QHBoxLayout()
+        self.basis_button = button('逐笔等价基差', self.show_basis)
+        self.basis_button.setObjectName('basisLink')
+        basis_strip.addWidget(self.basis_button)
+        self.basis_strip = label('', 'sectionTitle')
+        basis_strip.addWidget(self.basis_strip, 1)
+        self.quote_status = label('估值参考', 'quoteStatus')
+        basis_strip.addWidget(self.quote_status)
+        detail.addLayout(basis_strip)
 
         self.tabs = QTabWidget()
         trades = QWidget()
@@ -164,7 +207,8 @@ class LedgerWindow(QMainWindow):
         layout.addLayout(actions)
         self.trade_table = trade_table()
         self.trade_table.itemSelectionChanged.connect(self.update_trade_actions)
-        self.trade_table.cellDoubleClicked.connect(lambda *_: self.edit_trade())
+        self.trade_table.cellClicked.connect(self.open_basis_cell)
+        self.trade_table.cellDoubleClicked.connect(self.open_trade_cell)
         layout.addWidget(self.trade_table, 1)
         self.tabs.addTab(trades, '成交流水')
         self.tabs.addTab(self.valuation_page(), '持仓与估值')
@@ -196,7 +240,11 @@ class LedgerWindow(QMainWindow):
         self.plan_cells = self.metric_grid(layout, (('base_shares', '底仓份额'), ('base_value', '底仓市值 / 元'),
             ('base_lots', '底仓折合手数'), ('plan_lots', '计划手数'), ('plan_value', '计划名义额 / 元'),
             ('plan_shares', '计划折合 ETF 份额')))
-        return pane
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(pane)
+        return scroll
 
     @staticmethod
     def metric_grid(layout, fields):
@@ -242,19 +290,24 @@ class LedgerWindow(QMainWindow):
         if item is None:
             return
         self.group_id = item.data(Qt.ItemDataRole.UserRole)
+        self.market_update = self.market_by_group.get(self.group_id)
         self.editor.reset()
         self.editor_error.hide()
         self.tabs.setCurrentIndex(0)
         self.load_group()
+        if self.auto_quotes.isChecked():
+            self.refresh_quotes(force=False)
 
     def load_group(self):
-        self.config, trades, self.quotes, self.audit = self.ledger.open_group(self.group_id)
-        result = calculate(self.config, trades, self.quotes)
+        self.config, trades, self.base_quotes, self.audit = self.ledger.open_group(self.group_id)
+        self.quotes = self.effective_quotes()
+        self.result = result = calculate(self.config, trades, self.quotes)
         self.rows = result['rows']
         self.title.setText(self.config['name'])
         self.recent.setText('最近打开 · ' + self.config['name'])
         self.symbols.setText(f"{self.config['etf']}  /  {self.config['futures']}   ·   乘数 {self.config['multiplier']}")
         self.audit_button.setVisible(bool(self.audit))
+        self.export_current.setEnabled(True)
         self.render_result(result)
         posted = sum(row['status'] == 'posted' for row in self.rows)
         self.trade_count.setText(f'组内流水   ·   已入账 {posted}   ·   草稿 {len(trades) - posted}')
@@ -265,18 +318,33 @@ class LedgerWindow(QMainWindow):
         self.panes.setCurrentIndex(1)
 
     def render_result(self, result):
-        for key, widget in self.metrics.items():
+        for key, panel in self.metric_cards.items():
             if key in ('etf', 'futures'):
-                widget.setText(fmt(result[key].quantity, 0))
-                widget.setToolTip('持仓均价 ' + fmt(result[key].price, 6 if key == 'etf' else 4))
+                quantity = result[key].quantity
+                side = '多头' if quantity > 0 else '空头' if quantity < 0 else '空仓'
+                price = fmt(result[key].price, 4)
+                panel.set_metric(quantity, side + (f' · 成本 {price}' if quantity else ''), digits=0)
                 continue
-            value = result[key]
-            widget.setText(fmt(value, missing='待估值'))
             if key == 'realized':
-                widget.setToolTip('已扣成交费用 ' + fmt(result['fees']) + ' 元')
-            widget.setObjectName('gain' if value and value > 0 else 'loss' if value and value < 0 else 'metricValue')
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
+                context = '费用 ' + fmt(result['fees'])
+            elif key == 'floating':
+                context = '随当前估值变化'
+            else:
+                context = '已实现 + 浮盈亏'
+            panel.set_metric(result[key], context, color=True)
+        net = fmt(result['basis'].get('net'), 4)
+        cost = fmt(result['cost_basis'], 4)
+        market_value = result['market_basis'] if compatible_marks(self.quotes.get('etf'), self.quotes.get('futures')) else None
+        market = fmt(market_value, 4)
+        self.basis_strip.setText(f'净成交 {net}　·　持仓成本 {cost}　·　市值 {market} 点')
+        held = [self.quotes.get(key) for key in ('etf', 'futures') if result[key].quantity]
+        self.quote_status.setText('待估值' if any(mark is None for mark in held) else
+                                  '网厅实时' if held and all(mark.get('kind') == 'live' for mark in held) else
+                                  '参考估值' if held else '空仓')
+        if market_value is None and result['market_basis'] is not None:
+            self.basis_strip.setToolTip('两腿实时源时或接收时未对齐，或参考价日期不同')
+        else:
+            self.basis_strip.setToolTip('')
         position_rows, quote_tooltips = [], []
         for leg in LEGS:
             position = result.get(leg)
@@ -287,8 +355,13 @@ class LedgerWindow(QMainWindow):
                 source_text = mark['source']
                 if mark.get('kind') == 'excel':
                     source_text = 'Excel · ' + source_text.split(' · ', 1)[-1]
-                source = f"{source_text}\n{mark['time'] or '原行情时间缺失'}"
+                shown_time = (mark['time'] or '原行情时间缺失').replace('T', ' ').removesuffix('+08:00')
+                source = f'{source_text}\n{shown_time}'
                 tooltip = f"{mark['source']}\n{mark['time'] or '原行情时间缺失'}"
+                if mark.get('date_basis'):
+                    tooltip += '\n' + mark['date_basis']
+                elif mark.get('date_status') == 'receipt_date_inferred_unverified':
+                    tooltip += '\n源日期按接收日推定'
                 if not mark['time'] and mark.get('imported'):
                     tooltip += f"\n读取 {mark['imported']}"
             elif not self.config[leg]:
@@ -302,7 +375,7 @@ class LedgerWindow(QMainWindow):
         for i, tooltip in enumerate(quote_tooltips):
             self.positions.item(i, 6).setToolTip(tooltip)
         for key, cell in self.basis_cells.items():
-            cell.setText(fmt(result.get(key, result['basis'].get(key)), 4))
+            cell.setText(fmt(market_value if key == 'market_basis' else result.get(key, result['basis'].get(key)), 4))
         for key, cell in self.plan_cells.items():
             cell.setText(fmt(result.get(key, self.config.get(key)), 0 if key in ('base_shares', 'plan_lots') else 2))
 
@@ -343,6 +416,17 @@ class LedgerWindow(QMainWindow):
         index = self.trade_table.currentRow()
         return self.rows[index] if 0 <= index < len(self.rows) and self.trade_table.selectedItems() else None
 
+    def open_basis_cell(self, row, col):
+        if col == TRADE_BASIS_COLUMN and self.rows[row].get('basis_detail'):
+            self.show_basis()
+
+    def open_trade_cell(self, _row, col):
+        if col != TRADE_BASIS_COLUMN:
+            self.edit_trade()
+
+    def show_basis(self):
+        BasisDialog(self.rows, self, selected=self.selected_trade()).exec()
+
     def update_trade_actions(self):
         selected = self.selected_trade()
         self.edit_button.setEnabled(bool(selected))
@@ -371,7 +455,7 @@ class LedgerWindow(QMainWindow):
         for version in [*revisions, row]:
             display = trade_display(version)
             values.append((version['version'], version.get('reason', '当前版本'), version['updated'],
-                           *display[:2], *display[3:9], display[-1]))
+                           *display[:2], *display[4:10], display[-1]))
         revision_table.fill(values)
         layout.addWidget(revision_table)
         dialog.exec()
@@ -410,27 +494,29 @@ class LedgerWindow(QMainWindow):
             self.load_group()
 
     def start_task(self, text, operation, done):
-        if self.job:
+        if self.job or self.closing:
             return
         self.statusBar().showMessage(text)
-        self.refresh_button.setEnabled(False)
         self.import_button.setEnabled(False)
+        self.export_button.setEnabled(False)
         task = self.job = Task(operation, self)
 
         def finished():
             self.job = None
             self.import_button.setEnabled(True)
-            self.refresh_button.setEnabled(True)
+            self.export_button.setEnabled(True)
             self.statusBar().clearMessage()
             try:
                 if task.error:
                     self.statusBar().showMessage(task.error, 12000)
-                else:
+                elif not self.closing:
                     done(task.result)
             except (OSError, ValueError, sqlite3.Error) as exc:
                 self.statusBar().showMessage(str(exc), 12000)
             finally:
                 task.deleteLater()
+                if self.closing:
+                    self.close()
 
         task.finished.connect(finished)
         task.start()
@@ -440,6 +526,24 @@ class LedgerWindow(QMainWindow):
         if path:
             from .excel import workbook_preview
             self.start_task('正在读取 Excel 并重算…', lambda: workbook_preview(path), self.preview_workbook)
+
+    def export_workbook(self, mode):
+        from .excel_exchange import export_exchange
+
+        names = {'current': '基差交易台账_当前组.xlsx', 'all': '基差交易台账.xlsx', 'template': '基差交易台账_导入模板.xlsx'}
+        path, _ = QFileDialog.getSaveFileName(self, '保存规范工作簿', str(self.paths.outputs / names[mode]),
+                                             'Excel 工作簿 (*.xlsx)')
+        if path:
+            target = Path(path)
+            if not target.suffix:
+                target = target.with_suffix('.xlsx')
+            if target.suffix.lower() != '.xlsx':
+                self.statusBar().showMessage('导出文件请使用 .xlsx 扩展名', 9000)
+                return
+            group = self.group_id if mode == 'current' else None
+            self.start_task('正在导出 Excel…', lambda: export_exchange(
+                target, [] if mode == 'template' else self.ledger.exchange_groups(group)),
+                lambda _: self.statusBar().showMessage(f'已保存 {target}', 10000))
 
     def preview_workbook(self, result):
         dialog = ImportDialog(*result, self)
@@ -459,30 +563,112 @@ class LedgerWindow(QMainWindow):
         audit_display(self.audit, QVBoxLayout(dialog))
         dialog.exec()
 
-    def refresh_quotes(self):
-        from .quotes import local_closes
+    def effective_quotes(self):
+        quotes = dict(self.base_quotes)
+        if not self.market_update:
+            return quotes
+        at = now()
+        for leg in LEGS:
+            base = quotes[leg]
+            if base and base.get('kind') == 'manual':
+                continue
+            symbol = self.config[leg]
+            live = self.market_update.live.get(symbol)
+            if live and at - datetime.fromisoformat(live['time']) <= timedelta(seconds=30):
+                quotes[leg] = live
+                continue
+            reference = self.market_update.reference.get(symbol)
+            if reference:
+                when = reference['time'][:10]
+                base_time = (base.get('time') or '')[:10] if base else ''
+                if not base or when >= (base_time or (at.date() - timedelta(days=7)).isoformat()):
+                    quotes[leg] = reference
+        return quotes
 
+    def render_current_quotes(self):
+        if self.group_id and not self.closing:
+            self.quotes = self.effective_quotes()
+            self.render_result(revalue(self.config, self.result, self.quotes))
+
+    def toggle_quotes(self, enabled):
+        if enabled:
+            self.quote_timer.start()
+            self.refresh_quotes(force=False)
+        else:
+            self.quote_timer.stop()
+            self.quote_status.setToolTip('自动行情已暂停')
+            QTimer.singleShot(31000, self.render_current_quotes)
+
+    def refresh_quotes(self, *, force=True):
+        if not self.group_id or self.closing:
+            return
+        if self.quote_job:
+            self.refresh_pending |= force
+            return
         group_id = self.group_id
         codes = sorted({self.config[leg] for leg in LEGS if self.config[leg]})
+        self.refresh_button.setEnabled(False)
 
-        def done(result):
-            marks, problems = result
-            if marks:
-                self.ledger.set_marks(group_id, marks, 'local')
-                if self.group_id == group_id:
-                    self.load_group()
-            missing = len(codes) - len(marks)
-            message = f'本地收盘价更新 {len(marks)} 项，未找到 {missing} 项'
-            self.statusBar().showMessage(message, 10000)
-            self.statusBar().setToolTip('\n'.join(problems))
+        def refresh():
+            result = self.market.refresh(codes, force=force, on_cached=task.partial.emit)
+            if result.closes:
+                self.ledger.set_marks(group_id, result.closes, 'local')
+            return result
 
-        self.start_task('正在读取共享行情库…', lambda: local_closes(self.paths, codes), done)
+        task = self.quote_job = Task(refresh, self)
+
+        def apply(update):
+            if self.closing:
+                return
+            self.market_by_group[group_id] = update
+            if group_id != self.group_id:
+                return
+            self.market_update = update
+            self.render_current_quotes()
+            self.quote_status.setToolTip(f'{update.message} · 实时 {len(update.live)}/{len(codes)}')
+
+        task.partial.connect(apply)
+
+        def finished():
+            self.quote_job = None
+            self.refresh_button.setEnabled(True)
+            try:
+                if self.closing:
+                    return
+                if task.result:
+                    if task.result.closes and group_id == self.group_id:
+                        self.base_quotes = self.ledger.group_quotes(group_id, self.config)
+                    apply(task.result)
+                    live = len(task.result.live)
+                    if force and group_id == self.group_id:
+                        self.statusBar().showMessage(f'{task.result.message} · 实时 {live}/{len(codes)}', 6500)
+                elif task.error:
+                    self.quote_status.setToolTip(task.error)
+                    if force:
+                        self.statusBar().showMessage('行情读取失败：' + task.error, 6500)
+            except (ValueError, sqlite3.Error) as exc:
+                self.statusBar().showMessage(str(exc), 10000)
+            finally:
+                task.deleteLater()
+                if self.closing:
+                    self.close()
+                elif self.refresh_pending or (group_id != self.group_id and self.auto_quotes.isChecked()):
+                    pending, self.refresh_pending = self.refresh_pending, False
+                    self.refresh_quotes(force=pending)
+                elif not self.auto_quotes.isChecked():
+                    QTimer.singleShot(31000, self.render_current_quotes)
+
+        task.finished.connect(finished)
+        task.start()
 
     def closeEvent(self, event):
-        if self.job and self.job.isRunning():
-            self.statusBar().showMessage('正在读取本地文件，完成后可关闭窗口')
+        self.closing = True
+        self.quote_timer.stop()
+        if self.job or self.quote_job:
+            self.statusBar().showMessage('正在完成后台读取，结束后关闭')
             event.ignore()
         else:
+            self.market.close()
             super().closeEvent(event)
 
 

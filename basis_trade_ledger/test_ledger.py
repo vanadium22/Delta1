@@ -5,12 +5,15 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock, patch
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from shared_data.paths import DataPaths
 
 from .excel import workbook_preview
-from .model import calculate, group_config, now, trade_data
-from .quotes import local_closes
+from .excel_exchange import export_exchange
+from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
+from .quotes import MarketQuotes, compatible_marks, local_closes
 from .store import Ledger, data_paths
 
 
@@ -73,6 +76,14 @@ class LedgerMathTest(unittest.TestCase):
         self.assertIsNone(r['cost_basis'])
         self.assertIsNone(r['etf'].price)
         self.assertIsNone(r['floating'])
+
+    def test_revalue_keeps_trade_details_and_costs(self):
+        initial = calculate(self.config, [posted('卖基差', amount=24000, price=100)], {})
+        updated = revalue(self.config, initial, {'etf': mark(230), 'futures': mark(105)})
+        self.assertIs(initial['rows'], updated['rows'])
+        self.assertEqual(updated['rows'][0]['basis_detail']['etf_points'], 120)
+        self.assertEqual(updated['rows'][0]['basis'], 20)
+        self.assertEqual(updated['floating'], 2000)
 
 
 class PersistenceTest(unittest.TestCase):
@@ -193,3 +204,121 @@ class PersistenceTest(unittest.TestCase):
         self.assertIn('待核配对', pending.audit['warnings'][0])
         self.assertFalse(calculate(pending.config, pending.trades, pending.quotes)['basis'])
         self.assertEqual(calculate(matched.config, matched.trades, matched.quotes)['basis']['卖基差'], -118)
+
+    def test_standard_workbook_round_trip_and_formula_text(self):
+        a, b = self.db.create(CONFIG), self.db.create(dict(CONFIG, name='空组'))
+        original = fills('卖基差', time='2026-11-24 14:59')
+        trade_id = self.db.save_trade(a, original, 'posted')
+        self.db.save_trade(a, dict(original, amount='400.123456789012345678', note='=1+2'), 'posted',
+                           trade_id=trade_id, version=1, reason='改原成交金额')
+        self.db.save_trade(a, {'direction': '期货买入', 'lots': 1}, 'draft')
+        for kind, price in (('manual', '6.3'), ('local', '5.2')):
+            self.db.set_marks(a, [dict(code=CONFIG['etf'], price=price, source=kind, time='2026-11-24')], kind)
+        path = self.root / 'standard.xlsx'
+        export_exchange(path, self.db.exchange_groups())
+        with closing(load_workbook(path)) as workbook:
+            rows = workbook['成交流水']
+            self.assertEqual(rows['M2'].data_type, 's')
+            self.assertEqual(rows.freeze_panes, 'B2')
+            self.assertTrue(rows.auto_filter.ref)
+        previews, errors = workbook_preview(path)
+        self.assertFalse(errors)
+        copied, skipped = self.db.import_groups(previews)
+        self.assertEqual((len(copied), skipped), (2, 0))
+        self.assertEqual(self.db.import_groups(previews), ([], 2))
+        cfg, trades, marks, audit = self.db.open_group(copied[0])
+        self.assertEqual((trades[0]['amount'], trades[0]['version'], trades[0]['note']),
+                         ('400.123456789012345678', 2, '=1+2'))
+        self.assertEqual((trades[1]['status'], trades[1]['time'], trades[0]['origin']), ('draft', None, '成交流水!2'))
+        self.assertEqual(len(self.db.exchange_groups(b)[0]['trades']), 0)
+        self.assertEqual(marks['etf']['kind'], 'manual')
+        self.assertEqual(audit['sheet'], '交易组!2')
+        revision, = self.db.revisions(copied[0], trades[0]['id'])
+        self.assertEqual((revision['amount'], revision['reason']), ('400', '改原成交金额'))
+        self.assertEqual(cfg['futures'], CONFIG['futures'])
+
+    def test_empty_standard_template_and_invalid_group_order(self):
+        path = self.root / 'template.xlsx'
+        export_exchange(path, [])
+        self.assertEqual(workbook_preview(path), ([], []))
+        with closing(load_workbook(path)) as workbook:
+            workbook['交易组'].append(['desk-1', '组', datetime(2026, 11, 24), CONFIG['etf'], CONFIG['futures'], 100])
+            entry = ['desk-1', 1, None, 'ETF卖出', '已入账', 100, '金额', None, 400]
+            workbook['成交流水'].append(entry)
+            workbook['成交流水'].append(entry)
+            workbook.save(path)
+        with self.assertRaisesRegex(ValueError, '成交流水!3.*顺序重复'):
+            workbook_preview(path)
+
+
+class RealtimeTest(unittest.TestCase):
+    CODES = [CONFIG['etf'], CONFIG['futures']]
+    CLOCK = datetime(2026, 11, 24, 10, 0, 8, tzinfo=SHANGHAI)
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.paths = DataPaths.for_repo(root)
+        self.path = self.paths.root / 'market' / 'index_futures' / 'dashboard' / 'realtime' / 'live' / 'quotes.sqlite3'
+        self.path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.path)) as con, con:
+            con.execute('''CREATE TABLE quotes(sequence INTEGER PRIMARY KEY, symbol TEXT, source_symbol TEXT,
+                close REAL, source_event_time TEXT, received_at TEXT, date_status TEXT)''')
+            con.execute('CREATE INDEX quotes_symbol_sequence ON quotes(symbol, sequence)')
+
+    def add(self, symbol, price, seconds=1, actual=None):
+        observed = (self.CLOCK - timedelta(seconds=seconds)).isoformat()
+        with closing(sqlite3.connect(self.path)) as con, con:
+            con.execute('INSERT INTO quotes VALUES (NULL,?,?,?,?,?,?)',
+                        (symbol, actual or symbol, price, observed, observed, 'receipt_date_inferred_unverified'))
+
+    def market(self, factory, continuous=True):
+        market = MarketQuotes(self.paths, clock=lambda: self.CLOCK, client_factory=factory,
+                              phase=lambda _: {'continuous': continuous})
+        self.addCleanup(market.close)
+        return market
+
+    def test_fresh_dashboard_marks_avoid_http_and_require_pair_alignment(self):
+        self.add(self.CODES[0], 4.2)
+        self.add(self.CODES[1], 112, seconds=6)
+        factory = Mock()
+        result = self.market(factory).refresh(self.CODES, force=True)
+        self.assertEqual(set(result.live), set(self.CODES))
+        self.assertFalse(compatible_marks(*result.live.values()))
+        factory.assert_not_called()
+
+    def test_partial_dashboard_cache_published_before_timed_out_direct_call(self):
+        self.add(self.CODES[0], 4.2)
+        self.add(self.CODES[1], 112, seconds=40)
+        client = Mock()
+        partial = []
+
+        def check(symbols):
+            self.assertEqual(set(symbols), set(self.CODES))
+            self.assertEqual(list(partial[0].live), [self.CODES[0]])
+            return dict(status='timeout')
+
+        client.fetch.side_effect = check
+        market = self.market(Mock(return_value=client))
+        result = market.refresh(self.CODES, on_cached=partial.append)
+        self.assertEqual(result.reference[self.CODES[1]]['kind'], 'reference')
+        self.assertEqual(list(result.live), [self.CODES[0]])
+        market.refresh(self.CODES)
+        client.fetch.assert_called_once()
+
+    def test_direct_batch_matching_receipt_and_out_of_session_cache(self):
+        self.add(self.CODES[0], 4.2)
+        self.add(self.CODES[1], 112, actual='IF3001.CFE')
+        client = Mock()
+        client.fetch.return_value = dict(status='success', received_at=self.CLOCK.isoformat(), response={'data': {
+            self.CODES[0]: dict(securityId=self.CODES[0], latestPrice=4.3, quoteTimestamp=100007),
+            self.CODES[1]: dict(securityId=self.CODES[1], latestPrice=114, quoteTimestamp=100007),
+        }})
+        with patch.dict('os.environ', SWHY_DASHBOARD_LOCAL_ROOT=str(self.paths.repo_root / 'dashboard')):
+            result = self.market(Mock(return_value=client)).refresh(self.CODES)
+            self.assertTrue(compatible_marks(*result.live.values()))
+            self.assertTrue(all(mark['source'] == '网厅 · 实时直连' for mark in result.live.values()))
+            offline = self.market(Mock(), continuous=False).refresh(self.CODES, force=True)
+            self.assertFalse(offline.live)
+            self.assertEqual(list(offline.reference), [self.CODES[0]])

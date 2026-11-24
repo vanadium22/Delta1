@@ -15,6 +15,8 @@ class Preview:
     trades: list
     quotes: dict
     audit: dict
+    marks: list | None = None
+    revisions: dict | None = None
 
 
 def _source_trade(sheet, row, values, status='posted', **extra):
@@ -186,6 +188,9 @@ def workbook_preview(path):
     imported = now().isoformat(timespec='seconds')
     groups, skipped = [], []
     with closing(load_workbook(BytesIO(content), data_only=True, keep_links=False)) as workbook:
+        from .excel_exchange import is_exchange, parse_exchange
+        if is_exchange(workbook):
+            return parse_exchange(workbook, path.name, fingerprint, imported), []
         for sheet in workbook:
             try:
                 if sheet['B14'].value == '交易方向' and sheet['K14'].value == '录入状态':

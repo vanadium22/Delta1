@@ -150,11 +150,13 @@ def calculate(config, trades, quotes):
     rows = []
 
     def add_basis(direction, amount, lots, price):
-        basis = amount / (lots * multiplier) - price
+        points = amount / (lots * multiplier)
+        basis = points - price
         for key, weight in ((direction, lots), ('all', lots), ('net', lots * DIRECTIONS[direction][0])):
             basis_totals[key][0] += basis * weight
             basis_totals[key][1] += weight
-        return basis
+        return dict(value=basis, amount=amount, lots=lots, futures_price=price,
+                    etf_points=points, multiplier=multiplier)
 
     for trade in trades:
         row = dict(trade, basis=None, realized=None)
@@ -172,7 +174,8 @@ def calculate(config, trades, quotes):
         if futures_sign:
             row['realized'] += futures.apply(lots * futures_sign, futures_price, multiplier)
         if etf_sign and futures_sign:
-            row['basis'] = add_basis(trade['direction'], amount, lots, futures_price)
+            row['basis_detail'] = add_basis(trade['direction'], amount, lots, futures_price)
+            row['basis'] = row['basis_detail']['value']
         elif trade.get('pair'):
             legacy_pairs[trade['pair']].append((row, etf_sign, futures_sign, amount, lots, futures_price))
 
@@ -180,14 +183,24 @@ def calculate(config, trades, quotes):
         if len(pair) == 2:
             etf_row, future_row = sorted(pair, key=lambda leg: not leg[1])
             row, etf_sign, _, amount, _, _ = etf_row
-            _, _, futures_sign, _, lots, price = future_row
+            fut, _, futures_sign, _, lots, price = future_row
             if etf_sign and etf_sign == -futures_sign and lots == Decimal(row['pair_lots']):
-                row['basis'] = add_basis('买基差' if etf_sign > 0 else '卖基差', amount, lots, price)
+                row['basis_detail'] = add_basis('买基差' if etf_sign > 0 else '卖基差', amount, lots, price)
+                row['basis'] = row['basis_detail']['value']
+                row['basis_detail']['future_origin'] = fut.get('origin')
 
+    return revalue(config, dict(etf=etf, futures=futures, rows=rows, fees=fees,
+                   realized=etf.realized + futures.realized - fees,
+                   basis={key: total / weight if weight else None for key, (total, weight) in basis_totals.items()}), quotes)
+
+
+def revalue(config, result, quotes):
+    etf, futures = result['etf'], result['futures']
+    multiplier = Decimal(config['multiplier'])
     etf_mark, futures_mark, index_mark = (Decimal(quotes[key]['price']) if quotes.get(key) else None for key in LEGS)
     etf_float, futures_float = etf.floating(etf_mark, 1), futures.floating(futures_mark, multiplier)
     floating = None if None in (etf_float, futures_float) else etf_float + futures_float
-    realized = etf.realized + futures.realized - fees
+    realized = result['realized']
     cost_basis = market_basis = None
     if etf.quantity * futures.quantity < 0:
         ratio = abs(etf.quantity) / (abs(futures.quantity) * multiplier)
@@ -198,10 +211,9 @@ def calculate(config, trades, quotes):
     plan = config.get('plan_lots')
     base_value = Decimal(base) * etf_mark if base is not None and etf_mark else None
     plan_value = Decimal(plan) * multiplier * index_mark if plan is not None and index_mark else None
-    return dict(etf=etf, futures=futures, rows=rows, fees=fees, realized=realized, floating=floating,
+    return dict(result, floating=floating,
                 total=None if floating is None else realized + floating,
                 etf_float=etf_float, futures_float=futures_float, cost_basis=cost_basis, market_basis=market_basis,
-                basis={key: total / weight if weight else None for key, (total, weight) in basis_totals.items()},
                 base_value=base_value, base_lots=base_value / (multiplier * index_mark)
                 if base_value is not None and index_mark else None, plan_value=plan_value,
                 plan_shares=plan_value / etf_mark if plan_value is not None and etf_mark else None)

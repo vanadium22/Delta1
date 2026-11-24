@@ -94,6 +94,10 @@ class Ledger:
         return {leg: next((marks[(config[leg], kind)] for kind in ('manual', 'local', 'excel')
                            if (config[leg], kind) in marks), None) for leg in LEGS}
 
+    def group_quotes(self, group_id, config):
+        with self.connection() as con:
+            return self._quotes(con, group_id, config)
+
     def create(self, values):
         config = group_config(values)
         with self.connection(write=True) as con:
@@ -113,9 +117,9 @@ class Ledger:
             con.execute('UPDATE groups SET config=? WHERE id=?', (encode(dict(json.loads(row[0]), **plan)), group_id))
 
     @staticmethod
-    def _insert_trade(con, group_id, data):
-        return con.execute('INSERT INTO trades(group_id,data,updated) VALUES (?,?,?)',
-                           (group_id, encode(data), now().isoformat())).lastrowid
+    def _insert_trade(con, group_id, data, *, version=1, updated=None):
+        return con.execute('INSERT INTO trades(group_id,data,updated,version) VALUES (?,?,?,?)',
+                           (group_id, encode(data), updated or now().isoformat(), version)).lastrowid
 
     def save_trade(self, group_id, values, status, *, trade_id=None, version=None, reason=''):
         data = trade_data(values, status)
@@ -131,7 +135,7 @@ class Ledger:
                     raise ValueError('更正已入账成交时请填写原因')
                 con.execute('INSERT INTO revisions VALUES (?,?,?,?,?)',
                             (trade_id, version, row['data'], row['updated'], reason.strip()))
-            for key in ('origin', 'pair', 'pair_lots', 'source_status', 'entry_type'):
+            for key in ('origin', 'import_origin', 'pair', 'pair_lots', 'source_status', 'entry_type'):
                 if key in old:
                     data[key] = old[key]
             con.execute('UPDATE trades SET data=?, version=version+1, updated=? WHERE id=?',
@@ -163,6 +167,25 @@ class Ledger:
                     raise ValueError('请填写估值价')
             self._save_marks(con, group_id, marks, kind)
 
+    def exchange_groups(self, group_id=None):
+        with self.connection() as con:
+            con.execute('BEGIN')
+            selected = con.execute('SELECT id,config FROM groups WHERE id=?', (group_id,)) if group_id else con.execute(
+                'SELECT id,config FROM groups ORDER BY id')
+            groups = []
+            for row in selected:
+                key = row['id']
+                trades = [self._trade(trade) for trade in con.execute(
+                    'SELECT * FROM trades WHERE group_id=? ORDER BY id', (key,))]
+                marks = [json.loads(mark['data']) for mark in con.execute(
+                    'SELECT data FROM marks WHERE group_id=? ORDER BY code,kind', (key,))]
+                revisions = [dict(json.loads(r['data']), id=r['trade_id'], version=r['version'],
+                                  updated=r['updated'], reason=r['reason']) for r in con.execute('''
+                    SELECT r.* FROM revisions r JOIN trades t ON t.id=r.trade_id
+                    WHERE t.group_id=? ORDER BY r.trade_id,r.version''', (key,))]
+                groups.append(dict(id=key, config=json.loads(row['config']), trades=trades, marks=marks, revisions=revisions))
+            return groups
+
     def import_groups(self, previews):
         added, skipped = [], 0
         with self.connection(write=True) as con:
@@ -171,9 +194,20 @@ class Ledger:
                     skipped += 1
                     continue
                 group_id = self._insert_group(con, group.config, group.key, group.audit)
-                for trade in group.trades:
-                    self._insert_trade(con, group_id, trade)
-                self._save_marks(con, group_id, group.quotes.values(), 'excel')
+                for order, trade in enumerate(group.trades, 1):
+                    data = dict(trade)
+                    trade_id = self._insert_trade(con, group_id, data, version=data.pop('version', 1),
+                                                  updated=data.pop('updated', None))
+                    for revision in (group.revisions or {}).get(order, ()):
+                        data = dict(revision)
+                        version, updated, reason = (data.pop(key) for key in ('version', 'updated', 'reason'))
+                        con.execute('INSERT INTO revisions VALUES (?,?,?,?,?)', (
+                            trade_id, version, encode(data), updated, reason))
+                if group.marks is None:
+                    self._save_marks(con, group_id, group.quotes.values(), 'excel')
+                else:
+                    for mark in group.marks:
+                        self._save_marks(con, group_id, [mark], mark['kind'])
                 added.append(group_id)
             if added:
                 self._set_recent(con, added[0])

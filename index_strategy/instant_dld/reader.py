@@ -22,8 +22,8 @@ class RealtimeReader:
         self.db_path = self.root / DB_RELATIVE
 
     @contextmanager
-    def connect(self):
-        connection = sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True, timeout=5)
+    def connect(self, *, timeout=5):
+        connection = sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True, timeout=timeout)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA query_only=ON")
@@ -81,6 +81,14 @@ class RealtimeReader:
             args = symbols
         return self._frame("WHERE sequence IN "
                            f"(SELECT MAX(sequence) FROM quotes{where} GROUP BY symbol) ORDER BY symbol", args)
+
+    def latest_records(self, symbols, *, timeout=0.2):
+        """Seek straight to the newest row per exact symbol via quotes_symbol_sequence."""
+        with self.connect(timeout=timeout) as connection:
+            connection.execute('BEGIN')
+            rows = [connection.execute('SELECT * FROM quotes WHERE symbol=? ORDER BY sequence DESC LIMIT 1',
+                                       (symbol,)).fetchone() for symbol in symbols]
+        return {row['symbol']: dict(row) for row in rows if row is not None}
 
     def history(self, symbol: str, day: str) -> pd.DataFrame:
         date.fromisoformat(day)
