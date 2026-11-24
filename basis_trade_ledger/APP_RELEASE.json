@@ -4,8 +4,12 @@
   "release_stage": "local-validation",
   "excel_exchange_version": 1,
   "realtime_poll_seconds": 3,
+  "automatic_market_default": true,
+  "wind_close_after": "15:10 Asia/Shanghai",
   "company_entry": "start.cmd",
+  "desktop_shortcut_entry": "create_desktop_shortcut.cmd",
+  "hedge_bases": ["futures", "index"],
   "handoff": "PROJECT_HANDOFF.md",
   "data": {"path_relative_to_shared_root": "basis_trade_ledger/ledger.sqlite", "schema_version": 1},
-  "company_checks": ["连续交易时段网厅直连和实际合约覆盖", "公司机 Dashboard 共享缓存随行情更新"]
+  "company_checks": ["连续交易时段网厅直连和实际合约覆盖", "公司机 Dashboard 共享缓存随行情更新", "公司 WindPy 终端盘后收盘价"]
 }

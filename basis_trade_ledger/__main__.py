@@ -16,7 +16,7 @@ def main():
 
     paths = data_paths(args.data_root)
     app = application()
-    window = LedgerWindow(Ledger(paths.root / 'basis_trade_ledger' / 'ledger.sqlite'), paths)
+    window = LedgerWindow(Ledger(paths.root / 'basis_trade_ledger' / 'ledger.sqlite'), paths, auto_quotes=not args.startup_check)
     if args.startup_check:
         window.first_paint.connect(lambda: print(f'first_paint_ms={(perf_counter() - STARTED) * 1000:.1f}', flush=True))
 

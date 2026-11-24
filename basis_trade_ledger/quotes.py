@@ -9,7 +9,8 @@ from time import monotonic
 
 from shared_data.readers import LocalData
 
-from .model import SHANGHAI, now, number
+from .model import LEGS, SHANGHAI, now, number
+from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE, download_closes
 
 
 POLL_MS = 3000
@@ -80,27 +81,81 @@ def compatible_marks(first, second):
     return True
 
 
+def newer_closes(marks, existing):
+    result = []
+    for mark in marks:
+        old = existing.get(mark['code'])
+        if old:
+            timestamp, previous = mark.get('time') or '', old.get('time') or ''
+            if timestamp < previous:
+                continue
+            if timestamp == previous:
+                if old['source'] == mark['source']:
+                    if str(old['price']) == str(mark['price']):
+                        continue
+                elif old['source'] == WIND_CLOSE or (old['source'] == WIND_LOCAL_CLOSE and mark['source'] != WIND_CLOSE):
+                    continue
+        result.append(mark)
+    return result
+
+
+def effective_marks(config, base_marks, update, at):
+    quotes = dict(base_marks)
+    if not update:
+        return quotes
+    closes = {mark['code']: dict(mark, kind='local') for mark in update.closes}
+    for leg in LEGS:
+        base = quotes.get(leg)
+        if base and base.get('kind') == 'manual':
+            continue
+        symbol = config[leg]
+        live = update.live.get(symbol)
+        old_live = base if base and base.get('kind') == 'live' else None
+        candidates = [mark for mark in (live, old_live) if mark and _timestamp(mark.get('time')) and
+                      at - _timestamp(mark['time']) <= timedelta(seconds=30)]
+        if candidates:
+            quotes[leg] = max(candidates, key=lambda mark: mark['time'])
+            continue
+        close = closes.get(symbol)
+        if close and (not base or newer_closes([close], {symbol: base})):
+            base = quotes[leg] = close
+        reference = update.reference.get(symbol)
+        if reference:
+            day = reference['time'][:10]
+            base_day = (base.get('time') or '')[:10] if base else ''
+            if base and base.get('source') in (WIND_CLOSE, WIND_LOCAL_CLOSE) and day == base_day:
+                continue
+            if not base or day >= (base_day or (at.date() - timedelta(days=7)).isoformat()):
+                if not base or day != base_day or reference['time'] > (base.get('time') or ''):
+                    quotes[leg] = reference
+    return quotes
+
+
 class MarketQuotes:
-    def __init__(self, paths, *, clock=now, client_factory=None, phase=None):
+    def __init__(self, paths, *, clock=now, client_factory=None, phase=None, wind_fetcher=download_closes):
         self.paths, self.clock, self.client_factory, self.phase = paths, clock, client_factory, phase
+        self.wind_fetcher = wind_fetcher
         self.client = None
         self.direct = {}
         self.references = {}
         self.retry_at = 0
+        self.wind_quotes = {}
+        self.wind_pending = {}
 
     def close(self):
         if self.client:
             self.client.close()
             self.client = None
 
-    def refresh(self, codes, *, force=False, on_cached=None):
+    def refresh(self, codes, *, force=False, on_cached=None, saved_closes=None, cache_only=False, allow_wind=True):
         from dashboard.marketdata.quote_quality import quote_quality
         from dashboard.session_clock import market_phase
         from index_strategy.instant_dld.reader import RealtimeReader
 
         profile, config, root = dashboard_profile(self.paths)
         at = self.clock()
-        continuous = (self.phase or market_phase)(at)['continuous']
+        phase = (self.phase or market_phase)(at)
+        continuous = phase['continuous']
         codes = sorted({c for c in codes if SUPPORTED.fullmatch(c)})
         if not codes:
             return QuoteUpdate({}, {}, [], '请填写带交易所后缀的实际标的代码')
@@ -140,7 +195,7 @@ class MarketQuotes:
             missing = [symbol for symbol in codes if symbol not in live]
             needed = [s for s in codes if s not in live or (live[s]['source'] == '网厅 · 实时直连' and
                       (force or (at - _timestamp(live[s]['observed_at'])).total_seconds() >= 2.8))]
-            if needed and (force or monotonic() >= self.retry_at):
+            if needed and not cache_only and (force or monotonic() >= self.retry_at):
                 if on_cached:
                     on_cached(QuoteUpdate(live.copy(), self._references(codes), [], '看板缓存 · 后台补查中'))
                 # Fetch the pair in one batch when only one side is covered or refreshed.
@@ -151,13 +206,68 @@ class MarketQuotes:
             live = {symbol: mark for symbol, mark in live.items() if mark and
                     (self.clock() - _timestamp(mark['time'])).total_seconds() <= 30}
         refs = self._references(codes)
+        if allow_wind and phase.get('phase') in ('post_close', 'closed_day'):
+            from dashboard.marketdata.overview_sessions import latest_completed_session
+            try:
+                day = latest_completed_session(at)
+            except ValueError:
+                day = None
+            if day and (phase['phase'] == 'closed_day' or day == at.astimezone(SHANGHAI).date().isoformat()):
+                return self._after_close(codes, day, profile, config, refs, saved_closes or {}, force, on_cached)
+            if day and not force:
+                return QuoteUpdate({}, refs, [], '等候当日 Wind 收盘数据')
         if on_cached and force and any(s not in live for s in codes):
             on_cached(QuoteUpdate(live, refs, [], message))
         closes, _ = local_closes(self.paths, [s for s in codes if s not in live]) if force and any(s not in live for s in codes) else ([], [])
+        closes = newer_closes(closes, saved_closes or {})
         return QuoteUpdate(live, refs, closes, message)
 
     def _references(self, codes):
         return {s: self.references[s] for s in codes if s in self.references}
+
+    def _after_close(self, codes, day, profile, config, refs, saved, force, on_cached):
+        deadline = monotonic()
+        confirmed = (WIND_CLOSE, WIND_LOCAL_CLOSE)
+
+        def is_current(mark):
+            return mark and mark.get('time') == day and mark.get('source') in confirmed
+
+        for symbol in codes:
+            if is_current(saved.get(symbol)):
+                old = self.wind_quotes.get((day, symbol))
+                if not old or newer_closes([saved[symbol]], {symbol: old}):
+                    self.wind_quotes[(day, symbol)] = saved[symbol]
+        need = [symbol for symbol in codes if (day, symbol) not in self.wind_quotes and
+                (force or self.wind_pending.get((day, symbol), (0, ''))[0] <= deadline)]
+        fallback = []
+        if need:
+            if on_cached:
+                on_cached(QuoteUpdate({}, refs, [], '正在读取 Wind 盘后收盘价'))
+            fallback, _ = local_closes(self.paths, need, end=day)
+            for mark in fallback:
+                if is_current(mark):
+                    self.wind_quotes[(day, mark['code'])] = mark
+            ask = [symbol for symbol in need if (day, symbol) not in self.wind_quotes]
+            if ask:
+                prices, error = self.wind_fetcher(ask, day, config, profile)
+                for symbol in ask:
+                    try:
+                        price = number(prices.get(symbol), 'Wind 收盘价')
+                    except ValueError:
+                        price = None
+                    if price and price < 10**10:
+                        self.wind_quotes[(day, symbol)] = dict(code=symbol, price=price, time=day, source=WIND_CLOSE)
+                        self.wind_pending.pop((day, symbol), None)
+                    else:
+                        self.wind_pending[(day, symbol)] = (monotonic() + 300, error or 'Wind 当日收盘价缺项')
+        current = [self.wind_quotes[(day, s)] for s in codes if (day, s) in self.wind_quotes]
+        ready = {mark['code'] for mark in current}
+        message = f'Wind 收盘 {day} · {len(ready)}/{len(codes)}'
+        missing = [self.wind_pending.get((day, s), (0, 'Wind 当日收盘价缺项'))[1] for s in codes if s not in ready]
+        if missing:
+            message += ' · ' + '、'.join(dict.fromkeys(missing))
+        marks = current + [mark for mark in fallback if mark['code'] not in ready]
+        return QuoteUpdate({}, refs, newer_closes(marks, saved), message)
 
     def _fetch(self, codes, config, live, fresh):
         from dashboard.session_guard import network_lease
@@ -205,11 +315,13 @@ class MarketQuotes:
         return None
 
 
-def local_closes(paths, codes):
-    end = now().date()
+def local_closes(paths, codes, *, end=None):
+    from datetime import date
+
+    end = date.fromisoformat(end) if end else now().date()
     start = end - timedelta(days=35)
     found, problems = {}, []
-    for mode, source in (('wind', 'Wind 本地收盘'), ('offline', '离线库收盘')):
+    for mode, source in (('wind', WIND_LOCAL_CLOSE), ('offline', '离线库收盘')):
         if not (paths.basis(mode) / 'market.sqlite').is_file():
             continue
         try:

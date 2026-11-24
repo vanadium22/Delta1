@@ -1,37 +1,50 @@
-from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QIcon
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QMainWindow, QMenu, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from script_making.desktop_theme import STYLE
 
+from .hedge_widget import HedgePage
 from .model import LEGS, calculate, date_time, now, number, revalue
-from .quotes import POLL_MS, MarketQuotes, compatible_marks
+from .portfolio import ALL_GROUPS, filtered, index_section, portfolio_values, section_title
+from .portfolio_widget import PortfolioFilters, PortfolioPage
+from .quotes import POLL_MS, MarketQuotes, compatible_marks, effective_marks, newer_closes
+from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE
 from .widgets import (GROUP_FIELDS, PLAN_FIELDS, TRADE_BASIS_COLUMN, BasisDialog, FormDialog, ImportDialog, MetricCard,
                       Table, TradeEditor, audit_display, button, card, fmt, label, trade_display, trade_table)
 
 
 LEDGER_STYLE = """
-QFrame#pnlCard { background: white; border: 1px solid #dbe6ed; border-radius: 9px; }
-QFrame#pnlHero { background: #17364d; border: 1px solid #17364d; border-radius: 9px; }
-QFrame#pnlHero QLabel#pnlCaption, QFrame#pnlHero QLabel#pnlContext { color: #c3d9e4; }
+QMainWindow { background: #eef3f9; }
+QLabel#title { font-size: 29px; font-weight: 800; }
+QFrame#pnlCard, QFrame#hedgeLeg { background: #ffffff; border: 1px solid #d9e4ef; border-radius: 12px; }
+QFrame#positionCard { background: #f0f7ff; border: 1px solid #d4e4f7; border-radius: 12px; }
+QFrame#pnlHero { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #14335a, stop:1 #215873);
+                 border: 1px solid #244d71; border-radius: 12px; }
+QFrame#pnlHero QLabel#pnlCaption, QFrame#pnlHero QLabel#pnlContext { color: #e0edf8; }
 QFrame#pnlHero QLabel#metricValue { color: #f3f9fb; }
 QFrame#pnlHero QLabel#gain { color: #ffb0a6; }
 QFrame#pnlHero QLabel#loss { color: #92e1c5; }
-QLabel#pnlCaption { color: #4a667b; font-weight: 600; }
-QLabel#pnlContext { color: #5d7485; font-size: 11px; }
-QLabel#metricValue { font-size: 22px; font-weight: 700; color: #16384f; }
-QLabel#gain { font-size: 22px; font-weight: 700; color: #a73440; }
-QLabel#loss { font-size: 22px; font-weight: 700; color: #197363; }
+QFrame#pnlHero QLabel#metricValue, QFrame#pnlHero QLabel#gain, QFrame#pnlHero QLabel#loss { font-size: 32px; }
+QLabel#pnlCaption { color: #345672; font-size: 14px; font-weight: 700; }
+QFrame#hedgeLeg QLabel#pnlCaption { font-size: 16px; }
+QLabel#pnlContext { color: #4d6881; font-size: 12px; }
+QLabel#metricValue { font-size: 27px; font-weight: 800; color: #193954; }
+QLabel#gain { font-size: 27px; font-weight: 800; color: #a73440; }
+QLabel#loss { font-size: 27px; font-weight: 800; color: #13735d; }
+QLabel#hedgeTitle { font-size: 22px; font-weight: 750; color: #193954; }
+QLabel#fieldCaption { color: #35566f; font-weight: 700; }
+QLabel#hedgeQuote { font-size: 12px; color: #536f89; }
 QLabel#equivalentEquation { background: #eef6f7; color: #173c4d; padding: 9px; border-radius: 5px; }
 QLabel#quoteStatus { color: #355c70; padding: 4px 8px; border: 1px solid #dce9ed; border-radius: 4px; background: #eaf4f5; }
 QPushButton#autoQuotes:checked { background: #def2ed; color: #126b60; border-color: #85bdb1; }
 QPushButton#basisLink { background: #e7f3f1; border: 1px solid #c7e3de; color: #126b60; font-weight: 600; }
-QLabel#groupTitle { font-size: 21px; font-weight: 700; }
+QLabel#groupTitle { font-size: 24px; font-weight: 750; }
+QLabel#basisSummary { font-size: 15px; font-weight: 700; color: #234563; }
 QLabel#sectionTitle { color: #223d56; }
 QFrame#card QLabel { border: none; background: transparent; }
 QTabWidget::pane { border: 1px solid #dfe6ef; background: #fbfcfe; border-radius: 5px; }
@@ -44,6 +57,7 @@ QTableWidget#positions::item { padding: 3px 6px; }
 QTableWidget#positions QHeaderView::section { padding: 8px 5px; }
 """
 LEG_NAMES = dict(zip(LEGS, ('ETF', '股指期货', '跟踪指数')))
+SECTION_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class Task(QThread):
@@ -66,7 +80,7 @@ class LedgerWindow(QMainWindow):
     first_paint = Signal()
     input_ready = Signal()
 
-    def __init__(self, ledger, paths):
+    def __init__(self, ledger, paths, *, auto_quotes=True):
         super().__init__()
         self.ledger, self.paths = ledger, paths
         self.group_id = None
@@ -74,13 +88,20 @@ class LedgerWindow(QMainWindow):
         self.rows = []
         self.job = None
         self.quote_job = None
+        self.portfolio_job = None
         self.closing = False
         self.market = MarketQuotes(paths)
+        self.portfolio_market = MarketQuotes(paths)
+        self.portfolio_scope = None
+        self.portfolio_records = None
+        self.portfolio_update = None
+        self.portfolio_generation = 0
+        self.filter_status, self.filter_period = 'all', ('', '')
         self.market_update = None
         self.market_by_group = {}
         self.refresh_pending = False
         self.quote_timer = QTimer(self, interval=POLL_MS)
-        self.quote_timer.timeout.connect(lambda: self.refresh_quotes(force=False))
+        self.quote_timer.timeout.connect(self.poll_market)
         self.painted = False
         self.setWindowTitle('基差交易台账')
         self.resize(1300, 800)
@@ -111,10 +132,20 @@ class LedgerWindow(QMainWindow):
         side = card()
         side.setFixedWidth(218)
         side_layout = QVBoxLayout(side)
-        side_layout.addWidget(label('交易组', 'sectionTitle'))
+        side_header = QHBoxLayout()
+        side_header.addWidget(label('交易组', 'sectionTitle'))
+        side_header.addStretch()
+        self.rename_button = button('改名', self.rename_group)
+        self.rename_button.setObjectName('quickField')
+        self.rename_button.setEnabled(False)
+        side_header.addWidget(self.rename_button)
+        side_layout.addLayout(side_header)
         self.recent = label('', 'muted')
         self.recent.setWordWrap(True)
         side_layout.addWidget(self.recent)
+        self.filters = PortfolioFilters()
+        self.filters.changed.connect(self.filters_changed)
+        side_layout.addWidget(self.filters)
         self.groups = QListWidget()
         self.groups.setObjectName('groups')
         self.groups.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -130,6 +161,10 @@ class LedgerWindow(QMainWindow):
         empty_layout.addWidget(label('选择或新建交易组', 'groupTitle'), alignment=Qt.AlignmentFlag.AlignCenter)
         self.panes.addWidget(empty)
         self.panes.addWidget(self.detail_page())
+        self.auto_quotes.setChecked(auto_quotes)
+        self.portfolio_page = PortfolioPage()
+        self.portfolio_page.group_selected.connect(self.select_group)
+        self.panes.addWidget(self.portfolio_page)
         body.addWidget(self.panes, 1)
         outer.addLayout(body, 1)
         self.setCentralWidget(root)
@@ -138,6 +173,7 @@ class LedgerWindow(QMainWindow):
         disk.setToolTip(str(ledger.path))
         self.statusBar().addPermanentWidget(disk)
         self.groups.currentItemChanged.connect(self.choose_group)
+        self.groups.itemDoubleClicked.connect(lambda _: self.rename_group())
         self.populate_groups()
 
     def paintEvent(self, event):
@@ -175,7 +211,8 @@ class LedgerWindow(QMainWindow):
         self.metric_cards = {}
         for key, caption in (('total', '总盈亏 · 元'), ('realized', '已实现 · 元'), ('floating', '浮盈亏 · 元'),
                              ('etf', 'ETF 净仓 · 份'), ('futures', '期货净仓 · 手')):
-            panel = MetricCard(caption, primary=key == 'total')
+            panel = MetricCard(caption, primary=key == 'total',
+                               variant='positionCard' if key in ('etf', 'futures') else 'pnlCard')
             self.metric_cards[key] = panel
             self.metrics[key] = panel.value
             metrics.addWidget(panel, 6 if key == 'total' else 5)
@@ -184,7 +221,7 @@ class LedgerWindow(QMainWindow):
         self.basis_button = button('逐笔等价基差', self.show_basis)
         self.basis_button.setObjectName('basisLink')
         basis_strip.addWidget(self.basis_button)
-        self.basis_strip = label('', 'sectionTitle')
+        self.basis_strip = label('', 'basisSummary')
         basis_strip.addWidget(self.basis_strip, 1)
         self.quote_status = label('估值参考', 'quoteStatus')
         basis_strip.addWidget(self.quote_status)
@@ -212,6 +249,13 @@ class LedgerWindow(QMainWindow):
         layout.addWidget(self.trade_table, 1)
         self.tabs.addTab(trades, '成交流水')
         self.tabs.addTab(self.valuation_page(), '持仓与估值')
+        self.hedge = HedgePage()
+        hedge_scroll = QScrollArea()
+        hedge_scroll.setWidgetResizable(True)
+        hedge_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        hedge_scroll.setWidget(self.hedge)
+        hedge_tab = self.tabs.addTab(hedge_scroll, '对冲换算')
+        self.tabs.currentChanged.connect(lambda index: self.refresh_quotes() if index == hedge_tab else None)
         detail.addWidget(self.tabs, 1)
         self.editor_error = label('', 'error')
         self.editor_error.setWordWrap(True)
@@ -261,35 +305,84 @@ class LedgerWindow(QMainWindow):
 
     def populate_groups(self):
         self.group_rows = self.ledger.groups()
-        self.groups.blockSignals(True)
-        self.groups.clear()
-        for group in self.group_rows:
-            when = group['opened'] or ('Excel' if group['imported'] else '')
-            item = QListWidgetItem(f"{group['name']}\n{when}  ·  #{group['id']}")
-            item.setToolTip(f"{group['etf']}  /  {group['futures']}")
-            item.setData(Qt.ItemDataRole.UserRole, group['id'])
-            self.groups.addItem(item)
-        self.groups.blockSignals(False)
+        self.invalidate_portfolio()
+        self.render_group_list()
         self.copy_button.setEnabled(bool(self.group_rows))
         recent = self.ledger.recent()
         last = next((group['name'] for group in self.group_rows if group['id'] == recent), '')
         self.recent.setText('最近打开 · ' + last if last else '暂无最近打开的交易组')
 
+    def render_group_list(self):
+        groups = self.group_rows
+        if self.portfolio_records is not None:
+            visible = {row['config']['id'] for row in filtered(self.portfolio_records, self.filter_status, self.filter_period)}
+            groups = [g for g in groups if g['id'] in visible]
+        by_index = {}
+        for group in groups:
+            by_index.setdefault(index_section(group), []).append(group)
+        self.groups.blockSignals(True)
+        self.groups.clear()
+        self.add_section(ALL_GROUPS, len(groups))
+        for section, members in sorted(by_index.items(), key=lambda item: section_title(item[0])):
+            self.add_section(section, len(members))
+            for group in members:
+                item = QListWidgetItem()
+                self.label_group(item, group)
+                item.setData(Qt.ItemDataRole.UserRole, group['id'])
+                self.groups.addItem(item)
+                if self.portfolio_scope is None and group['id'] == self.group_id:
+                    self.groups.setCurrentItem(item)
+        self.groups.blockSignals(False)
+
+    def add_section(self, section, count):
+        item = QListWidgetItem(f'{section_title(section)}  ·  {count}')
+        item.setData(SECTION_ROLE, section)
+        font = item.font()
+        font.setBold(True)
+        item.setFont(font)
+        item.setForeground(QColor('#284e71'))
+        item.setToolTip('查看该分类的收益和敞口')
+        self.groups.addItem(item)
+        if self.portfolio_scope == section:
+            self.groups.setCurrentItem(item)
+
+    @staticmethod
+    def label_group(item, group):
+        when = group['opened'] or ('Excel' if group['imported'] else '')
+        item.setText(f"  {group['name']}\n  {when}  ·  #{group['id']}")
+        item.setToolTip(f"{group['name']}\n{group['etf']}  /  {group['futures']}")
+
     def open_recent(self):
         if self.group_rows and self.group_id is None:
             self.select_group(self.ledger.recent() or self.group_rows[0]['id'])
+        if self.auto_quotes.isChecked():
+            self.quote_timer.start()
         QTimer.singleShot(0, self.input_ready.emit)
 
     def select_group(self, group_id):
-        for i, group in enumerate(self.group_rows):
-            if group['id'] == group_id:
-                self.groups.setCurrentRow(i)
+        for index in range(self.groups.count()):
+            item = self.groups.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == group_id:
+                self.groups.setCurrentItem(item)
                 return
 
     def choose_group(self, item, _previous):
         if item is None:
             return
-        self.group_id = item.data(Qt.ItemDataRole.UserRole)
+        group_id = item.data(Qt.ItemDataRole.UserRole)
+        if group_id is None:
+            self.show_portfolio(item.data(SECTION_ROLE))
+            return
+        refresh = self.group_id != group_id
+        self.portfolio_scope = None
+        if not refresh:
+            self.rename_button.setEnabled(True)
+            self.export_current.setEnabled(True)
+            self.panes.setCurrentIndex(1)
+            if self.auto_quotes.isChecked():
+                self.refresh_quotes(force=False)
+            return
+        self.group_id = group_id
         self.market_update = self.market_by_group.get(self.group_id)
         self.editor.reset()
         self.editor_error.hide()
@@ -298,8 +391,103 @@ class LedgerWindow(QMainWindow):
         if self.auto_quotes.isChecked():
             self.refresh_quotes(force=False)
 
+    def filters_changed(self):
+        try:
+            self.filter_status, self.filter_period = self.filters.query()
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc), 7000)
+            return
+        self.show_portfolio(ALL_GROUPS if self.portfolio_scope is None else self.portfolio_scope)
+        self.render_group_list()
+
+    def reset_filters_for_new_group(self):
+        self.filters.reset()
+        self.filter_status, self.filter_period = 'all', ('', '')
+
+    def show_portfolio(self, section):
+        self.portfolio_scope = section
+        self.portfolio_page.show_loading(section)
+        self.rename_button.setEnabled(False)
+        self.export_current.setEnabled(False)
+        self.panes.setCurrentIndex(2)
+        if self.portfolio_records is not None:
+            self.render_portfolio()
+        self.request_portfolio()
+
+    def invalidate_portfolio(self):
+        self.portfolio_generation += 1
+        self.portfolio_records = None
+        if self.painted and self.has_filtered_groups():
+            QTimer.singleShot(0, self.request_portfolio)
+
+    def has_filtered_groups(self):
+        return self.filter_status != 'all' or any(self.filter_period)
+
+    def request_portfolio(self):
+        if self.closing or self.portfolio_job or (self.portfolio_scope is None and not self.has_filtered_groups()):
+            return
+        records, scope = self.portfolio_records, self.portfolio_scope
+        status, period, generation = self.filter_status, self.filter_period, self.portfolio_generation
+        allow_wind = self.auto_quotes.isChecked()
+
+        def load():
+            current = self.ledger.portfolio() if records is None else records
+            if scope is None:
+                return current, None
+            if records is None:
+                task.partial.emit(current)
+            selected = filtered(current, status, period, scope)
+            codes = sorted({row['config'][leg] for row in selected for leg in LEGS[:2] if row['result'][leg].quantity})
+            stored = {}
+            for row in selected:
+                for mark in newer_closes(list(row['closes'].values()), stored):
+                    stored[mark['code']] = mark
+            quotes = self.portfolio_market.refresh(codes, saved_closes=stored, cache_only=True, allow_wind=allow_wind) if codes else None
+            if quotes:
+                quotes.closes = [*stored.values(), *quotes.closes]
+            return current, quotes
+
+        task = self.portfolio_job = Task(load, self)
+
+        def show_cached(current):
+            if not self.closing and generation == self.portfolio_generation:
+                self.portfolio_records = current
+                self.render_group_list()
+                self.render_portfolio()
+
+        def done():
+            self.portfolio_job = None
+            task.deleteLater()
+            if self.closing:
+                self.close()
+                return
+            if task.error:
+                self.statusBar().showMessage('汇总读取失败：' + task.error, 8000)
+                return
+            if generation == self.portfolio_generation:
+                rebuild_sidebar = self.portfolio_records is None
+                self.portfolio_records, self.portfolio_update = task.result
+                if rebuild_sidebar:
+                    self.render_group_list()
+                self.render_portfolio()
+            if (self.portfolio_scope is not None or self.has_filtered_groups()) and (generation != self.portfolio_generation or
+                    (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)):
+                self.request_portfolio()
+
+        task.partial.connect(show_cached)
+        task.finished.connect(done)
+        task.start()
+
+    def render_portfolio(self):
+        if self.portfolio_scope is None or self.portfolio_records is None:
+            return
+        selected = filtered(self.portfolio_records, self.filter_status, self.filter_period, self.portfolio_scope)
+        rows, totals = portfolio_values(selected, self.portfolio_update, self.market_by_group)
+        self.portfolio_page.show_values(self.portfolio_scope, rows, totals)
+
     def load_group(self):
         self.config, trades, self.base_quotes, self.audit = self.ledger.open_group(self.group_id)
+        self.saved_closes = self.ledger.closing_marks(self.group_id)
         self.quotes = self.effective_quotes()
         self.result = result = calculate(self.config, trades, self.quotes)
         self.rows = result['rows']
@@ -308,6 +496,7 @@ class LedgerWindow(QMainWindow):
         self.symbols.setText(f"{self.config['etf']}  /  {self.config['futures']}   ·   乘数 {self.config['multiplier']}")
         self.audit_button.setVisible(bool(self.audit))
         self.export_current.setEnabled(True)
+        self.rename_button.setEnabled(True)
         self.render_result(result)
         posted = sum(row['status'] == 'posted' for row in self.rows)
         self.trade_count.setText(f'组内流水   ·   已入账 {posted}   ·   草稿 {len(trades) - posted}')
@@ -328,7 +517,8 @@ class LedgerWindow(QMainWindow):
             if key == 'realized':
                 context = '费用 ' + fmt(result['fees'])
             elif key == 'floating':
-                context = '随当前估值变化'
+                missing = [label for leg, label in (('etf', 'ETF'), ('futures', '期货')) if result[leg + '_float'] is None]
+                context = ('、'.join(missing) + '缺价') if missing else '持仓估值'
             else:
                 context = '已实现 + 浮盈亏'
             panel.set_metric(result[key], context, color=True)
@@ -340,6 +530,7 @@ class LedgerWindow(QMainWindow):
         held = [self.quotes.get(key) for key in ('etf', 'futures') if result[key].quantity]
         self.quote_status.setText('待估值' if any(mark is None for mark in held) else
                                   '网厅实时' if held and all(mark.get('kind') == 'live' for mark in held) else
+                                  'Wind 收盘' if held and all(mark.get('source') in (WIND_CLOSE, WIND_LOCAL_CLOSE) for mark in held) else
                                   '参考估值' if held else '空仓')
         if market_value is None and result['market_basis'] is not None:
             self.basis_strip.setToolTip('两腿实时源时或接收时未对齐，或参考价日期不同')
@@ -378,6 +569,26 @@ class LedgerWindow(QMainWindow):
             cell.setText(fmt(market_value if key == 'market_basis' else result.get(key, result['basis'].get(key)), 4))
         for key, cell in self.plan_cells.items():
             cell.setText(fmt(result.get(key, self.config.get(key)), 0 if key in ('base_shares', 'plan_lots') else 2))
+        self.hedge.set_context(self.group_id, self.config, result, self.quotes)
+
+    def rename_group(self):
+        item = self.groups.currentItem()
+        if item is None:
+            return
+        group_id = item.data(Qt.ItemDataRole.UserRole)
+        if group_id is None:
+            return
+        group = next(group for group in self.group_rows if group['id'] == group_id)
+        dialog = FormDialog('修改交易组名称', (('name', '组名', ''),), group,
+                            lambda values: self.ledger.rename_group(group_id, values['name']), self)
+        if dialog.exec():
+            name = group['name'] = dialog.result_value
+            self.invalidate_portfolio()
+            self.label_group(item, group)
+            if group_id == self.group_id:
+                self.config['name'] = name
+                self.title.setText(name)
+                self.recent.setText('最近打开 · ' + name)
 
     def create_group(self, reuse=False):
         values = {'opened': now().date().isoformat()}
@@ -386,6 +597,7 @@ class LedgerWindow(QMainWindow):
             values.update({key: previous[key] for key in (*LEGS, 'multiplier')})
         dialog = FormDialog('新建交易组', GROUP_FIELDS, values, self.ledger.create, self, submit='创建并录入')
         if dialog.exec():
+            self.reset_filters_for_new_group()
             self.populate_groups()
             self.select_group(dialog.result_value)
             self.editor.fields['time'].setFocus()
@@ -394,6 +606,7 @@ class LedgerWindow(QMainWindow):
         dialog = FormDialog('参考底仓与计划', PLAN_FIELDS, self.config,
                             lambda values: self.ledger.update_plan(self.group_id, values), self)
         if dialog.exec():
+            self.invalidate_portfolio()
             self.load_group()
 
     def save_trade(self, status):
@@ -408,6 +621,7 @@ class LedgerWindow(QMainWindow):
             return
         self.editor_error.hide()
         self.editor.reset()
+        self.invalidate_portfolio()
         self.load_group()
         self.trade_table.scrollToBottom()
         self.statusBar().showMessage('成交已入账' if status == 'posted' else '草稿已保存', 5000)
@@ -491,6 +705,7 @@ class LedgerWindow(QMainWindow):
         dialog = FormDialog('手填估值', fields, current, commit, self,
                             hint='手填优先使用。清空某个手填价格可回到已有的本地行情或导入快照。')
         if dialog.exec():
+            self.invalidate_portfolio()
             self.load_group()
 
     def start_task(self, text, operation, done):
@@ -550,6 +765,7 @@ class LedgerWindow(QMainWindow):
         if dialog.exec():
             ids, skipped = self.ledger.import_groups(dialog.selected())
             if ids:
+                self.reset_filters_for_new_group()
                 self.populate_groups()
                 self.select_group(ids[0])
             self.statusBar().showMessage(f'已导入 {len(ids)} 组，重复跳过 {skipped} 组', 8000)
@@ -564,26 +780,7 @@ class LedgerWindow(QMainWindow):
         dialog.exec()
 
     def effective_quotes(self):
-        quotes = dict(self.base_quotes)
-        if not self.market_update:
-            return quotes
-        at = now()
-        for leg in LEGS:
-            base = quotes[leg]
-            if base and base.get('kind') == 'manual':
-                continue
-            symbol = self.config[leg]
-            live = self.market_update.live.get(symbol)
-            if live and at - datetime.fromisoformat(live['time']) <= timedelta(seconds=30):
-                quotes[leg] = live
-                continue
-            reference = self.market_update.reference.get(symbol)
-            if reference:
-                when = reference['time'][:10]
-                base_time = (base.get('time') or '')[:10] if base else ''
-                if not base or when >= (base_time or (at.date() - timedelta(days=7)).isoformat()):
-                    quotes[leg] = reference
-        return quotes
+        return effective_marks(self.config, self.base_quotes, self.market_update, now())
 
     def render_current_quotes(self):
         if self.group_id and not self.closing:
@@ -599,6 +796,12 @@ class LedgerWindow(QMainWindow):
             self.quote_status.setToolTip('自动行情已暂停')
             QTimer.singleShot(31000, self.render_current_quotes)
 
+    def poll_market(self):
+        if self.portfolio_scope is None:
+            self.refresh_quotes(force=False)
+        else:
+            self.request_portfolio()
+
     def refresh_quotes(self, *, force=True):
         if not self.group_id or self.closing:
             return
@@ -607,10 +810,11 @@ class LedgerWindow(QMainWindow):
             return
         group_id = self.group_id
         codes = sorted({self.config[leg] for leg in LEGS if self.config[leg]})
+        saved_closes = self.saved_closes.copy()
         self.refresh_button.setEnabled(False)
 
         def refresh():
-            result = self.market.refresh(codes, force=force, on_cached=task.partial.emit)
+            result = self.market.refresh(codes, force=force, on_cached=task.partial.emit, saved_closes=saved_closes)
             if result.closes:
                 self.ledger.set_marks(group_id, result.closes, 'local')
             return result
@@ -636,12 +840,18 @@ class LedgerWindow(QMainWindow):
                 if self.closing:
                     return
                 if task.result:
+                    if task.result.closes:
+                        self.invalidate_portfolio()
                     if task.result.closes and group_id == self.group_id:
                         self.base_quotes = self.ledger.group_quotes(group_id, self.config)
+                        self.saved_closes = self.ledger.closing_marks(group_id)
+                    changed = not self.market_update or self.market_update.message != task.result.message
                     apply(task.result)
                     live = len(task.result.live)
-                    if force and group_id == self.group_id:
-                        self.statusBar().showMessage(f'{task.result.message} · 实时 {live}/{len(codes)}', 6500)
+                    wind = task.result.message.startswith('Wind 收盘 ')
+                    if group_id == self.group_id and (force or wind and changed):
+                        message = task.result.message if wind else f'{task.result.message} · 实时 {live}/{len(codes)}'
+                        self.statusBar().showMessage(message, 6500)
                 elif task.error:
                     self.quote_status.setToolTip(task.error)
                     if force:
@@ -664,11 +874,12 @@ class LedgerWindow(QMainWindow):
     def closeEvent(self, event):
         self.closing = True
         self.quote_timer.stop()
-        if self.job or self.quote_job:
+        if self.job or self.quote_job or self.portfolio_job:
             self.statusBar().showMessage('正在完成后台读取，结束后关闭')
             event.ignore()
         else:
             self.market.close()
+            self.portfolio_market.close()
             super().closeEvent(event)
 
 
@@ -676,4 +887,5 @@ def application():
     app = QApplication.instance() or QApplication([])
     app.setFont(QFont('Microsoft YaHei UI', 10))
     app.setStyleSheet(STYLE + LEDGER_STYLE)
+    app.setWindowIcon(QIcon(str(Path(__file__).with_name('assets') / 'app.ico')))
     return app

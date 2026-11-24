@@ -13,7 +13,7 @@
 | statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
 | account_daily_pnl | 三账户场内收益日更、策略台合约收益分类统计 | [PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告；历史 Excel 与简报生成问题可双击 `diagnose_recent_brief.cmd` 测试 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
-| basis_trade_ledger | 基差分组记账、逐笔等价基差、网厅估值和规范 Excel 往返 | [台账交接](basis_trade_ledger/PROJECT_HANDOFF.md) |
+| basis_trade_ledger | 基差记账、指数分类组合、逐笔等价基差、对冲数量和盘中盘后估值 | [台账交接](basis_trade_ledger/PROJECT_HANDOFF.md) |
 | index_strategy | 历史 / 实时采集与兼容桌面工具 | [采集接口](index_strategy/instant_dld/README.md) |
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |
 

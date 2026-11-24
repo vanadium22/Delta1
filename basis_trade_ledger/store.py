@@ -62,8 +62,26 @@ class Ledger:
 
     def groups(self):
         with self.connection() as con:
-            return [dict(json.loads(row['config']), id=row['id'], imported=bool(row['import_key']))
-                    for row in con.execute('SELECT id,config,import_key FROM groups ORDER BY id DESC')]
+            return self._groups(con)
+
+    @staticmethod
+    def _groups(con):
+        return [dict(json.loads(row['config']), id=row['id'], imported=bool(row['import_key']))
+                for row in con.execute('SELECT id,config,import_key FROM groups ORDER BY id DESC')]
+
+    def portfolio(self):
+        from .portfolio import group_rollup
+
+        with self.connection() as con:
+            con.execute('BEGIN')
+            records = []
+            for group in self._groups(con):
+                group_id = group['id']
+                trades = [json.loads(row[0]) for row in con.execute(
+                    'SELECT data FROM trades WHERE group_id=? ORDER BY id', (group_id,))]
+                records.append(group_rollup(group, trades, self._quotes(con, group_id, group),
+                                            self._closing_marks(con, group_id)))
+            return records
 
     def recent(self):
         with self.connection() as con:
@@ -98,6 +116,15 @@ class Ledger:
         with self.connection() as con:
             return self._quotes(con, group_id, config)
 
+    def closing_marks(self, group_id):
+        with self.connection() as con:
+            return self._closing_marks(con, group_id)
+
+    @staticmethod
+    def _closing_marks(con, group_id):
+        return {row['code']: json.loads(row['data']) for row in con.execute(
+            "SELECT code,data FROM marks WHERE group_id=? AND kind='local'", (group_id,))}
+
     def create(self, values):
         config = group_config(values)
         with self.connection(write=True) as con:
@@ -116,16 +143,28 @@ class Ledger:
             row = con.execute('SELECT config FROM groups WHERE id=?', (group_id,)).fetchone()
             con.execute('UPDATE groups SET config=? WHERE id=?', (encode(dict(json.loads(row[0]), **plan)), group_id))
 
+    def rename_group(self, group_id, name):
+        name = str(name or '').strip()
+        if not name or '\n' in name or '\r' in name:
+            raise ValueError('请填写一行交易组名称')
+        with self.connection(write=True) as con:
+            row = con.execute('SELECT config FROM groups WHERE id=?', (group_id,)).fetchone()
+            if row is None:
+                raise ValueError('找不到这个交易组')
+            con.execute('UPDATE groups SET config=? WHERE id=?', (encode(dict(json.loads(row[0]), name=name)), group_id))
+        return name
+
     @staticmethod
     def _insert_trade(con, group_id, data, *, version=1, updated=None):
         return con.execute('INSERT INTO trades(group_id,data,updated,version) VALUES (?,?,?,?)',
                            (group_id, encode(data), updated or now().isoformat(), version)).lastrowid
 
     def save_trade(self, group_id, values, status, *, trade_id=None, version=None, reason=''):
-        data = trade_data(values, status)
         with self.connection(write=True) as con:
+            saved = now().isoformat(timespec='seconds')
+            data = trade_data(dict(values, time=str(values.get('time') or '').strip() or saved), status)
             if trade_id is None:
-                return self._insert_trade(con, group_id, data)
+                return self._insert_trade(con, group_id, data, updated=saved)
             row = con.execute('SELECT * FROM trades WHERE id=? AND group_id=?', (trade_id, group_id)).fetchone()
             if row is None or row['version'] != version:
                 raise ValueError('这笔成交已由另一窗口修改，请重开该组后再更正')
@@ -139,7 +178,7 @@ class Ledger:
                 if key in old:
                     data[key] = old[key]
             con.execute('UPDATE trades SET data=?, version=version+1, updated=? WHERE id=?',
-                        (encode(data), now().isoformat(), trade_id))
+                        (encode(data), saved, trade_id))
             return trade_id
 
     def revisions(self, group_id, trade_id):
@@ -165,6 +204,9 @@ class Ledger:
             for mark in marks:
                 if number(mark['price'], '估值价') is None:
                     raise ValueError('请填写估值价')
+            if kind == 'local':
+                from .quotes import newer_closes
+                marks = newer_closes(marks, self._closing_marks(con, group_id))
             self._save_marks(con, group_id, marks, kind)
 
     def exchange_groups(self, group_id=None):

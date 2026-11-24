@@ -2,9 +2,9 @@ from decimal import Decimal
 import sqlite3
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetrics, QPainter, QPalette
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QTabWidget,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QTabWidget,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .model import DIRECTIONS, NUMBERS, calculate, trade_data
@@ -46,22 +46,26 @@ def card():
 
 
 class MetricCard(QFrame):
-    def __init__(self, caption, *, primary=False):
+    def __init__(self, caption, *, primary=False, variant='pnlCard'):
         super().__init__()
-        self.setObjectName('pnlHero' if primary else 'pnlCard')
+        self.setObjectName('pnlHero' if primary else variant)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 9)
-        layout.setSpacing(3)
-        layout.addWidget(label(caption, 'pnlCaption'))
-        self.value = label('—', 'metricValue')
+        layout.setContentsMargins(12, 9, 12, 10)
+        layout.setSpacing(4)
+        self.caption = label(caption, 'pnlCaption')
+        layout.addWidget(self.caption)
+        self.value = MetricValue('—')
+        self.value.setObjectName('metricValue')
         self.context = label('', 'pnlContext')
         self.context.setMinimumWidth(0)
         layout.addWidget(self.value)
         layout.addWidget(self.context)
         self.tone = None
 
-    def set_metric(self, value, context, *, digits=2, missing='待估值', color=False):
-        self.value.setText(fmt(value, digits, missing))
+    def set_metric(self, value, context, *, digits=2, missing='待估值', color=False, absolute=False):
+        shown = abs(value) if absolute and value is not None else value
+        self.value.setText(fmt(shown, digits, missing))
+        self.value.setToolTip(self.value.text())
         self.context.setText(context)
         tone = 'gain' if color and value and value > 0 else 'loss' if color and value and value < 0 else 'metricValue'
         if tone != self.tone:
@@ -69,6 +73,26 @@ class MetricCard(QFrame):
             self.value.setObjectName(tone)
             self.value.style().unpolish(self.value)
             self.value.style().polish(self.value)
+
+
+class MetricValue(QLabel):
+    def __init__(self, value):
+        super().__init__(value)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(34)
+
+    def paintEvent(self, event):
+        text = self.text()
+        font = QFont(self.font())
+        area = self.contentsRect()
+        width = QFontMetrics(font).horizontalAdvance(text)
+        if width > area.width():
+            font.setPixelSize(max(10, int(QFontInfo(font).pixelSize() * area.width() / width)))
+            text = QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, area.width())
+        painter = QPainter(self)
+        painter.setFont(font)
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText))
+        painter.drawText(area, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
 
 
 class Table(QTableWidget):
@@ -205,7 +229,8 @@ class TradeEditor(QFrame):
         top.addWidget(self.cancel)
         layout.addLayout(top)
         self.fields = {key: text_input(name=key) for key in (*NUMBERS, 'time', 'note', 'reason')}
-        self.fields['time'].setPlaceholderText('YYYY-MM-DD HH:MM 或留空')
+        self.fields['time'].setPlaceholderText('留空用保存时间')
+        self.fields['time'].setToolTip('格式 YYYY-MM-DD HH:MM。手工保存留空时填入当前北京时间。')
         self.fields['fee'].setPlaceholderText('选填')
         self.fields['note'].setPlaceholderText('选填')
         self.direction = QComboBox()

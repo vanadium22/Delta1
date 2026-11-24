@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 import sqlite3
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
@@ -12,9 +13,12 @@ from shared_data.paths import DataPaths
 
 from .excel import workbook_preview
 from .excel_exchange import export_exchange
+from .hedge import hedge_size
 from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
+from .portfolio import filtered, group_rollup, index_section, portfolio_values
 from .quotes import MarketQuotes, compatible_marks, local_closes
 from .store import Ledger, data_paths
+from .wind_close import WIND_CLOSE, download_closes
 
 
 CONFIG = dict(name='验证组', etf='123456.SH', futures='IF2912.CFE', index='000300.SH',
@@ -86,6 +90,36 @@ class LedgerMathTest(unittest.TestCase):
         self.assertEqual(updated['floating'], 2000)
 
 
+class HedgeSizeTest(unittest.TestCase):
+    def test_both_basis_directions_keep_anchor_and_round_etf(self):
+        market = dict(etf_price='3.6', basis_price='103.25', multiplier=100, quantity=2)
+        buy = hedge_size('futures', **market)
+        sell = hedge_size('futures', direction='卖基差', **market)
+        self.assertEqual((buy.etf, buy.futures, buy.residual), (5700, -2, -130))
+        self.assertEqual((sell.etf, sell.futures, sell.residual), (-5700, 2, 130))
+        self.assertEqual(round(buy.raw_etf, 3), Decimal('5736.111'))
+
+    def test_integer_futures_and_signed_current_position_adjustments(self):
+        market = dict(etf_price='4.2', basis_price=140, multiplier=100)
+        size = hedge_size('etf', quantity=10000, **market)
+        self.assertEqual((size.etf, size.futures, size.residual), (10000, -3, 0))
+        position = hedge_size('adjust_futures', current_etf=10000, current_futures=-1, **market)
+        self.assertEqual((position.etf, position.futures, position.residual), (0, -2, 0))
+        other = hedge_size('adjust_etf', etf_price='3.6', basis_price='103.25', multiplier=100,
+                           current_etf=-5500, current_futures=2)
+        self.assertEqual((other.etf, other.futures, other.residual), (-200, 0, 130))
+        close = hedge_size('adjust_etf', current_etf=-1000, current_futures=0, etf_step=1, **market)
+        self.assertEqual((close.etf, close.futures, close.residual), (1000, 0, 0))
+
+    def test_half_step_and_missing_market_inputs(self):
+        tie = hedge_size('futures', etf_price=2, basis_price=1, multiplier=100, quantity=1, direction='卖基差')
+        self.assertEqual((tie.raw_etf, tie.etf), (-50, -100))
+        with self.assertRaisesRegex(ValueError, '待补齐'):
+            hedge_size('futures', etf_price=2, basis_price=None, multiplier=100, quantity=1)
+        with self.assertRaisesRegex(ValueError, 'ETF 份额步长'):
+            hedge_size('futures', etf_price=2, basis_price=1, multiplier=100, quantity=1, etf_step=0)
+
+
 class PersistenceTest(unittest.TestCase):
     def setUp(self):
         tmp = TemporaryDirectory()
@@ -93,6 +127,21 @@ class PersistenceTest(unittest.TestCase):
         self.root = Path(tmp.name)
         self.path = self.root / 'basis_trade_ledger' / 'ledger.sqlite'
         self.db = Ledger(self.path)
+
+    def test_rename_persists_group_id_and_leaves_positions_and_drafts_intact(self):
+        first, second = self.db.create(CONFIG), self.db.create(CONFIG)
+        self.db.save_trade(first, fills('卖基差'), 'posted')
+        self.db.save_trade(first, {'direction': '买基差', 'lots': 1}, 'draft')
+        self.db.update_plan(first, {'plan_lots': 8})
+        self.assertEqual(self.db.rename_group(first, '  跨日对冲  '), '跨日对冲')
+        reopened = Ledger(self.path)
+        self.assertEqual(reopened.recent(), second)
+        self.assertEqual({g['id']: g['name'] for g in reopened.groups()}, {first: '跨日对冲', second: CONFIG['name']})
+        cfg, rows, quotes, _ = reopened.open_group(first)
+        self.assertEqual((cfg['plan_lots'], rows[1]['status'], calculate(cfg, rows, quotes)['futures'].quantity), ('8', 'draft', 2))
+        self.assertEqual(self.db.exchange_groups(first)[0]['config']['name'], '跨日对冲')
+        with self.assertRaises(ValueError):
+            self.db.rename_group(first, '   ')
 
     def test_reopen_two_groups_cross_day_and_correction(self):
         a, b = self.db.create(CONFIG), self.db.create(CONFIG)
@@ -229,7 +278,8 @@ class PersistenceTest(unittest.TestCase):
         cfg, trades, marks, audit = self.db.open_group(copied[0])
         self.assertEqual((trades[0]['amount'], trades[0]['version'], trades[0]['note']),
                          ('400.123456789012345678', 2, '=1+2'))
-        self.assertEqual((trades[1]['status'], trades[1]['time'], trades[0]['origin']), ('draft', None, '成交流水!2'))
+        self.assertEqual((trades[1]['status'], trades[1]['time'], trades[0]['origin']),
+                         ('draft', self.db.open_group(a)[1][1]['time'], '成交流水!2'))
         self.assertEqual(len(self.db.exchange_groups(b)[0]['trades']), 0)
         self.assertEqual(marks['etf']['kind'], 'manual')
         self.assertEqual(audit['sheet'], '交易组!2')
@@ -249,6 +299,43 @@ class PersistenceTest(unittest.TestCase):
             workbook.save(path)
         with self.assertRaisesRegex(ValueError, '成交流水!3.*顺序重复'):
             workbook_preview(path)
+
+    def test_manual_save_stamps_beijing_time_without_replacing_explicit_input(self):
+        clock = datetime(2026, 11, 24, 13, 50, 25, tzinfo=SHANGHAI)
+        group = self.db.create(CONFIG)
+        with patch('basis_trade_ledger.store.now', return_value=clock):
+            self.db.save_trade(group, fills('ETF买入', time=''), 'posted')
+            self.db.save_trade(group, fills('ETF卖出', time='2026-11-23 14:55'), 'draft')
+        saved = self.db.open_group(group)[1]
+        self.assertEqual(saved[0]['time'], '2026-11-24 13:50:25')
+        self.assertEqual(saved[0]['updated'], '2026-11-24T13:50:25+08:00')
+        self.assertEqual(saved[1]['time'], '2026-11-23 14:55:00')
+
+
+class PortfolioTest(unittest.TestCase):
+    def test_index_classification_and_open_or_closed_date_filters(self):
+        first = dict(group_config(dict(CONFIG, opened='2026-11-20', futures='IC2612.CFE', index='')), id=1)
+        second = dict(group_config(dict(CONFIG, opened='2026-11-20')), id=2)
+        third = dict(group_config(dict(CONFIG, opened=None)), id=3)
+        opened = [posted('买基差', time='2026-11-24 14:30')]
+        closed = [posted('ETF买入', time='2026-11-23 10:00'), posted('ETF卖出', time='2026-11-25 10:30')]
+        draft = [trade_data({'direction': '期货卖出', 'time': '09:40:13.264'}, 'draft')]
+        reports = [group_rollup(cfg, trades, {}, {}) for cfg, trades in zip((first, second, third), (opened, closed, draft))]
+        self.assertEqual(index_section(first), '000905.SH')
+        self.assertEqual([row['config']['id'] for row in filtered(reports, 'active')], [1, 3])
+        self.assertEqual([row['config']['id'] for row in filtered(reports, 'closed')], [2])
+        self.assertEqual([row['config']['id'] for row in filtered(reports, period=('2026-11-24', '2026-11-24'))], [1])
+        self.assertEqual([row['config']['id'] for row in filtered(reports, period=('', '2026-11-24'), section='000300.SH')], [2])
+
+    def test_aggregates_signed_and_absolute_exposure_and_keeps_missing_valuation(self):
+        cfg = dict(group_config(CONFIG), id=1)
+        priced = group_rollup(cfg, [posted('买基差')], {'etf': mark(5), 'futures': mark(110)}, {})
+        _rows, totals = portfolio_values([priced])
+        self.assertEqual(totals, {'realized': 0, 'floating': 500, 'total': 500, 'net': -21500, 'gross': 22500})
+        missing = group_rollup(dict(cfg, id=2), [posted('ETF买入', fee=3)], {}, {})
+        rows, totals = portfolio_values([priced, missing])
+        self.assertEqual(totals, {'realized': -3, 'floating': None, 'total': None, 'net': None, 'gross': None})
+        self.assertEqual(rows[1]['quality'], '待估值')
 
 
 class RealtimeTest(unittest.TestCase):
@@ -322,3 +409,53 @@ class RealtimeTest(unittest.TestCase):
             offline = self.market(Mock(), continuous=False).refresh(self.CODES, force=True)
             self.assertFalse(offline.live)
             self.assertEqual(list(offline.reference), [self.CODES[0]])
+
+    def test_after_close_queries_wind_once_and_reuses_persisted_same_day_close(self):
+        clock = self.CLOCK.replace(hour=15, minute=10)
+        fetch = Mock(return_value=({self.CODES[0]: 4.4, self.CODES[1]: 109.2}, ''))
+        market = MarketQuotes(self.paths, clock=lambda: clock, wind_fetcher=fetch)
+        self.addCleanup(market.close)
+        first = market.refresh(self.CODES)
+        self.assertFalse(first.live)
+        self.assertEqual({mark['code']: mark['price'] for mark in first.closes},
+                         {self.CODES[0]: Decimal('4.4'), self.CODES[1]: Decimal('109.2')})
+        self.assertTrue(all(mark['time'] == '2026-11-24' and mark['source'] == WIND_CLOSE for mark in first.closes))
+        saved = {mark['code']: mark for mark in first.closes}
+        self.assertFalse(market.refresh(self.CODES, saved_closes=saved).closes)
+        fresh_instance = MarketQuotes(self.paths, clock=lambda: clock, wind_fetcher=fetch)
+        self.addCleanup(fresh_instance.close)
+        self.assertFalse(fresh_instance.refresh(self.CODES, saved_closes=saved).closes)
+        fetch.assert_called_once()
+
+    def test_wind_waits_for_completed_session_and_backs_off_on_missing_quotes(self):
+        clock = self.CLOCK.replace(hour=15, minute=5)
+        fetch = Mock(return_value=({}, 'Wind 测试缺项'))
+        market = MarketQuotes(self.paths, clock=lambda: clock, wind_fetcher=fetch)
+        self.addCleanup(market.close)
+        self.assertIn('等候', market.refresh(self.CODES).message)
+        fetch.assert_not_called()
+        clock = self.CLOCK.replace(hour=15, minute=12)
+        self.assertIn('Wind 测试缺项', market.refresh(self.CODES).message)
+        self.assertFalse(market.refresh(self.CODES).closes)
+        fetch.assert_called_once()
+        market.refresh(self.CODES, force=True)
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_wind_worker_validates_daily_identity_and_filters_missing_close(self):
+        sdk = self.paths.repo_root / 'WindPy.py'
+        sdk.write_text('''from datetime import date
+from types import SimpleNamespace as R
+class Wind:
+    def start(self, **kwargs):
+        return R(ErrorCode=0)
+    def wsd(self, codes, field, start, end, options):
+        assert field == 'close' and start == end and 'PriceAdj=U' in options and 'Fill=Blank' in options
+        return R(ErrorCode=0, Codes=codes.split(',')[::-1], Times=[date.fromisoformat(start)], Fields=['CLOSE'], Data=[[108, None]])
+    def stop(self):
+        pass
+w = Wind()
+''', encoding='utf-8')
+        with patch.dict('os.environ', PYTHONPATH=str(sdk.parent)):
+            values, error = download_closes(self.CODES, '2026-11-24', {'overview_wind_python': sys.executable}, sdk.parent)
+        self.assertFalse(error)
+        self.assertEqual(values, {self.CODES[1]: 108})
