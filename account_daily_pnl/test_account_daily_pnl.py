@@ -114,8 +114,19 @@ class DailyReportTests(unittest.TestCase):
         finally:
             book.close()
 
-        with patch("account_daily_pnl.sources.BctClient", FakeBct):
-            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        result = self.root / "workbench-result.json"
+        args = ["--data", str(self.root), "--output", str(self.outputs), "--scheduled", "--no-wind",
+                "--strategy-source-dir", str(self.args.strategy_source_dir), "--wa-output", str(result)]
+        days = ["2025-12-30", "2025-12-31"]
+        log = StringIO()
+        with (patch.object(app, "trading_days", return_value=(days, days[-1])),
+              patch("account_daily_pnl.setup_daily.configure_credentials", return_value=FakeBct(None)),
+              redirect_stdout(log)):
+            self.assertEqual(app.main(args), 0)
+        manifest = app.read_json(result)
+        self.assertEqual(manifest["mail"]["subject"], "策略台 PnL 汇总 2025-12-30")
+        self.assertEqual(len(manifest["mail"]["attachments"]), 2)
+        self.assertIn("账户收益截至 2025-12-31，策略台对账截至 2025-12-30", log.getvalue())
         self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], "2025-12-31")
         book = load_workbook(self.outputs / BOOK_NAME, read_only=True, data_only=True)
         try:
@@ -372,10 +383,50 @@ class DailyReportTests(unittest.TestCase):
     def test_scheduled_partial_report_has_distinct_exit_status(self):
         self.args.scheduled = True
         self.args.no_download = True
-        with patch("account_daily_pnl.__main__.export_reports", return_value=False):
+        self.args.date = "2025-12-30"
+        with patch("account_daily_pnl.__main__.export_reports", return_value=None):
             self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 2)
-        with patch("account_daily_pnl.__main__.export_reports", return_value=True):
+        with patch("account_daily_pnl.__main__.export_reports", return_value=self.args.date):
             self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+
+    def test_daily_falls_back_and_retries_when_bct_has_not_published_the_target(self):
+        class DelayedBct(FakeBct):
+            def snapshot(self, day):
+                return []
+
+        prior, target = "2025-12-30", "2025-12-31"
+        state = self.root / "download_state.json"
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+        log = StringIO()
+        with patch("account_daily_pnl.sources.BctClient", DelayedBct), redirect_stdout(log):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], prior)
+        self.assertEqual(app.read_json(state)["latest_live_snapshot"], prior)
+        self.assertFalse((self.root / "flows" / f"{target}.xlsx").exists())
+        self.assertIn(f"账户收益截至 {prior}", log.getvalue())
+
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], target)
+        self.assertEqual(app.read_json(state)["latest_live_snapshot"], target)
+        self.assertEqual(read_source(self.root / "flows" / f"{target}.xlsx", "flow", target), [])
+
+    def test_daily_falls_back_if_latest_flow_is_present_but_market_price_is_missing(self):
+        prior, target = "2025-12-30", "2025-12-31"
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2025, 12, 31)), 0)
+        write_source(self.root / "flows" / f"{target}.xlsx", "flow", target, [])
+        self.args.no_download = True
+        self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], prior)
+        self.assertFalse((self.outputs / f"场内账户_{target}.xlsx").exists())
+
+        self.args.no_download = False
+        with patch("account_daily_pnl.sources.BctClient", FakeBct):
+            self.assertEqual(app.run(self.args, self.root, self.outputs, datetime(2026, 1, 1)), 0)
+        self.assertEqual(load_series(self.outputs / SERIES_FILENAME)["through"], target)
+        self.assertEqual(self.summary(target)["2602"]["单日盈亏"], -24)
 
     def test_company_entry_only_configures_credentials_if_downloads_are_needed(self):
         self.args.company_run = True

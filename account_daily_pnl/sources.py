@@ -29,6 +29,10 @@ FLOW_COLUMNS = (
 SNAPSHOT_COLUMNS = ("tradingDate", "instrumentId", "instrumentQuote", "currencyCode", "netPosition")
 
 
+class ArchiveUnavailable(RuntimeError):
+    """BCT has not supplied all requested archives."""
+
+
 def protected_bct_path(root):
     return root / "inputs" / "bct-credentials.local.json"
 
@@ -217,7 +221,7 @@ def read_source(path, kind, day):
         workbook.close()
 
 
-def archive_batch(client, root, days):
+def archive_batch(client, root, days, snapshot_jobs):
     buckets = defaultdict(list)
     identifiers = set()
     for row in client.flows(days):
@@ -227,9 +231,14 @@ def archive_batch(client, root, days):
             raise ValueError(f"BCT 流水 {days[0]} 至 {days[-1]} 出现异常日期或重复记录。")
         identifiers.add(key)
         buckets[day].append(row)
+    saved = 0
     for day in days:
+        # Retry empty flow responses when the requested same-day snapshot also failed.
+        if day in snapshot_jobs and not buckets[day] and snapshot_jobs[day].exception() is not None:
+            continue
         write_source(root / "flows" / f"{day}.xlsx", "flow", day, buckets[day])
-    print(f"流水 {days[0]} 至 {days[-1]}：{len(identifiers):,} 条 / {len(days)} 份 Excel", flush=True)
+        saved += 1
+    print(f"流水 {days[0]} 至 {days[-1]}：{len(identifiers):,} 条 / {saved} 份 Excel", flush=True)
 
 
 def archive_snapshot(client, root, day):
@@ -256,16 +265,21 @@ def archive_missing(root, days, snapshots, credentials_path, *, batch_size=8, cl
     missing_snapshots = [day for day in sorted(set(snapshots)) if not (root / "snapshots" / f"{day}.xlsx").is_file()]
     if not batches and not missing_snapshots:
         return
-    client = client_factory() if client_factory else BctClient(credentials_path)
-    client.connect()
-    tasks = [(archive_batch, days) for days in batches] + [(archive_snapshot, day) for day in missing_snapshots]
+    try:
+        client = client_factory() if client_factory else BctClient(credentials_path)
+        client.connect()
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        raise ArchiveUnavailable("BCT 登录连接失败。") from exc
     with ThreadPoolExecutor(max_workers=3) as pool:
-        pending = [pool.submit(job, client, root, arg) for job, arg in tasks]
+        snapshot_jobs = {day: pool.submit(archive_snapshot, client, root, day) for day in missing_snapshots}
+        pending = [(f"快照 {day}", job) for day, job in snapshot_jobs.items()]
+        pending.extend((f"流水 {batch[0]} 至 {batch[-1]}", pool.submit(archive_batch, client, root, batch, snapshot_jobs))
+                       for batch in batches)
         errors = []
-        for (job, arg), future in zip(tasks, pending):
+        for label, future in pending:
             try:
                 future.result()
             except Exception as exc:
-                errors.append(f"{job.__name__} {arg}: {exc}")
+                errors.append(f"{label}：{exc}")
     if errors:
-        raise RuntimeError("以下交易日未能下载，已成功文件可在重跑时复用：\n" + "\n".join(errors))
+        raise ArchiveUnavailable("以下交易日未能下载，已成功文件可在重跑时复用：\n" + "\n".join(errors))

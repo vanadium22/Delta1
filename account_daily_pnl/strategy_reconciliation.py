@@ -32,7 +32,7 @@ METRICS = (
 CURVES = {name: label for name, label in METRICS if name in {"excel_futures", "actual_futures"}}
 RULES = (
     ("策略台日报", "交易对手为策略部交易台。按日报交易日对齐，起始日用于合约明细汇总。"),
-    ("日报日期", "优先使用账户目标交易日的日报，缺失或不可读时使用此前最近一份可读日报。"),
+    ("日报日期", "使用最近一个有可读日报且有同日 5526 日净盈亏的交易日。"),
     ("Excel 日 PnL", "相邻交易日报的累计余额差。余额为已实现及待实现的资产和利率收益之和。"),
     ("Excel 年内累计", "本日报余额减上年最后一份应有交易日报余额。前提是两期报表覆盖及累计口径一致。"),
     ("2025年覆盖", "与账户基准一致，自 2025-12-29 收盘起算，仅覆盖基准后的交易日。"),
@@ -42,7 +42,7 @@ RULES = (
 )
 
 
-def load_snapshots(paths, days, cache_path):
+def load_snapshots(paths, days, cache_path, account_days):
     try:
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
         cached = cache["days"] if cache["version"] == SNAPSHOT_VERSION and isinstance(cache["days"], dict) else {}
@@ -54,7 +54,7 @@ def load_snapshots(paths, days, cache_path):
             continue
         try:
             previous = cached.get(day, {})
-            is_candidate = latest is None and day != BASE_DAY
+            is_candidate = latest is None and day in account_days
             if not is_candidate and isinstance(previous, dict) and previous.get("source_sha256") == sha256(paths[day]):
                 snapshots[day] = previous
                 continue
@@ -124,17 +124,20 @@ def publish_strategy(repo, root, outputs, days, *, source_dir=None, local_only=F
         paths, source_notes = source_reports(repo, requested, source_dir, local_only)
     except (OSError, ReportError) as exc:
         paths, source_notes = {}, [(target, f"日报来源读取失败。{exc}")]
-    snapshots, latest, snapshot_notes = load_snapshots(paths, requested, root / "strategy_contract_cache.json")
+    account_days = {day for day, row in accounts.items() if row["net_pnl"] is not None}
+    snapshots, latest, snapshot_notes = load_snapshots(paths, requested, root / "strategy_contract_cache.json", account_days)
     if latest is None:
-        print(f"截至 {target} 未找到可读的策略台日报，本次未生成策略台对账。", flush=True)
+        print(f"截至 {target} 未找到同时有可读策略台日报及 5526 日净盈亏的交易日。", flush=True)
         for _, note in [*source_notes[-3:], *snapshot_notes[:3]]:
             print(f"策略台数据检查：{note}", flush=True)
-        return False
+        return None
     report_day = latest["report_date"]
     selection = f"账户截止 {target}，对账使用 {report_day} 日报及同日 5526。"
     print(selection, flush=True)
     if report_day < target:
-        source_notes.append((target, f"目标日报尚不可读。{selection}"))
+        source_notes.append((target, f"使用最近可对账交易日。{selection}"))
+        source_notes.extend((day, "日报可读，同日 5526 日净盈亏待补。")
+                            for day in days if day > report_day and day in snapshots and day not in account_days)
     timeline = reconcile([day for day in days if day <= report_day], snapshots, accounts)
     current = timeline[-1]
     latest_by_year = {row["day"][:4]: row for row in timeline}
@@ -181,4 +184,4 @@ def publish_strategy(repo, root, outputs, days, *, source_dir=None, local_only=F
         print(f"策略台数据检查：{note}", flush=True)
     if current["notes"]:
         print(f"策略台 {report_day}：{'；'.join(current['notes'])}", flush=True)
-    return True
+    return report_day

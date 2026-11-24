@@ -12,7 +12,7 @@ from requests import ConnectionError, HTTPError, Timeout
 from index_futures_basis.recent_brief.work_automation import find_work_automation
 from index_strategy.history.protected_config import CredentialError, save_config
 
-from .sources import BctClient, bct_credential_path, login_values, protected_bct_path
+from .sources import ArchiveUnavailable, BctClient, bct_credential_path, login_values, protected_bct_path
 
 
 TASK_NAME = "三账户场内持仓与盈亏"
@@ -126,7 +126,7 @@ def configure_credentials(root, config, override, *, allow_picker=True):
         client = BctClient(source)
         client.connect()
     except (ConnectionError, Timeout) as exc:
-        raise ValueError("BCT 登录连接失败，请接通公司网络或 VPN 后重试。") from exc
+        raise ArchiveUnavailable("BCT 登录连接失败，请接通公司网络或 VPN 后重试。") from exc
     except HTTPError as exc:
         status = exc.response.status_code
         raise ValueError(f"BCT 登录返回 HTTP {status}。请核对旧脚本的登录设置和账户权限。") from exc

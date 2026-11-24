@@ -23,7 +23,7 @@ from .performance import PERIOD_COLUMNS, Performance, period_summary, sheet_rows
 from .prices import resolve
 from .seed import ARCHIVE_NAME, install_seed, make_seed
 from .series import SERIES_FILENAME, write_series
-from .sources import archive_missing, bct_credential_path, read_source, write_book
+from .sources import ArchiveUnavailable, archive_missing, bct_credential_path, read_source, write_book
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -180,7 +180,8 @@ def value_days(root, days, selected, targets, baseline, config, funding, no_wind
     return cached
 
 
-def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, only_day=False, log_detail=False):
+def export_reports(root, outputs, days, selected, baseline, config, no_wind, *,
+                   only_day=False, log_detail=False, allow_fallback=False):
     funding = funding_config(config, root / "inputs" / "账户总权益.xlsx")
     trading_dates = set(days) | {BASE_DAY}
     dated_inputs = funding["movements"].keys() | funding["equity"].keys()
@@ -194,6 +195,17 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
             targets.add(anchor)
     ledger, cache = resume(root, days, baseline)
     facts = value_days(root, days, selected, targets, baseline, config, funding, no_wind, ledger, cache["days"], log_detail)
+    if allow_fallback:
+        for day in reversed(days):
+            missing = [row["account"] for row in facts[day]["rows"] if row["pnl"] is None]
+            if not missing:
+                if day != days[-1]:
+                    print(f"账户盈亏使用最近可算交易日 {day}。", flush=True)
+                    days = [stamp for stamp in days if stamp <= day]
+                    selected = selected.intersection(days)
+                    targets.intersection_update(days)
+                break
+            print(f"账户数据待补：{day} 缺少 {', '.join(missing)} 的日净盈亏。", flush=True)
     report_state_path = root / "reports.json"
     report_state = read_json(report_state_path, {})
     all_summaries = []
@@ -235,11 +247,11 @@ def export_reports(root, outputs, days, selected, baseline, config, no_wind, *, 
             print(f"收益图：{path}", flush=True)
     save(root, cache)
     atomic_json(report_state_path, report_state)
-    print(f"本次目标日：{outputs / ('场内账户_' + days[-1] + '.xlsx')}", flush=True)
+    print(f"账户报表：{outputs / ('场内账户_' + days[-1] + '.xlsx')}", flush=True)
     pnl_ready = sum(row["pnl"] is not None for row in overview[:-1])
-    print(f"目标日有盈亏数值的账户：{pnl_ready}/{len(ACCOUNTS)}；"
+    print(f"账户截止日 {days[-1]} 有盈亏数值的账户：{pnl_ready}/{len(ACCOUNTS)}；"
           f"有已核实输入的总权益：{sum(row['equity'] is not None for row in overview[:-1])}/{len(ACCOUNTS)}", flush=True)
-    return pnl_ready == len(ACCOUNTS)
+    return days[-1] if pnl_ready == len(ACCOUNTS) else None
 
 
 def run(args, root, outputs, now):
@@ -271,7 +283,8 @@ def run(args, root, outputs, now):
     if target not in days:
         raise ValueError(f"{target} 必须是基准日之后、运行日前已完成的交易日。")
     days = [day for day in days if day <= target]
-    print(f"本次统计截止 {target}，自基准日共 {len(days)} 个交易日。", flush=True)
+    automatic = not (args.date or args.only_day or args.prepare or args.make_seed)
+    print(f"本次检查截至 {target}，自基准日共 {len(days)} 个交易日。", flush=True)
 
     config_file = args.config or root / "inputs" / "config.local.json"
     config = read_json(config_file, {})
@@ -287,24 +300,39 @@ def run(args, root, outputs, now):
     snapshots = snapshot_plan(days, target, previous)
     if not args.no_download:
         credentials = bct_credential_path(root, config, args.bct_script)
+        client = None
         if company_run or getattr(args, "scheduled", False):
             from functools import partial
             from .setup_daily import configure_credentials
 
             client = partial(configure_credentials, root, config, args.bct_script,
                              allow_picker=company_run)
+        try:
             archive_missing(root, days, snapshots, credentials, client_factory=client)
+        except ArchiveUnavailable as exc:
+            if not automatic:
+                raise
+            print(f"BCT 补数待完成，检查已有归档。{exc}", flush=True)
         else:
-            archive_missing(root, days, snapshots, credentials)
-        if not previous or target > previous:
-            atomic_json(state_path, {"version": STATE_VERSION, "latest_live_snapshot": target})
+            if not previous or target > previous:
+                atomic_json(state_path, {"version": STATE_VERSION, "latest_live_snapshot": target})
     if args.make_seed:
         make_seed(root, args.make_seed.resolve(), days, snapshots, target)
     if args.prepare:
         print(f"历史 Excel 和基准输入目录：{root}", flush=True)
         return
-    complete = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
-                              args.no_wind, only_day=args.only_day, log_detail=getattr(args, "wind_log_detail", False))
+    if automatic:
+        first_missing = next((index for index, day in enumerate(days)
+                              if not (root / "flows" / f"{day}.xlsx").is_file()), len(days))
+        if first_missing < len(days):
+            print(f"账户数据待补：自 {days[first_missing]} 起流水归档不连续。", flush=True)
+            days = days[:first_missing]
+        if not days:
+            print(f"截至 {target} 暂无可用于账户收益的连续流水。", flush=True)
+            return 2
+    account_day = export_reports(root, outputs, days, {target} if args.only_day else set(days), baseline, config,
+                                 args.no_wind, only_day=args.only_day, allow_fallback=automatic,
+                                 log_detail=getattr(args, "wind_log_detail", False))
     if not args.only_day:
         from .swap_report import check_swap
 
@@ -321,18 +349,26 @@ def run(args, root, outputs, now):
             atomic_json(root / "swap_report_status.json", {"requested_date": target, "date": None,
                                                           "path": None, "notes": [str(exc)]})
             print(f"收益互换日报检查失败：{exc}", flush=True)
-    strategy_complete = True
+    if not account_day and (automatic or company_run or getattr(args, "scheduled", False)
+                            or getattr(args, "setup_daily", False)):
+        print("账户日报已保存，所需交易日的盈亏仍有缺项。", flush=True)
+        return 2
+    strategy_day = None
     if not args.only_day and not args.skip_strategy:
         from .strategy_reconciliation import publish_strategy
 
-        strategy_complete = publish_strategy(REPO, root, outputs, days, source_dir=args.strategy_source_dir,
-                                             local_only=args.no_download)
-        if not strategy_complete:
-            print("账户收益已生成，策略台对账等待可读日报。", flush=True)
-    if not complete and (company_run or getattr(args, "scheduled", False) or getattr(args, "setup_daily", False)):
-        print("日报已保存，但目标日盈亏缺项。请查看日报的数据检查，补齐后可重跑。", flush=True)
-        return 2
-    return 0 if strategy_complete else 2
+        account_days = [day for day in days if account_day is None or day <= account_day]
+        strategy_day = publish_strategy(REPO, root, outputs, account_days, source_dir=args.strategy_source_dir,
+                                        local_only=args.no_download)
+        if not strategy_day:
+            print("账户收益已生成，策略台对账数据待补。", flush=True)
+            return 2
+    if account_day:
+        status = f"更新完成：计划检查至 {target}，账户收益截至 {account_day}"
+        if strategy_day:
+            status += f"，策略台对账截至 {strategy_day}"
+        print(status + "。", flush=True)
+    return 0
 
 
 def main(argv=None):
@@ -371,6 +407,7 @@ def main(argv=None):
                 from .daily_mail import create_manifest
 
                 atomic_json(args.wa_output, create_manifest(args.output))
+                print("邮件结果已交给工作台，入队及投递状态请查看工作台。", flush=True)
             return result
     except Exception as exc:
         print(f"运行失败：{exc}", file=sys.stderr, flush=True)
