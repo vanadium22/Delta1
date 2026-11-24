@@ -11,6 +11,7 @@
 | 收益统计 | [收益统计.cmd](收益统计.cmd) | [公司日更和账户收益数据接口](account_daily_pnl/README.md) |
 | 日报下载、查询及邮件产物 | [script_making/start.cmd](script_making/start.cmd) | [日报说明](script_making/README.md) |
 | 独立股指基差报告 | [index_futures_basis/start.cmd](index_futures_basis/start.cmd) | [基差口径与报告](index_futures_basis/README.md) |
+| 基差交易台账 | [basis_trade_ledger/start.cmd](basis_trade_ledger/start.cmd) | [组内记账、估值和 Excel 导入](basis_trade_ledger/README.md) |
 | 指数策略采集 / 历史工具 | [index_strategy/start_app.cmd](index_strategy/start_app.cmd) | [工具说明](index_strategy/desktop/README.md) |
 
 公司日常更新：正常关闭本次要更新的应用，在原 Git 根目录运行一次：

@@ -18,6 +18,7 @@ data/
   lending/live/YYYY-MM-DD/snapshots/<批次>/    完整券单
   lending/live/YYYY-MM-DD/latest.json
   reference/industry/YYYY-MM-DD/              Wind 行业缓存
+  basis_trade_ledger/ledger.sqlite            基差交易组、流水、更正、估值和导入核对
   templates/script_making/                    已有 Excel 模板副本
   demo/<模块>/                               演示数据、独立配置
   cache/market/<数据集>/<来源>/<频率>/<交易日>/  明确可清理的实时缓存

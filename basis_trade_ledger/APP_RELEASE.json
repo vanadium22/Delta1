@@ -1,0 +1,9 @@
+{
+  "module": "basis_trade_ledger",
+  "release_date": "2026-11-24",
+  "release_stage": "local-validation",
+  "company_entry": "start.cmd",
+  "handoff": "PROJECT_HANDOFF.md",
+  "data": {"path_relative_to_shared_root": "basis_trade_ledger/ledger.sqlite", "schema_version": 1},
+  "company_checks": ["公司机启动", "共享行情库按实际标的代码读取"]
+}
