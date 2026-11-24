@@ -262,7 +262,7 @@ def run_cycle(local_root, **kwargs):
         return _run_cycle(local_root, **kwargs)
 
 
-def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,lifetime,vpn_mode,include_completed_today,now):
+def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,lifetime,vpn_mode,include_completed_today,now,force=False):
     """App-only daily cache work; shared research scans/ledgers stay untouched."""
     from datetime import time as wall_time
     from .overview_daily import directory,requests,seed_local,fill
@@ -270,6 +270,7 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
     from .overview_percentiles import requirements
     from .overview_basis import annual_min_days
     from .repository import MarketDataRepository
+    from .contract_reference import contract_coverage, read_app_reference, recover_from_ddb, synchronize
     root=directory(config,local_root)/'maintenance';root.mkdir(parents=True,exist_ok=True)
     shared=maintenance_root(config.get('history_roots',[]));prior=read_json(shared/'status.json')
     state=dict(scope='overview_completed_closes_only',research_downloads_enabled=False,inserted=0,
@@ -288,12 +289,38 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
             clock=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai')).tz_convert('Asia/Shanghai')
             target=latest_completed_session(clock.to_pydatetime(),ready_at=wall_time(15,10) if include_completed_today else wall_time.max)
             state['target']=target
-            metadata=latest_contracts(read_json(config.get('reference_file','')))
-            if any(sum(r['listing_date']<=target<=r['expiry_date'] for s,r in metadata.items() if s.startswith(p))!=4 for p in UNDERLYINGS):
-                return report('waiting_reference','当前四档合约参考不足；没有请求DDB')
-            distribution=requirements(metadata,target,min_annual_days=annual_min_days(config))
-            state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
-                mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
+            session=latest_completed_session(clock.to_pydatetime(),ready_at=wall_time.min)
+            reference_file=config.get('reference_file')
+            reference = state['contract_reference'] = dict(target=target, quote_session=session)
+            metadata = {}
+
+            def read_coverage():
+                nonlocal metadata
+                data, _ = read_app_reference(reference_file, local_root)
+                metadata = latest_contracts(data)
+                coverage = {day:contract_coverage(metadata,day) for day in sorted({session,target})}
+                reference['coverage'] = coverage
+                return [day for day, roots in coverage.items() if any(not r['complete'] for r in roots.values())]
+
+            def scan_distribution():
+                distribution=requirements(metadata,target,min_annual_days=annual_min_days(config))
+                state['overview_continuous']=dict(start=distribution['start'],end=distribution['end'],calendar_days=60,
+                    mapping_missing=len(distribution['mapping_gaps']),mapping_gaps=distribution['mapping_gaps'])
+                return bool(distribution['mapping_gaps'])
+
+            unresolved=read_coverage()
+            if unresolved:
+                report('contract_reference','换月合约待核验，先更新中金所挂牌资料')
+                try:
+                    update=synchronize(reference_file,local_root/'contract_reference',now=clock,force=force,quote_checker=None)
+                    reference['exchange']={k:update[k] for k in ('checked_at','source_day','changed','incomplete_products') if k in update}
+                    if update.get('error') or update.get('errors'):
+                        reference['exchange']['status']='unavailable_or_partial'
+                except (OSError,ValueError,TypeError,KeyError) as exc:
+                    reference['exchange']=dict(status='unavailable',error_type=type(exc).__name__)
+                if stopped():raise Stopped()
+                unresolved=read_coverage()
+            mapping_gaps=scan_distribution()
             report('scanning','仅核对概览所需收盘；研究分钟历史保持原样')
             repo=MarketDataRepository(config.get('history_roots',[]),allow_unverified=config.get('allow_unverified',False),publication=shared/'publication.json')
             seeded=seed_local(repo,repo.freeze(),config,local_root,target,metadata,stop=stopped)
@@ -309,10 +336,10 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                 seeded_http=http.get('inserted',0),
                 pending_rows=sum(len(j['symbols']) for j in jobs),pending_batches=len(jobs))
             if stopped():raise Stopped()
-            if not jobs:
+            if not jobs and not unresolved:
                 state['ddb_connection']['stage']='not_needed'
-                return report('waiting_reference' if distribution['mapping_gaps'] else 'complete',
-                    '本地/HTTP已补齐概览日线；无需DDB，研究分钟未重新深核' if not distribution['mapping_gaps'] else '连续档位历史映射待补；无已知价格缺口')
+                return report('waiting_reference' if mapping_gaps else 'complete',
+                    '连续档位历史映射待补；无已知价格缺口' if mapping_gaps else '本地/HTTP已补齐概览日线；无需DDB，研究分钟未重新深核')
             from dashboard.app_config import connection_path,vpn_profile
             connection_file=connection_path(config)
             endpoint=app_endpoint(config)
@@ -323,22 +350,38 @@ def _run_overview_cycle(local_root,config,*,budget,stop_file,direct_factory,life
                 connection=with_endpoint(load_config(connection_file),endpoint)
                 try:
                     if not all(connection.get(k) for k in ('host','port','username','password')):raise CredentialsUnavailable()
-                    profile=vpn_profile(config,local_root);report('connecting_vpn','本地/HTTP核验后仍有历史收盘或完成日持仓缺口，按原策略准备DDB网络')
+                    profile=vpn_profile(config,local_root);report('connecting_vpn','仍有合约参考或日线缺口，按原策略准备DDB网络')
                     outcome=ddb_vpn.ensure_connected(connection,profile['config'],profile['trust'],stop_file=stopped,interpreter=profile['powershell'])
                     state['ddb_vpn']={k:outcome.get(k) for k in ('state','mode','tcp_verified','tls_pin_verified')}
                 finally:connection.clear()
             if stopped():raise Stopped()
-            report('downloading','仅补概览缺少的日线；不下载研究分钟历史')
+            report('connecting_ddb','正在连接DDB，准备核验合约参考与完成日日线')
             client=direct_factory(connection_file,endpoint=endpoint) if direct_factory is open_direct else direct_factory(connection_file)
             state['ddb_connection'].update(stage='query',authenticated=True)
+            if unresolved:
+                state['ddb_connection']['stage']='contract_reference'
+                report('contract_reference','正在通过DDB核验换月后的实际合约')
+                try:
+                    reference['ddb']=recover_from_ddb(client,reference_file,local_root,unresolved,now=clock)
+                except Exception as exc:
+                    reference['ddb']=dict(status='unavailable',error_type=type(exc).__name__)
+                if stopped():raise Stopped()
+                unresolved=read_coverage()
+                mapping_gaps=scan_distribution()
+                if reference['ddb'].get('added'):
+                    seeded+=seed_local(repo,repo.freeze(),config,local_root,target,metadata,stop=stopped)
+            state['ddb_connection']['stage']='query'
+            report('downloading','正在通过DDB补概览缺少的收盘和持仓')
             result=fill(client,config,local_root,target,metadata,stop=stopped,budget=min(45,budget))
             state['overview_daily']={**result,'seeded_local':seeded,'seeded_http':http.get('inserted',0)};state['inserted']=result.get('inserted',0)
             if stopped():raise Stopped()
             pending=result.get('pending_rows',0)
             state['ddb_connection']['stage']='complete' if not pending else 'query_partial'
-            return report('partial' if pending else 'waiting_reference' if distribution['mapping_gaps'] else 'complete',
+            still_missing = bool(unresolved or mapping_gaps)
+            return report('partial' if pending else 'waiting_reference' if still_missing else 'complete',
                 ('概览待补：收盘 '+str(result.get('pending_close_rows','待核验'))+' 条、持仓 '+str(result.get('pending_oi_rows','待核验'))+
-                 ' 条；缺持仓不阻断有效收盘分位') if pending else '概览日线已齐；未下载或重新核验研究分钟历史',
+                 ' 条；缺持仓不阻断有效收盘分位') if pending else '已核验合约的日线已齐，部分档位参考待补'
+                if still_missing else '概览日线已齐；未下载或重新核验研究分钟历史',
                 next_retry=time.time()+(5 if state['inserted'] else 300) if pending else None)
         except Stopped:return report('stopped','概览补齐已安全停止；已发布缓存保留')
         except Exception as exc:
@@ -370,7 +413,7 @@ def _run_cycle(local_root, *, force=False, budget=120, limit=80, stop_file=None,
         config['_indicator_analysis_request']=selection(**indicator_request)
     if reference_file:config['reference_file']=str(reference_file)
     if overview_only:return _run_overview_cycle(local_root,config,budget=budget,stop_file=stop_file,direct_factory=direct_factory,
-        lifetime=lifetime,vpn_mode=vpn_mode,include_completed_today=include_completed_today,now=now)
+        lifetime=lifetime,vpn_mode=vpn_mode,include_completed_today=include_completed_today,now=now,force=force)
     roots=config.get('history_roots',[]);root=maintenance_root(roots);root.mkdir(parents=True,exist_ok=True)
     controls=local_root/'history_control.json'
     def stopped():return bool(stop_file and Path(stop_file).exists()) or bool(lifetime and lifetime.stopped.is_set()) or read_json(controls).get('paused',False)

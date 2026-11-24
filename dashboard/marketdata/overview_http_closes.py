@@ -57,14 +57,9 @@ def _session(clock):
 
 
 def _identities(metadata,today,target):
-    from dashboard.native.continuous import slot_map
-    result=set(ROOTS.values())
-    for root in ROOTS:
-        current,_=slot_map(metadata,root,today)
-        previous,_=slot_map(metadata,root,target)
-        # New listings have no previous close for a day before their listing.
-        result.update(set(current.values())&set(previous.values()))
-    return result
+    # A close is tied to the actual contract, even if another slot is unresolved.
+    return set(ROOTS.values()) | {s for s,r in metadata.items() if re.fullmatch(r'(?:IF|IH|IC|IM)\d{4}\.CFE',s)
+        and r['listing_date'] <= target <= today <= r['expiry_date']}
 
 
 def _save(config,local_root,value):

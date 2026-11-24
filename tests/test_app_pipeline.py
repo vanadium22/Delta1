@@ -103,6 +103,28 @@ class PipelineTests(unittest.TestCase):
             p.start_probe();pump(.1);probe.assert_not_called();snapshot.assert_called_once()
             self.assertEqual(p.phase,'market_closed');w.collection.start.assert_not_called()
 
+    def test_manual_contract_refresh_is_honored_before_open(self):
+        w,p=self.fixture();p.enabled=True;p.force_reference=True
+        with patch('dashboard.session_clock.session_policy',return_value=dict(allowed=False,reason='盘前')),\
+             patch('dashboard.marketdata.contract_reference.synchronize',return_value={'source_day':'2026-11-23'}) as sync,\
+             patch('dashboard.native.latest_snapshot.collect',return_value={'status':'snapshot_received'}):
+            p.start_probe();pump(.12)
+        sync.assert_called_once()
+        self.assertTrue(sync.call_args.kwargs['force'])
+        self.assertEqual(p.latest_snapshot['contract_reference']['source_day'],'2026-11-23')
+        self.assertFalse(p.force_reference)
+
+    def test_provider_badge_distinguishes_active_ddb_download_from_reference_and_old_status(self):
+        from dashboard.native.overview_status import status
+        w,p=self.fixture()
+        process=Mock();process.poll.return_value=None;p.history.process=process
+        p.history.state=Mock(return_value=dict(state='contract_reference'))
+        self.assertIn('合约参考核验中',status({},p)[0])
+        p.history.state.return_value['state']='downloading'
+        self.assertIn('DDB日线补齐中',status({},p)[0])
+        process.poll.return_value=0
+        self.assertNotIn('DDB',status({},p)[0])
+
     def test_slow_history_close_never_terminates_writer(self):
         w,p=self.fixture();p.history.process=Mock();p.history.process.poll.return_value=None
         p.history.started=time.monotonic()-10000;p.history.stop_file=Path(w.model.local_root)/'stop'

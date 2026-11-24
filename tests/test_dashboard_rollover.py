@@ -130,6 +130,48 @@ class RolloverTests(unittest.TestCase):
         self.assertEqual(slot_map(meta,'IF','2026-11-23')[0]['IF01.CFE'],'IF2701.CFE')
         self.assertNotIn('IF2611.CFE',state['active_contracts'])
 
+    def test_overview_preopen_renders_completed_day_and_honors_managed_rollover(self):
+        from types import SimpleNamespace
+        from dashboard.native.market_overview import MarketOverviewEngine
+        from tests.test_market_overview import ZERO_DIVIDENDS
+
+        cache=self.root/'contract_reference'
+        first=pd.Timestamp('2026-11-23T08:58+08:00')
+        def roll(*args,**kwargs):
+            return xml('2026-11-23',('2612','2701','2703','2706')),date(2026,11,23),'url'
+        # Seed October's known quarterly listing, then publish November's new
+        # month through the same managed path a company history worker uses.
+        synchronize(self.base,cache,now=self.now,fetcher=self.fetch,quote_checker=None)
+        repo=Mock()
+        repo.freeze.return_value={}
+        repo.symbols.return_value={}
+        prices={}
+        for day,months in [('2026-11-20',('2611','2612','2703','2706')),
+                           ('2026-11-23',('2612','2701','2703','2706'))]:
+            for symbol in [p+m+'.CFE' for p in ROOTS for m in months]+['000300.SH','000016.SH','000905.SH','000852.SH']:
+                prices.setdefault(symbol,[]).append(dict(trade_date=day,close=4000.,is_final=True,
+                                                       event_time=pd.Timestamp(day+'T15:00:00+08:00')))
+        repo.read_window.side_effect=lambda symbol, *a, **kw: pd.DataFrame(prices.get(symbol,[]))
+        model=SimpleNamespace(config={'reference_file':str(self.base)},local_root=self.root,
+            configure_repository=lambda _:repo,_live=lambda *a:{},live_rows=pd.DataFrame())
+        engine=MarketOverviewEngine(model)
+        second=pd.Timestamp('2026-11-24T09:28+08:00')
+        with patch('dashboard.native.market_overview.load_dividends',return_value=ZERO_DIVIDENDS):
+            monday=engine.snapshot(now=first)['market_overview']
+            missing=engine.snapshot(now=second)['market_overview']
+            synchronize(self.base,cache,now=first,fetcher=roll,quote_checker=None)
+            tuesday=engine.snapshot(now=second)['market_overview']
+        self.assertEqual(monday['slot_day'],'2026-11-20')
+        self.assertEqual(next(r for r in monday['futures'] if r['symbol']=='IF2611.CFE')['slot'],0)
+        self.assertEqual(len(missing['futures']),12)
+        self.assertTrue(all(not r['slot_verified'] and r.get('continuous_percentiles') is None for r in missing['futures']))
+        self.assertEqual(tuesday['slot_day'],'2026-11-23')
+        self.assertEqual(len(tuesday['futures']),16)
+        new=next(r for r in tuesday['futures'] if r['symbol']=='IF2701.CFE')
+        self.assertEqual((new['slot'],new['price'],new['pricing_day']),(1,4000.,'2026-11-23'))
+        self.assertEqual(new['basis_kind'],'completed_daily')
+        self.assertEqual(self.base.read_bytes(),self.original)
+
     def test_manual_retry_bypasses_failed_backoff(self):
         self.fetch.side_effect=requests.Timeout('offline');self.sync()
         self.fetch.side_effect=None

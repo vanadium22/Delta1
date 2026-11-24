@@ -62,6 +62,7 @@ class DailyRanges:
 def points(rows):
     result=[]
     for row in sorted(rows,key=lambda value:value.get('slot') if type(value.get('slot')) is int else 99):
+        if not row.get('slot_verified',True):continue
         if type(row.get('slot')) is not int or not 0<=row['slot']<4:continue
         min_days=row.get('min_annual_days',1)
         # A near-expiry exclusion is intentional, not a missing observation.

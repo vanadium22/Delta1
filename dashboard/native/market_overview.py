@@ -5,13 +5,12 @@ history, changes a profile, or presents receipt time as the market source clock.
 """
 from datetime import date, timedelta
 from functools import lru_cache
-from pathlib import Path
 import pandas as pd
 
 from dashboard.marketdata.overview_basis import (calculate, FORMULA, input_token, load_dividends, dividend_record,
     historical_dividend, dividend_history, dividend_estimate_label, annual_min_days)
 from dashboard.indicator_v6.sources import dates_between
-from dashboard.marketdata.contract_reference import latest_contracts
+from dashboard.marketdata.contract_reference import contract_coverage, latest_contracts, read_app_reference, reference_paths
 from dashboard.marketdata.quote_quality import aligned_quotes, finite, quote_quality
 from dashboard.marketdata.repository import ReferenceBook
 from dashboard.session_clock import market_phase
@@ -275,12 +274,12 @@ class MarketOverviewEngine:
             errors.append('历史参考不可用，仅显示可用最新报价（'+type(exc).__name__+'）')
         try:
             reference_file = model.config.get('reference_file')
-            stat = Path(reference_file).stat() if reference_file else None
-            reference_key = (reference_file, stat.st_mtime_ns, stat.st_size, stat.st_ino) if stat else (None,)
+            local_root = getattr(model,'local_root',None)
+            reference_key = tuple((path, stat.st_mtime_ns, stat.st_size, stat.st_ino)
+                                  for path in reference_paths(reference_file,local_root) for stat in (path.stat(),))
             if reference_key != self.reference_key:
-                reference = ReferenceBook(reference_file)
-                self.metadata = latest_contracts(reference.data)
-                self.reference_version = reference.version
+                reference, self.reference_version = read_app_reference(reference_file,local_root,book_factory=ReferenceBook)
+                self.metadata = latest_contracts(reference)
                 self.reference_key = reference_key
                 self.requirement_cache.clear()
             metadata = self.metadata
@@ -301,11 +300,14 @@ class MarketOverviewEngine:
         try:required=required_history(pricing_day) if pricing_day else dict(rows=[])
         except ValueError:
             required=dict(rows=[]);errors.append('连续档位前60日交易日历不完整')
-        try:registry_day=day if dates_between(day,day) else completed or day
+        try:registry_day=(completed or day) if phase['phase']=='pre_open' or not dates_between(day,day) else day
         except ValueError:registry_day=day
-        contracts = sorted((s for s, r in metadata.items() if r['listing_date'] <= registry_day <= r['expiry_date']),key=lambda s:(s[:2],metadata[s]['expiry_date']))
+        coverage = contract_coverage(metadata,registry_day)
+        contracts = [symbol for product in coverage.values() for symbol in product['contracts']]
         if not contracts:
             errors.append('当前挂牌目录缺失，请在数据更新页核对合约参考')
+        elif incomplete := [f"{root} {r['count']}/4" for root,r in coverage.items() if not r['complete']]:
+            errors.append('合约档位待核验 · '+registry_day+' · '+'、'.join(incomplete))
         for s in contracts:
             instruments[s] = dict(asset_type='cn_index_future', market_region='CN')
         for s, _, _ in UNDERLYINGS.values():
@@ -394,6 +396,7 @@ class MarketOverviewEngine:
             for slot, s in enumerate(s for s in contracts if s.startswith(root)):
                 row = quote_card(s, name, root, live, self.daily, now, previous, finalized=self.finalized)
                 row['slot'] = slot
+                row['slot_verified'] = coverage[root]['complete']
                 row['dividend_policy_version'] = HISTORICAL_DIVIDEND_POLICY
                 try:
                     futures_values(row, live, self.daily, metadata, now,next(r for r in indices if r['root']==root),dividends=self.dividends,observations=model.live_rows,min_annual_days=min_days)
@@ -402,7 +405,7 @@ class MarketOverviewEngine:
                 target=row.get('pricing_day') or pricing_day
                 history=None
                 compiled=None
-                if target:
+                if target and row['slot_verified']:
                     try:
                         price_requirements = required_history(target)
                         if target not in dated_dividends:
@@ -422,6 +425,8 @@ class MarketOverviewEngine:
                         _,history,compiled=self.percentiles[history_key]
                     except ValueError:pass
                 apply(row,history,compiled=compiled)
+                if not row['slot_verified']:
+                    row['percentile_reason']='档位待核验，暂不计算连续档位分位'
                 futures.append(row)
         if self.derived is not None:
             check_stop()
@@ -440,7 +445,8 @@ class MarketOverviewEngine:
                      market_overview=dict(schema='market-overview-v1', indices=indices, etfs=funds, futures=futures,
                                           previous_session=previous,completed_session=completed,market_session=phase, errors=errors, source_date_basis='每值保留日期依据',
                                           basis_formula=FORMULA,min_annual_days=min_days,dividend_version=self.dividends.version,dividend_reason=self.dividends.reason,dividend_latest_business_day=latest_dividend,
-                                          dividend_policy=self.dividends.info.get('historical_policy'),slot_day=registry_day),
+                                          dividend_policy=self.dividends.info.get('historical_policy'),slot_day=registry_day,
+                                          contract_coverage=coverage),
                      research_pages=None)
         enrich(model, state['market_overview'], reference_data, now,equity_snapshot=equity_snapshot)
         from .futures_overview import details

@@ -10,8 +10,7 @@ from zoneinfo import ZoneInfo
 
 
 def audit(config, local_root, *, now=None, day=None):
-    from .marketdata.contract_reference import latest_contracts
-    from .marketdata.repository import ReferenceBook
+    from .marketdata.contract_reference import latest_contracts, read_app_reference
     from .marketdata.overview_basis import dividend_record, historical_dividend, load_dividends, dividend_history
     from .marketdata.overview_percentiles import prior_days, dated_slots
     from .marketdata.overview_percentiles import HISTORICAL_DIVIDEND_POLICY
@@ -19,7 +18,8 @@ def audit(config, local_root, *, now=None, day=None):
     from .marketdata.overview_dividend_sync import read_json
     now = now or datetime.now(ZoneInfo('Asia/Shanghai'))
     day = day or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
-    meta = latest_contracts(ReferenceBook(config.get('reference_file')).data)
+    reference,_ = read_app_reference(config.get('reference_file'),local_root)
+    meta = latest_contracts(reference)
     book = load_dividends(config, meta, day, local_root)
     history = dividend_history(book, day, now)
     records = getattr(book, 'records', [])

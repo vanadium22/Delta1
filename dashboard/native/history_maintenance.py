@@ -18,10 +18,19 @@ def read(path):
 class HistoryMaintenance:
     def __init__(self,model):
         self.model=model;self.process=None;self.root=None;self.stop_file=None
-        self.error=None;self.closing=False;self.authorized=False;self.started=0
+        self.error=None;self.closing=False;self.authorized=False;self.started=0;self.started_at=0
+
+    def running(self):
+        return self.process is not None and self.process.poll() is None
 
     def state(self):
-        value=read(self.root/'status.json') if self.root else {}
+        path=self.root/'status.json' if self.root else None
+        if path and self.running():
+            try:current=path.stat().st_mtime>=self.started_at
+            except OSError:current=False
+            if not current:
+                return dict(state='starting',message='正在启动历史核验')
+        value=read(path) if path else {}
         return {**value,**(self.error or {})}
 
     def start(self,*,deep=False,force=False):
@@ -55,6 +64,7 @@ class HistoryMaintenance:
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'BELOW_NORMAL_PRIORITY_CLASS',0)
         try:
             from dashboard.python_environment import child_environment
+            self.started_at=time.time()
             self.process=subprocess.Popen(cmd,env=child_environment(interpreter),cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=flags)
             self.started=time.monotonic();self.error=None;return True

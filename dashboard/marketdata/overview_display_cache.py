@@ -39,7 +39,7 @@ def compact_quote(row):
 
 
 def basis_bundle(row):
-    keys=('symbol','slot','root','expiry','days','pricing_day','pricing_at','annual_pct','raw_basis_points','continuous_percentiles','min_annual_days')
+    keys=('symbol','slot','slot_verified','root','expiry','days','pricing_day','pricing_at','annual_pct','raw_basis_points','continuous_percentiles','min_annual_days')
     return compact_quote({k:v for k,v in row.items() if k in keys or k.startswith(('basis_','dividend_','percentile_'))})
 
 
@@ -47,6 +47,7 @@ def preserve_basis(row,old,now,*,min_annual_days=1):
     """Retain one complete priced bundle; never replace the raw current result."""
     previous=old.get('_last_basis') or basis_bundle(old)
     if (previous.get('symbol')!=row['symbol'] or previous.get('slot')!=row.get('slot') or
+        previous.get('slot_verified',True)!=row.get('slot_verified',True) or
         previous.get('expiry') and row.get('expiry') and previous['expiry']!=row['expiry'] or
         previous.get('dividend_policy_version') != row.get('dividend_policy_version')):previous={}
     row['min_annual_days']=min_annual_days
@@ -99,6 +100,7 @@ def preserve(model, data, now):
                     reason='当前缺行情，保留原始源时间的上次显示值',quality=dict(usable=False,status='上次显示',reason='待本轮重新核验'))
                 if kind=='futures' and row.get('days') is not None:value['days']=row['days']
                 if kind=='futures' and (old.get('slot')!=row.get('slot') or old.get('expiry')!=row.get('expiry') or
+                        old.get('slot_verified',True)!=row.get('slot_verified',True) or
                         old.get('dividend_policy_version')!=row.get('dividend_policy_version')):
                     for key in basis_bundle(old):
                         if key not in ('symbol','root'):value.pop(key,None)

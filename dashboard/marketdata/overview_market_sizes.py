@@ -29,7 +29,8 @@ def futures_notionals(root,contracts,daily,live,now,metadata,completed_day,prefe
     rows=sorted((r for r in contracts if r['root']==root),key=lambda r:r.get('slot',99))
     result=dict(status='missing',as_of=None,total_cny=None,known_total_cny=None,rows=[],covered=0,expected=4,
         reason='待四个实际合约的持仓手数、同刻价格和合约乘数')
-    if len(rows)!=4 or {r.get('slot') for r in rows}!=set(range(4)) or len({r['symbol'] for r in rows})!=4:return result
+    if (len(rows)!=4 or not all(r.get('slot_verified',True) for r in rows) or
+        {r.get('slot') for r in rows}!=set(range(4)) or len({r['symbol'] for r in rows})!=4):return result
     quotes=[live.get(r['symbol'],{}) for r in rows]
     realtime=aligned_quotes(quotes,now)[0] and all(finite(q.get('open_interest')) and q['open_interest']>0 for q in quotes)
     last=completed_day or preferred_day or str(now.tz_convert('Asia/Shanghai').date())

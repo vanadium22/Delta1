@@ -52,6 +52,7 @@ def details(rows, indices, live, observations, now,*,dividends=None):
     by_root = {r['root']:r for r in indices}
     for root, (spot_id, _, _) in UNDERLYINGS.items():
         contracts=sorted((r for r in rows if r['root']==root),key=lambda r:r.get('slot',99))
+        mapped=len(contracts)==4 and all(r.get('slot_verified',True) for r in contracts)
         spot=by_root.get(root,{})
         group=dict(basis_change_previous=None,basis_change_5m=None,calendar_points=None,
                    distribution=[],distribution_reason='待四个到期合约的完整有效成交数据',
@@ -66,7 +67,7 @@ def details(rows, indices, live, observations, now,*,dividends=None):
             if near.get('basis_kind')=='completed_daily':group['previous_reason']='已完成收盘 '+str(near.get('pricing_day'))+' 相对其准确上一交易日；非当前盘中变化'
             group['basis_change_previous']=near['basis_change_previous']
             group['basis_change_5m']=five_minute_basis_change(near,spot_id,observations,now,dividends)
-        if len(contracts)>=2:
+        if mapped:
             near,far=contracts[:2]
             try:gap=(pd.Timestamp(far['expiry'])-pd.Timestamp(near['expiry'])).days
             except (TypeError,ValueError,KeyError):gap=None
@@ -75,7 +76,7 @@ def details(rows, indices, live, observations, now,*,dividends=None):
             if (ok or closed) and gap is not None and near.get('basis_points') is not None and far.get('basis_points') is not None:
                 group['calendar_points']=near['price']-far['price']
         closed=len(contracts)==4 and all(r.get('display_kind')=='completed_daily' for r in contracts) and len({r.get('source_at') for r in contracts})==1
-        if len(contracts)==4 and all((r.get('quality',{}).get('usable') or closed) and finite(r.get('volume')) and r['volume']>=0 for r in contracts):
+        if mapped and all((r.get('quality',{}).get('usable') or closed) and finite(r.get('volume')) and r['volume']>=0 for r in contracts):
             ok,reason=aligned_quotes([live.get(r['symbol']) for r in contracts],now)
             total=sum(r['volume'] for r in contracts)
             if (ok or closed) and total>0:
@@ -85,7 +86,7 @@ def details(rows, indices, live, observations, now,*,dividends=None):
                 group['distribution_reason']='本时点四个合约累计成交合计为0'
             elif not ok:
                 group['distribution_reason']=reason
-        if len(contracts)==4 and {r.get('slot') for r in contracts}==set(range(4)) and len({r['symbol'] for r in contracts})==4:
+        if mapped and {r.get('slot') for r in contracts}==set(range(4)) and len({r['symbol'] for r in contracts})==4:
             quotes=[live.get(r['symbol'],{}) for r in contracts]
             realtime=aligned_quotes(quotes,now)[0] and all(finite(q.get('open_interest')) and q['open_interest']>0 for q in quotes)
             dates={r.get('yesterday_oi_date') for r in contracts}

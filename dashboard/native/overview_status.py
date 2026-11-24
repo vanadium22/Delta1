@@ -47,8 +47,17 @@ def status(data, pipeline=None, *, now=None):
         history = getattr(pipeline,'history',None)
         wind = getattr(pipeline,'overview_reference',None)
         dividends = getattr(pipeline,'overview_dividends',None)
-        if history is not None and history.process is not None:
-            label += ' · DDB更新中'
+        if history is not None and history.process is not None and history.running():
+            task=history.state()
+            state=task.get('state')
+            if state=='downloading':
+                label += ' · DDB日线补齐中'
+            elif state in ('connecting_ddb','connecting_vpn'):
+                label += ' · DDB连接准备中'
+            elif state=='contract_reference':
+                label += ' · DDB合约核验中' if (task.get('ddb_connection') or {}).get('authenticated') else ' · 合约参考核验中'
+            else:
+                label += ' · 历史核验中'
         elif wind is not None and wind.running():
             label += ' · Wind更新中'
         elif dividends is not None and dividends.running():

@@ -79,7 +79,9 @@ class FuturesCard(Panel):
 
     def render(self,row,position):
         view=row.get('basis_display') or row
-        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''));self.badge.setText(((row.get('root') or '')+' ' if self.compact else '')+f'0{position} · '+SLOTS[position])
+        self.row=row;self.heading.setText(row.get('symbol','待合约').replace('.CFE',''))
+        slot_label=f'0{position} · '+SLOTS[position] if row.get('slot_verified',True) else '档位待核验'
+        self.badge.setText(((row.get('root') or '')+' ' if self.compact else '')+slot_label)
         self.heading.setToolTip('到期 '+str(row.get('expiry') or '待核验'))
         if self.compact:
             days=row.get('days')

@@ -9,8 +9,18 @@ from dashboard.marketdata.history_quick import quick_check,incremental_scan,save
 
 
 class AppHistoryTests(unittest.TestCase):
+    def overview_reference(self,c,months):
+        from tests.test_dashboard_rollover import DATES, ROOTS
+        rows=[dict(instrument_id=root+month+'.CFE',listing_date=DATES[month][0],
+                   expiry_date=DATES[month][1],known_at='2026-10-15T00:00Z')
+              for root in ROOTS for month in months]
+        path=Path(c.config['reference_file'])
+        path.write_text(json.dumps(dict(schema_version='cn_index_reference_v1',contracts=rows,aliases=[])),encoding='utf8')
+        return path
+
     def test_overview_only_does_not_scan_download_or_rewrite_research_history(self):
         c=self.fixture();c.cycle()
+        self.overview_reference(c,('2610','2611','2612','2703','2706'))
         protected={name:(c.root/name).read_bytes() for name in ('status.json','pending.json','coverage_ledger.json','coverage_summary.json')}
         distribution=dict(start='2026-07-01',end='2026-10-16',mapping_gaps=[])
         factory=Mock(side_effect=AssertionError('No remote gap'))
@@ -26,6 +36,7 @@ class AppHistoryTests(unittest.TestCase):
 
     def test_overview_only_gap_uses_daily_filler_and_closes_owned_session(self):
         c=self.fixture();c.cycle();fetch=Mock(side_effect=AssertionError('No legacy minute fetch'))
+        self.overview_reference(c,('2610','2611','2612','2703','2706'))
         with patch('dashboard.marketdata.overview_percentiles.requirements',return_value=dict(start='2026-07-01',end='2026-10-16',mapping_gaps=[])),\
              patch('dashboard.marketdata.overview_daily.seed_local',return_value=0),\
              patch('dashboard.marketdata.overview_http_closes.collect',return_value=dict(status='no_verified_closes',inserted=0)),\
@@ -34,6 +45,67 @@ class AppHistoryTests(unittest.TestCase):
             result=hm.run_cycle(c.local,overview_only=True,direct_factory=lambda _:c.client,fetcher=fetch,now='2026-10-19T10:00:00+08:00')
         self.assertEqual(result['state'],'complete');self.assertEqual(result['inserted'],1)
         daily.assert_called_once();fetch.assert_not_called();self.assertGreater(c.client.close.call_count,0)
+
+    def test_preopen_rollover_recovers_reference_in_the_ddb_cycle_and_replans_closes(self):
+        from functools import partial
+        import pandas as pd
+        import requests
+        from dashboard.marketdata.contract_reference import read_app_reference, synchronize
+        from dashboard.marketdata.overview_daily import requests as daily_requests
+        from tests.test_dashboard_rollover import DATES, ROOTS
+
+        c=self.fixture()
+        original=self.overview_reference(c,('2610','2611','2612','2703','2706'))
+        before=original.read_bytes()
+        months=('2612','2701','2703','2706')
+        c.client.session.run.return_value=pd.DataFrame([
+            dict(S_INFO_WINDCODE=root+month+'.CFE',S_INFO_LISTDATE=pd.Timestamp(DATES[month][0]),
+                 S_INFO_DELISTDATE=pd.Timestamp(DATES[month][1]),OPDATE=pd.Timestamp('2026-11-23 17:00'))
+            for root in ROOTS for month in months])
+        now='2026-11-24T09:28:18+08:00'
+        factory=Mock(return_value=c.client);official=Mock(side_effect=requests.Timeout)
+        def fill(client,config,root,target,meta,**kwargs):
+            jobs=daily_requests(config,root,target,meta,reference_data={})
+            codes=next(j['symbols'] for j in jobs if j['asset']=='future' and j['day']==target)
+            self.assertEqual(set(codes),{p+m+'.CFE' for p in ROOTS for m in months})
+            return dict(inserted=len(codes),pending_rows=0)
+        with patch('dashboard.marketdata.contract_reference.synchronize',partial(synchronize,fetcher=official)),\
+             patch('dashboard.marketdata.overview_daily.seed_local',return_value=0),\
+             patch('dashboard.marketdata.overview_http_closes.collect',return_value={'inserted':0}),\
+             patch('dashboard.marketdata.overview_daily.fill',side_effect=fill) as daily:
+            result=hm.run_cycle(c.local,overview_only=True,direct_factory=factory,now=now)
+        factory.assert_called_once();daily.assert_called_once();c.client.close.assert_called_once()
+        self.assertIn('cfuturesdescription',c.client.session.run.call_args.args[0])
+        self.assertEqual(result['target'],'2026-11-23')
+        self.assertEqual(result['contract_reference']['ddb']['added'],sorted(p+'2701.CFE' for p in ROOTS))
+        self.assertTrue(all(r['complete'] for r in result['contract_reference']['coverage']['2026-11-23'].values()))
+        self.assertEqual(before,original.read_bytes())
+        self.assertEqual(len(read_app_reference(original,c.local)[0]['contracts']),24)
+
+    def test_incomplete_reference_does_not_block_known_contract_daily_jobs(self):
+        from functools import partial
+        import requests
+        from dashboard.marketdata.contract_reference import synchronize
+        from dashboard.marketdata.overview_daily import requests as daily_requests
+
+        c=self.fixture()
+        self.overview_reference(c,('2610','2611','2612','2703','2706'))
+        c.client.session.run.side_effect=PermissionError
+        def fill(client,config,root,target,meta,**kwargs):
+            jobs=daily_requests(config,root,target,meta,reference_data={})
+            codes=next(j['symbols'] for j in jobs if j['asset']=='future' and j['day']==target)
+            self.assertEqual(len(codes),12)
+            self.assertTrue(all(s[2:6] in ('2612','2703','2706') for s in codes))
+            return dict(inserted=len(codes),pending_rows=0)
+        with patch('dashboard.marketdata.contract_reference.synchronize',partial(synchronize,fetcher=Mock(side_effect=requests.Timeout))),\
+             patch('dashboard.marketdata.overview_daily.seed_local',return_value=0),\
+             patch('dashboard.marketdata.overview_http_closes.collect',return_value={'inserted':0}),\
+             patch('dashboard.marketdata.overview_daily.fill',side_effect=fill) as daily:
+            result=hm.run_cycle(c.local,overview_only=True,direct_factory=lambda _:c.client,now='2026-11-24T09:28:18+08:00')
+        daily.assert_called_once()
+        self.assertEqual(result['state'],'waiting_reference')
+        self.assertEqual(result['contract_reference']['ddb']['error_type'],'PermissionError')
+        self.assertTrue(all(r['count']==3 and not r['complete'] for r in result['contract_reference']['coverage']['2026-11-23'].values()))
 
     def test_overview_missing_historical_slot_mapping_is_not_reported_as_complete(self):
         c=self.fixture();c.cycle()

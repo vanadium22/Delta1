@@ -56,11 +56,12 @@ class DdbEndpointTests(unittest.TestCase):
     def run_gap(self,factory,*,auto=False):
         from tests.test_overview_percentiles import metadata
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);root=Path(tmp.name)
-        reference=root/'reference.json';reference.write_text('{}')
+        reference=root/'reference.json'
+        rows=[dict(r,instrument_id=s,known_at='2026-10-19T00:00Z') for s,r in metadata().items()]
+        reference.write_text(json.dumps(dict(schema_version='cn_index_reference_v1',contracts=rows,aliases=[])))
         config=dict(reference_file=str(reference),history_roots=[str(root/'history')],history_connection_file=str(root/'credentials.json'))
         secret=dict(host='old.invalid',port=8848,username='PRIVATE_USER',password='PRIVATE_PASSWORD',enable_ssl=True)
         with ExitStack() as stack:
-            stack.enter_context(patch.object(hm,'latest_contracts',return_value=metadata()))
             stack.enter_context(patch('dashboard.marketdata.repository.MarketDataRepository'))
             stack.enter_context(patch('dashboard.marketdata.overview_percentiles.requirements',return_value=dict(start='2026-08-10',end='2026-11-09',mapping_gaps=[])))
             stack.enter_context(patch('dashboard.marketdata.overview_daily.seed_local',return_value=0))

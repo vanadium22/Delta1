@@ -72,10 +72,15 @@ class DataPipeline(QObject):
             try:
                 from dashboard.marketdata.overview_daily import requests
                 from dashboard.marketdata.overview_sessions import latest_completed_session
-                from dashboard.marketdata.contract_reference import latest_contracts
-                from dashboard.marketdata.repository import ReferenceBook
-                jobs=requests(config,self.model.local_root,latest_completed_session(),latest_contracts(ReferenceBook(config.get('reference_file')).data))
-                pending=sum(len(j['symbols']) for j in jobs)
+                from datetime import time as wall_time
+                from dashboard.marketdata.contract_reference import contract_coverage,latest_contracts,read_app_reference
+                data,_=read_app_reference(config.get('reference_file'),self.model.local_root)
+                metadata=latest_contracts(data)
+                target=latest_completed_session()
+                session=latest_completed_session(ready_at=wall_time.min)
+                pending=any(not r['complete'] for day in {target,session} for r in contract_coverage(metadata,day).values())
+                if not pending:
+                    pending=bool(requests(config,self.model.local_root,target,metadata))
             except (OSError,ValueError,TypeError,KeyError):pass
             return dict(quick=quick_check(config),overview_pending=pending,credentials=credential_state(config,self.model.local_root),preview=load(config))
         def done(result):
@@ -167,20 +172,21 @@ class DataPipeline(QObject):
                     (' 当前窗口没有启动采集；仍可读取其他采集者写入的行情，ETF可能尚未订阅。' if is_lock else ''))
                 self.offer_realtime_prompt(result)
         def work():
-            result=probe_realtime(config,timeouts=(1,2))
+            result=probe_realtime(config,timeouts=(1,2),local_root=self.model.local_root)
             if force_reference or not result.get('ok') and result.get('diagnostics',{}).get('stage')=='reference_read':
                 from dashboard.session_guard import network_lease
                 from dashboard.marketdata.contract_reference import synchronize
                 with network_lease(config):
                     reference=synchronize(config.get('reference_file'),self.model.local_root/'contract_reference',quote_checker=None,force=force_reference)
                 config['reference_file']=reference['reference_file'];self.pending_reference=reference['reference_file']
-                result=probe_realtime(config,timeouts=(1,2))
+                result=probe_realtime(config,timeouts=(1,2),local_root=self.model.local_root)
             return result
         self.submit(work,done)
 
     def start_snapshot(self):
         from .latest_snapshot import collect
         config=deepcopy(self.model.config);self.next_retry=time.monotonic()+60
+        force_reference=self.force_reference;self.force_reference=False
         self.set_state('market_snapshot','盘前盘后：有限获取最新快照；不视为实时，不自动操作实时VPN')
         def done(result):
             self.latest_snapshot=result;self.next_retry=time.monotonic()+60
@@ -188,7 +194,22 @@ class DataPipeline(QObject):
             self.set_state('market_closed','盘前盘后快照已获取；源时间及日期依据见卡片' if result.get('status')=='snapshot_received' else
                            '盘前盘后快照未取得；保留已有源时间，60秒后重试，不自动切回DDB')
             if hasattr(self.window,'refresh'):self.window.refresh()
-        self.submit(lambda:collect(config,self.model.local_root,stop=lambda:self.closing or not self.enabled),done)
+        def work():
+            lookup = None
+            if force_reference and not self.closing and self.enabled:
+                from dashboard.session_guard import network_lease
+                from dashboard.marketdata.contract_reference import synchronize
+                try:
+                    with network_lease(config):
+                        lookup=synchronize(config.get('reference_file'),self.model.local_root/'contract_reference',
+                                           quote_checker=None,force=True)
+                except (OSError,ValueError,TypeError,KeyError) as exc:
+                    lookup=dict(error_type=type(exc).__name__)
+            result=collect(config,self.model.local_root,stop=lambda:self.closing or not self.enabled)
+            if lookup is not None:
+                result['contract_reference']={k:lookup[k] for k in ('source_day','changed','incomplete_products','coverage','error_type') if k in lookup}
+            return result
+        self.submit(work,done)
 
     def dismiss_realtime_prompt(self):
         dialog=self.realtime_dialog;self.realtime_dialog=None
@@ -354,7 +375,7 @@ class DataPipeline(QObject):
         h=self.history.state()
         history={k:h.get(k) for k in ('state','message','target','scan_id','scan_groups','scan_total','unknown_groups',
             'pending_symbol_days','missing_bars','scan_complete','verification_scope','scan_metrics','error_type','exit_code','ddb_vpn','overview_daily','overview_continuous',
-            'scope','research_downloads_enabled','http_previous_close','ddb_connection','updated_at','error_code')}
+            'scope','research_downloads_enabled','http_previous_close','ddb_connection','updated_at','error_code','contract_reference')}
         vpn=h.get('ddb_vpn') or {}
         instance=getattr(self.window,'instance_lease',None)
         overview=(getattr(self.window,'state',None) or {}).get('market_overview') or {}
@@ -370,13 +391,14 @@ class DataPipeline(QObject):
         except (ValueError,TypeError):ddb_connection=dict(source='invalid_app_setting',error_type='InvalidEndpoint')
         coverage={key:dict(total=len(overview.get(key,[])),valid=sum(bool(r.get('quality',{}).get('usable')) for r in overview.get(key,[])),
                           observed=sum(r.get('source_at') is not None for r in overview.get(key,[]))) for key in ('indices','etfs','futures')}
+        history_running=self.history.running()
         return dict(schema='app-update-evidence-v1',run_id=self.run_id,pid=os.getpid(),observed_at=utc_now(),python=sys.executable,
-            phase=self.phase,message=self.message,closing=self.closing,history_worker_running=self.history.process is not None,
+            phase=self.phase,message=self.message,closing=self.closing,history_worker_running=history_running,
             shutdown=self.shutdown_state(),startup=getattr(self.model,'startup_timing',{}),
             indicator_analysis=indicator_summary((getattr(self.window,'state',None) or {}).get('indicator_analysis')),
             indicator_draw=draw,index_industry_changes=changes,
             ddb_connection=ddb_connection,data_dates=data_dates(overview,self.completed_target),
-            history_pid=self.history.process.pid if self.history.process else None,
+            history_pid=self.history.process.pid if history_running else None,
             collection_worker_running=self.collection.running(),quick=self.quick,credentials=self.credentials,
             finite_probe=self.probe,collection=collection,history=history,applied=self.applied,
             calculation=getattr(self.model,'refresh_trace',{}),queue=dict(active=int(self.window.busy),pending=int(self.window.pending)),
@@ -388,7 +410,8 @@ class DataPipeline(QObject):
             overview_runtime=dict(schema='overview-runtime-v2',pipeline_enabled=self.enabled,
                 latest_snapshot=self.latest_snapshot,
                 dividend_scheduler=self.overview_dividends.state() if self.overview_dividends is not None else None,
-                reference_scheduler=self.overview_reference.state() if self.overview_reference is not None else None))
+                reference_scheduler=self.overview_reference.state() if self.overview_reference is not None else None,
+                contract_reference=dict(day=overview.get('slot_day'),coverage=overview.get('contract_coverage'))))
 
     def write_report(self):
         try:
@@ -484,7 +507,8 @@ class PipelinePage(QWidget):
         endpoint=report.get('ddb_connection') or {};history=p.history.state()
         failure=(history.get('ddb_connection') or {}).get('stage')
         summary='DDB生效地址 '+str(endpoint.get('host') or '待核验')+':'+str(endpoint.get('port') or '—')
-        if failure:summary+=' · 上次DDB阶段 '+str(failure)
+        running=p.history.running()
+        if failure:summary+=(' · 本轮DDB阶段 ' if running else ' · 上次DDB阶段 ')+str(failure)
         snapshot=(report.get('overview_runtime') or {}).get('latest_snapshot') or {}
         candidates=[r for r in (history.get('http_previous_close'),(report.get('collection') or {}).get('http_previous_close'),
             snapshot.get('http_previous_close')) if isinstance(r,dict) and r.get('updated_at')]
@@ -496,8 +520,9 @@ class PipelinePage(QWidget):
             if rejected:summary+='；未通过校验 '+str(len(rejected))+' 条（交易日/实际合约/价格原因见详细诊断）'
             from dashboard.marketdata.overview_http_closes import SESSION_PENDING
             if any(r.get('reason') in SESSION_PENDING for r in rejected):summary+='；等待下一批盘中新行情核验'
+        history_message=history.get('message')
         self.head.setText(summary+'\n'+dates_text(report.get('data_dates') or {})+'\n'+p.message+
-            ('\n'+history['message'] if history.get('message') else ''))
+            ('\n上次历史任务：'+history_message if history_message and not running else ''))
         gaps=set()
         data=(getattr(p.window,'state',None) or {}).get('market_overview') or {}
         for row in data.get('futures',[]):

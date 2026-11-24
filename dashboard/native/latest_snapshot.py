@@ -31,8 +31,7 @@ def fingerprint(quote):
 
 def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
     from dashboard.session_guard import network_lease
-    from dashboard.marketdata.repository import ReferenceBook
-    from dashboard.marketdata.contract_reference import active_contracts,latest_contracts
+    from dashboard.marketdata.contract_reference import active_contracts,latest_contracts,read_app_reference
     from index_strategy.instant_dld.client import MarketDataClient
     from index_strategy.instant_dld.reader import RealtimeReader
     now=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai'))
@@ -43,7 +42,7 @@ def collect(config,local_root,*,now=None,client_factory=None,stop=lambda:False):
     symbols=sorted(set(registry)|{v[0] for v in UNDERLYINGS.values()})
     metadata={}
     try:
-        book=ReferenceBook(config.get('reference_file')).data;metadata=latest_contracts(book)
+        book,_=read_app_reference(config.get('reference_file'),local_root);metadata=latest_contracts(book)
         symbols=sorted(set(symbols)|set(active_contracts(book,day)))
     except (OSError,ValueError):pass
     if len(symbols)>100:raise ValueError('概览快照代码超过100个')

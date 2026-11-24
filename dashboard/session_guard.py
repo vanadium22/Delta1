@@ -14,7 +14,7 @@ def network_lease(config):
         yield
 
 
-def probe_realtime(config, client_factory=None, *, report_dir=None,timeouts=(3,5)):
+def probe_realtime(config, client_factory=None, *, report_dir=None,timeouts=(3,5),local_root=None):
     """One bounded request, no persistence, no credentials or endpoint in result."""
     from dashboard.connection_diagnostics import error_detail,failure_message,probe_evidence,save_probe_report
     evidence=probe_evidence();stage='session_clock';outcome=None
@@ -25,12 +25,12 @@ def probe_realtime(config, client_factory=None, *, report_dir=None,timeouts=(3,5
         if not policy['allowed']:
             return save_probe_report(dict(ok=False,offline=True,message=policy['reason'],diagnostics=evidence),report_dir)
         from index_strategy.instant_dld.client import MarketDataClient
-        from dashboard.marketdata.contract_reference import active_contracts
+        from dashboard.marketdata.contract_reference import active_contracts, read_app_reference
         from dashboard.marketdata.repository import ReferenceBook
         import pandas as pd
         stage='reference_read';evidence['stage']=stage
-        symbols=active_contracts(ReferenceBook(config.get('reference_file')).data,
-                                str(pd.Timestamp.now(tz='Asia/Shanghai').date()))
+        data,_=read_app_reference(config.get('reference_file'),local_root,book_factory=ReferenceBook)
+        symbols=active_contracts(data,str(pd.Timestamp.now(tz='Asia/Shanghai').date()))
         symbols=list(dict.fromkeys([*symbols,'000300.SH','000016.SH','000905.SH','000852.SH']))
         evidence['symbols']=len(symbols)
         if len(symbols)!=20:

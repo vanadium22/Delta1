@@ -1,4 +1,12 @@
 {
+  "rollover_reference_20261124": {
+    "base_commit": "52c4c65",
+    "scope": "The overview uses the last completed session before the open. History maintenance refreshes exchange reference first and verifies unresolved listings in the existing DDB session before replanning daily gaps.",
+    "company_case": "2026-11-24 09:28, four roots with only three listed contracts known on the completed 2026-11-23 session, legacy waiting_reference before DDB",
+    "sources": ["CFFEX trading parameters", "DDB Wind cfuturesdescription"],
+    "tests": {"full_passed": 584, "focused_passed": 93, "skipped": 0},
+    "company_acceptance": "pending"
+  },
   "shared_dividend_curve_20261123": {
     "base_commit": "c71f750",
     "scope": "The brief and dashboard share the retrospective dividend curve. Market overview and indicator analysis price live quotes from observations known at the paired source time.",
@@ -23,7 +31,7 @@
     "tests": {"passed": 578, "skipped": 0, "resource_warnings_as_errors": true},
     "company_acceptance": "pending"
   },
-  "release": "2026-11-23-shared-dividend-curve-live-ranks",
+  "release": "2026-11-24-rollover-reference-preopen",
   "branch": "codex/company-apps",
   "runtime_commit": "see_git_HEAD_after_this_release",
   "base_commit": "c9844e5c0dd5594660657b6f0dd3be189b2983d2",
@@ -429,6 +437,7 @@
     "dashboard/marketdata/overview_contributions.py",
     "dashboard/marketdata/overview_daily.py",
     "dashboard/marketdata/overview_display_cache.py",
+    "dashboard/marketdata/contract_reference.py",
     "dashboard/marketdata/overview_dividend_sync.py",
     "dashboard/marketdata/overview_dividends.py",
     "dashboard/marketdata/dividend_curve.py",
@@ -542,6 +551,7 @@
     "tests/test_company_safe_return.py",
     "tests/test_connection_diagnostics.py",
     "tests/test_dashboard_data_package.py",
+    "tests/test_dashboard_rollover.py",
     "tests/test_dividend_check_input.py",
     "tests/test_expiry_filter_20261117.py",
     "tests/test_futures_overview.py",

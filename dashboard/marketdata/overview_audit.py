@@ -125,8 +125,7 @@ def calculation_preview(config,local_root,now,repo,frozen,*,equity_snapshot=None
 
 
 def collect(config,local_root,*,now=None,iopv_fields=None):
-    from .repository import ReferenceBook
-    from .contract_reference import latest_contracts
+    from .contract_reference import contract_coverage, latest_contracts, read_app_reference
     from dashboard.session_clock import market_phase
     from dashboard.native.overview_instruments import etfs
     stamp=pd.Timestamp(now or pd.Timestamp.now(tz='Asia/Shanghai')).tz_convert('Asia/Shanghai')
@@ -140,9 +139,12 @@ def collect(config,local_root,*,now=None,iopv_fields=None):
         percentile_pricing_day=pricing,min_annual_days=annual_min_days(config),network_requested=False,wind_requested=False,vpn_changed=False,errors=[])
     preference=read_object(Path(local_root)/'overview_ui.json').get('page_scale','medium')
     result['display_preferences']=dict(page_scale=preference if preference in ('large','medium','small') else 'medium')
-    try:metadata=latest_contracts(ReferenceBook(config.get('reference_file')).data)
+    try:
+        book,_=read_app_reference(config.get('reference_file'),local_root)
+        metadata=latest_contracts(book)
     except (OSError,ValueError,KeyError,TypeError) as exc:
         metadata={};result['errors'].append(dict(stage='contract_reference',error_type=type(exc).__name__))
+    result['contract_reference']={d:contract_coverage(metadata,d) for d in sorted({target,pricing})}
     wind={};equity_universe=set()
     for root,spot in ROOTS.items():
         group=data.get('indices',{}).get(root,{});members=group.get('rows',[])
