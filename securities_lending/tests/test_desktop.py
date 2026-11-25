@@ -165,12 +165,17 @@ class DesktopTests(DesktopCase):
         self.assertNotIn("合计", text)
         QTest.mouseClick(window.inquiry_overview_button, Qt.MouseButton.LeftButton)
         text = QApplication.clipboard().text()
-        self.assertTrue(text.startswith("券源信息如下：\n"))
-        self.assertIn("160,000 股｜市值 3,202.88 万元｜费率 3.20%", text)
-        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.80%", text)
-        self.assertIn("两融券单\n  合计 17,000 股\n  5,000 股｜市值 700.13 万元｜费率 3.20%", text)
-        self.assertIn("两融券单｜无记录", text)
-        self.assertNotIn("剩余", text)
+        self.assertEqual(text.splitlines(), [
+            "券源信息如下：",
+            "合成演示数据",
+            "600519.SH - 贵州茅台",
+            "库存券单｜20,000 股｜市值 2,800.50 万元｜费率 2.50%、2.80%",
+            "两融券单｜合计 17,000 股",
+            "",
+            "300750.SZ - 宁德时代",
+            "库存券单｜160,000 股｜市值 3,202.88 万元｜费率 3.20%",
+            "两融券单｜无记录",
+        ])
         self.edit("600519.SH", "500")
         self.assertFalse(window.inquiry_detail_button.isEnabled())
         self.assertFalse(window.inquiry_overview_button.isEnabled())

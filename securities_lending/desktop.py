@@ -248,7 +248,7 @@ class Window(QMainWindow):
         self.inquiry_detail_button = self.button("复制询券明细", lambda: self.copy_inquiry(detailed=True), True)
         self.inquiry_detail_button.setToolTip("复制当前查询的全部标的，逐笔显示数量、市值、费率和剩余期限")
         self.inquiry_overview_button = self.button("复制询券概览", lambda: self.copy_inquiry(detailed=False))
-        self.inquiry_overview_button.setToolTip("复制当前查询的全部标的，同一券单内相同费率汇总")
+        self.inquiry_overview_button.setToolTip("复制当前查询的全部标的，每只标的各用一行概括库存和两融券单")
         for button in (self.copy_button, self.export_button, self.calculate_button,
                        self.inquiry_overview_button, self.inquiry_detail_button):
             button.setEnabled(False)

@@ -7,17 +7,6 @@ from .inventory import normalize_code
 from .margin_sheet import SHEET_NAME as MARGIN_SHEET_NAME
 
 
-def group_rows(rows, detailed):
-    if detailed:
-        return [[row] for row in rows]
-    groups = {}
-    for index, row in enumerate(rows):
-        rate = row.get("rate")
-        key = (rate, index if rate is None else None)
-        groups.setdefault(key, []).append(row)
-    return groups.values()
-
-
 def rate_label(row):
     rate = row.get("rate")
     if rate is not None:
@@ -47,8 +36,7 @@ def share_count(quantity):
     return f"{text} 股"
 
 
-def inquiry_line(rows, price, query_day, detailed):
-    quantity, complete = total_quantity(rows)
+def stock_and_value(quantity, complete, price):
     if quantity is None:
         quantity_text = "数量未提供"
     else:
@@ -59,10 +47,17 @@ def inquiry_line(rows, price, query_day, detailed):
     if quantity is not None and complete and price is not None and price > 0:
         market_value = (quantity * price / 10000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         value_text = f"市值 {market_value:,.2f} 万元"
-    line = f"  {quantity_text}｜{value_text}｜费率 {rate_label(rows[0])}"
-    if detailed:
-        line += f"｜{remaining_label(rows[0], query_day)}"
-    return line
+    return f"{quantity_text}｜{value_text}"
+
+
+def margin_total(rows, note):
+    quantity, complete = total_quantity(rows)
+    if quantity is None:
+        text = "合计股数未提供"
+    else:
+        label = "合计" if complete and not note else "已知合计"
+        text = f"{label} {share_count(quantity)}"
+    return f"{text}（{note}）" if note else text
 
 
 def margin_note(sources, rows, has_code):
@@ -102,16 +97,20 @@ def inquiry_text(items, status, *, detailed):
             (inventory_sheet, inventory_records, inventory_note, False),
             (MARGIN_SHEET_NAME, margin_records, margin_note(status.get("margin_sheets", []), margin_records, bool(code)), True),
         ):
-            lines.append(sheet if records else f"{sheet}｜{note}")
-            if is_margin and records and not detailed:
+            if not records:
+                lines.append(f"{sheet}｜{note}")
+            elif detailed:
+                lines.append(sheet)
+                for row in records:
+                    stock_value = stock_and_value(row.get("quantity"), True, price)
+                    lines.append(f"  {stock_value}｜费率 {rate_label(row)}｜{remaining_label(row, query_day)}")
+                if note:
+                    lines.append(f"  {note}")
+            elif is_margin:
+                lines.append(f"{sheet}｜{margin_total(records, note)}")
+            else:
                 quantity, complete = total_quantity(records)
-                if quantity is None:
-                    lines.append("  合计股数未提供")
-                else:
-                    label = "合计" if complete and not note else "已知合计"
-                    lines.append(f"  {label} {share_count(quantity)}")
-            for group in group_rows(records, detailed):
-                lines.append(inquiry_line(group, price, query_day, detailed))
-            if records and note:
-                lines.append(f"  {note}")
+                stock_value = stock_and_value(quantity, complete, price)
+                rates = "、".join(dict.fromkeys(map(rate_label, records)))
+                lines.append(f"{sheet}｜{stock_value}｜费率 {rates}")
     return intro + "\n".join(lines)
