@@ -21,6 +21,7 @@ from .desktop_theme import STYLE
 from .desktop_widgets import BatchDialog, EmphasisDelegate, ResultTable, TargetEdit
 from .exporting import clipboard_text, quality, rate_text, source_description, source_note, tabular_text, write_export
 from .filtering import InventoryFilters
+from .inquiry import inquiry_text
 from .inventory import normalize_code
 from .margin_sheet import SHEET_NAME as MARGIN_SHEET_NAME
 from .service import InventoryService
@@ -244,7 +245,12 @@ class Window(QMainWindow):
         self.copy_button = self.button("复制所选", self.copy_selected)
         self.export_button = self.button("导出…", self.export)
         self.calculate_button = self.button("刷新价格并计算  Ctrl+Enter", self.calculate, True)
-        for button in (self.copy_button, self.export_button, self.calculate_button):
+        self.inquiry_detail_button = self.button("复制询券明细", lambda: self.copy_inquiry(detailed=True), True)
+        self.inquiry_detail_button.setToolTip("复制当前查询的全部标的，逐笔显示数量、市值、费率和剩余期限")
+        self.inquiry_overview_button = self.button("复制询券概览", lambda: self.copy_inquiry(detailed=False))
+        self.inquiry_overview_button.setToolTip("复制当前查询的全部标的，同一券单内相同费率汇总")
+        for button in (self.copy_button, self.export_button, self.calculate_button,
+                       self.inquiry_overview_button, self.inquiry_detail_button):
             button.setEnabled(False)
             actions.addWidget(button)
         layout.addLayout(actions)
@@ -386,6 +392,8 @@ class Window(QMainWindow):
         self.calculate_button.setEnabled(ready)
         self.export_button.setEnabled(ready and not pending)
         self.copy_button.setEnabled(ready and not pending)
+        self.inquiry_detail_button.setEnabled(ready and not pending)
+        self.inquiry_overview_button.setEnabled(ready and not pending)
 
     def run_task(self, message, operation, success):
         if self.busy:
@@ -1116,6 +1124,17 @@ class Window(QMainWindow):
             return
         QApplication.clipboard().setText(clipboard_text([self.items[row] for row in rows], self.response["status"]))
         self.statusBar().showMessage(f"已复制 {len(rows)} 行（含表头、单位、状态与来源），可直接粘贴到 Excel")
+
+    def copy_inquiry(self, *, detailed):
+        if not self.export_ready():
+            return
+        status = self.response["status"]
+        if status["date"] != self.service.clock():
+            self.load_today()
+            return
+        QApplication.clipboard().setText(inquiry_text(self.items, status, detailed=detailed))
+        mode = "明细" if detailed else "概览"
+        self.statusBar().showMessage(f"已复制 {len(self.items)} 只标的的询券{mode}")
 
     def export(self):
         if not self.export_ready():

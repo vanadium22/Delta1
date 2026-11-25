@@ -149,6 +149,28 @@ class DesktopTests(DesktopCase):
         self.assertEqual(self.window.table.rowCount(), 0)
         self.assertFalse(self.window.export_button.isEnabled())
 
+    def test_inquiry_buttons_copy_all_results_with_the_requested_order(self):
+        window = self.window
+        self.assertFalse(window.inquiry_detail_button.isEnabled())
+        self.assertEqual(window.inquiry_detail_button.objectName(), "primary")
+        self.assertNotEqual(window.inquiry_overview_button.objectName(), "primary")
+        self.query("600519 300750")
+        window.table.selectRow(0)
+        QTest.mouseClick(window.inquiry_detail_button, Qt.MouseButton.LeftButton)
+        text = QApplication.clipboard().text()
+        self.assertIn("300750.SZ - 宁德时代", text)
+        self.assertIn("12,000 股｜市值 1,680.30 万元｜费率 2.50%｜剩余 21 天", text)
+        self.assertIn("5,000 股｜市值 700.13 万元｜费率 3.20%｜剩余 14 天", text)
+        QTest.mouseClick(window.inquiry_overview_button, Qt.MouseButton.LeftButton)
+        text = QApplication.clipboard().text()
+        self.assertIn("160,000 股｜市值 3,202.88 万元｜费率 3.20%", text)
+        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.80%", text)
+        self.assertIn("两融券单｜无记录", text)
+        self.assertNotIn("剩余", text)
+        self.edit("600519.SH", "500")
+        self.assertFalse(window.inquiry_detail_button.isEnabled())
+        self.assertFalse(window.inquiry_overview_button.isEnabled())
+
     def test_settings_rejects_invalid_filename(self):
         dialog = SettingsDialog(self.service.config, self.window)
         dialog.fields["file_glob"].setText("../bad.xlsx")

@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from urllib.request import Request, urlopen
 from openpyxl import Workbook, load_workbook
 
 from securities_lending.config import DEFAULTS, ROOT, atomic_json, source_directory
+from securities_lending.inquiry import inquiry_text
 from securities_lending.inventory import normalize_code, parse_workbook
 from securities_lending.server import make_server
 from securities_lending.service import InventoryService
@@ -110,6 +112,38 @@ class AppTests(unittest.TestCase):
         self.assertEqual(item["quantity"], 450000)
         self.assertEqual(item["margin_rows"][0]["file"], "可读.xlsx")
         self.assertEqual(item["margin_rows"][0]["values"], ("28 天",))
+
+    def test_inquiry_preserves_fee_groups_units_and_remaining_times(self):
+        path = self.workbook(headers=["证券代码", "证券名称", "可融数量（万股）", "出借费率", "期限", "到期日", "剩余期限"], rows=[
+            [1, "平安银行", .8, 2.5, "28 天", date(2026, 10, 28)],
+            [1, "平安银行", .4, "2.50%", "28 天", date(2026, 11, 1), "3 个交易日"],
+            [1, "平安银行", .8, "2.8%", "14 天"],
+            [1, "平安银行", .3, "2.80001%", "14 天", "2026/10/13"],
+        ])
+        self.add_margin_sheet(path, ["证券代码", "表内数量（万股）", "参考费率（%）", "到期日期"], [
+            [1, .5, 2.5, "2026年10月28日"],
+            [1, "1.2万股", "2.50%", "20261111"],
+            [1, .3, "3.2%"],
+            [1, None, "3.2%"],
+        ])
+        service = self.service()
+        with patch.object(service.provider, "market", return_value=({}, {"000001.SZ": {"price": "1400.25"}}, [])):
+            result = service.query("000001")
+        items, status = result["results"][0]["securities"], result["status"]
+        overview = inquiry_text(items, status, detailed=False)
+        self.assertIn("库存券单\n  12,000 股｜市值 1,680.30 万元｜费率 2.50%", overview)
+        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.80%", overview)
+        self.assertIn("3,000 股｜市值 420.08 万元｜费率 2.80001%", overview)
+        self.assertIn("两融券单\n  17,000 股｜市值 2,380.43 万元｜费率 2.50%", overview)
+        self.assertIn("3,000 股（仅已知）｜市值未取得｜费率 3.20%", overview)
+        self.assertNotIn("剩余", overview)
+        details = inquiry_text(items, status, detailed=True)
+        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.50%｜剩余 14 天", details)
+        self.assertIn("4,000 股｜市值 560.10 万元｜费率 2.50%｜剩余 3 个交易日", details)
+        self.assertIn("费率 2.80%｜剩余期限未提供", details)
+        self.assertIn("费率 2.80001%｜剩余 0 天（已到期）", details)
+        self.assertIn("5,000 股｜市值 700.13 万元｜费率 2.50%｜剩余 14 天", details)
+        self.assertIn("12,000 股｜市值 1,680.30 万元｜费率 2.50%｜剩余 28 天", details)
 
     def test_codes_and_leading_zero(self):
         for value in (1, 1.0, "000001", "SZ000001", "000001.SZ", "1.0"):

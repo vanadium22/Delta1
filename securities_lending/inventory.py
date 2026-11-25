@@ -4,6 +4,7 @@ import math
 import re
 from decimal import Decimal, DecimalException
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 ALIASES = {
@@ -81,6 +82,62 @@ class Cell:
     formula: bool = False
 
 
+def optional_column(headers, aliases):
+    choices = {heading(name) for name in aliases}
+    matches = [index for index, header in enumerate(headers) if heading(header) in choices]
+    return matches[0] if len(matches) == 1 else None
+
+
+def cell_at(cells, index):
+    return cells[index] if index is not None and index < len(cells) else Cell()
+
+
+def term_columns(headers):
+    return (
+        optional_column(headers, ("剩余天数", "剩余期限", "剩余期限天数", "剩余时间", "剩余自然日", "剩余交易日", "剩余交易天数")),
+        optional_column(headers, ("到期日", "到期日期", "券源到期日", "融券到期日", "出借到期日", "应还日期", "应还日")),
+    )
+
+
+def maturity_date(value):
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = clean(value).replace("年", "-").replace("月", "-").removesuffix("日")
+    parts = re.fullmatch(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", text)
+    if parts is None:
+        parts = re.fullmatch(r"(\d{4})(\d{2})(\d{2})(?:\.0+)?", text)
+    if parts:
+        try:
+            return date(*map(int, parts.groups())).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def term_values(cells, headers, columns):
+    remaining, maturity = columns
+    value = clean(cell_at(cells, remaining).value)
+    days = re.fullmatch(r"(\d+)(?:\.0+)?\s*(?:个)?(自然日|交易日|天|日)?", value)
+    duration = None
+    if days:
+        count, unit = days.groups()
+        header = headers[remaining]
+        if unit or not re.search(r"年|月|周|小时", header):
+            trading_days = unit == "交易日" or (unit is None and ("交易日" in header or "交易天" in header))
+            duration = f"{int(count)}{' 个交易日' if trading_days else ' 天'}"
+    return {"remaining_term": duration, "maturity_date": maturity_date(cell_at(cells, maturity).value)}
+
+
+def percent_rate(cell, numeric_unit):
+    raw = clean(cell.value)
+    rate = number(raw.replace("%", "").replace("％", ""))
+    if rate is not None and "%" not in raw and "％" not in raw and ("%" in cell.format or numeric_unit == "decimal"):
+        rate *= 100
+    return rate, raw
+
+
 class MissingSheetError(ValueError):
     def __init__(self, sheet_name: str, available_sheets: list[str]):
         self.available_sheets = available_sheets
@@ -104,7 +161,8 @@ def read_rows(path: Path, sheet_name: str):
                 for col in range(sheet.ncols):
                     cell = sheet.cell(row, col)
                     fmt = book.format_map[book.xf_list[cell.xf_index].format_key].format_str
-                    cells.append(Cell(cell.value, fmt))
+                    value = xlrd.xldate_as_datetime(cell.value, book.datemode) if cell.ctype == xlrd.XL_CELL_DATE else cell.value
+                    cells.append(Cell(value, fmt))
                 yield cells
         finally:
             book.release_resources()
@@ -158,6 +216,7 @@ def parse_workbook(path: Path, config: dict):
                 if "code" not in candidate or "quantity" not in candidate:
                     raise ValueError("表头缺少证券代码或可融数量列")
                 mapping, headers, header_row = candidate, [clean(c.value) for c in cells], rownum
+                remaining_columns = term_columns(headers)
                 for field in ("nominal", "rate"):
                     if field not in mapping:
                         warnings.append(f"{path.name}：未识别{'名本' if field == 'nominal' else '出借费率'}列")
@@ -165,8 +224,7 @@ def parse_workbook(path: Path, config: dict):
                 raise ValueError("前 50 行未识别表头（需要证券代码、可融数量）；可配置 header_row 和 columns")
             continue
         def get(field):
-            index = mapping.get(field)
-            return cells[index] if index is not None and index < len(cells) else Cell()
+            return cell_at(cells, mapping.get(field))
 
         code = normalize_code(get("code").value)
         if not code:
@@ -194,12 +252,7 @@ def parse_workbook(path: Path, config: dict):
         nominal_source = "券单" if nominal is not None else "缺失"
         if nominal is None and quantity is not None and price is not None:
             nominal, nominal_source = quantity * price, "估算：可融数量 × 券单价格"
-        rate_cell = get("rate")
-        rate_raw = clean(rate_cell.value)
-        rate = number(rate_raw.replace("%", "").replace("％", ""))
-        if rate is not None and "%" not in rate_raw and "％" not in rate_raw:
-            if "%" in rate_cell.format or config["numeric_rate_unit"] == "decimal":
-                rate *= 100
+        rate, rate_raw = percent_rate(get("rate"), config["numeric_rate_unit"])
         for field in ("quantity", "quantity_actual", "nominal", "rate"):
             cell = get(field)
             if cell.formula and cell.value is None:
@@ -215,6 +268,7 @@ def parse_workbook(path: Path, config: dict):
             "industry_source": "券单" if clean(get("industry").value) else "待补充",
             "term": clean(get("term").value), "file": path.name, "row": rownum,
             "source": clean(get("source").value),
+            **term_values(cells, headers, remaining_columns),
         })
     if mapping is None:
         raise ValueError("Sheet 为空或未识别表头")

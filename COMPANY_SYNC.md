@@ -19,6 +19,8 @@
 
 ## 最近发布
 
+- 2026-11-25 券源工作台新增「复制询券明细」和「复制询券概览」。明细逐笔显示费率及剩余期限，概览按券单和同费率汇总。134 项券单回归通过，公司真实工作簿待验。[券源交接](securities_lending/PROJECT_HANDOFF.md)。
+
 - 2026-11-25 券源工作台在标的下方新增「两融券单」，按完整代码显示同一当日工作簿的记录及 Excel 行号。132 项券单回归通过，公司真实工作簿待验。[券源交接](securities_lending/PROJECT_HANDOFF.md)。
 
 - 2026-11-24 PnL 工作台旧任务可使用 `account_daily_pnl\setup-daily.cmd --register-only` 原地升级到发送邮件的 Python 入口。复用任务 ID 和原执行参数，登记时不试跑报表。日志会标出任务是否请求邮件结果。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。

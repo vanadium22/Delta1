@@ -25,7 +25,7 @@ def demo_source(root: Path, day: str):
     sheet = book.active
     sheet.title = "库存券单"
     sheet.append(["合成演示券单 · 不代表真实可融库存"])
-    sheet.append(["证券代码", "证券名称", "可融数量（股）", "名本（万元）", "出借费率", "所属行业", "期限", "实际可融股数", "来源"])
+    sheet.append(["证券代码", "证券名称", "可融数量（股）", "名本（万元）", "出借费率", "所属行业", "期限", "实际可融股数", "来源", "剩余天数"])
     for row in [
         ["600519.SH", "贵州茅台", 12000, 1680, .025, "食品饮料", "28天"],
         ["600519.SH", "贵州茅台", 8000, 1120, .028, "食品饮料", "14天"],
@@ -37,14 +37,14 @@ def demo_source(root: Path, day: str):
         ["000858.SZ", "五粮液", 0, 0, .03, "食品饮料", "28天"],
     ]:
         source = "互换" if row[0] == "600519.SH" and row[6] == "28天" else "外部券源（演示）" if row[0] == "600519.SH" else "合成券源"
-        sheet.append([*row, row[2] + 37 if row[2] else 0, source])
+        sheet.append([*row, row[2] + 37 if row[2] else 0, source, int(row[6][:-1]) - 7])
         sheet.cell(sheet.max_row, 5).number_format = "0.00%"
     margin = book.create_sheet(MARGIN_SHEET_NAME)
-    margin.append(["证券代码", "来源", "期限", "参考费率", "表内数量（股）", "备注"])
+    margin.append(["证券代码", "来源", "期限", "参考费率", "表内数量（股）", "备注", "剩余天数"])
     for row in (
-        ["600519.SH", "渠道 A", "14 天", .0320, 5000, "合成示例"],
-        ["600519.SH", "渠道 B", "28 天", .0355, 12000, "合成示例"],
-        ["600000.SH", "渠道 A", "28 天", .0310, 20000, "合成示例"],
+        ["600519.SH", "渠道 A", "14 天", .0320, 5000, "合成示例", 14],
+        ["600519.SH", "渠道 B", "28 天", .0355, 12000, "合成示例", 28],
+        ["600000.SH", "渠道 A", "28 天", .0310, 20000, "合成示例", 21],
     ):
         margin.append(row)
         margin.cell(margin.max_row, 4).number_format = "0.00%"
@@ -178,7 +178,7 @@ class InventoryService:
                         manifest = None
             self.records = parsed[0] if manifest and parsed else []
             files = parsed[2] if manifest and parsed else []
-            self.margin_rows, margin_sheets = load_margin_sheets(files, progress)
+            self.margin_rows, margin_sheets = load_margin_sheets(files, config, progress)
             try:
                 source = str(source_directory(config, day))
             except ValueError:
