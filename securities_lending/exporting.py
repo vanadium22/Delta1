@@ -92,6 +92,10 @@ def clipboard_text(items, status, detail_indices=None):
     _, headers, rows = export_tables(items, status)[0 if detail_indices is None else 1]
     if detail_indices is not None:
         rows = [rows[index] for index in detail_indices]
+    return tabular_text(headers, rows)
+
+
+def tabular_text(headers, rows):
     stream = io.StringIO(newline="")
     writer = csv.writer(stream, delimiter="\t", lineterminator="\r\n")
     # Preserve one physical line per security when pasted into Excel.

@@ -11,7 +11,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from securities_lending.config import DEFAULTS, ROOT, atomic_json, source_directory
 from securities_lending.inventory import normalize_code, parse_workbook
@@ -52,6 +52,65 @@ class AppTests(unittest.TestCase):
     def service(self):
         return InventoryService(self.root, clock=lambda:self.day)
 
+    def add_margin_sheet(self, path, headers, rows):
+        with path.open("rb") as stream:
+            book = load_workbook(stream)
+        sheet = book.create_sheet("两融券单")
+        sheet.append(["当日两融记录"])
+        sheet.append(headers)
+        for row in rows:
+            sheet.append(row)
+        book.save(path)
+        book.close()
+
+    def test_margin_joins_by_code_and_keeps_original_columns_and_rows(self):
+        path = self.workbook()
+        self.add_margin_sheet(path, ["股票代码", "数量（万股）", "备注", "备注"], [
+            [1, 5, "第一笔", "补充说明"],
+            ["SZ000001", 3, "第二笔"],
+            ["600000.SH", 8, "仅见于两融表"],
+            ["合计", 16],
+        ])
+        service = self.service()
+        service.refresh()
+        response = service.query("平安银行 600000")
+        bank = response["results"][0]["securities"][0]
+        self.assertEqual(bank["quantity"], 150000)
+        self.assertEqual([row["row"] for row in bank["margin_rows"]], [3, 4])
+        self.assertEqual(bank["margin_rows"][0]["columns"], (("数量（万股）", 1), ("备注", 1), ("备注", 2)))
+        self.assertEqual(bank["margin_rows"][0]["values"], ("5", "第一笔", "补充说明"))
+        other = response["results"][1]["securities"][0]
+        self.assertEqual(other["inventory_status"], "absent")
+        self.assertEqual(other["margin_rows"][0]["values"][1], "仅见于两融表")
+        self.assertEqual(response["summary"]["quantity"], 150000)
+
+        path.unlink()
+        fresh = self.service()
+        self.assertEqual(fresh.load_today()["state"], "local")
+        self.assertEqual(len(fresh.query("000001")["results"][0]["securities"][0]["margin_rows"]), 2)
+        self.day = "2026-10-15"
+        next_day = fresh.query("000001")
+        self.assertEqual(next_day["status"]["margin_sheets"], [])
+        self.assertEqual(next_day["results"][0]["securities"][0]["margin_rows"], [])
+
+    def test_margin_failures_preserve_inventory_and_available_files(self):
+        self.workbook("缺表.xlsx")
+        malformed = self.workbook("列名无效.xlsx")
+        self.add_margin_sheet(malformed, ["证券简称", "备注"], [["平安银行", "无代码"]])
+        valid = self.workbook("可读.xlsx")
+        self.add_margin_sheet(valid, ["证券代码", "期限"], [[1, "28 天"]])
+        service = self.service()
+        service.config["file_selection"] = "merge"
+        result = service.query("000001")
+        self.assertEqual(result["status"]["state"], "ready")
+        self.assertEqual({source["file"]: source["state"] for source in result["status"]["margin_sheets"]}, {
+            "缺表.xlsx": "missing", "列名无效.xlsx": "error", "可读.xlsx": "ready",
+        })
+        item = result["results"][0]["matches"][0]
+        self.assertEqual(item["quantity"], 450000)
+        self.assertEqual(item["margin_rows"][0]["file"], "可读.xlsx")
+        self.assertEqual(item["margin_rows"][0]["values"], ("28 天",))
+
     def test_codes_and_leading_zero(self):
         for value in (1, 1.0, "000001", "SZ000001", "000001.SZ", "1.0"):
             self.assertEqual(normalize_code(value), "000001.SZ")
@@ -86,7 +145,6 @@ class AppTests(unittest.TestCase):
 
     def test_percent_cell_and_decimal_config(self):
         path = self.workbook(rows=[["000001","平安银行",1,10,.025,"银行"]])
-        from openpyxl import load_workbook
         book = load_workbook(path)
         book.active["E3"].number_format = "0.00%"
         book.save(path)

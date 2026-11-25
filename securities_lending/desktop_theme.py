@@ -38,6 +38,8 @@ QTableWidget::item:selected { background: #deedf6; }
 QTabWidget::pane { border: 1px solid #d4dfe6; background: #ffffff; }
 QTabBar::tab { padding: 9px 15px; color: #637c8b; }
 QTabBar::tab:selected { color: #1e5873; background: #e2eef5; }
+QTabWidget#securityDetails QTabBar::tab { background: #edf2f6; border: 1px solid #d3dfe7; margin-right: 4px; }
+QTabWidget#securityDetails QTabBar::tab:selected { color: #194c65; background: #dbeaf4; border-bottom: 2px solid #247599; }
 QScrollArea { border: none; background: transparent; }
 QCheckBox { spacing: 8px; }
 QStatusBar { background: #e8eef2; color: #607989; font-size: 11px; }

@@ -9,6 +9,7 @@ from .config import atomic_json, load_config, source_directory, timestamp
 from .calculation import decimal_value, size_order, source_coverage
 from .filtering import InventoryFilters, inventory_candidates
 from .inventory import MissingSheetError, normalize_code, parse_workbook
+from .margin_sheet import SHEET_NAME as MARGIN_SHEET_NAME, load_margin_sheets
 from .sync import cached_manifest, save_manifest, synchronize
 from .wind import IndustryProvider
 from shared_data import Catalog, DataPaths, Dataset
@@ -38,6 +39,16 @@ def demo_source(root: Path, day: str):
         source = "互换" if row[0] == "600519.SH" and row[6] == "28天" else "外部券源（演示）" if row[0] == "600519.SH" else "合成券源"
         sheet.append([*row, row[2] + 37 if row[2] else 0, source])
         sheet.cell(sheet.max_row, 5).number_format = "0.00%"
+    margin = book.create_sheet(MARGIN_SHEET_NAME)
+    margin.append(["证券代码", "来源", "期限", "参考费率", "表内数量（股）", "备注"])
+    for row in (
+        ["600519.SH", "渠道 A", "14 天", .0320, 5000, "合成示例"],
+        ["600519.SH", "渠道 B", "28 天", .0355, 12000, "合成示例"],
+        ["600000.SH", "渠道 A", "28 天", .0310, 20000, "合成示例"],
+    ):
+        margin.append(row)
+        margin.cell(margin.max_row, 4).number_format = "0.00%"
+        margin.cell(margin.max_row, 5).number_format = "#,##0"
     book.save(folder / "合成演示_库存券单.xlsx")
     book.close()
 
@@ -81,6 +92,7 @@ class InventoryService:
         self.provider = IndustryProvider(self.paths.industries(demo))
         Catalog(self.paths).register(Dataset("lending_inventory", "synthetic" if demo else "company_share", "snapshot", mode="demo" if demo else "live"), self.data_root)
         self.records = []
+        self.margin_rows = {}
         self.lock = threading.RLock()
         self.state = {"date": self.clock(), "mode": "demo" if demo else "live", "state": "loading", "warnings": [], "files": [], "record_count": 0, "security_count": 0}
 
@@ -165,6 +177,8 @@ class InventoryService:
                         issue += f"；缓存也无法使用：{cache_exc}"
                         manifest = None
             self.records = parsed[0] if manifest and parsed else []
+            files = parsed[2] if manifest and parsed else []
+            self.margin_rows, margin_sheets = load_margin_sheets(files, progress)
             try:
                 source = str(source_directory(config, day))
             except ValueError:
@@ -180,7 +194,8 @@ class InventoryService:
                 "attempt_downloaded_at": downloaded["downloaded_at"] if downloaded else None,
                 "sheet_name": config["sheet_name"],
                 "warnings": local_warnings + ([issue] if issue else []) + (parsed[1] if manifest and parsed else []),
-                "files": parsed[2] if manifest and parsed else [],
+                "files": files,
+                "margin_sheets": margin_sheets,
                 "record_count": len(self.records), "security_count": len(set(r["code"] for r in self.records)),
                 "selection": config["file_selection"],
             }
@@ -332,6 +347,7 @@ class InventoryService:
                             screening["unpriced"] += 1
                         if not filters.matches_amount(item):
                             continue
+                    item["margin_rows"] = self.margin_rows.get(code, [])
                     securities.append(item)
                     if rows:
                         matches.append(item)

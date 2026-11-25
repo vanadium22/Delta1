@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QIcon,
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QFileDialog, QHBoxLayout,
     QLabel, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget, QLineEdit, QComboBox, QSplitter, QCheckBox,
+    QSizePolicy, QVBoxLayout, QWidget, QLineEdit, QComboBox, QSplitter, QCheckBox, QTabWidget, QTableWidgetItem,
 )
 
 from .calculation import decimal_value
@@ -19,9 +19,10 @@ from .desktop_settings import SettingsDialog
 from .desktop_contacts import ContactsDialog
 from .desktop_theme import STYLE
 from .desktop_widgets import BatchDialog, EmphasisDelegate, ResultTable, TargetEdit
-from .exporting import clipboard_text, quality, rate_text, source_description, source_note, write_export
+from .exporting import clipboard_text, quality, rate_text, source_description, source_note, tabular_text, write_export
 from .filtering import InventoryFilters
 from .inventory import normalize_code
+from .margin_sheet import SHEET_NAME as MARGIN_SHEET_NAME
 from .service import InventoryService
 from .trader_contacts import contact_description, contact_for, contacts_path, load_contacts
 
@@ -313,7 +314,33 @@ class Window(QMainWindow):
             self.detail_table.setColumnWidth(column, width)
         self.detail_table.horizontalHeader().setStretchLastSection(True)
         self.detail_table.copyRequested.connect(self.copy_detail)
-        detail_layout.addWidget(self.detail_table, 1)
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName("securityDetails")
+        self.detail_tabs.addTab(self.detail_table, "逐笔券源")
+        self.margin_panel = QWidget()
+        margin_layout = QVBoxLayout(self.margin_panel)
+        margin_layout.setContentsMargins(8, 5, 8, 8)
+        margin_layout.setSpacing(5)
+        self.margin_status = label("", "muted")
+        self.margin_status.setWordWrap(True)
+        margin_layout.addWidget(self.margin_status)
+        self.margin_table = ResultTable(0, 0)
+        self.margin_table.verticalHeader().hide()
+        self.margin_table.verticalHeader().setDefaultSectionSize(34)
+        self.margin_table.setShowGrid(False)
+        self.margin_table.setAlternatingRowColors(True)
+        self.margin_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.margin_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.margin_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.margin_table.setWordWrap(False)
+        self.margin_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.margin_table.horizontalHeader().setMinimumSectionSize(82)
+        self.margin_table.horizontalHeader().setStretchLastSection(True)
+        self.margin_table.copyRequested.connect(self.copy_detail)
+        margin_layout.addWidget(self.margin_table, 1)
+        self.margin_tab_index = self.detail_tabs.addTab(self.margin_panel, MARGIN_SHEET_NAME)
+        self.detail_tabs.currentChanged.connect(self.update_detail_copy)
+        detail_layout.addWidget(self.detail_tabs, 1)
         self.detail_panel.hide()
         self.splitter.addWidget(self.detail_panel)
         self.splitter.setStretchFactor(0, 1)
@@ -529,6 +556,9 @@ class Window(QMainWindow):
         self.table.setRowCount(0)
         self.detail.clear()
         self.detail_table.setRowCount(0)
+        self.margin_table.setRowCount(0)
+        self.margin_status.clear()
+        self.detail_tabs.setTabText(self.margin_tab_index, MARGIN_SHEET_NAME)
         self.detail_title.setText("逐笔券源 · 选择股票查看")
         self.detail_verdict.clear()
         self.detail_panel.hide()
@@ -925,7 +955,8 @@ class Window(QMainWindow):
                     cell.setFont(font)
                 self.detail_table.setItem(index, column, cell)
             self.detail_table.setRowHeight(index, 38)
-        self.copy_detail_button.setEnabled(bool(item["rows"]))
+        self.show_margin_detail(item)
+        self.update_detail_copy()
         quote, calc = item["quote"] or {}, item["calculation"]
         lines = [f"{item['name']}  {item['code']} | 行业：{item['industry'] or '待补充'}（{item.get('industry_source') or '无来源'}）",
                  contact_description(item["contact"]),
@@ -944,11 +975,77 @@ class Window(QMainWindow):
             lines.extend([source_description(source), f"本地：{source.get('local_path', '—')}"])
         self.detail.setPlainText("\n".join(lines))
 
+    def show_margin_detail(self, item):
+        records = item.get("margin_rows", [])
+        sources = self.response["status"].get("margin_sheets", [])
+        ready = any(source["state"] == "ready" for source in sources)
+        issues = [source for source in sources if source["state"] != "ready"]
+        has_code = bool(normalize_code(item["code"]))
+        tab = MARGIN_SHEET_NAME
+        if records or (ready and has_code and not issues):
+            tab += f"（{len(records)} 条）"
+        self.detail_tabs.setTabText(self.margin_tab_index, tab)
+
+        if not sources:
+            message = "当日券单不可用，无法查看两融记录"
+        elif not ready:
+            message = ("两融券单读取失败" if any(source["state"] == "error" for source in issues)
+                       else "当日文件缺少「两融券单」工作表")
+        elif not has_code:
+            message = "标的代码未确认，无法匹配两融记录"
+        elif records:
+            message = "来源：当日工作簿 / 两融券单 · 参考信息"
+        elif issues:
+            message = "已读取的工作表中无该标的记录"
+        else:
+            message = "该标的无两融记录"
+        if ready and issues:
+            message += " · 部分文件缺表或读取失败"
+        self.margin_status.setText(message)
+        self.margin_status.setToolTip("\n".join(f"{source['file']}：{source['message']}" for source in issues))
+        self.set_margin_rows(records)
+
+    def set_margin_rows(self, records):
+        columns = dict.fromkeys(column for record in records for column in record["columns"])
+        headers = [name if occurrence == 1 else f"{name}（{occurrence}）" for name, occurrence in columns]
+        self.margin_table.clearContents()
+        self.margin_table.setColumnCount(len(headers) + 1)
+        self.margin_table.setHorizontalHeaderLabels([*headers, "文件 / Excel 行号"])
+        self.margin_table.setRowCount(len(records))
+        for index, record in enumerate(records):
+            values = dict(zip(record["columns"], record["values"]))
+            provenance = f"{record['file']} · 第 {record['row']} 行"
+            for column_index, value in enumerate([*(values.get(column, "") for column in columns), provenance]):
+                cell = QTableWidgetItem(value)
+                cell.setToolTip(f"{value}\n{MARGIN_SHEET_NAME} · {provenance}")
+                self.margin_table.setItem(index, column_index, cell)
+        self.margin_table.setVisible(bool(records))
+        if records:
+            self.margin_table.resizeColumnsToContents()
+            for column_index in range(len(headers)):
+                self.margin_table.setColumnWidth(column_index, min(self.margin_table.columnWidth(column_index), 320))
+            self.margin_table.setColumnWidth(len(headers), 230)
+
+    def update_detail_copy(self):
+        table = self.margin_table if self.detail_tabs.currentWidget() is self.margin_panel else self.detail_table
+        self.copy_detail_button.setEnabled(table.rowCount() > 0)
+
     def copy_detail(self):
         row = self.table.currentRow()
         if not self.response or not 0 <= row < len(self.items):
             return
         item = self.items[row]
+        if self.detail_tabs.currentWidget() is self.margin_panel:
+            table = self.margin_table
+            if table.rowCount() == 0:
+                return
+            rows = sorted({index.row() for index in table.selectionModel().selectedRows()}) or range(table.rowCount())
+            columns = range(table.columnCount())
+            headers = ["证券代码", *(table.horizontalHeaderItem(column).text() for column in columns)]
+            values = [[item["code"], *(table.item(index, column).text() for column in columns)] for index in rows]
+            QApplication.clipboard().setText(tabular_text(headers, values))
+            self.statusBar().showMessage(f"已复制 {len(values)} 条两融记录")
+            return
         rows = sorted({index.row() for index in self.detail_table.selectionModel().selectedRows()}) or list(range(len(item["rows"])))
         QApplication.clipboard().setText(clipboard_text([item], self.response["status"], detail_indices=rows))
         self.statusBar().showMessage(f"已复制 {len(rows)} 笔券源明细（含期限、来源与文件行号）")

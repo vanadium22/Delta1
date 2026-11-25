@@ -19,6 +19,8 @@
 
 ## 最近发布
 
+- 2026-11-25 券源工作台在标的下方新增「两融券单」，按完整代码显示同一当日工作簿的记录及 Excel 行号。132 项券单回归通过，公司真实工作簿待验。[券源交接](securities_lending/PROJECT_HANDOFF.md)。
+
 - 2026-11-24 PnL 工作台旧任务可使用 `account_daily_pnl\setup-daily.cmd --register-only` 原地升级到发送邮件的 Python 入口。复用任务 ID 和原执行参数，登记时不试跑报表。日志会标出任务是否请求邮件结果。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。
 
 - 2026-11-24 PnL 日更自动发布数据可算到的最近交易日。策略台按日报和同日 5526 对齐，T−2 回退照常出表和生成邮件结果，下次运行自动检查更新。日志列明各报表实际日期。本地 28 项专项通过，公司工作台实测待验。[PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md)。

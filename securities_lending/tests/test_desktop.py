@@ -116,6 +116,31 @@ class DesktopTests(DesktopCase):
         self.assertEqual(self.window.items[2]["identification"], "未确认 · 请核对代码/名称")
         self.assertEqual(self.window.metrics[0].text(), "1")
 
+    def test_margin_tab_follows_selection_and_can_copy_rows(self):
+        self.query("600519 000001 600000 不存在")
+        window = self.window
+        window.detail_tabs.setCurrentIndex(window.margin_tab_index)
+        self.assertEqual(window.detail_tabs.tabText(window.margin_tab_index), "两融券单（2 条）")
+        self.assertEqual(window.margin_table.rowCount(), 2)
+        self.assertEqual(window.margin_table.item(0, 2).text(), "3.20%")
+        self.assertEqual(window.margin_table.item(0, 3).text(), "5,000")
+        window.margin_table.selectRow(1)
+        QTest.mouseClick(window.copy_detail_button, Qt.MouseButton.LeftButton)
+        copied = QApplication.clipboard().text()
+        self.assertIn("600519.SH\t渠道 B", copied)
+        self.assertNotIn("渠道 A", copied)
+
+        window.focus_row(1)
+        self.assertEqual(window.detail_tabs.currentIndex(), window.margin_tab_index)
+        self.assertEqual(window.detail_tabs.tabText(window.margin_tab_index), "两融券单（0 条）")
+        self.assertEqual(window.margin_status.text(), "该标的无两融记录")
+        self.assertFalse(window.copy_detail_button.isEnabled())
+        window.focus_row(2)
+        self.assertEqual(window.margin_table.rowCount(), 1)
+        self.assertEqual(window.detail_table.rowCount(), 0)
+        window.focus_row(3)
+        self.assertIn("标的代码未确认", window.margin_status.text())
+
     def test_refresh_invalidates_previous_calculations(self):
         self.query("600519")
         QTest.mouseClick(self.window.refresh_button, Qt.MouseButton.LeftButton)
