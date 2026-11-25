@@ -165,7 +165,7 @@ def plain_cell(sheet, value, *, header=False, number_format=None):
     return value
 
 
-def write_book(path, tables, *, column_widths=None, number_formats=None):
+def write_book(path, tables, *, column_widths=None, number_formats=None, filter_sheets=()):
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook(write_only=True)
     with NamedTemporaryFile(dir=path.parent, suffix=".xlsx", delete=False) as temporary:
@@ -181,9 +181,12 @@ def write_book(path, tables, *, column_widths=None, number_formats=None):
             formats = ["0.00%" if column.endswith("收益率") else "yyyy-mm-dd"
                        if column in {"交易日", "起始日", "起始交易日", "截止交易日"}
                        else (number_formats or {}).get(column) for column in columns]
-            for row in rows:
+            last_row = 1
+            for last_row, row in enumerate(rows, 2):
                 sheet.append([plain_cell(sheet, value, number_format=number_format if not isinstance(value, str) else None)
                               for value, number_format in zip(row, formats)])
+            if title in filter_sheets:
+                sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{last_row}"
         workbook.save(stage)
         stage.replace(path)
     finally:

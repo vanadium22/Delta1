@@ -2,6 +2,7 @@
 setlocal DisableDelayedExpansion
 chcp 65001 >nul
 title 三账户场内持仓与盈亏
+if /i "%~1"=="--trade-summary" title 三账户当日成交汇总
 set "account_pnl_pause=1"
 if /i "%~1"=="--no-pause" set "account_pnl_pause=0"
 pushd "%~dp0.." || exit /b 1

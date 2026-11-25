@@ -36,13 +36,15 @@ def task_definition(repo, data, output, config, clock):
 
 def register_with_tasks(tasks, definition):
     same_program = Path(definition["program"]).resolve()
-    known_programs = (same_program, same_program.with_name("start.cmd"), same_program.parents[1] / "收益统计.cmd")
-    existing = [item for item in tasks.tasks() if item["id"] == definition["id"] or item["name"] == TASK_NAME
+    known_programs = (same_program,)
+    if definition["name"] == TASK_NAME:
+        known_programs += (same_program.with_name("start.cmd"), same_program.parents[1] / "收益统计.cmd")
+    existing = [item for item in tasks.tasks() if item["id"] == definition["id"] or item["name"] == definition["name"]
                 or Path(item["program"]).resolve() in known_programs]
     if not existing:
         return tasks.save(definition), True
     if len(existing) != 1 or Path(existing[0]["program"]).resolve() not in known_programs:
-        raise ValueError("工作台里已有同名或冲突的场内任务，请在定时子任务中核对其程序位置。")
+        raise ValueError(f"工作台里已有同名或冲突的「{definition['name']}」，请在定时子任务中核对程序位置。")
     task = existing[0]
     arguments = list(task.get("arguments", definition["arguments"]))
     if "--scheduled" not in arguments:

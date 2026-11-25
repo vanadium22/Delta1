@@ -379,6 +379,12 @@ def run(args, root, outputs, now):
 
 
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "--trade-summary":
+        from .trade_summary import main as trade_main
+
+        return trade_main(argv[1:])
     paths = DataPaths.for_repo(REPO)
     parser = argparse.ArgumentParser(description="三账户场内持仓与收益日更")
     parser.add_argument("--date", help="显式指定一个已完成交易日，默认前一个交易日")

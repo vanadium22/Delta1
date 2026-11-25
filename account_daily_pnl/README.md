@@ -38,6 +38,16 @@
 
 工作台路径非默认时，从仓库根目录执行 `.\account_daily_pnl\setup-daily.cmd --work-root "工作台目录"`。已有工作台任务的时间可直接在「定时子任务」编辑。正式总权益需要公司结算权益和已核实的入出金，见下文报表口径。
 
+## 每天 15:30 当日成交汇总
+
+公司拉取代码后，双击本目录的 **trade-summary.cmd**，填写一个或多个收件邮箱并确认。工作台会独立登记「三账户当日成交汇总」，每天北京时间 15:30 运行，沿用工作台现有发件账户。已有工作台路径非默认时，可从仓库根目录运行 `.\account_daily_pnl\trade-summary.cmd --setup --work-root "工作台目录"`。首次登记本身不会下载流水或发信。
+
+- 改邮箱可运行 `.\account_daily_pnl\trade-summary.cmd --edit-recipients`，或通过 `--set-recipients "a@example.com,b@example.com"` 保存。设置保存在模块内忽略的 `trade_summary_mail.local.json`，改完下次运行生效。
+- 每次按北京时间查询运行当天的 BCT 流水，只统计交易日字段等于当天的成交，错过的批次不自动补发。BCT 成功返回无成交时也生成当日空表，取数异常在任务日志中报告。
+- 附件 `账户成交汇总_YYYY-MM-DD.xlsx` 有「三账户合计」「2602」「5526」「5524」「取数说明」五个工作表。按标的、买卖方向和币种汇总，买入数量为正、卖出为负，成交金额为当天费前 `dealBalance` 之和。期货数量用手，其他标的沿用流水单位。分红、送转和未归属三账户的流水只记在取数说明的排除计数里。
+- 原始流水写入 `data/account_daily_pnl/trade_summary/flows/`。报表按日期和内容版本保存在 `outputs/account_trade_summary/`，同份报表和同一组收件人重复运行沿用同一发送键。原 09:25 账户收益任务沿用自己的流水归档。
+- 手工验证只出表可运行 `.\account_daily_pnl\trade-summary.cmd --run`。公司如使用自定义的账户数据目录或 BCT 配置，首次登记时附加 `--data` 或 `--config`。测试邮件交接可在工作台运行新任务并查看发送队列。
+
 ## 公司只测一天
 
 1. 在公司 Git 根目录执行 `git pull --ff-only`。
