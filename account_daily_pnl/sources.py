@@ -14,7 +14,7 @@ from zipfile import ZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 import requests
 
@@ -165,7 +165,7 @@ def plain_cell(sheet, value, *, header=False, number_format=None):
     return value
 
 
-def write_book(path, tables, *, column_widths=None, number_formats=None, filter_sheets=()):
+def write_book(path, tables, *, column_widths=None, number_formats=None, filter_sheets=(), row_styles=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook(write_only=True)
     with NamedTemporaryFile(dir=path.parent, suffix=".xlsx", delete=False) as temporary:
@@ -174,17 +174,28 @@ def write_book(path, tables, *, column_widths=None, number_formats=None, filter_
         for title, columns, rows in tables:
             sheet = workbook.create_sheet(title)
             sheet.freeze_panes = "A2"
+            style_row = (row_styles or {}).get(title)
+            if style_row is not None:
+                sheet.sheet_view.showGridLines = False
+                sheet.sheet_format.defaultRowHeight = 21
             for index, column in enumerate(columns, 1):
                 width = 56 if column in {"状态", "检查说明", "trace"} else max(19, len(column) + 4)
                 sheet.column_dimensions[get_column_letter(index)].width = (column_widths or {}).get(column, width)
-            sheet.append([plain_cell(sheet, value, header=True) for value in columns])
+            headers = [plain_cell(sheet, value, header=True) for value in columns]
+            if style_row is not None:
+                for cell in headers:
+                    cell.alignment = Alignment(vertical="center")
+            sheet.append(headers)
             formats = ["0.00%" if column.endswith("收益率") else "yyyy-mm-dd"
                        if column in {"交易日", "起始日", "起始交易日", "截止交易日"}
                        else (number_formats or {}).get(column) for column in columns]
             last_row = 1
             for last_row, row in enumerate(rows, 2):
-                sheet.append([plain_cell(sheet, value, number_format=number_format if not isinstance(value, str) else None)
-                              for value, number_format in zip(row, formats)])
+                cells = [plain_cell(sheet, value, number_format=number_format if not isinstance(value, str) else None)
+                         for value, number_format in zip(row, formats)]
+                if style_row is not None:
+                    style_row(row, cells)
+                sheet.append(cells)
             if title in filter_sheets:
                 sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{last_row}"
         workbook.save(stage)

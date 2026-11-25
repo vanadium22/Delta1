@@ -65,7 +65,14 @@ class TradeSummaryTests(unittest.TestCase):
                 ("IM2612.CFE", "买入", 2, "CNY", 1600000, 1),
             ])
             self.assertTrue(all(row[0].date() == DAY for row in values[1:]))
-            self.assertEqual(data["三账户合计"].auto_filter.ref, "A1:G5")
+            summary = data["三账户合计"]
+            self.assertEqual(summary.auto_filter.ref, "A1:G5")
+            self.assertEqual(summary["B2"].fill.fgColor.rgb, summary["B4"].fill.fgColor.rgb)
+            self.assertNotEqual(summary["B4"].fill.fgColor.rgb, summary["B5"].fill.fgColor.rgb)
+            self.assertEqual(summary["C2"].font.color.rgb, "FFA6293B")
+            self.assertEqual(summary["C4"].font.color.rgb, "FF176648")
+            self.assertEqual(summary["D4"].font.color.rgb, summary["C4"].font.color.rgb)
+            self.assertEqual(data["5526"]["C2"].font.color.rgb, "FF176648")
             self.assertEqual(list(data["5526"].values)[1][3:], (-3, "CNY", 27, 1))
             checks = dict(data["取数说明"].values)
             self.assertEqual([checks[key] for key in ("已纳入成交笔数", "排除的非成交记录",

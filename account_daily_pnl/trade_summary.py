@@ -5,6 +5,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime
 from email.errors import HeaderParseError
 from email.headerregistry import Address
+from functools import partial
 import hashlib
 import json
 import os
@@ -14,6 +15,8 @@ import sys
 from tempfile import TemporaryDirectory
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
+
+from openpyxl.styles import Alignment, Font, PatternFill
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -35,6 +38,13 @@ MAIL_CONFIG = "trade_summary_mail.local.json"
 ALL_ACCOUNTS = "三账户合计"
 DIRECTIONS = {"BUYER": ("买入", 1), "SELLER": ("卖出", -1)}
 COLUMNS = ("交易日", "标的", "买卖方向", "变动数量", "币种", "累计成交金额", "成交笔数")
+BAND_FILLS = tuple(PatternFill("solid", fgColor=color) for color in ("FFEAF2FB", "FFFFFFFF"))
+DIRECTION_STYLES = {
+    "买入": (PatternFill("solid", fgColor="FFFBE6E8"), Font(bold=True, color="FFA6293B")),
+    "卖出": (PatternFill("solid", fgColor="FFE0F0E6"), Font(bold=True, color="FF176648")),
+}
+CENTER = Alignment(horizontal="center", vertical="center")
+MIDDLE = Alignment(vertical="center")
 
 
 def validate_recipients(addresses):
@@ -158,8 +168,20 @@ def content_hash(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
 
 
+def style_trade_row(band_by_instrument, row, cells):
+    band = band_by_instrument[row[1]]
+    for cell in cells:
+        cell.fill = band
+        cell.alignment = MIDDLE
+    indicator_fill, indicator_font = DIRECTION_STYLES[row[2]]
+    cells[2].fill = indicator_fill
+    cells[2].font = cells[3].font = indicator_font
+    for index in (0, 2, 4):
+        cells[index].alignment = CENTER
+
+
 def publish_book(outputs, day, tables):
-    version = content_hash((2, tables))
+    version = content_hash((3, tables))
     directory = outputs / day.isoformat() / version
     book = directory / f"账户成交汇总_{day}.xlsx"
     descriptor = directory / "attachment.json"
@@ -173,6 +195,12 @@ def publish_book(outputs, day, tables):
     quantities = (row[3] for _, columns, rows in tables if columns == COLUMNS for row in rows)
     quantity_places = max((max(0, -value.normalize().as_tuple().exponent) for value in quantities), default=0)
     quantity_format = "#,##0" + ("." + "0" * quantity_places if quantity_places else "")
+    row_styles = {}
+    for title, columns, rows in tables:
+        if columns == COLUMNS:
+            instruments = dict.fromkeys(row[1] for row in rows)
+            bands = {code: BAND_FILLS[index % len(BAND_FILLS)] for index, code in enumerate(instruments)}
+            row_styles[title] = partial(style_trade_row, bands)
     with TemporaryDirectory(prefix=".trades-", dir=directory.parent) as temporary:
         staged = Path(temporary)
         staged_book = staged / book.name
@@ -181,7 +209,7 @@ def publish_book(outputs, day, tables):
             column_widths={"交易日": 14, "标的": 20, "买卖方向": 14, "变动数量": 17, "币种": 10,
                            "累计成交金额": 23, "成交笔数": 12, "项目": 24, "说明": 72},
             number_formats={"变动数量": quantity_format, "累计成交金额": "#,##0.00", "成交笔数": "#,##0"},
-            filter_sheets=(ALL_ACCOUNTS, *ACCOUNTS),
+            filter_sheets=(ALL_ACCOUNTS, *ACCOUNTS), row_styles=row_styles,
         )
         metadata = {"size": staged_book.stat().st_size, "sha256": sha256(staged_book)}
         atomic_json(staged / descriptor.name, metadata)
