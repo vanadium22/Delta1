@@ -35,20 +35,28 @@ def remaining_label(row, query_day):
     return "剩余期限未提供"
 
 
+def total_quantity(rows):
+    known = [row["quantity"] for row in rows if row.get("quantity") is not None]
+    return (sum(known, Decimal(0)) if known else None), len(known) == len(rows)
+
+
+def share_count(quantity):
+    text = f"{quantity:,f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text} 股"
+
+
 def inquiry_line(rows, price, query_day, detailed):
-    quantities = [row.get("quantity") for row in rows]
-    known = [value for value in quantities if value is not None]
-    quantity = sum(known, Decimal(0))
-    complete = len(known) == len(rows)
-    if known:
-        quantity_text = f"{quantity:,f}"
-        if "." in quantity_text:
-            quantity_text = quantity_text.rstrip("0").rstrip(".")
-        quantity_text += " 股" if complete else " 股（仅已知）"
-    else:
+    quantity, complete = total_quantity(rows)
+    if quantity is None:
         quantity_text = "数量未提供"
+    else:
+        quantity_text = share_count(quantity)
+        if not complete:
+            quantity_text += "（仅已知）"
     value_text = "市值未取得"
-    if complete and price is not None and price > 0:
+    if quantity is not None and complete and price is not None and price > 0:
         market_value = (quantity * price / 10000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         value_text = f"市值 {market_value:,.2f} 万元"
     line = f"  {quantity_text}｜{value_text}｜费率 {rate_label(rows[0])}"
@@ -73,12 +81,10 @@ def margin_note(sources, rows, has_code):
 
 def inquiry_text(items, status, *, detailed):
     query_day = date.fromisoformat(status["date"])
-    intro = "你好，帮忙确认下以下券源，谢谢。"
-    lines = [intro]
-    if status.get("mode") == "demo":
-        lines.append("合成演示数据")
+    intro = "券源信息如下：\n"
+    lines = ["合成演示数据"] if status.get("mode") == "demo" else []
     inventory_sheet = status.get("sheet_name") or "库存券单"
-    for item in items:
+    for index, item in enumerate(items):
         code = normalize_code(item["code"])
         name = " ".join(item["name"].split())
         price = decimal_value((item.get("quote") or {}).get("price"))
@@ -89,14 +95,23 @@ def inquiry_text(items, status, *, detailed):
             inventory_note = "标的代码未确认"
         else:
             inventory_note = "" if inventory_records else "无记录"
-        lines.extend(("", f"{code or '代码未确认'} - {name}"))
-        for sheet, records, note in (
-            (inventory_sheet, inventory_records, inventory_note),
-            (MARGIN_SHEET_NAME, margin_records, margin_note(status.get("margin_sheets", []), margin_records, bool(code))),
+        if index:
+            lines.append("")
+        lines.append(f"{code or '代码未确认'} - {name}")
+        for sheet, records, note, is_margin in (
+            (inventory_sheet, inventory_records, inventory_note, False),
+            (MARGIN_SHEET_NAME, margin_records, margin_note(status.get("margin_sheets", []), margin_records, bool(code)), True),
         ):
             lines.append(sheet if records else f"{sheet}｜{note}")
+            if is_margin and records and not detailed:
+                quantity, complete = total_quantity(records)
+                if quantity is None:
+                    lines.append("  合计股数未提供")
+                else:
+                    label = "合计" if complete and not note else "已知合计"
+                    lines.append(f"  {label} {share_count(quantity)}")
             for group in group_rows(records, detailed):
                 lines.append(inquiry_line(group, price, query_day, detailed))
             if records and note:
                 lines.append(f"  {note}")
-    return "\n".join(lines)
+    return intro + "\n".join(lines)

@@ -116,17 +116,25 @@ def maturity_date(value):
     return None
 
 
-def term_values(cells, headers, columns):
-    remaining, maturity = columns
-    value = clean(cell_at(cells, remaining).value)
+def day_duration(value, header):
     days = re.fullmatch(r"(\d+)(?:\.0+)?\s*(?:个)?(自然日|交易日|天|日)?", value)
+    if not days:
+        return None
+    count, unit = days.groups()
+    if unit is None and re.search(r"年|月|周|小时", header):
+        return None
+    trading_days = unit == "交易日" or (unit is None and ("交易日" in header or "交易天" in header))
+    return f"{int(count)}{' 个交易日' if trading_days else ' 天'}"
+
+
+def term_values(cells, headers, columns, *, listed_term=None):
+    remaining, maturity = columns
     duration = None
-    if days:
-        count, unit = days.groups()
-        header = headers[remaining]
-        if unit or not re.search(r"年|月|周|小时", header):
-            trading_days = unit == "交易日" or (unit is None and ("交易日" in header or "交易天" in header))
-            duration = f"{int(count)}{' 个交易日' if trading_days else ' 天'}"
+    listed = clean(cell_at(cells, listed_term).value)
+    if listed.casefold() not in {"", "-", "--", "—", "n/a", "未提供"}:
+        duration = day_duration(listed, headers[listed_term]) or " ".join(listed.split())
+    elif remaining is not None:
+        duration = day_duration(clean(cell_at(cells, remaining).value), headers[remaining])
     return {"remaining_term": duration, "maturity_date": maturity_date(cell_at(cells, maturity).value)}
 
 
@@ -268,7 +276,7 @@ def parse_workbook(path: Path, config: dict):
             "industry_source": "券单" if clean(get("industry").value) else "待补充",
             "term": clean(get("term").value), "file": path.name, "row": rownum,
             "source": clean(get("source").value),
-            **term_values(cells, headers, remaining_columns),
+            **term_values(cells, headers, remaining_columns, listed_term=mapping.get("term")),
         })
     if mapping is None:
         raise ValueError("Sheet 为空或未识别表头")

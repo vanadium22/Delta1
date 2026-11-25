@@ -115,14 +115,14 @@ class AppTests(unittest.TestCase):
 
     def test_inquiry_preserves_fee_groups_units_and_remaining_times(self):
         path = self.workbook(headers=["证券代码", "证券名称", "可融数量（万股）", "出借费率", "期限", "到期日", "剩余期限"], rows=[
-            [1, "平安银行", .8, 2.5, "28 天", date(2026, 10, 28)],
-            [1, "平安银行", .4, "2.50%", "28 天", date(2026, 11, 1), "3 个交易日"],
-            [1, "平安银行", .8, "2.8%", "14 天"],
-            [1, "平安银行", .3, "2.80001%", "14 天", "2026/10/13"],
+            [1, "平安银行", .8, 2.5, 7, date(2026, 10, 28), 28],
+            [1, "平安银行", .4, "2.50%", None, date(2026, 11, 1), "3 个交易日"],
+            [1, "平安银行", .8, "2.8%"],
+            [1, "平安银行", .3, "2.80001%", None, "2026/10/13"],
         ])
-        self.add_margin_sheet(path, ["证券代码", "表内数量（万股）", "参考费率（%）", "到期日期"], [
-            [1, .5, 2.5, "2026年10月28日"],
-            [1, "1.2万股", "2.50%", "20261111"],
+        self.add_margin_sheet(path, ["证券代码", "表内数量（万股）", "参考费率（%）", "到期日期", "期限"], [
+            [1, .5, 2.5, "2026年10月28日", "7天"],
+            [1, "1.2万股", "2.50%", "20261111", 28],
             [1, .3, "3.2%"],
             [1, None, "3.2%"],
         ])
@@ -131,18 +131,21 @@ class AppTests(unittest.TestCase):
             result = service.query("000001")
         items, status = result["results"][0]["securities"], result["status"]
         overview = inquiry_text(items, status, detailed=False)
+        self.assertTrue(overview.startswith("券源信息如下：\n000001.SZ - 平安银行\n"))
         self.assertIn("库存券单\n  12,000 股｜市值 1,680.30 万元｜费率 2.50%", overview)
         self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.80%", overview)
         self.assertIn("3,000 股｜市值 420.08 万元｜费率 2.80001%", overview)
-        self.assertIn("两融券单\n  17,000 股｜市值 2,380.43 万元｜费率 2.50%", overview)
+        self.assertIn("两融券单\n  已知合计 20,000 股\n  17,000 股｜市值 2,380.43 万元｜费率 2.50%", overview)
         self.assertIn("3,000 股（仅已知）｜市值未取得｜费率 3.20%", overview)
         self.assertNotIn("剩余", overview)
         details = inquiry_text(items, status, detailed=True)
-        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.50%｜剩余 14 天", details)
+        self.assertTrue(details.startswith("券源信息如下：\n"))
+        self.assertNotIn("合计", details)
+        self.assertIn("8,000 股｜市值 1,120.20 万元｜费率 2.50%｜剩余 7 天", details)
         self.assertIn("4,000 股｜市值 560.10 万元｜费率 2.50%｜剩余 3 个交易日", details)
         self.assertIn("费率 2.80%｜剩余期限未提供", details)
         self.assertIn("费率 2.80001%｜剩余 0 天（已到期）", details)
-        self.assertIn("5,000 股｜市值 700.13 万元｜费率 2.50%｜剩余 14 天", details)
+        self.assertIn("5,000 股｜市值 700.13 万元｜费率 2.50%｜剩余 7 天", details)
         self.assertIn("12,000 股｜市值 1,680.30 万元｜费率 2.50%｜剩余 28 天", details)
 
     def test_codes_and_leading_zero(self):

@@ -70,6 +70,9 @@ def read_margin_sheet(path: Path, config):
                     rate_header = headers[rate_index] if rate_index is not None else ""
                     rate_unit = "percent" if re.search(r"[%％]", rate_header) else config["numeric_rate_unit"]
                     remaining_columns = term_columns(headers)
+                    term_index = optional_column(headers, ("期限",))
+                    if term_index is None:
+                        term_index = optional_column(headers, ALIASES["term"])
                 elif row_number >= 50:
                     break
                 continue
@@ -82,7 +85,7 @@ def read_margin_sheet(path: Path, config):
                     "row": row_number,
                     "quantity": margin_quantity(cell_at(cells, quantity_index), quantity_header, config["quantity_unit"]),
                     "rate": rate, "rate_raw": rate_raw,
-                    **term_values(cells, headers, remaining_columns),
+                    **term_values(cells, headers, remaining_columns, listed_term=term_index),
                 }))
     if columns is None:
         raise ValueError("前 50 行未识别证券代码列")
