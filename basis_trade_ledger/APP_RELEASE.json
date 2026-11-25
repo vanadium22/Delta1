@@ -8,6 +8,8 @@
   "dashboard_consumer_subscriptions": true,
   "portfolio_position_details": true,
   "portfolio_etf_borrow_limits": true,
+  "portfolio_hedge_borrow_projection": true,
+  "numeric_font": "Alien Encounters",
   "wind_close_after": "15:10 Asia/Shanghai",
   "company_entry": "start.cmd",
   "desktop_shortcut_entry": "create_desktop_shortcut.cmd",

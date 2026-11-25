@@ -23,6 +23,16 @@ class HedgeSize:
     residual: Decimal
 
 
+def projected_borrow(order, current_etf, used, limit):
+    before = max(ZERO, -current_etf)
+    after = max(ZERO, -(current_etf + order))
+    change = after - before
+    projected = used + change
+    return dict(change=change, used=projected,
+                available=None if limit is None else max(ZERO, limit - projected),
+                excess=None if limit is None else max(ZERO, projected - limit))
+
+
 def _nearest(quantity, unit):
     return (quantity / unit).to_integral_value(rounding=ROUND_HALF_UP) * unit
 

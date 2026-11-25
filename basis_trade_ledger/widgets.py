@@ -16,6 +16,12 @@ def fmt(value, digits=2, missing='—'):
     return f'{Decimal(str(value)) if value else Decimal(0):,.{digits}f}'
 
 
+def number_font(base):
+    font = QFont(base)
+    font.setFamilies(['Alien Encounters', 'Bahnschrift', *base.families()])
+    return font
+
+
 def text_input(placeholder='', name=''):
     edit = QLineEdit()
     edit.setPlaceholderText(placeholder)
@@ -50,9 +56,10 @@ class MetricCard(QFrame):
         super().__init__()
         self.setObjectName('pnlHero' if primary else variant)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 9, 12, 10)
-        layout.setSpacing(4)
+        layout.setContentsMargins(14, 10, 14, 11)
+        layout.setSpacing(5)
         self.caption = label(caption, 'pnlCaption')
+        self.caption.setMinimumWidth(0)
         layout.addWidget(self.caption)
         self.value = MetricValue('—')
         self.value.setObjectName('metricValue')
@@ -62,12 +69,14 @@ class MetricCard(QFrame):
         layout.addWidget(self.context)
         self.tone = None
 
-    def set_metric(self, value, context, *, digits=2, missing='待估值', color=False, absolute=False):
+    def set_metric(self, value, context, *, digits=2, missing='待估值', color=False, absolute=False, warning=False):
         shown = abs(value) if absolute and value is not None else value
         self.value.setText(fmt(shown, digits, missing))
         self.value.setToolTip(self.value.text())
         self.context.setText(context)
-        tone = 'gain' if color and value and value > 0 else 'loss' if color and value and value < 0 else 'metricValue'
+        self.context.setToolTip(context)
+        tone = ('metricWarning' if warning else 'gain' if color and value and value > 0
+                else 'loss' if color and value and value < 0 else 'metricValue')
         if tone != self.tone:
             self.tone = tone
             self.value.setObjectName(tone)
@@ -79,11 +88,11 @@ class MetricValue(QLabel):
     def __init__(self, value):
         super().__init__(value)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(34)
+        self.setMinimumHeight(43)
 
     def paintEvent(self, event):
         text = self.text()
-        font = QFont(self.font())
+        font = number_font(self.font()) if text.isascii() and any(char.isdigit() for char in text) else QFont(self.font())
         area = self.contentsRect()
         width = QFontMetrics(font).horizontalAdvance(text)
         if width > area.width():
@@ -96,15 +105,16 @@ class MetricValue(QLabel):
 
 
 class Table(QTableWidget):
-    def __init__(self, headers, widths):
+    def __init__(self, headers, widths, *, number_columns=()):
         super().__init__(0, len(headers))
+        self.number_columns = number_columns
         self.setHorizontalHeaderLabels(headers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setAlternatingRowColors(True)
         self.verticalHeader().hide()
-        self.verticalHeader().setDefaultSectionSize(31)
+        self.verticalHeader().setDefaultSectionSize(38)
         self.horizontalHeader().setStretchLastSection(True)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         for i, width in enumerate(widths):
@@ -115,10 +125,13 @@ class Table(QTableWidget):
         try:
             self.clearContents()
             self.setRowCount(len(rows))
+            font = number_font(self.font()) if self.number_columns else None
             for i, row in enumerate(rows):
                 for j, value in enumerate(row):
                     item = QTableWidgetItem('' if value is None else str(value))
                     item.setToolTip(item.text())
+                    if j in self.number_columns and any(char.isdigit() for char in item.text()):
+                        item.setFont(font)
                     self.setItem(i, j, item)
         finally:
             self.setUpdatesEnabled(True)
@@ -131,7 +144,7 @@ class TradeTable(Table):
     def __init__(self):
         super().__init__(('成交时间', '方向', '状态', '等价基差', 'ETF 份额', 'ETF 均价', 'ETF 金额', '期货手数',
                           '期货价', '费用', '本笔已实现', '来源', '备注'),
-                         (157, 78, 92, 95, 94, 96, 110, 82, 90, 76, 105, 105, 135))
+                         (179, 100, 92, 99, 99, 103, 115, 91, 93, 82, 110, 110, 135), number_columns=range(3, 11))
 
     def fill(self, rows):
         super().fill(rows)

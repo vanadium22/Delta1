@@ -14,7 +14,7 @@ from shared_data.paths import DataPaths
 
 from .excel import workbook_preview
 from .excel_exchange import export_exchange
-from .hedge import hedge_size
+from .hedge import hedge_size, projected_borrow
 from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
 from .portfolio import borrow_capacity, filtered, group_rollup, index_section, portfolio_values
 from .quotes import MarketQuotes, compatible_marks, local_closes
@@ -92,6 +92,16 @@ class LedgerMathTest(unittest.TestCase):
 
 
 class HedgeSizeTest(unittest.TestCase):
+    def test_borrow_projection_counts_only_incremental_shorts_after_rounding(self):
+        size = hedge_size('futures', etf_price='3.6', basis_price='103.25', multiplier=100,
+                          quantity=2, direction='卖基差')
+        projection = projected_borrow(size.etf, 700, 1500, 6000)
+        self.assertEqual(projection, {'change': 5000, 'used': 6500, 'available': 0, 'excess': 500})
+        self.assertEqual(projected_borrow(-500, 700, 1500, 6000)['change'], 0)
+        self.assertEqual(projected_borrow(4000, -1200, 1500, 6000)['used'], 300)
+        self.assertIsNone(projected_borrow(-1, 0, 0, None)['excess'])
+        self.assertEqual(projected_borrow(200, -1000, 1900, 1000)['excess'], 700)
+
     def test_both_basis_directions_keep_anchor_and_round_etf(self):
         market = dict(etf_price='3.6', basis_price='103.25', multiplier=100, quantity=2)
         buy = hedge_size('futures', **market)
@@ -385,6 +395,21 @@ class PortfolioTest(unittest.TestCase):
             self.assertEqual(restored.borrow_limits()['510500.SH']['limit'], 0)
             restored.set_borrow_limit(dict(values, limit=''))
             self.assertEqual(Ledger(path).borrow_limits(), {})
+
+    def test_same_index_accepts_separate_etfs_and_add_cannot_replace_a_limit(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / 'ledger.sqlite'
+            ledger = Ledger(path)
+            first = dict(etf='510500.SH', index='000905.SH', limit=1000)
+            second = dict(first, etf='159922.SZ', limit=3500)
+            ledger.set_borrow_limit(first, create=True)
+            ledger.set_borrow_limit(second, create=True)
+            with self.assertRaisesRegex(ValueError, '已设置额度'):
+                ledger.set_borrow_limit(dict(first, limit=2000), create=True)
+            with self.assertRaisesRegex(ValueError, '填写可融券上限'):
+                ledger.set_borrow_limit(dict(first, etf='510510.SH', limit=''), create=True)
+            capacity = borrow_capacity([], Ledger(path).borrow_limits(), '000905.SH')
+            self.assertEqual({row['etf']: row['available'] for row in capacity}, {'510500.SH': 1000, '159922.SZ': 3500})
 
 
 class RealtimeTest(unittest.TestCase):

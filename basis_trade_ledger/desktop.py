@@ -20,7 +20,9 @@ from .widgets import (GROUP_FIELDS, PLAN_FIELDS, TRADE_BASIS_COLUMN, BasisDialog
 
 LEDGER_STYLE = """
 QMainWindow { background: #eef3f9; }
-QLabel#title { font-size: 29px; font-weight: 800; }
+QWidget { font-size: 16px; }
+QLabel#title { font-size: 34px; font-weight: 800; }
+QLabel#dialogTitle { font-size: 25px; }
 QFrame#pnlCard, QFrame#hedgeLeg { background: #ffffff; border: 1px solid #d9e4ef; border-radius: 12px; }
 QFrame#positionCard { background: #f0f7ff; border: 1px solid #d4e4f7; border-radius: 12px; }
 QFrame#pnlHero { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #14335a, stop:1 #215873);
@@ -29,23 +31,26 @@ QFrame#pnlHero QLabel#pnlCaption, QFrame#pnlHero QLabel#pnlContext { color: #e0e
 QFrame#pnlHero QLabel#metricValue { color: #f3f9fb; }
 QFrame#pnlHero QLabel#gain { color: #ffb0a6; }
 QFrame#pnlHero QLabel#loss { color: #92e1c5; }
-QFrame#pnlHero QLabel#metricValue, QFrame#pnlHero QLabel#gain, QFrame#pnlHero QLabel#loss { font-size: 32px; }
-QLabel#pnlCaption { color: #345672; font-size: 14px; font-weight: 700; }
-QFrame#hedgeLeg QLabel#pnlCaption { font-size: 16px; }
-QLabel#pnlContext { color: #4d6881; font-size: 12px; }
-QLabel#metricValue { font-size: 27px; font-weight: 800; color: #193954; }
-QLabel#gain { font-size: 27px; font-weight: 800; color: #a73440; }
-QLabel#loss { font-size: 27px; font-weight: 800; color: #13735d; }
-QLabel#hedgeTitle { font-size: 22px; font-weight: 750; color: #193954; }
+QFrame#pnlHero QLabel#metricValue, QFrame#pnlHero QLabel#gain, QFrame#pnlHero QLabel#loss { font-size: 39px; }
+QLabel#pnlCaption { color: #345672; font-size: 16px; font-weight: 700; }
+QFrame#hedgeLeg QLabel#pnlCaption { font-size: 18px; }
+QLabel#pnlContext { color: #4d6881; font-size: 14px; }
+QLabel#metricValue { font-size: 34px; font-weight: 800; color: #193954; }
+QLabel#gain { font-size: 34px; font-weight: 800; color: #a73440; }
+QLabel#loss { font-size: 34px; font-weight: 800; color: #13735d; }
+QLabel#metricWarning { font-size: 34px; font-weight: 800; color: #aa2633; }
+QLabel#hedgeTitle { font-size: 24px; font-weight: 750; color: #193954; }
 QLabel#fieldCaption { color: #35566f; font-weight: 700; }
-QLabel#hedgeQuote { font-size: 12px; color: #536f89; }
+QLabel#hedgeQuote { font-size: 14px; color: #536f89; }
 QLabel#equivalentEquation { background: #eef6f7; color: #173c4d; padding: 9px; border-radius: 5px; }
 QLabel#quoteStatus { color: #355c70; padding: 4px 8px; border: 1px solid #dce9ed; border-radius: 4px; background: #eaf4f5; }
+QLabel#borrowWarning { color: #a02732; padding: 7px 10px; border: 1px solid #eab2b8; border-radius: 5px;
+  background: #fff3f3; font-weight: 700; }
 QPushButton#autoQuotes:checked { background: #def2ed; color: #126b60; border-color: #85bdb1; }
 QPushButton#basisLink { background: #e7f3f1; border: 1px solid #c7e3de; color: #126b60; font-weight: 600; }
-QLabel#groupTitle { font-size: 24px; font-weight: 750; }
-QLabel#basisSummary { font-size: 15px; font-weight: 700; color: #234563; }
-QLabel#sectionTitle { color: #223d56; }
+QLabel#groupTitle { font-size: 29px; font-weight: 750; }
+QLabel#basisSummary { font-size: 17px; font-weight: 700; color: #234563; }
+QLabel#sectionTitle { color: #223d56; font-size: 17px; }
 QFrame#card QLabel { border: none; background: transparent; }
 QTabWidget::pane { border: 1px solid #dfe6ef; background: #fbfcfe; border-radius: 5px; }
 QTabBar::tab { color: #53738b; padding: 8px 14px; margin-right: 2px; background: #eaf0f6; }
@@ -53,6 +58,8 @@ QTabBar::tab:selected { color: #146a64; background: white; font-weight: 700; }
 QListWidget::item:selected { background: #daeee9; color: #14514e; border-radius: 5px; }
 QLineEdit { padding: 4px 6px; }
 QLineEdit[readOnly="true"] { background: #f2f6f9; color: #435a70; }
+QTableView::item { padding: 5px 7px; }
+QHeaderView::section { padding: 9px 7px; }
 QTableWidget#positions::item { padding: 3px 6px; }
 QTableWidget#positions QHeaderView::section { padding: 8px 5px; }
 """
@@ -96,7 +103,9 @@ class LedgerWindow(QMainWindow):
         self.portfolio_records = None
         self.portfolio_update = None
         self.portfolio_limits = {}
+        self.portfolio_capacity = {}
         self.portfolio_generation = 0
+        self.portfolio_refresh_pending = False
         self.filter_status, self.filter_period = 'all', ('', '')
         self.market_update = None
         self.market_by_group = {}
@@ -105,7 +114,7 @@ class LedgerWindow(QMainWindow):
         self.quote_timer.timeout.connect(self.poll_market)
         self.painted = False
         self.setWindowTitle('基差交易台账')
-        self.resize(1300, 800)
+        self.resize(1440, 860)
         self.setMinimumSize(940, 660)
         root = QWidget()
         outer = QVBoxLayout(root)
@@ -131,7 +140,7 @@ class LedgerWindow(QMainWindow):
         body = QHBoxLayout()
         body.setSpacing(12)
         side = card()
-        side.setFixedWidth(218)
+        side.setFixedWidth(244)
         side_layout = QVBoxLayout(side)
         side_header = QHBoxLayout()
         side_header.addWidget(label('交易组', 'sectionTitle'))
@@ -166,6 +175,8 @@ class LedgerWindow(QMainWindow):
         self.portfolio_page = PortfolioPage()
         self.portfolio_page.group_selected.connect(self.select_group)
         self.portfolio_page.borrow_limit_selected.connect(self.edit_borrow_limit)
+        self.portfolio_page.hedge_selection_changed.connect(self.portfolio_hedge_changed)
+        self.portfolio_page.hedge_refresh_requested.connect(lambda: self.request_portfolio(force=True))
         self.panes.addWidget(self.portfolio_page)
         body.addWidget(self.panes, 1)
         outer.addLayout(body, 1)
@@ -191,6 +202,8 @@ class LedgerWindow(QMainWindow):
         detail.setContentsMargins(0, 0, 0, 0)
         self.title = label('', 'groupTitle')
         self.symbols = label('', 'muted')
+        self.title.setMinimumWidth(0)
+        self.symbols.setMinimumWidth(0)
         header = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(2)
@@ -224,6 +237,7 @@ class LedgerWindow(QMainWindow):
         self.basis_button.setObjectName('basisLink')
         basis_strip.addWidget(self.basis_button)
         self.basis_strip = label('', 'basisSummary')
+        self.basis_strip.setWordWrap(True)
         basis_strip.addWidget(self.basis_strip, 1)
         self.quote_status = label('估值参考', 'quoteStatus')
         basis_strip.addWidget(self.quote_status)
@@ -252,12 +266,11 @@ class LedgerWindow(QMainWindow):
         self.tabs.addTab(trades, '成交流水')
         self.tabs.addTab(self.valuation_page(), '持仓与估值')
         self.hedge = HedgePage()
-        hedge_scroll = QScrollArea()
-        hedge_scroll.setWidgetResizable(True)
-        hedge_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        hedge_scroll.setWidget(self.hedge)
-        hedge_tab = self.tabs.addTab(hedge_scroll, '对冲换算')
-        self.tabs.currentChanged.connect(lambda index: self.refresh_quotes() if index == hedge_tab else None)
+        self.hedge_scroll = QScrollArea()
+        self.hedge_scroll.setWidgetResizable(True)
+        self.hedge_scroll.setWidget(self.hedge)
+        self.tabs.addTab(self.hedge_scroll, '对冲换算')
+        self.tabs.currentChanged.connect(self.detail_tab_changed)
         detail.addWidget(self.tabs, 1)
         self.editor_error = label('', 'error')
         self.editor_error.setWordWrap(True)
@@ -270,8 +283,9 @@ class LedgerWindow(QMainWindow):
         layout = QVBoxLayout(pane)
         layout.addWidget(label('仓位与估值价', 'sectionTitle'))
         self.positions = Table(('品种', '代码', '净仓', '持仓均价', '估值价', '浮动（元）', '价格来源 / 行情时间'),
-                               (72, 91, 91, 92, 91, 93, 138))
+                               (72, 106, 91, 92, 91, 93, 138), number_columns=range(1, 6))
         self.positions.setObjectName('positions')
+        self.positions.verticalHeader().setDefaultSectionSize(51)
         self.positions.verticalHeader().setDefaultSectionSize(51)
         self.positions.setMinimumHeight(200)
         layout.addWidget(self.positions, 1)
@@ -307,6 +321,7 @@ class LedgerWindow(QMainWindow):
 
     def populate_groups(self):
         self.group_rows = self.ledger.groups()
+        self.portfolio_limits = self.ledger.borrow_limits()
         self.invalidate_portfolio()
         self.render_group_list()
         self.copy_button.setEnabled(bool(self.group_rows))
@@ -322,6 +337,9 @@ class LedgerWindow(QMainWindow):
         by_index = {}
         for group in groups:
             by_index.setdefault(index_section(group), []).append(group)
+        for limit in self.portfolio_limits.values():
+            if limit['index']:
+                by_index.setdefault(limit['index'], [])
         self.groups.blockSignals(True)
         self.groups.clear()
         self.add_section(ALL_GROUPS, len(groups))
@@ -381,6 +399,9 @@ class LedgerWindow(QMainWindow):
             self.rename_button.setEnabled(True)
             self.export_current.setEnabled(True)
             self.panes.setCurrentIndex(1)
+            if self.detail_hedge_active():
+                self.update_detail_borrow()
+                self.request_portfolio()
             if self.auto_quotes.isChecked():
                 self.refresh_quotes(force=False)
             return
@@ -407,6 +428,8 @@ class LedgerWindow(QMainWindow):
         self.filter_status, self.filter_period = 'all', ('', '')
 
     def show_portfolio(self, section):
+        if self.portfolio_scope != section:
+            self.portfolio_page.show_hedge_choices([], [], refresh=False)
         self.portfolio_scope = section
         self.portfolio_update = None
         self.portfolio_page.show_loading(section)
@@ -415,38 +438,52 @@ class LedgerWindow(QMainWindow):
         self.panes.setCurrentIndex(2)
         if self.portfolio_records is not None:
             self.render_portfolio()
+        else:
+            self.render_portfolio_hedge()
         self.request_portfolio()
 
     def invalidate_portfolio(self):
         self.portfolio_generation += 1
         self.portfolio_records = None
-        if self.painted and (self.portfolio_scope is not None or self.has_filtered_groups()):
+        if self.painted and (self.portfolio_scope is not None or self.has_filtered_groups() or self.detail_hedge_active()):
             QTimer.singleShot(0, self.request_portfolio)
 
     def has_filtered_groups(self):
         return self.filter_status != 'all' or any(self.filter_period)
 
-    def request_portfolio(self):
-        if self.closing or self.portfolio_job or (self.portfolio_scope is None and not self.has_filtered_groups()):
+    def request_portfolio(self, *, force=False):
+        if self.closing or (self.portfolio_scope is None and not (self.has_filtered_groups() or self.detail_hedge_active())):
             return
+        if force:
+            self.portfolio_refresh_pending = True
+        if self.portfolio_job:
+            return
+        force, self.portfolio_refresh_pending = self.portfolio_refresh_pending, False
         records, scope = self.portfolio_records, self.portfolio_scope
         status, period, generation = self.filter_status, self.filter_period, self.portfolio_generation
-        automatic = self.auto_quotes.isChecked()
+        automatic = self.auto_quotes.isChecked() or force
+        hedge = self.portfolio_hedge_selection()
 
         def load():
             current = self.ledger.portfolio() if records is None else records
-            if scope is None:
-                return current, None, {}
             limits = self.ledger.borrow_limits()
+            if scope is None:
+                return current, None, limits
             if records is None:
                 task.partial.emit((current, limits))
             selected = filtered(current, status, period, scope)
-            codes = sorted({row['config'][leg] for row in selected for leg in LEGS[:2] if row['result'][leg].quantity})
+            codes = {row['config'][leg] for row in selected for leg in LEGS[:2] if row['result'][leg].quantity}
+            reference = next((row for row in current if hedge and row['config']['id'] == hedge[0]), None)
+            priced = selected
+            if reference:
+                cfg = reference['config']
+                codes.update(filter(None, (hedge[1], cfg['futures'], index_section(cfg))))
+                priced = [*selected, reference]
             stored = {}
-            for row in selected:
+            for row in priced:
                 for mark in newer_closes(list(row['closes'].values()), stored):
                     stored[mark['code']] = mark
-            quotes = (self.portfolio_market.refresh(codes, saved_closes=stored, cache_only=not automatic,
+            quotes = (self.portfolio_market.refresh(codes, force=force, saved_closes=stored, cache_only=not automatic,
                                                     allow_wind=automatic, subscribe=automatic) if codes else None)
             if quotes:
                 quotes.closes = [*stored.values(), *quotes.closes]
@@ -476,7 +513,9 @@ class LedgerWindow(QMainWindow):
                 if rebuild_sidebar:
                     self.render_group_list()
                 self.render_portfolio()
-            if (self.portfolio_scope is not None or self.has_filtered_groups()) and (generation != self.portfolio_generation or scope_changed):
+                self.update_detail_borrow()
+            if (self.portfolio_refresh_pending or generation != self.portfolio_generation or scope_changed
+                    or hedge != self.portfolio_hedge_selection()):
                 self.request_portfolio()
 
         task.partial.connect(show_cached)
@@ -491,22 +530,87 @@ class LedgerWindow(QMainWindow):
         message = self.portfolio_update.message if self.portfolio_update else ''
         self.portfolio_page.show_values(self.portfolio_scope, rows, totals, message)
         capacity = borrow_capacity(self.portfolio_records, self.portfolio_limits, self.portfolio_scope)
+        self.portfolio_capacity = {row['etf']: row for row in capacity}
         self.portfolio_page.show_borrow_capacity(capacity)
+        configs = [row['config'] for row in filtered(self.portfolio_records, section=self.portfolio_scope)]
+        self.portfolio_page.show_hedge_choices(configs, capacity)
+        self.render_portfolio_hedge()
+
+    def portfolio_hedge_selection(self):
+        page = self.portfolio_page
+        if self.portfolio_scope is not None and page.tabs.currentWidget() == page.borrow_page:
+            group_id, etf = page.hedge_group.currentData(), page.hedge_etf.currentData()
+            if group_id is not None and etf:
+                return group_id, etf
+        return None
+
+    def portfolio_hedge_changed(self):
+        if self.portfolio_scope is None:
+            return
+        self.render_portfolio_hedge()
+        if self.portfolio_hedge_selection():
+            self.request_portfolio()
+
+    def render_portfolio_hedge(self):
+        page = self.portfolio_page
+        selection = self.portfolio_hedge_selection()
+        record = next((row for row in self.portfolio_records or [] if selection and row['config']['id'] == selection[0]), None)
+        page.hedge.setVisible(record is not None)
+        page.hedge_refresh.setEnabled(record is not None)
+        if record is None:
+            page.hedge_empty.setText('选择 ETF 和参考组。有交易组后，可沿用该组的期货合约和乘数。')
+            page.hedge_empty.show()
+            return
+        etf = selection[1]
+        cfg = record['config']
+        same_etf = etf == cfg['etf']
+        config = dict(cfg, etf=etf, index=index_section(cfg))
+        quotes = dict(record['quotes'])
+        if not same_etf:
+            quotes.pop('etf', None)
+            config['base_shares'] = None
+        for update in (self.market_by_group.get(cfg['id']), self.portfolio_update):
+            quotes = effective_marks(config, quotes, update, now())
+        page.hedge_empty.setText('沿用参考组的期货合约和乘数，按计划数量换算。')
+        page.hedge_empty.setVisible(not same_etf)
+        capacity = self.portfolio_capacity.get(etf, {'used': 0, 'limit': None})
+        page.hedge.set_context(selection, config, record['result'] if same_etf else None, quotes, capacity)
+        page.hedge.status.setToolTip(self.portfolio_update.message if self.portfolio_update else '')
+
+    def detail_hedge_active(self):
+        return self.portfolio_scope is None and self.group_id is not None and self.tabs.currentWidget() == self.hedge_scroll
+
+    def detail_tab_changed(self):
+        if self.detail_hedge_active():
+            self.update_detail_borrow()
+            self.request_portfolio()
+            self.refresh_quotes()
+
+    def update_detail_borrow(self):
+        if self.detail_hedge_active():
+            self.hedge.set_capacity(self.detail_borrow_capacity())
+
+    def detail_borrow_capacity(self):
+        if not self.detail_hedge_active() or self.portfolio_records is None:
+            return None
+        etf = self.config['etf']
+        limits = {etf: self.portfolio_limits.get(etf, {'index': '', 'limit': None})}
+        capacity = borrow_capacity(self.portfolio_records, limits, ALL_GROUPS)
+        return next(row for row in capacity if row['etf'] == etf)
 
     def edit_borrow_limit(self, etf):
         scope = self.portfolio_scope
         if scope is None:
             return
-        known = {row['etf'] for row in self.group_rows if scope in (ALL_GROUPS, index_section(row))}
-        default = next(iter(known)) if len(known) == 1 else ''
-        current = self.portfolio_limits.get(etf or default, {})
+        current = self.portfolio_limits.get(etf, {})
         fields = (('etf', 'ETF 代码', '与交易组一致，例如 510500.SH'),
                   ('index', '跟踪指数', '选填，例如 000905.SH'),
-                  ('limit', '可融券上限（份）', '留空清除额度'))
-        values = dict(etf=etf or default, index=current.get('index') or ('' if scope == ALL_GROUPS else scope),
+                  ('limit', '可融券上限（份）', '留空清除额度' if etf else '填写总份额'))
+        values = dict(etf=etf, index=current.get('index') or ('' if scope == ALL_GROUPS else scope),
                       limit=current.get('limit'))
-        dialog = FormDialog('设置 ETF 融券额度', fields, values, self.ledger.set_borrow_limit, self,
-                            hint='填写该 ETF 的总融券上限。已用额度会按所有交易组的未回补空头自动计算。')
+        dialog = FormDialog('修改 ETF 额度' if etf else '新增 ETF 额度', fields, values,
+                            lambda fields: self.ledger.set_borrow_limit(fields, create=not etf), self,
+                            hint='同一指数可以添加多只 ETF。每只 ETF 的已用额度按各组未回补空头计算。')
         if etf:
             dialog.fields['etf'].setReadOnly(True)
         if dialog.exec():
@@ -516,7 +620,10 @@ class LedgerWindow(QMainWindow):
             else:
                 self.portfolio_limits[code] = rule
             self.portfolio_generation += 1
+            self.render_group_list()
             self.render_portfolio()
+            if rule is not None:
+                self.portfolio_page.select_borrow_code(code)
 
     def load_group(self):
         self.config, trades, self.base_quotes, self.audit = self.ledger.open_group(self.group_id)
@@ -602,7 +709,7 @@ class LedgerWindow(QMainWindow):
             cell.setText(fmt(market_value if key == 'market_basis' else result.get(key, result['basis'].get(key)), 4))
         for key, cell in self.plan_cells.items():
             cell.setText(fmt(result.get(key, self.config.get(key)), 0 if key in ('base_shares', 'plan_lots') else 2))
-        self.hedge.set_context(self.group_id, self.config, result, self.quotes)
+        self.hedge.set_context(self.group_id, self.config, result, self.quotes, self.detail_borrow_capacity())
 
     def rename_group(self):
         item = self.groups.currentItem()
@@ -920,7 +1027,9 @@ class LedgerWindow(QMainWindow):
 
 def application():
     app = QApplication.instance() or QApplication([])
-    app.setFont(QFont('Microsoft YaHei UI', 10))
+    font = QFont('Microsoft YaHei UI', 12)
+    font.setFamilies(['Microsoft YaHei UI', 'Microsoft YaHei', 'DengXian', 'Segoe UI'])
+    app.setFont(font)
     app.setStyleSheet(STYLE + LEDGER_STYLE)
     app.setWindowIcon(QIcon(str(Path(__file__).with_name('assets') / 'app.ico')))
     return app

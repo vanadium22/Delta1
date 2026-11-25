@@ -97,7 +97,7 @@ class Ledger:
             return {key.removeprefix(BORROW_LIMIT_PREFIX): json.loads(value) for key, value in con.execute(
                 'SELECT key,value FROM preferences WHERE key GLOB ?', (BORROW_LIMIT_PREFIX + '*',))}
 
-    def set_borrow_limit(self, values):
+    def set_borrow_limit(self, values, *, create=False):
         etf = code(values.get('etf'))
         index = code(values.get('index'))
         if not re.fullmatch(r'[0-9]{6}(?:\.(?:SH|SZ))?', etf):
@@ -105,10 +105,16 @@ class Ledger:
         if index and not re.fullmatch(r'[A-Z0-9]+(?:\.[A-Z0-9]+)?', index):
             raise ValueError('请填写有效的跟踪指数代码')
         limit = number(values.get('limit'), '可融券上限（份）', zero=True, integer=True)
+        if create and limit is None:
+            raise ValueError('请填写可融券上限')
         key = BORROW_LIMIT_PREFIX + etf
         rule = None if limit is None else dict(index=index, limit=int(limit))
         with self.connection(write=True) as con:
-            if rule is None:
+            if create:
+                if con.execute('SELECT 1 FROM preferences WHERE key=?', (key,)).fetchone():
+                    raise ValueError('该 ETF 已设置额度，请选择该行修改')
+                con.execute('INSERT INTO preferences VALUES (?, ?)', (key, encode(rule)))
+            elif rule is None:
                 con.execute('DELETE FROM preferences WHERE key=?', (key,))
             else:
                 con.execute('INSERT OR REPLACE INTO preferences VALUES (?, ?)', (key, encode(rule)))

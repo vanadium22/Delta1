@@ -1,8 +1,9 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QHeaderView, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 
-from .portfolio import date_filter, section_title
+from .hedge_widget import HedgePage
+from .portfolio import date_filter, index_section, section_title
 from .widgets import MetricCard, Table, button, fmt, label, text_input
 
 
@@ -64,6 +65,8 @@ class PortfolioFilters(QWidget):
 class PortfolioPage(QWidget):
     group_selected = Signal(int)
     borrow_limit_selected = Signal(str)
+    hedge_selection_changed = Signal()
+    hedge_refresh_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -81,24 +84,59 @@ class PortfolioPage(QWidget):
             self.metrics[key] = panel
         layout.addLayout(metrics)
         self.table = Table(('交易组', '状态', '总盈亏', '已实现', '浮盈亏', '净敞口', '总敞口', 'ETF 敞口', '期货敞口', '估值状态'),
-                           (129, 74, 93, 88, 91, 91, 91, 101, 101, 103))
+                           (129, 74, 93, 88, 91, 91, 91, 101, 101, 103), number_columns=range(2, 9))
         self.positions_table = Table(('交易组', '对应指数', '持仓标的', '方向', '实际持仓', '敞口 · 元'),
-                                     (111, 170, 120, 59, 100, 128))
+                                     (111, 170, 120, 59, 100, 128), number_columns=(2, 4, 5))
         self.tabs = QTabWidget()
         self.tabs.addTab(self.positions_table, '实际持仓')
         self.tabs.addTab(self.table, '交易组盈亏')
-        self.borrow_page = QWidget()
-        borrow_layout = QVBoxLayout(self.borrow_page)
-        borrow_layout.setContentsMargins(10, 8, 10, 8)
+        self.borrow_page = QScrollArea()
+        self.borrow_page.setWidgetResizable(True)
+        borrow_content = QWidget()
+        self.borrow_page.setWidget(borrow_content)
+        borrow_layout = QVBoxLayout(borrow_content)
+        borrow_layout.setContentsMargins(12, 10, 12, 12)
+        borrow_layout.setSpacing(9)
         borrow_actions = QHBoxLayout()
-        borrow_actions.addWidget(label('按 ETF 汇总未回补空头 · 单位为份', 'muted'), 1)
-        borrow_actions.addWidget(button('设置额度', lambda: self.borrow_limit_selected.emit(''), True))
+        borrow_actions.addWidget(label('ETF 融券额度 · 份', 'sectionTitle'), 1)
+        self.edit_borrow = button('修改额度', self.select_borrow)
+        self.edit_borrow.setEnabled(False)
+        borrow_actions.addWidget(self.edit_borrow)
+        borrow_actions.addWidget(button('新增 ETF', lambda: self.borrow_limit_selected.emit(''), True))
         borrow_layout.addLayout(borrow_actions)
         self.borrow_table = Table(('ETF 代码', '对应指数', '可融券上限', '已用额度', '还可卖空', '超出额度'),
-                                  (107, 112, 112, 103, 112, 105))
+                                  (116, 114, 110, 103, 112, 104), number_columns=(0, 2, 3, 4, 5))
+        self.borrow_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.borrow_table.setToolTip('数量单位为份。已用额度来自台账当前的全部组，双击一行可修改上限。')
-        self.borrow_table.cellDoubleClicked.connect(self.select_borrow)
+        self.borrow_table.itemSelectionChanged.connect(self.borrow_row_selected)
+        self.borrow_table.cellDoubleClicked.connect(lambda *_: self.select_borrow())
         borrow_layout.addWidget(self.borrow_table)
+        borrow_layout.addWidget(label('对冲换算', 'hedgeTitle'))
+        controls = QHBoxLayout()
+        self.hedge_etf = QComboBox()
+        self.hedge_group = QComboBox()
+        for combo, width in ((self.hedge_etf, 8), (self.hedge_group, 11)):
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(width)
+        controls.addWidget(label('ETF', 'fieldCaption'))
+        controls.addWidget(self.hedge_etf, 2)
+        controls.addWidget(label('参考组', 'fieldCaption'))
+        controls.addWidget(self.hedge_group, 4)
+        self.hedge_refresh = button('刷新报价', lambda: self.hedge_refresh_requested.emit())
+        controls.addWidget(self.hedge_refresh)
+        borrow_layout.addLayout(controls)
+        self.hedge_empty = label('先选 ETF，再选提供期货合约和乘数的交易组。', 'muted')
+        self.hedge_empty.setWordWrap(True)
+        borrow_layout.addWidget(self.hedge_empty)
+        self.hedge = HedgePage(embedded=True)
+        self.hedge.hide()
+        borrow_layout.addWidget(self.hedge)
+        borrow_layout.addStretch()
+        self.hedge_etf.currentIndexChanged.connect(self.update_hedge_groups)
+        self.hedge_group.currentIndexChanged.connect(self.hedge_selection_changed)
+        self.hedge_configs = []
+        self.hedge_capacities = {}
+        self.reference_etf = None
         self.tabs.addTab(self.borrow_page, '融券额度')
         layout.addWidget(self.tabs, 1)
         self.quote_note = label('', 'muted')
@@ -106,7 +144,7 @@ class PortfolioPage(QWidget):
         self.quote_note.setWordWrap(True)
         self.quote_note.hide()
         layout.addWidget(self.quote_note)
-        self.tabs.currentChanged.connect(lambda _: self.update_quote_note())
+        self.tabs.currentChanged.connect(self.tab_changed)
         self.table.cellDoubleClicked.connect(self.select_group)
         self.positions_table.cellDoubleClicked.connect(self.select_position_group)
         self.rows = []
@@ -177,14 +215,29 @@ class PortfolioPage(QWidget):
     def update_quote_note(self):
         self.quote_note.setVisible(bool(self.quote_note.text()) and self.tabs.currentWidget() != self.borrow_page)
 
+    def tab_changed(self):
+        self.update_quote_note()
+        self.hedge_selection_changed.emit()
+
     def show_borrow_capacity(self, rows):
         values = [(row['etf'], '、'.join(section_title(index) for index in row['indices']) or '—',
                    fmt(row['limit'], 0, '未设置'), fmt(row['used'], 0), fmt(row['available'], 0),
                    fmt(row['excess'], 0) if row['excess'] else '—') for row in rows]
         if values == self.displayed_borrow:
             return
+        selected = self.borrow_table.currentRow()
+        previous = self.displayed_borrow[selected][0] if self.displayed_borrow and selected >= 0 else None
         self.displayed_borrow = values
-        self.borrow_table.fill(values)
+        with QSignalBlocker(self.borrow_table):
+            self.borrow_table.fill(values)
+            self.borrow_table.setCurrentCell(-1, -1)
+            for n, row in enumerate(rows):
+                if row['etf'] == previous:
+                    self.borrow_table.selectRow(n)
+                    break
+        self.edit_borrow.setEnabled(self.borrow_table.currentRow() >= 0)
+        self.borrow_table.setFixedHeight(self.borrow_table.horizontalHeader().sizeHint().height() +
+                                         self.borrow_table.verticalHeader().defaultSectionSize() * min(5, max(2, len(rows))) + 4)
         for n, row in enumerate(rows):
             for col in range(2, 6):
                 self.borrow_table.item(n, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -197,5 +250,53 @@ class PortfolioPage(QWidget):
             elif row['available']:
                 available.setForeground(QColor('#13735d'))
 
-    def select_borrow(self, row, _column):
-        self.borrow_limit_selected.emit(self.displayed_borrow[row][0])
+    def borrow_row_selected(self):
+        row = self.borrow_table.currentRow()
+        self.edit_borrow.setEnabled(row >= 0)
+        if row >= 0:
+            self.hedge_etf.setCurrentIndex(self.hedge_etf.findData(self.displayed_borrow[row][0]))
+
+    def select_borrow(self):
+        row = self.borrow_table.currentRow()
+        if row >= 0:
+            self.borrow_limit_selected.emit(self.displayed_borrow[row][0])
+
+    def select_borrow_code(self, etf):
+        for index, row in enumerate(self.displayed_borrow):
+            if row[0] == etf:
+                self.borrow_table.selectRow(index)
+                self.hedge_etf.setCurrentIndex(self.hedge_etf.findData(etf))
+                return
+
+    def show_hedge_choices(self, configs, rows, *, refresh=True):
+        indices = {row['etf']: tuple(row['indices']) for row in rows}
+        if configs == self.hedge_configs and indices == self.hedge_capacities:
+            return
+        self.hedge_configs, self.hedge_capacities = configs, indices
+        etfs = sorted(set(indices) | {cfg['etf'] for cfg in configs})
+        self.replace_choices(self.hedge_etf, [(etf, etf) for etf in etfs])
+        self.update_hedge_groups(refresh=refresh)
+
+    def update_hedge_groups(self, _index=-1, *, refresh=True):
+        etf = self.hedge_etf.currentData()
+        indices = set(self.hedge_capacities.get(etf, ()))
+        indices.update(index_section(cfg) for cfg in self.hedge_configs if cfg['etf'] == etf)
+        candidates = [cfg for cfg in self.hedge_configs if etf and (cfg['etf'] == etf or index_section(cfg) in indices)]
+        candidates.sort(key=lambda cfg: cfg['etf'] != etf)
+        preferred = next((cfg['id'] for cfg in candidates if cfg['etf'] == etf), None) if self.reference_etf != etf else None
+        self.reference_etf = etf
+        self.replace_choices(self.hedge_group, [(f"{cfg['name']} · {cfg['futures']}", cfg['id']) for cfg in candidates],
+                             preferred=preferred)
+        self.hedge_group.setToolTip(self.hedge_group.currentText())
+        if refresh:
+            self.hedge_selection_changed.emit()
+
+    @staticmethod
+    def replace_choices(combo, choices, *, preferred=None):
+        previous = combo.currentData()
+        with QSignalBlocker(combo):
+            combo.clear()
+            for caption, value in choices:
+                combo.addItem(caption, value)
+            index = combo.findData(preferred if preferred is not None else previous)
+            combo.setCurrentIndex(max(0, index) if choices else -1)
