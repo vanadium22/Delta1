@@ -10,7 +10,7 @@ from script_making.desktop_theme import STYLE
 
 from .hedge_widget import HedgePage
 from .model import LEGS, calculate, date_time, now, number, revalue
-from .portfolio import ALL_GROUPS, filtered, index_section, portfolio_values, section_title
+from .portfolio import ALL_GROUPS, borrow_capacity, filtered, index_section, portfolio_values, section_title
 from .portfolio_widget import PortfolioFilters, PortfolioPage
 from .quotes import POLL_MS, MarketQuotes, compatible_marks, effective_marks, newer_closes
 from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE
@@ -95,6 +95,7 @@ class LedgerWindow(QMainWindow):
         self.portfolio_scope = None
         self.portfolio_records = None
         self.portfolio_update = None
+        self.portfolio_limits = {}
         self.portfolio_generation = 0
         self.filter_status, self.filter_period = 'all', ('', '')
         self.market_update = None
@@ -164,6 +165,7 @@ class LedgerWindow(QMainWindow):
         self.auto_quotes.setChecked(auto_quotes)
         self.portfolio_page = PortfolioPage()
         self.portfolio_page.group_selected.connect(self.select_group)
+        self.portfolio_page.borrow_limit_selected.connect(self.edit_borrow_limit)
         self.panes.addWidget(self.portfolio_page)
         body.addWidget(self.panes, 1)
         outer.addLayout(body, 1)
@@ -406,6 +408,7 @@ class LedgerWindow(QMainWindow):
 
     def show_portfolio(self, section):
         self.portfolio_scope = section
+        self.portfolio_update = None
         self.portfolio_page.show_loading(section)
         self.rename_button.setEnabled(False)
         self.export_current.setEnabled(False)
@@ -417,7 +420,7 @@ class LedgerWindow(QMainWindow):
     def invalidate_portfolio(self):
         self.portfolio_generation += 1
         self.portfolio_records = None
-        if self.painted and self.has_filtered_groups():
+        if self.painted and (self.portfolio_scope is not None or self.has_filtered_groups()):
             QTimer.singleShot(0, self.request_portfolio)
 
     def has_filtered_groups(self):
@@ -428,30 +431,32 @@ class LedgerWindow(QMainWindow):
             return
         records, scope = self.portfolio_records, self.portfolio_scope
         status, period, generation = self.filter_status, self.filter_period, self.portfolio_generation
-        allow_wind = self.auto_quotes.isChecked()
+        automatic = self.auto_quotes.isChecked()
 
         def load():
             current = self.ledger.portfolio() if records is None else records
             if scope is None:
-                return current, None
+                return current, None, {}
+            limits = self.ledger.borrow_limits()
             if records is None:
-                task.partial.emit(current)
+                task.partial.emit((current, limits))
             selected = filtered(current, status, period, scope)
             codes = sorted({row['config'][leg] for row in selected for leg in LEGS[:2] if row['result'][leg].quantity})
             stored = {}
             for row in selected:
                 for mark in newer_closes(list(row['closes'].values()), stored):
                     stored[mark['code']] = mark
-            quotes = self.portfolio_market.refresh(codes, saved_closes=stored, cache_only=True, allow_wind=allow_wind) if codes else None
+            quotes = (self.portfolio_market.refresh(codes, saved_closes=stored, cache_only=not automatic,
+                                                    allow_wind=automatic, subscribe=automatic) if codes else None)
             if quotes:
                 quotes.closes = [*stored.values(), *quotes.closes]
-            return current, quotes
+            return current, quotes, limits
 
         task = self.portfolio_job = Task(load, self)
 
-        def show_cached(current):
+        def show_cached(data):
             if not self.closing and generation == self.portfolio_generation:
-                self.portfolio_records = current
+                self.portfolio_records, self.portfolio_limits = data
                 self.render_group_list()
                 self.render_portfolio()
 
@@ -464,14 +469,14 @@ class LedgerWindow(QMainWindow):
             if task.error:
                 self.statusBar().showMessage('汇总读取失败：' + task.error, 8000)
                 return
-            if generation == self.portfolio_generation:
+            scope_changed = (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)
+            if generation == self.portfolio_generation and not scope_changed:
                 rebuild_sidebar = self.portfolio_records is None
-                self.portfolio_records, self.portfolio_update = task.result
+                self.portfolio_records, self.portfolio_update, self.portfolio_limits = task.result
                 if rebuild_sidebar:
                     self.render_group_list()
                 self.render_portfolio()
-            if (self.portfolio_scope is not None or self.has_filtered_groups()) and (generation != self.portfolio_generation or
-                    (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)):
+            if (self.portfolio_scope is not None or self.has_filtered_groups()) and (generation != self.portfolio_generation or scope_changed):
                 self.request_portfolio()
 
         task.partial.connect(show_cached)
@@ -483,7 +488,35 @@ class LedgerWindow(QMainWindow):
             return
         selected = filtered(self.portfolio_records, self.filter_status, self.filter_period, self.portfolio_scope)
         rows, totals = portfolio_values(selected, self.portfolio_update, self.market_by_group)
-        self.portfolio_page.show_values(self.portfolio_scope, rows, totals)
+        message = self.portfolio_update.message if self.portfolio_update else ''
+        self.portfolio_page.show_values(self.portfolio_scope, rows, totals, message)
+        capacity = borrow_capacity(self.portfolio_records, self.portfolio_limits, self.portfolio_scope)
+        self.portfolio_page.show_borrow_capacity(capacity)
+
+    def edit_borrow_limit(self, etf):
+        scope = self.portfolio_scope
+        if scope is None:
+            return
+        known = {row['etf'] for row in self.group_rows if scope in (ALL_GROUPS, index_section(row))}
+        default = next(iter(known)) if len(known) == 1 else ''
+        current = self.portfolio_limits.get(etf or default, {})
+        fields = (('etf', 'ETF 代码', '与交易组一致，例如 510500.SH'),
+                  ('index', '跟踪指数', '选填，例如 000905.SH'),
+                  ('limit', '可融券上限（份）', '留空清除额度'))
+        values = dict(etf=etf or default, index=current.get('index') or ('' if scope == ALL_GROUPS else scope),
+                      limit=current.get('limit'))
+        dialog = FormDialog('设置 ETF 融券额度', fields, values, self.ledger.set_borrow_limit, self,
+                            hint='填写该 ETF 的总融券上限。已用额度会按所有交易组的未回补空头自动计算。')
+        if etf:
+            dialog.fields['etf'].setReadOnly(True)
+        if dialog.exec():
+            code, rule = dialog.result_value
+            if rule is None:
+                self.portfolio_limits.pop(code, None)
+            else:
+                self.portfolio_limits[code] = rule
+            self.portfolio_generation += 1
+            self.render_portfolio()
 
     def load_group(self):
         self.config, trades, self.base_quotes, self.audit = self.ledger.open_group(self.group_id)
@@ -790,7 +823,7 @@ class LedgerWindow(QMainWindow):
     def toggle_quotes(self, enabled):
         if enabled:
             self.quote_timer.start()
-            self.refresh_quotes(force=False)
+            self.poll_market()
         else:
             self.quote_timer.stop()
             self.quote_status.setToolTip('自动行情已暂停')
@@ -811,10 +844,12 @@ class LedgerWindow(QMainWindow):
         group_id = self.group_id
         codes = sorted({self.config[leg] for leg in LEGS if self.config[leg]})
         saved_closes = self.saved_closes.copy()
+        subscribe = force or self.auto_quotes.isChecked()
         self.refresh_button.setEnabled(False)
 
         def refresh():
-            result = self.market.refresh(codes, force=force, on_cached=task.partial.emit, saved_closes=saved_closes)
+            result = self.market.refresh(codes, force=force, on_cached=task.partial.emit, saved_closes=saved_closes,
+                                         subscribe=subscribe)
             if result.closes:
                 self.ledger.set_marks(group_id, result.closes, 'local')
             return result
@@ -849,7 +884,7 @@ class LedgerWindow(QMainWindow):
                     apply(task.result)
                     live = len(task.result.live)
                     wind = task.result.message.startswith('Wind 收盘 ')
-                    if group_id == self.group_id and (force or wind and changed):
+                    if group_id == self.group_id and (force or changed and (wind or '待实时价' in task.result.message)):
                         message = task.result.message if wind else f'{task.result.message} · 实时 {live}/{len(codes)}'
                         self.statusBar().showMessage(message, 6500)
                 elif task.error:

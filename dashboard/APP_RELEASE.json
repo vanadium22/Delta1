@@ -1,4 +1,11 @@
 {
+  "ledger_shared_quotes_20261125": {
+    "base_commit": "9d2f387",
+    "scope": "Add exact ledger symbols to the existing Dashboard realtime polling cycle within the current request capacity",
+    "poll_seconds": 3,
+    "consumer_subscription_ttl_seconds": 18,
+    "company_acceptance": "pending"
+  },
   "rollover_reference_20261124": {
     "base_commit": "52c4c65",
     "scope": "The overview uses the last completed session before the open. History maintenance refreshes exchange reference first and verifies unresolved listings in the existing DDB session before replanning daily gaps.",

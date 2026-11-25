@@ -107,6 +107,68 @@ class AppCollectionTests(unittest.TestCase):
             self.assertEqual(set(rows.instrument_id),set(quote_registry({})))
             self.assertTrue(client.closed)
 
+    def test_running_dashboard_adds_and_releases_exact_ledger_symbols(self):
+        from dashboard.native.collection import RollingResolver
+        from dashboard.native.overview_instruments import quote_registry
+        from index_strategy.instant_dld.consumer_quotes import QuoteSubscription
+        from tests.test_realtime_store import quote
+
+        with tempfile.TemporaryDirectory() as t:
+            local = Path(t)
+            root = local / 'quotes'
+            reference = local / 'reference.json'
+            expires = [('2611', '2026-11-20'), ('2612', '2026-12-18'), ('2703', '2027-03-19'), ('2706', '2027-06-18')]
+            contracts = [dict(instrument_id=f'{product}{month}.CFE', listing_date='2026-01-01',
+                              expiry_date=expiry, known_at='2026-01-01T00:00:00Z')
+                         for product in ('IF', 'IH', 'IC', 'IM') for month, expiry in expires]
+            reference.write_text(json.dumps(dict(schema_version='cn_index_reference_v1', contracts=contracts, aliases=[])))
+            primary = {'000300.SH'}
+            actual = 'IC2611.CFE'
+            extra_etf = '159999.SZ'
+            inactive = 'IC2809.CFE'
+            consumer = QuoteSubscription()
+            self.addCleanup(consumer.close)
+            requests = []
+            clock = datetime.fromisoformat('2026-10-26T10:00:08+08:00')
+
+            class Client(FakeClient):
+                def fetch(self, symbols):
+                    requests.append(symbols)
+                    if len(requests) == 1:
+                        consumer.publish(root, [extra_etf, actual, inactive], datetime.now(timezone.utc))
+                    if len(requests) == 2:
+                        consumer.close()
+                    return dict(status='success', elapsed_seconds=0, received_at=clock.isoformat(), symbols=symbols,
+                                response=dict(data={s: {**quote(1000, 4 if s == extra_etf else 4000, 100007),
+                                                        'securityId': s} for s in symbols}))
+
+            resolver = RollingResolver(primary | set(quote_registry({})), reference, local / 'reference-cache',
+                                       now=lambda: clock, synchronizer=lambda *args, **kwargs: dict(
+                                           reference_file=str(reference),
+                                           active_contracts=[row['instrument_id'] for row in contracts]))
+
+            def bounded(*args, **kwargs):
+                kwargs.update(interval=.03, max_polls=3)
+                return real_collect(*args, **kwargs)
+
+            with patch('dashboard.session_clock.session_policy', return_value=dict(allowed=True, reason='fixture')), \
+                 patch('dashboard.native.collection.RollingResolver', return_value=resolver), \
+                 patch('dashboard.native.collection.collect', side_effect=bounded):
+                job = CollectionJob(local)
+                job.start(root, sorted(primary), primary, auto_roll=True,
+                          config={'history_roots': [str(local / 'history')]}, client_factory=Client)
+                job.worker.join(8)
+            self.assertFalse(job.running())
+            self.assertEqual(job.state()['polls'], 3)
+            self.assertNotIn(extra_etf, requests[0])
+            self.assertIn(extra_etf, requests[1])
+            self.assertNotIn(extra_etf, requests[2])
+            self.assertNotIn(inactive, requests[1])
+            self.assertEqual(requests[1].count(actual), 1)
+            rows = RealtimeReader(root).latest_records([extra_etf, actual, inactive])
+            self.assertEqual(set(rows), {extra_etf, actual})
+            self.assertEqual(rows[extra_etf]['source_symbol'], extra_etf)
+
     def test_slow_request_reconnect_commits_versions_and_reports_each_stage(self):
         with tempfile.TemporaryDirectory() as t:
             local=Path(t);config=dict(history_roots=[str(local/'history')]);client=FakeClient()

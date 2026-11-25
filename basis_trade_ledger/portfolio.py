@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -64,6 +65,31 @@ def filtered(records, status='all', period=('', ''), section=ALL_GROUPS):
             and (not (low or high) or any((not low or day >= low) and (not high or day <= high) for day in record['dates']))]
 
 
+def borrow_capacity(records, limits, section):
+    """Each group's outstanding ETF short consumes the same symbol's limit."""
+    held = defaultdict(lambda: ZERO)
+    sections = defaultdict(set)
+    visible = {etf for etf, rule in limits.items() if section in (ALL_GROUPS, rule['index'])}
+    for row in records:
+        cfg = row['config']
+        etf, index = cfg['etf'], index_section(cfg)
+        sections[etf].add(index)
+        quantity = row['result']['etf'].quantity
+        held[etf] += max(ZERO, -quantity)
+        if (section == ALL_GROUPS or section == index) and (quantity < 0 or etf in limits):
+            visible.add(etf)
+    rows = []
+    for etf in sorted(visible):
+        rule = limits.get(etf, {})
+        limit = rule.get('limit')
+        used = held[etf]
+        indices = sorted((sections[etf] | {rule.get('index')}) - {None, ''})
+        rows.append(dict(etf=etf, indices=indices, limit=limit, used=used,
+                         available=None if limit is None else max(ZERO, limit - used),
+                         excess=None if limit is None else max(ZERO, used - limit)))
+    return rows
+
+
 def portfolio_values(records, market=None, recent_quotes=None, at=None):
     at = at or now()
     recent_quotes = recent_quotes or {}
@@ -76,20 +102,25 @@ def portfolio_values(records, market=None, recent_quotes=None, at=None):
             quotes = effective_marks(config, quotes, update, at)
         marks = revalue(config, record['result'], quotes)
         exposure = {}
-        held = []
+        positions = []
+        index = index_section(config)
         for leg in LEGS[:2]:
-            position = marks[leg].quantity
+            quantity = marks[leg].quantity
             mark = quotes.get(leg)
             multiplier = Decimal(config['multiplier']) if leg == 'futures' else 1
-            exposure[leg] = ZERO if not position else position * Decimal(str(mark['price'])) * multiplier if mark else None
-            if position:
-                held.append(mark)
+            if not quantity:
+                exposure[leg] = ZERO
+                continue
+            exposure[leg] = quantity * Decimal(str(mark['price'])) * multiplier if mark else None
+            positions.append(dict(leg=leg, code=config[leg], index=index, quantity=quantity,
+                                  exposure=exposure[leg], mark=mark))
         incomplete = any(v is None for v in exposure.values())
+        held = [position['mark'] for position in positions]
         quality = ('空仓' if not held else '待估值' if incomplete else '实时估值'
                    if all(mark.get('kind') == 'live' for mark in held) else 'Wind 收盘'
                    if all(mark.get('source') in (WIND_CLOSE, WIND_LOCAL_CLOSE) for mark in held) else '参考估值')
         rows.append(dict(record, realized=marks['realized'], floating=marks['floating'], total=marks['total'],
-                         etf_exposure=exposure['etf'], futures_exposure=exposure['futures'], quality=quality,
+                         etf_exposure=exposure['etf'], futures_exposure=exposure['futures'], quality=quality, positions=positions,
                          net=None if incomplete else sum(exposure.values(), ZERO),
                          gross=None if incomplete else sum(map(abs, exposure.values()), ZERO)))
     totals = {key: None if any(row[key] is None for row in rows) else sum((row[key] for row in rows), ZERO)

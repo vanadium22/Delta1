@@ -1,11 +1,15 @@
 from contextlib import closing, contextmanager
 import json
 from pathlib import Path
+import re
 import sqlite3
 
 from shared_data.paths import DataPaths
 
-from .model import LEGS, group_config, now, number, plan_config, trade_data
+from .model import LEGS, code, group_config, now, number, plan_config, trade_data
+
+
+BORROW_LIMIT_PREFIX = 'borrow-limit:'
 
 
 def data_paths(root=None):
@@ -87,6 +91,28 @@ class Ledger:
         with self.connection() as con:
             row = con.execute("SELECT value FROM preferences WHERE key='recent'").fetchone()
             return int(row[0]) if row else None
+
+    def borrow_limits(self):
+        with self.connection() as con:
+            return {key.removeprefix(BORROW_LIMIT_PREFIX): json.loads(value) for key, value in con.execute(
+                'SELECT key,value FROM preferences WHERE key GLOB ?', (BORROW_LIMIT_PREFIX + '*',))}
+
+    def set_borrow_limit(self, values):
+        etf = code(values.get('etf'))
+        index = code(values.get('index'))
+        if not re.fullmatch(r'[0-9]{6}(?:\.(?:SH|SZ))?', etf):
+            raise ValueError('请填写与交易组一致的 ETF 代码，例如 510500.SH')
+        if index and not re.fullmatch(r'[A-Z0-9]+(?:\.[A-Z0-9]+)?', index):
+            raise ValueError('请填写有效的跟踪指数代码')
+        limit = number(values.get('limit'), '可融券上限（份）', zero=True, integer=True)
+        key = BORROW_LIMIT_PREFIX + etf
+        rule = None if limit is None else dict(index=index, limit=int(limit))
+        with self.connection(write=True) as con:
+            if rule is None:
+                con.execute('DELETE FROM preferences WHERE key=?', (key,))
+            else:
+                con.execute('INSERT OR REPLACE INTO preferences VALUES (?, ?)', (key, encode(rule)))
+        return etf, rule
 
     @staticmethod
     def _set_recent(con, group_id):

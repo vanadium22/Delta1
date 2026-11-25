@@ -8,6 +8,7 @@ import time
 from dashboard.marketdata.repository import ReferenceBook
 from index_strategy.instant_dld.client import MarketDataClient
 from index_strategy.instant_dld.collector import collect
+from index_strategy.instant_dld.consumer_quotes import CASH, MAX_CODES, requested_codes
 from index_strategy.instant_dld.contract_aliases import DualIdentityStore
 from index_strategy.instant_dld.service import write_json
 
@@ -170,8 +171,12 @@ class CollectionJob:
                         current=load(config or {},self.local_root)
                         extra=set(quote_registry(config or {},current['data']))
                         desired=[f'{p}0{i}.CFE' for p in ('IF','IH','IC','IM') for i in range(4)]+sorted(set(index_ids)|extra)
+                        consumer=[code for code in requested_codes(root,datetime.now(timezone.utc)) if code not in desired]
+                        consumer=consumer[:max(0,MAX_CODES-len(desired))]
+                        desired.extend(consumer)
                         if len(desired)<=100 and desired!=getattr(self,'_overview_symbols',None):
-                            resolver.index_ids=set(index_ids)|extra
+                            # Listed futures still pass RollingResolver's actual-contract validation.
+                            resolver.index_ids=set(index_ids)|extra|{s for s in consumer if CASH.fullmatch(s)}
                             write_json(symbols_file,desired)
                             self._overview_symbols=desired
                     self.status.update(request_seconds=time.perf_counter()-started,received_at=result.get('received_at'))

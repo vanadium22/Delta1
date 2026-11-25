@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path
-import re
 import sqlite3
 from time import monotonic
 
+from index_strategy.instant_dld.consumer_quotes import MAX_CODES, QuoteSubscription, supported
 from shared_data.readers import LocalData
 
 from .model import LEGS, SHANGHAI, now, number
@@ -14,7 +14,6 @@ from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE, download_closes
 
 
 POLL_MS = 3000
-SUPPORTED = re.compile(r'(?:[0-9]{6}\.(?:SH|SZ)|(?:IF|IH|IC|IM)[0-9]{2}(?:0[1-9]|1[0-2])\.CFE)')
 
 
 @dataclass
@@ -139,15 +138,20 @@ class MarketQuotes:
         self.direct = {}
         self.references = {}
         self.retry_at = 0
+        self.retry_codes = ()
+        self.retry_message = ''
+        self.subscription = QuoteSubscription()
         self.wind_quotes = {}
         self.wind_pending = {}
 
     def close(self):
+        self.subscription.close()
         if self.client:
             self.client.close()
             self.client = None
 
-    def refresh(self, codes, *, force=False, on_cached=None, saved_closes=None, cache_only=False, allow_wind=True):
+    def refresh(self, codes, *, force=False, on_cached=None, saved_closes=None, cache_only=False, allow_wind=True,
+                subscribe=True):
         from dashboard.marketdata.quote_quality import quote_quality
         from dashboard.session_clock import market_phase
         from index_strategy.instant_dld.reader import RealtimeReader
@@ -156,14 +160,19 @@ class MarketQuotes:
         at = self.clock()
         phase = (self.phase or market_phase)(at)
         continuous = phase['continuous']
-        codes = sorted({c for c in codes if SUPPORTED.fullmatch(c)})
+        codes = tuple(sorted({c for c in codes if supported(c)}))
+        registered = self.subscription.publish(root, codes, at) if continuous and subscribe else False
+        if not continuous or not subscribe:
+            self.subscription.close()
         if not codes:
             return QuoteUpdate({}, {}, [], '请填写带交易所后缀的实际标的代码')
         reader = RealtimeReader(root)
+        cache_message = ''
         try:
-            rows = reader.latest_records(codes) if codes and reader.db_path.is_file() else {}
+            rows = reader.latest_records(codes) if reader.db_path.is_file() else {}
         except (OSError, sqlite3.Error):
             rows = {}
+            cache_message = '看板缓存读取失败'
         snapshot = _payload(profile / 'overview_snapshots' / 'latest.json')
         cached = snapshot.get('quotes') if isinstance(snapshot, dict) and snapshot.get('schema') == 'overview-latest-snapshot-v1' else {}
         if not isinstance(cached, dict):
@@ -192,19 +201,30 @@ class MarketQuotes:
                 valid = [mark for mark in candidates if mark]
                 if valid:
                     live[symbol] = max(valid, key=lambda mark: mark['time'])
-            missing = [symbol for symbol in codes if symbol not in live]
             needed = [s for s in codes if s not in live or (live[s]['source'] == '网厅 · 实时直连' and
                       (force or (at - _timestamp(live[s]['observed_at'])).total_seconds() >= 2.8))]
+            if self.retry_codes != codes:
+                self.retry_at, self.retry_codes, self.retry_message = 0, codes, ''
             if needed and not cache_only and (force or monotonic() >= self.retry_at):
                 if on_cached:
                     on_cached(QuoteUpdate(live.copy(), self._references(codes), [], '看板缓存 · 后台补查中'))
                 # Fetch the pair in one batch when only one side is covered or refreshed.
-                state = self._fetch(codes, config, live, fresh)
-                message = state or message
-            elif missing and self.retry_at > monotonic():
-                message = '网厅连接等待重试，沿用参考价'
+                self.retry_message = self._fetch(list(codes[:MAX_CODES]), config, live, fresh)
             live = {symbol: mark for symbol, mark in live.items() if mark and
                     (self.clock() - _timestamp(mark['time'])).total_seconds() <= 30}
+            missing = [s for s in codes if s not in live]
+            if missing:
+                reason = self.retry_message if not cache_only and self.retry_at > monotonic() else ''
+                subscription_status = '已登记看板订阅' if registered else '订阅目录不可写' if subscribe else ''
+                labels = []
+                for symbol in missing[:4]:
+                    raw = rows.get(symbol)
+                    status = quote_quality(raw, at) if raw and raw.get('source_symbol') == symbol else None
+                    detail = status['status'] if status and not status['usable'] else '缓存身份或价格校验失败' if raw else ''
+                    labels.append(f'{symbol}（{detail}）' if detail else symbol)
+                if len(missing) > len(labels):
+                    labels.append(f'等 {len(missing)} 个标的')
+                message = ' · '.join(filter(None, (reason, cache_message, subscription_status, '待实时价 ' + '、'.join(labels))))
         refs = self._references(codes)
         if allow_wind and phase.get('phase') in ('post_close', 'closed_day'):
             from dashboard.marketdata.overview_sessions import latest_completed_session
@@ -281,12 +301,13 @@ class MarketQuotes:
                 result = self.client.fetch(codes)
         except (OSError, ValueError) as exc:
             self.retry_at = monotonic() + 12
-            return ('看板占用行情通道，优先使用共享报价' if getattr(exc, 'lock_operation', '') == 'acquire_byte_lock'
-                    else '行情通道不可用，沿用参考价')
+            return ('行情通道正在使用' if getattr(exc, 'lock_operation', '') == 'acquire_byte_lock'
+                    else '行情通道不可用')
         good = result.get('status') in ('success', 'partial')
         self.retry_at = 0 if good else monotonic() + 15
         if not good:
-            return '网厅暂不可用，沿用参考价'
+            return {'timeout': '网厅请求超时', 'connection_error': '网厅连接失败', 'tls_error': '网厅证书校验失败',
+                    'proxy_error': '网厅代理连接失败'}.get(result.get('status'), '网厅暂不可用')
         at = self.clock()
         data = result['response']['data']
         for symbol in codes:
@@ -311,7 +332,7 @@ class MarketQuotes:
                     live[symbol] = mark
         if any(s not in live for s in codes):
             self.retry_at = monotonic() + 12
-            return '部分标的缺少有效实时价'
+            return '网厅未返回有效报价'
         return None
 
 

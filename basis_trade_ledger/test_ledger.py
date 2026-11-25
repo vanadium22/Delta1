@@ -1,6 +1,7 @@
 from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
+import json
 from pathlib import Path
 import sqlite3
 import sys
@@ -15,7 +16,7 @@ from .excel import workbook_preview
 from .excel_exchange import export_exchange
 from .hedge import hedge_size
 from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
-from .portfolio import filtered, group_rollup, index_section, portfolio_values
+from .portfolio import borrow_capacity, filtered, group_rollup, index_section, portfolio_values
 from .quotes import MarketQuotes, compatible_marks, local_closes
 from .store import Ledger, data_paths
 from .wind_close import WIND_CLOSE, download_closes
@@ -337,6 +338,54 @@ class PortfolioTest(unittest.TestCase):
         self.assertEqual(totals, {'realized': -3, 'floating': None, 'total': None, 'net': None, 'gross': None})
         self.assertEqual(rows[1]['quality'], '待估值')
 
+    def test_actual_positions_keep_each_leg_and_opposing_groups_separate(self):
+        cfg = dict(group_config(dict(CONFIG, futures='IC2612.CFE', index='', multiplier=200)), id=1)
+        marked = group_rollup(cfg, [posted('卖基差'), posted('ETF买入', shares=25, amount=100)],
+                              {'etf': mark(5), 'futures': mark(110)}, {})
+        unpriced = group_rollup(dict(cfg, id=2), [posted('ETF买入')], {}, {})
+        empty = group_rollup(dict(cfg, id=3), [posted('ETF买入'), posted('ETF卖出')], {}, {})
+        rows, _ = portfolio_values([marked, unpriced, empty])
+        etf, futures = rows[0]['positions']
+        self.assertEqual((etf['index'], etf['code'], etf['quantity'], etf['exposure']),
+                         ('000905.SH', cfg['etf'], -75, -375))
+        self.assertEqual((futures['code'], futures['quantity'], futures['exposure']),
+                         ('IC2612.CFE', 2, 44000))
+        self.assertEqual((rows[1]['positions'][0]['quantity'], rows[1]['positions'][0]['exposure']), (100, None))
+        self.assertEqual(rows[2]['positions'], [])
+
+    def test_borrow_capacity_counts_uncovered_shorts_across_indices_and_sessions(self):
+        etf = '510500.SH'
+        cfg = dict(group_config(dict(CONFIG, etf=etf, index='000905.SH')), id=1)
+        reports = [
+            group_rollup(cfg, [posted('卖基差', shares=1300, time='2026-11-23 10:00'),
+                               posted('ETF买入', shares=300, time='2026-11-24 10:00')], {}, {}),
+            group_rollup(dict(cfg, id=2, index='000300.SH'), [posted('ETF卖出', shares=500)], {}, {}),
+            group_rollup(dict(cfg, id=3), [posted('ETF买入', shares=800)], {}, {}),
+            group_rollup(dict(cfg, id=4, etf='512500.SH'), [posted('ETF卖出', shares=200)], {}, {}),
+            group_rollup(dict(cfg, id=5), [trade_data(fills('ETF卖出', shares=200), 'draft')], {}, {}),
+        ]
+        capacity = borrow_capacity(reports, {etf: dict(index='000905.SH', limit=2000)}, '000905.SH')
+        caps = {row['etf']: row for row in capacity}
+        self.assertEqual((caps[etf]['used'], caps[etf]['available'], caps[etf]['excess']), (1500, 500, 0))
+        self.assertEqual((caps['512500.SH']['used'], caps['512500.SH']['available']), (200, None))
+        caps = borrow_capacity(reports, {etf: dict(index='000905.SH', limit=0)}, '000300.SH')
+        self.assertEqual((caps[0]['used'], caps[0]['available'], caps[0]['excess']), (1500, 0, 1500))
+
+    def test_borrow_limit_preserves_zero_and_reopens_with_the_same_setting(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / 'ledger.sqlite'
+            values = dict(etf='510500.sh', index='000905.SH', limit='1,250,000')
+            Ledger(path).set_borrow_limit(values)
+            restored = Ledger(path)
+            self.assertEqual(restored.borrow_limits(), {'510500.SH': {'index': '000905.SH', 'limit': 1250000}})
+            for invalid in ('-1', '2.5', 'abc'):
+                with self.assertRaises(ValueError):
+                    restored.set_borrow_limit(dict(values, limit=invalid))
+            restored.set_borrow_limit(dict(values, limit='0'))
+            self.assertEqual(restored.borrow_limits()['510500.SH']['limit'], 0)
+            restored.set_borrow_limit(dict(values, limit=''))
+            self.assertEqual(Ledger(path).borrow_limits(), {})
+
 
 class RealtimeTest(unittest.TestCase):
     CODES = [CONFIG['etf'], CONFIG['futures']]
@@ -393,6 +442,36 @@ class RealtimeTest(unittest.TestCase):
         self.assertEqual(list(result.live), [self.CODES[0]])
         market.refresh(self.CODES)
         client.fetch.assert_called_once()
+
+    def test_locked_channel_registers_exact_codes_and_reads_shared_updates_during_backoff(self):
+        from dashboard.session_guard import network_lease
+        from index_strategy.instant_dld.consumer_quotes import requested_codes
+
+        local = self.paths.repo_root / 'dashboard' / 'localsetting' / 'numeric_excel'
+        local.mkdir(parents=True)
+        config = {'history_roots': [str(self.paths.root / 'history')], 'realtime_root': str(self.path.parent.parent)}
+        (local / 'native.json').write_text(json.dumps(config), encoding='utf-8')
+        self.add(self.CODES[0], 4.2, seconds=40)
+        factory = Mock()
+        market = self.market(factory)
+        root = self.path.parent.parent
+        with network_lease(config):
+            result = market.refresh(self.CODES)
+            self.assertIn('行情通道正在使用', result.message)
+            self.assertIn('已登记看板订阅', result.message)
+            for code in self.CODES:
+                self.assertIn(code, result.message)
+            self.assertEqual(market.refresh(self.CODES).message, result.message)
+            self.assertEqual(set(requested_codes(root, self.CLOCK)), set(self.CODES))
+            self.assertEqual(requested_codes(root, self.CLOCK + timedelta(seconds=19)), [])
+            self.add(self.CODES[0], 4.3)
+            self.add(self.CODES[1], 113)
+            live = market.refresh(self.CODES).live
+            self.assertEqual(set(live), set(self.CODES))
+            self.assertTrue(all(mark['source'] == '网厅 · 看板实时' for mark in live.values()))
+        factory.assert_not_called()
+        market.close()
+        self.assertEqual(requested_codes(root, self.CLOCK), [])
 
     def test_direct_batch_matching_receipt_and_out_of_session_cache(self):
         self.add(self.CODES[0], 4.2)

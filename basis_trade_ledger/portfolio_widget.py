@@ -1,8 +1,9 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QTabWidget, QVBoxLayout, QWidget
 
 from .portfolio import date_filter, section_title
-from .widgets import MetricCard, Table, fmt, label, text_input
+from .widgets import MetricCard, Table, button, fmt, label, text_input
 
 
 class PortfolioFilters(QWidget):
@@ -62,6 +63,7 @@ class PortfolioFilters(QWidget):
 
 class PortfolioPage(QWidget):
     group_selected = Signal(int)
+    borrow_limit_selected = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -80,22 +82,53 @@ class PortfolioPage(QWidget):
         layout.addLayout(metrics)
         self.table = Table(('交易组', '状态', '总盈亏', '已实现', '浮盈亏', '净敞口', '总敞口', 'ETF 敞口', '期货敞口', '估值状态'),
                            (129, 74, 93, 88, 91, 91, 91, 101, 101, 103))
-        layout.addWidget(self.table, 1)
+        self.positions_table = Table(('交易组', '对应指数', '持仓标的', '方向', '实际持仓', '敞口 · 元'),
+                                     (111, 170, 120, 59, 100, 128))
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.positions_table, '实际持仓')
+        self.tabs.addTab(self.table, '交易组盈亏')
+        self.borrow_page = QWidget()
+        borrow_layout = QVBoxLayout(self.borrow_page)
+        borrow_layout.setContentsMargins(10, 8, 10, 8)
+        borrow_actions = QHBoxLayout()
+        borrow_actions.addWidget(label('按 ETF 汇总未回补空头 · 单位为份', 'muted'), 1)
+        borrow_actions.addWidget(button('设置额度', lambda: self.borrow_limit_selected.emit(''), True))
+        borrow_layout.addLayout(borrow_actions)
+        self.borrow_table = Table(('ETF 代码', '对应指数', '可融券上限', '已用额度', '还可卖空', '超出额度'),
+                                  (107, 112, 112, 103, 112, 105))
+        self.borrow_table.setToolTip('数量单位为份。已用额度来自台账当前的全部组，双击一行可修改上限。')
+        self.borrow_table.cellDoubleClicked.connect(self.select_borrow)
+        borrow_layout.addWidget(self.borrow_table)
+        self.tabs.addTab(self.borrow_page, '融券额度')
+        layout.addWidget(self.tabs, 1)
+        self.quote_note = label('', 'muted')
+        self.quote_note.setMinimumWidth(0)
+        self.quote_note.setWordWrap(True)
+        self.quote_note.hide()
+        layout.addWidget(self.quote_note)
+        self.tabs.currentChanged.connect(lambda _: self.update_quote_note())
         self.table.cellDoubleClicked.connect(self.select_group)
+        self.positions_table.cellDoubleClicked.connect(self.select_position_group)
         self.rows = []
+        self.position_groups = []
         self.displayed_values = None
+        self.displayed_positions = None
+        self.displayed_borrow = None
 
     def show_loading(self, section):
         self.show_values(section, [], {})
+        self.show_borrow_capacity([])
         self.description.setText('正在计算交易组汇总…')
 
-    def show_values(self, section, rows, totals):
+    def show_values(self, section, rows, totals, quote_message=''):
         self.rows = rows
         self.title.setText(section_title(section))
         pending = sum(row['total'] is None for row in rows)
         active = sum(row['active'] for row in rows)
         self.description.setText(f'{len(rows)} 组　·　存续 {active}　·　已结束 {len(rows) - active}' +
                                  (f'　·　待估值 {pending} 组' if pending else ''))
+        self.quote_note.setText(quote_message)
+        self.update_quote_note()
         contexts = dict(total='已实现 + 浮盈亏', realized='扣除成交费用', floating='', net='带方向名义额', gross='各腿绝对名义额')
         for key, panel in self.metrics.items():
             panel.set_metric(totals.get(key), contexts[key], missing='待估值' if totals else '—',
@@ -109,6 +142,60 @@ class PortfolioPage(QWidget):
             for row in range(len(values)):
                 for col in range(2, 9):
                     self.table.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        positions = []
+        self.position_groups = []
+        for row in rows:
+            for position in row['positions']:
+                self.position_groups.append(row['config']['id'])
+                mark = position['mark']
+                tooltip = ' · '.join(filter(None, (fmt(mark['price'], 4), mark.get('source'), mark.get('time')))) if mark else '待估值'
+                index = position['index']
+                index_title = section_title(index)
+                index_label = f'{index_title} {index}' if index and index != index_title else index_title
+                etf = position['leg'] == 'etf'
+                quantity = position['quantity']
+                exposure = position['exposure']
+                positions.append(((row['config']['name'], index_label, f"ETF {position['code']}" if etf else position['code'],
+                                   '多头' if quantity > 0 else '空头', f"{fmt(abs(quantity), 0)} {'份' if etf else '手'}",
+                                   fmt(exposure, missing='待估值')), tooltip))
+        self.tabs.setTabText(0, f'实际持仓 ({len(positions)})')
+        if positions != self.displayed_positions:
+            self.displayed_positions = positions
+            self.positions_table.fill([cells for cells, _ in positions])
+            for n, (cells, tooltip) in enumerate(positions):
+                self.positions_table.item(n, 3).setForeground(QColor('#a73440' if cells[3] == '多头' else '#13735d'))
+                self.positions_table.item(n, 5).setToolTip(tooltip)
+                for col in (4, 5):
+                    self.positions_table.item(n, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def select_group(self, row, _column):
         self.group_selected.emit(self.rows[row]['config']['id'])
+
+    def select_position_group(self, row, _column):
+        self.group_selected.emit(self.position_groups[row])
+
+    def update_quote_note(self):
+        self.quote_note.setVisible(bool(self.quote_note.text()) and self.tabs.currentWidget() != self.borrow_page)
+
+    def show_borrow_capacity(self, rows):
+        values = [(row['etf'], '、'.join(section_title(index) for index in row['indices']) or '—',
+                   fmt(row['limit'], 0, '未设置'), fmt(row['used'], 0), fmt(row['available'], 0),
+                   fmt(row['excess'], 0) if row['excess'] else '—') for row in rows]
+        if values == self.displayed_borrow:
+            return
+        self.displayed_borrow = values
+        self.borrow_table.fill(values)
+        for n, row in enumerate(rows):
+            for col in range(2, 6):
+                self.borrow_table.item(n, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            available = self.borrow_table.item(n, 4)
+            font = available.font()
+            font.setBold(True)
+            available.setFont(font)
+            if row['excess']:
+                self.borrow_table.item(n, 5).setForeground(QColor('#a73440'))
+            elif row['available']:
+                available.setForeground(QColor('#13735d'))
+
+    def select_borrow(self, row, _column):
+        self.borrow_limit_selected.emit(self.displayed_borrow[row][0])
