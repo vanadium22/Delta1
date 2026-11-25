@@ -99,6 +99,9 @@ class TradeSummaryTests(unittest.TestCase):
             self.assertEqual(list(data["三账户合计"].values), [app.COLUMNS])
         finally:
             data.close()
+        empty_recipient_result = self.repo / "for-workbench-recipients.json"
+        self.assertEqual(self.run_day([], empty_recipient_result), book)
+        self.assertEqual(json.loads(empty_recipient_result.read_text(encoding="utf-8"))["mail"]["to"], [])
         old_trade = {**self.trade("yesterday", "BUYER", 1, 10), "tradingDate": "2026-11-24"}
         result = self.repo / "wrong-date-result.json"
         with self.assertRaisesRegex(ValueError, "异常日期"):

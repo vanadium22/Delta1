@@ -220,7 +220,7 @@ def publish_book(outputs, day, tables):
 def run_day(day, root, outputs, config_path, bct_script, *, scheduled, recipients=None, wa_output=None):
     day_text = day.isoformat()
     if wa_output is not None:
-        recipients = validate_recipients(recipients or ())
+        recipients = validate_recipients(recipients) if recipients else []
     config_path = config_path or root / "inputs" / "config.local.json"
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.is_file() else {}
     source_root = root / "trade_summary"

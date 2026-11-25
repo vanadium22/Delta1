@@ -11,6 +11,7 @@
   "recurring_entry": "start.cmd",
   "setup_entry": "setup-daily.cmd",
   "workbench_registration_only_option": "--register-only",
+  "workbench_mail_settings": "Work Automation task editor / 发送邮件设置",
   "company_daily_entry": "../收益统计.cmd",
   "handoff": "PROJECT_HANDOFF.md",
   "account_series": {"file": "account_daily_pnl.json", "schema_version": 1},
