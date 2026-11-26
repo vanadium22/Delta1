@@ -1,6 +1,6 @@
 {
   "module": "account_daily_pnl",
-  "release_date": "2026-11-25",
+  "release_date": "2026-11-26",
   "release_stage": "company-acceptance",
   "performance_outputs": ["逐交易日统计.xlsx", "历史至今_账户收益.png", "目标年_账户收益.png"],
   "baseline": "2025-12-29",
@@ -23,6 +23,6 @@
   "daily_checkpoint": {"file": "daily_cache.json", "schema_version": 1},
   "wind_log_detail_option": "--wind-log-detail",
   "work_automation": {"name": "三账户场内持仓与盈亏", "schedule": "daily 09:25 Asia/Shanghai", "catch_up": true, "mail": "策略台PnL对账.xlsx + 策略台PnL对账.png"},
-  "trade_summary": {"name": "三账户当日成交汇总", "schedule": "daily 15:30 Asia/Shanghai", "catch_up": false, "setup_entry": "trade-summary.cmd", "workbench_entry": "trade_summary.py", "output": "账户成交汇总_YYYY-MM-DD.xlsx", "workbook_style": "instrument-bands-and-side-colors"},
+  "trade_summary": {"name": "三账户当日成交汇总", "schedule": "daily 15:30 Asia/Shanghai", "catch_up": false, "setup_entry": "trade-summary.cmd", "workbench_entry": "trade_summary.py", "output": "账户成交汇总_YYYY-MM-DD.xlsx", "workbook_style": "instrument-bands-and-side-colors", "gross_amount_sign": "buy-positive-sell-negative"},
   "company_checks": ["Wind 登录及缺价补录", "期货日终估值字段对账", "三账户基准资金及出入金覆盖确认"]
 }

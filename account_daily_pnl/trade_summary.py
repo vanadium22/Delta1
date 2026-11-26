@@ -136,10 +136,11 @@ def report_tables(day, rows):
             raise ValueError(f"{day} 账户 {account} 原始流水第 {index} 行：{exc}") from exc
 
         key = code, side, currency
+        sign = DIRECTIONS[side][1]
         for name in (ALL_ACCOUNTS, account):
             sums = summaries[name][key]
-            sums[0] += quantity * DIRECTIONS[side][1]
-            sums[1] += gross
+            sums[0] += quantity * sign
+            sums[1] += gross * sign
             sums[2] += 1
         stats["trades"] += 1
 
@@ -153,7 +154,7 @@ def report_tables(day, rows):
         ("数据来源", "BCT 境内权益互换台当日流水"),
         ("范围", "2602（BCT 5102）、5526、5524 的成交记录"),
         ("变动数量", "按流水单位，买入为正、卖出为负，期货为手"),
-        ("累计成交金额", "当日同标的、同方向、同币种的原始费前成交金额合计"),
+        ("累计成交金额", "当日同标的、同方向、同币种的费前成交金额合计，买入为正、卖出为负"),
         ("BCT 原始记录数", len(rows)),
         ("已纳入成交笔数", stats["trades"]),
         ("排除的非成交记录", stats["non_trade"]),
