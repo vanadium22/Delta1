@@ -8,6 +8,12 @@
     "historical_dividend_workbooks": 9,
     "latest_dividend_business_day": "2026-11-19",
     "credentials_included": false,
+    "artifact": "local_artifacts/distribution/Delta1_公司看板_20261126_f62442e.zip",
+    "artifact_bytes": 475590828,
+    "artifact_sha256": "c411a0ffdf4fdbc549d5018bf2824c71053e539b2d0966d845e40afbf4e593d3",
+    "runtime_commit": "f62442ef829a6b5e0de9c51e7bda67bd3d1eecfb",
+    "offline_wheels": 25,
+    "clean_validation": {"zip_members": 21880, "overview_indices": 4, "overview_futures": 16, "external_standard_python": "3.13.12-x64", "account_protection": "dummy credentials verified with Windows DPAPI", "share_download": "local simulated company share, actual child reader, historic Excel and deduplication", "full_dashboard_tests": 586},
     "company_network_acceptance": "pending"
   },
   "ledger_shared_quotes_20261125": {
