@@ -27,6 +27,36 @@ from tests.test_market_overview_ui import APP,state
 from tests.test_market_overview import NOW
 
 
+class PortableShareTests(unittest.TestCase):
+    def test_manual_download_preserves_sparse_historical_excel_and_deduplicates(self):
+        from hashlib import sha256
+        from openpyxl import Workbook
+        from dashboard.marketdata.overview_dividend_sync import run_sync, stage_inputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            share=root/'share';share.mkdir()
+            source=share/'指数基差情况_旧文件名.xlsx'
+            book=Workbook();sheet=book.active;sheet.title='Sheet1'
+            sheet['B1']='2025-05-12';sheet['G3']='分红'
+            sheet['B4']='IF00.CFE';sheet['C4']='Fetching...';sheet['G4']=2.5
+            book.save(source);book.close()
+            archive=root/'archive'
+            paths=SimpleNamespace(dividend_archive=archive)
+            config={'overview_dividend_source_dir':str(share)}
+            with patch('dashboard.marketdata.paths.PATHS',paths):
+                clock=pd.Timestamp('2026-11-26T09:00:00+08:00').to_pydatetime()
+                first=run_sync(config,root/'profile',now=clock,reader=stage_inputs,include_history=True)
+                next_run=run_sync(config,root/'profile',now=clock,reader=stage_inputs,include_history=True)
+            content=source.read_bytes()
+            saved=archive/'share_history'/sha256(content).hexdigest()/source.name
+            self.assertEqual(saved.read_bytes(),content)
+            self.assertEqual(first['business_dates'],['2025-05-12'])
+            self.assertEqual(first['archived_history_files'],1)
+            self.assertTrue(first['published'])
+            self.assertEqual(next_run['archived_history_files'],0)
+
+
 class TermCurveTests(unittest.TestCase):
     def payload(self):
         market=state()['market_overview']

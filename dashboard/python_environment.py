@@ -72,6 +72,12 @@ def requirements(path=None):
     return read(root,set())
 
 
+def requirements_file(root):
+    root=Path(root)/'dashboard'
+    pinned=root/'requirements-colleague-313.txt'
+    return pinned if sys.version_info[:2]==(3,13) and pinned.is_file() else root/'requirements-app.txt'
+
+
 def version_matches(version,spec):
     try:
         try:from packaging.version import Version
@@ -104,7 +110,7 @@ def probe(*,root=ROOT,candidate=None):
     for path in (legacy,overlay):
         if path and path.is_dir():sys.path.insert(0,str(path))
     items=[]
-    for name,spec in requirements(Path(root)/'dashboard'/'requirements-app.txt'):
+    for name,spec in requirements(requirements_file(root)):
         try:
             importlib.import_module(MODULES[name])
             try:version=metadata.version(name).strip()
@@ -158,7 +164,7 @@ def install(*,root=ROOT,runner=subprocess.run):
     for use_offline in passes:
         generation=uuid.uuid4().hex;target=base/generation;target.mkdir()
         args=[*command,'install','--disable-pip-version-check','--no-input','--no-compile','--timeout','30','--retries','2','--target',str(target),
-              '-r',str(root/'dashboard'/'requirements-app.txt')]
+              '-r',str(requirements_file(root))]
         if use_offline:args+=['--no-index','--find-links',str(wheelhouse)]
         try:
             result=runner(args,cwd=str(root),env=environment,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,

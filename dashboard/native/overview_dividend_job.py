@@ -28,7 +28,8 @@ class DividendJob:
         result = dict(self.scheduling, worker_running=self.running())
         if self.active_root:
             saved = read_json(self.active_root/'status.json')
-            result['last_result'] = {k:saved.get(k) for k in ('status','inserted','imported_files','unchanged','source_files','errors','finished_at')}
+            result['last_result'] = {k:saved.get(k) for k in ('status','inserted','imported_files','archived_history_files',
+                'business_dates','unchanged','source_files','errors','finished_at')}
         return result
 
     def tick(self, config, *, enabled, now=None, force=False):
@@ -49,7 +50,7 @@ class DividendJob:
             saved['retry_after'] = (now+timedelta(minutes=5)).isoformat()
             _atomic_bytes(schedule_path, _json_bytes(saved))
             self.process = None
-        if config.get('overview_dividend_sync_enabled', True) is False:
+        if config.get('overview_dividend_sync_enabled', True) is False and not force:
             self.scheduling = dict(status='disabled')
             return
         try:
@@ -82,8 +83,9 @@ class DividendJob:
             complete=False,attempted_at=now.isoformat(),retry_after=(now+timedelta(minutes=5)).isoformat())
         _atomic_bytes(schedule_path, _json_bytes(record))
         try:
-            self.process = subprocess.Popen([sys.executable,'-B','-X','utf8','-m','dashboard.marketdata.overview_dividend_sync',
-                '--local-root',str(self.local_root)],cwd=str(Path(__file__).resolve().parents[2]),
+            args=[sys.executable,'-B','-X','utf8','-m','dashboard.marketdata.overview_dividend_sync','--local-root',str(self.local_root)]
+            if force:args.append('--include-history')
+            self.process = subprocess.Popen(args,cwd=str(Path(__file__).resolve().parents[2]),
                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             self.scheduling = dict(status='worker_started',slot=slot)

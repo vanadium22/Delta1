@@ -18,6 +18,13 @@ class InlineSettings(QWidget):
         from dashboard.marketdata.ddb_connection import app_endpoint
         try:endpoint=app_endpoint(config)
         except (ValueError,TypeError):endpoint={}
+        account_button=QPushButton('配置 DDB 与数据 VPN 账号');layout.addWidget(account_button)
+        environment=QPushButton('选择 Python / 一键补齐依赖');layout.addWidget(environment)
+        environment.clicked.connect(self.python_setup)
+        self.accounts=QWidget();layout.addWidget(self.accounts)
+        basic=QVBoxLayout(self.accounts);basic.setContentsMargins(0,0,0,0)
+        self.accounts.hide()
+        account_button.clicked.connect(lambda:self.accounts.setVisible(not self.accounts.isVisible()))
         database=self.group(layout,'DDB 数据地址')
         for key,title in [('host','生效地址'),('port','端口')]:
             field=self.field(key,str(endpoint.get(key,'')));database.addRow(title,field)
@@ -36,7 +43,7 @@ class InlineSettings(QWidget):
         hint.setWordWrap(True);expiry.addRow(hint)
         self.expiry_save=QPushButton('保存临期参数');expiry.addRow(self.expiry_save)
         self.expiry_save.clicked.connect(self.save_expiry_filter)
-        toggle=QPushButton('展开 / 收起路径、分红、Wind、VPN与账号设置');layout.addWidget(toggle)
+        toggle=QPushButton('展开 / 收起高级设置');layout.addWidget(toggle)
         self.body=QWidget();layout.addWidget(self.body);advanced=QVBoxLayout(self.body)
         advanced.setContentsMargins(0,0,0,0);advanced.setSpacing(16)
         advanced.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
@@ -51,8 +58,6 @@ class InlineSettings(QWidget):
         for key in ('dividend_root','overview_dividend_file','overview_dividend_source_dir','overview_dividend_pattern',
                     'overview_dividend_check_am','overview_dividend_check_pm'):forms[key]=dividends
         forms['overview_wind_python']=self.group(advanced,'Wind终端')
-        environment=QPushButton('选择 Python / 检查并补齐依赖');local.addRow(environment)
-        environment.clicked.connect(self.python_setup)
         vpn_form=self.group(advanced,'DDB数据VPN')
         for key in ('history_vpn_config','history_vpn_trust','history_vpn_powershell'):forms[key]=vpn_form
         vpn=vpn_profile(config,pipeline.model.local_root)
@@ -76,20 +81,20 @@ class InlineSettings(QWidget):
             label=QLabel(title);label.setWordWrap(True);label.setMinimumWidth(250);label.setMaximumWidth(290)
             forms[key].addRow(label,self.field(key,value))
         save=QPushButton('保存路径（保留原库与其他设置）');advanced.addWidget(save);save.clicked.connect(self.save_paths)
-        account=self.group(advanced,'数据库账号（仅需要修改时填写）')
+        account=self.group(basic,'DDB 数据库')
         account.addRow('账号',self.field('username',''));account.addRow('新密码（空白沿用原密码）',self.field('password',''))
         self.fields['password'].setEchoMode(QLineEdit.EchoMode.Password)
         load=QPushButton('读取已有账号（密码不回显）');account.addRow(load);load.clicked.connect(self.load_credentials)
         save=QPushButton('保存本机数据库凭据');account.addRow(save);save.clicked.connect(self.save_credentials)
-        vpn_account=self.group(advanced,'配置本机 DDB 数据 VPN')
+        vpn_account=self.group(basic,'数据 VPN（已有可用连接可跳过）')
         from dashboard.vpn_profile_settings import display_defaults as vpn_metadata
         meta=vpn_metadata(vpn['config'],vpn['trust'],allow_default=not (config.get('history_vpn_config') or config.get('history_vpn_trust')))
-        for key,title,value in [('vpn_gateway','VPN HTTPS 网关',meta.get('gateway','')),
-                                ('vpn_fingerprint','网关证书 SHA256 指纹',meta.get('fingerprint','')),
-                                ('vpn_username','VPN 账号',''),('vpn_password','VPN 密码','')]:
-            vpn_account.addRow(title,self.field(key,value))
+        vpn_account.addRow('VPN 账号',self.field('vpn_username',''))
+        vpn_account.addRow('VPN 密码',self.field('vpn_password',''))
+        vpn_form.addRow('VPN HTTPS 网关',self.field('vpn_gateway',meta.get('gateway','')))
+        vpn_form.addRow('网关证书 SHA256 指纹',self.field('vpn_fingerprint',meta.get('fingerprint','')))
         self.fields['vpn_password'].setEchoMode(QLineEdit.EchoMode.Password)
-        help_text=QLabel('新用户默认填入已核验的网关和指纹；已有配置优先。填写账号和密码后保存；可达数据隧道继续复用，实时 VPN 仍手动切换。')
+        help_text=QLabel('账号密码加密保存在当前 Windows 用户下。行情 VPN 请在公司客户端连接。网关与证书在高级设置。')
         help_text.setWordWrap(True);vpn_account.addRow(help_text)
         save_vpn=QPushButton('保存本机 VPN 凭据');vpn_account.addRow(save_vpn);save_vpn.clicked.connect(self.save_vpn)
 

@@ -1,5 +1,6 @@
 """Supported App entry. The main window owns all progress and settings."""
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -21,6 +22,8 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     parser.add_argument('--capture',type=Path)
     parser.add_argument('--capture-page',type=int,default=0)
     parser.add_argument('--startup-check',action='store_true')
+    parser.add_argument('--first-setup',action='store_true',help='打开本机账号配置')
+    parser.add_argument('--download-dividends',action='store_true',help='从公盘补收分红 Excel')
     args=parser.parse_args(argv)
     quiet=bool(args.capture or args.startup_check)
     if quiet:os.environ['QT_QPA_PLATFORM']='offscreen'
@@ -39,7 +42,19 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     model.realtime_verified=False
     instance=None
     handover_started=time.monotonic()
-    if not (quiet or args.no_realtime or frozen):
+    profile=model.config.get('history_connection_file')
+    first_launch=os.environ.get('DELTA1_PORTABLE')=='1' and not (profile and Path(profile).is_file())
+    if first_launch:
+        package=Path(__file__).resolve().parents[1]/'PACKAGE-MANIFEST.json'
+        try:
+            from datetime import date
+            coverage=json.loads(package.read_text(encoding='utf8'))['history']
+            model.portable_history_day=min(date.fromisoformat(row['frequencies']['1d']['last'])
+                                           for row in coverage).isoformat()
+        except (OSError,ValueError,KeyError,TypeError):
+            pass
+    readonly=quiet or args.no_realtime or frozen or args.first_setup or args.download_dividends or first_launch
+    if not readonly:
         from .app_instance import InstanceLease
         instance=InstanceLease(Path(__file__).parent/'runtime',model.config,model.local_root)
         instance.acquire()
@@ -47,7 +62,7 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     window=(window_class or ResearchWindow)(model);window.setWindowTitle(title)
     window.instance_lease=instance
     if icon:window.setWindowIcon(icon())
-    pipeline=window.pipeline=DataPipeline(window,enabled=not (quiet or args.no_realtime or frozen) and (instance is None or instance.owned))
+    pipeline=window.pipeline=DataPipeline(window,enabled=not readonly and (instance is None or instance.owned))
     if getattr(window,'query_page',None) is not None and not pipeline.enabled:window.query_page.set_readonly()
     close_timer=QTimer(window);close_timer.setInterval(200)
     def check_replacement():
@@ -56,6 +71,13 @@ def main(argv=None,*,window_class=None,title='Delta1 · 股指看板',icon=None,
     close_timer.timeout.connect(check_replacement)
     if instance is not None:close_timer.start()
     window.pipeline_page=PipelinePage(pipeline);window.pages.addTab(window.pipeline_page,'数据更新 / 设置')
+    if (args.first_setup or args.download_dividends) and not frozen:
+        window.pages.setCurrentWidget(window.pipeline_page)
+        window.pipeline_page.settings.accounts.setVisible(args.first_setup)
+    if args.download_dividends and not (quiet or frozen):
+        QTimer.singleShot(0,pipeline.refresh_dividends)
+    if getattr(model,'portable_history_day',None) and not (args.first_setup or args.download_dividends):
+        window.pipeline_page.settings.notice.setText('首次启动先显示随包历史。配置本人账号后，可补齐收盘或更新报价。')
     compact=hasattr(window,'update_overview_status')
     window.pipeline_note=window.status if compact else QLabel()
     if not compact:

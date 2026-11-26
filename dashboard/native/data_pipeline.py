@@ -99,6 +99,7 @@ class DataPipeline(QObject):
 
     def request_history(self,deep=False,*,force=True):
         if self.closing or not self.instance_ready():return
+        self.model.portable_history_day=None
         self.dismiss_realtime_prompt();self.awaiting_realtime=False;self.prompted_key=None
         self.enabled=True;self.action='history';self.deep=deep;self.force=force;self.history_retry=time.monotonic()+300
         self.collection.stop();self.model.realtime_verified=False
@@ -118,6 +119,7 @@ class DataPipeline(QObject):
 
     def request_realtime(self,once=False,*,force_reference=False):
         if self.closing or not self.instance_ready():return
+        self.model.portable_history_day=None
         self.dismiss_realtime_prompt();self.awaiting_realtime=False
         self.enabled=True;self.action='realtime';self.once=once;self.next_retry=0
         if self.overview_reference is not None and self.overview_reference.closed and not self.overview_reference.running():
@@ -473,7 +475,7 @@ class PipelinePage(QWidget):
         body.setContentsMargins(18,18,18,18);body.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.scroll_area.setWidget(content);self.actions=QGridLayout();self.actions.setSpacing(10);body.addLayout(self.actions)
         self.buttons=[];self.action_columns=None
-        for title,fn in [('一键补齐收盘',pipeline.one_click),('更新分红',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
+        for title,fn in [('一键补齐收盘',pipeline.one_click),('下载公盘分红 Excel',pipeline.refresh_dividends),('概览日线核验',lambda:pipeline.request_history(True)),
                          ('验证并开始实时',pipeline.request_realtime),('取消 / 只读缓存',pipeline.readonly),('导出诊断',self.export)]:
             button=QPushButton(title);button.clicked.connect(lambda checked=False,f=fn:f());self.buttons.append(button)
         self.arrange_actions()
@@ -510,6 +512,14 @@ class PipelinePage(QWidget):
         running=p.history.running()
         if failure:summary+=(' · 本轮DDB阶段 ' if running else ' · 上次DDB阶段 ')+str(failure)
         snapshot=(report.get('overview_runtime') or {}).get('latest_snapshot') or {}
+        dividend_job=(report.get('overview_runtime') or {}).get('dividend_scheduler') or {}
+        dividend_result=dividend_job.get('last_result') or {}
+        if dividend_job.get('worker_running'):
+            summary+='\n公盘分红 Excel 下载中'
+        elif dividend_result.get('finished_at'):
+            summary+=f"\n公盘分红 Excel · 新增 {dividend_result.get('archived_history_files') or dividend_result.get('imported_files') or 0} 份"
+            if dividend_result.get('errors'):
+                summary+=' · 有文件或目录未读取，详见诊断'
         candidates=[r for r in (history.get('http_previous_close'),(report.get('collection') or {}).get('http_previous_close'),
             snapshot.get('http_previous_close')) if isinstance(r,dict) and r.get('updated_at')]
         http=max(candidates,key=lambda r:r['updated_at'],default={})

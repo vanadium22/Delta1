@@ -7,10 +7,12 @@ Set env = shell.Environment("PROCESS")
 env("DELTA1_DATA_ROOT") = fso.BuildPath(root, "data")
 env("DELTA1_OUTPUTS_ROOT") = fso.BuildPath(root, "outputs")
 env("SWHY_DELTA1_PYTHON") = fso.BuildPath(root, "runtime\python\python.exe")
+env("DELTA1_PORTABLE") = "1"
 env.Remove("SWHY_HISTORY_PYTHON")
 env.Remove("DELTA1_APP_PYTHON")
 env.Remove("DELTA1_APP_OVERLAY")
 env.Remove("PYTHONPATH")
+env.Remove("PYTHONHOME")
 shell.CurrentDirectory = root
 selfTest = False
 If WScript.Arguments.Count > 0 Then selfTest = (WScript.Arguments(0) = "--self-test")

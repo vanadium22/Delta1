@@ -32,6 +32,9 @@ $check=New-Object System.Windows.Forms.Button;$check.SetBounds(20,151,158,40);$c
 $install=New-Object System.Windows.Forms.Button;$install.SetBounds(190,151,165,40);$install.Text='一键补齐依赖'
 $use=New-Object System.Windows.Forms.Button;$use.SetBounds(367,151,180,40);$use.Text='保存选择并启动'
 if($FromApp){$use.Text='保存选择（重启生效）'}
+$bundled=Join-Path $repository 'runtime/python/python.exe'
+$reset=New-Object System.Windows.Forms.Button;$reset.SetBounds(559,151,141,40);$reset.Text='切回内置 Python'
+$reset.Anchor='Top,Right';$reset.Visible=Test-Path -LiteralPath $bundled -PathType Leaf
 $output=New-Object System.Windows.Forms.TextBox
 $output.SetBounds(20,205,680,230);$output.Anchor='Top,Bottom,Left,Right'
 $output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical'
@@ -39,12 +42,12 @@ $progress=New-Object System.Windows.Forms.ProgressBar
 $progress.SetBounds(20,449,680,16);$progress.Anchor='Bottom,Left,Right';$progress.Style='Continuous'
 $status=New-Object System.Windows.Forms.Label
 $status.SetBounds(20,477,680,32);$status.Anchor='Bottom,Left,Right';$status.Text='先检查所选环境，再按需补齐。'
-$form.Controls.AddRange(@($pathLabel,$path,$browse,$hint,$check,$install,$use,$output,$progress,$status))
+$form.Controls.AddRange(@($pathLabel,$path,$browse,$hint,$check,$install,$use,$reset,$output,$progress,$status))
 $script:ReadyPython='';$script:Task=$null;$script:TaskAction='';$script:Report=''
 $timer=New-Object System.Windows.Forms.Timer;$timer.Interval=300
 
 function Set-Busy([bool]$Busy) {
-    $browse.Enabled=-not $Busy;$check.Enabled=-not $Busy;$install.Enabled=-not $Busy;$use.Enabled=-not $Busy;$path.Enabled=-not $Busy
+    $browse.Enabled=-not $Busy;$check.Enabled=-not $Busy;$install.Enabled=-not $Busy;$use.Enabled=-not $Busy;$reset.Enabled=-not $Busy;$path.Enabled=-not $Busy
     $progress.Style=if($Busy){'Marquee'}else{'Continuous'}
 }
 function Start-Task([string]$Action) {
@@ -77,6 +80,7 @@ $browse.Add_Click({
 })
 $path.Add_TextChanged({$script:ReadyPython=''})
 $check.Add_Click({Start-Task 'probe'})
+$reset.Add_Click({$path.Text=$bundled;Start-Task 'probe'})
 $install.Add_Click({Start-Task 'install'})
 $use.Add_Click({
     if($script:ReadyPython -ne $path.Text.Trim()){$status.Text='请先检查或补齐这个 Python 环境。';return}

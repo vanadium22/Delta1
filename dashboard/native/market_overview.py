@@ -470,4 +470,7 @@ class MarketOverviewEngine:
 def capture(model):
     if not hasattr(model, 'market_overview_engine'):
         model.market_overview_engine = MarketOverviewEngine(model)
+    day=getattr(model,'portable_history_day',None)
+    if day:
+        return model.market_overview_engine.snapshot(now=pd.Timestamp(day+'T15:10:00+08:00'))
     return model.market_overview_engine.snapshot()

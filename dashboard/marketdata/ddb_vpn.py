@@ -70,7 +70,8 @@ def validate_profile(config_path, trust_path):
 
 def powershell(override=None):
     profile = os.environ.get('USERPROFILE', '')
-    candidates = [override, os.environ.get('SWHY_SSLVPN_POWERSHELL'), shutil.which('pwsh'),
+    bundled=Path(__file__).resolve().parents[2]/'runtime'/'powershell'/'pwsh.exe'
+    candidates = [override, bundled, os.environ.get('SWHY_SSLVPN_POWERSHELL'), shutil.which('pwsh'),
         Path(os.environ.get('ProgramFiles', 'C:/Program Files'))/'PowerShell/7/pwsh.exe',
         Path(profile)/'.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/pwsh.exe']
     for candidate in candidates:

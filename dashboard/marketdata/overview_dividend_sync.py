@@ -101,7 +101,7 @@ def source_directories(config, start, end):
     return [str(root)]
 
 
-def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publish=True):
+def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publish=True, include_history=False):
     from .overview_dividends import DividendStore, directory, local_sources, stamp, records_from_file
     from .overview_percentiles import prior_days
     from .overview_windpy import run_readonly_worker
@@ -122,7 +122,7 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
         state['outside_range_files'] += value['status'] == 'outside_range'
         return value
     try:
-        if publish:
+        if publish and not include_history:
             for path in local_sources(config):
                 try:
                     ingest(path)
@@ -132,19 +132,29 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
                     state['errors'].append(dict(stage='local_import', error_type=type(exc).__name__))
         day = now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
         start = (datetime.fromisoformat(prior_days(day)[0])-timedelta(days=35)).date().isoformat()
+        if include_history:
+            start = f'{int(day[:4])-1:04d}-01-01'
+            from .dividends import read_snapshot
+            from .paths import PATHS
+            archive = PATHS.dividend_archive/'share_history'
+            state['archived_history_files'] = 0
         directories = source_directories(config, start, day)
-        state.update(source_directories=directories,pattern=config.get('overview_dividend_pattern') or '指数基差情况_*.xlsx',
+        pattern = config.get('overview_dividend_pattern') or ('*基差情况*.xlsx' if include_history else '指数基差情况_*.xlsx')
+        state.update(source_directories=directories,pattern=pattern,
             requested_start=start,requested_end=day)
         inventory = read_json(root/'inventory.json').get('files', {})
         records = store.read()
         hashes = sorted({r['file_sha256'] for r in records})
+        if include_history and archive.is_dir():
+            hashes = sorted(set(hashes)|{p.name for p in archive.iterdir() if re.fullmatch(r'[0-9a-f]{64}',p.name)
+                                        and any(p.glob('*.xlsx'))})
         dates_by_hash = {}
         for record in records:
             dates_by_hash.setdefault(record['file_sha256'], set()).add(record['source_business_date'])
         with tempfile.TemporaryDirectory(prefix='reader-', dir=root) as tmp:
             request = dict(directories=directories, pattern=config.get('overview_dividend_pattern') or '指数基差情况_*.xlsx',
                 staging=tmp, inventory=inventory, known_hashes=hashes, start=start, end=day,
-                stop_file=str(stop_file) if stop_file else None, budget=15)
+                stop_file=str(stop_file) if stop_file else None, budget=35 if include_history else 15)
             state['network_requested'] = bool(directories)
             if reader:
                 fetched = reader(request)
@@ -153,7 +163,7 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
             else:
                 try:
                     result = run_readonly_worker([sys.executable, '-B', '-X', 'utf8', '-m', 'dashboard.marketdata.overview_dividend_sync', '--reader'],
-                        request, stop_file or Path(tmp)/'stop', timeout=20)
+                        request, stop_file or Path(tmp)/'stop', timeout=45 if include_history else 20)
                     if result.returncode:
                         raise ValueError('share_reader_failed')
                     fetched = json.loads(result.stdout)
@@ -169,8 +179,26 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
                 try:
                     business_dates = sorted(dates_by_hash.get(item['sha256'], ()))
                     if item.get('path') and publish:
-                        value=ingest(item['path'],business_window=(start,day))
-                        business_dates=value.get('business_dates',business_dates)
+                        path=Path(item['path'])
+                        if include_history:
+                            checked=read_snapshot(path,allow_partial=True)
+                            business_dates=[checked['date']]
+                            if checked['file_sha256'] != item['sha256']:
+                                raise ValueError('staging_hash_mismatch')
+                            if start <= checked['date'] <= day:
+                                dest=archive/item['sha256']/path.name
+                                if not dest.is_file():
+                                    raw=path.read_bytes()
+                                    if hashlib.sha256(raw).hexdigest()!=item['sha256']:
+                                        raise ValueError('staging_hash_mismatch')
+                                    _atomic_bytes(dest,raw)
+                                    state['archived_history_files']+=1
+                                # Preserve precise observed revisions when the source has concrete codes.
+                                try:ingest(path,business_window=(start,day))
+                                except ValueError:pass
+                        else:
+                            value=ingest(path,business_window=(start,day))
+                            business_dates=value.get('business_dates',business_dates)
                     elif item.get('path'):
                         checked=records_from_file(item['path'],first_seen=now)
                         if any(r['file_sha256'] != item['sha256'] for r in checked):
@@ -188,15 +216,16 @@ def run_sync(config, local_root, *, now=None, stop_file=None, reader=None, publi
                     state['errors'].append(dict(stage='share_import', error_type=type(exc).__name__))
             if publish and not stopped():
                 _atomic_bytes(root/'inventory.json', _json_bytes(dict(files=inventory)))
+            updated=state['inserted'] or state.get('archived_history_files')
             state['status'] = ('source_empty' if directories and not fetched.get('matched') and not state['errors'] else
-                'complete' if fetched.get('complete') and not state['errors'] else 'partial' if state['inserted'] else 'unavailable')
+                'complete' if fetched.get('complete') and not state['errors'] else 'partial' if updated else 'unavailable')
             state['published'] = bool(publish)
             state['history_coverage_certified'] = False
     except InterruptedError:
         state.update(status='cancelled', published=False)
     except Exception as exc:
         state.update(status='unavailable', error_type=type(exc).__name__)
-    state['published'] = bool(publish and state['inserted'])
+    state['published'] = bool(publish and (state['inserted'] or state.get('archived_history_files')))
     state['configuration_changed'] = False
     state['finished_at'] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()
     if publish:
@@ -209,6 +238,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--reader', action='store_true')
     parser.add_argument('--local-root', type=Path)
+    parser.add_argument('--include-history',action='store_true')
     args = parser.parse_args()
     if args.reader:
         try:
@@ -219,7 +249,7 @@ def main():
         return 0
     config = json.loads((args.local_root/'native.json').read_text(encoding='utf-8-sig'))
     from .overview_dividends import directory
-    run_sync(config, args.local_root, stop_file=directory(config,args.local_root)/'stop.request')
+    run_sync(config, args.local_root, stop_file=directory(config,args.local_root)/'stop.request',include_history=args.include_history)
     return 0
 
 
