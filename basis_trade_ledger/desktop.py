@@ -4,18 +4,19 @@ import sqlite3
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QMainWindow, QMenu, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
+    QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from script_making.desktop_theme import STYLE
 
 from .hedge_widget import HedgePage
 from .model import LEGS, calculate, date_time, now, number, revalue
-from .portfolio import ALL_GROUPS, borrow_capacity, filtered, index_section, portfolio_values, section_title
-from .portfolio_widget import PortfolioFilters, PortfolioPage
+from .portfolio import ALL_GROUPS, borrow_capacity, daily_trades, filtered, index_section, portfolio_values, section_title
+from .portfolio_widget import DailyTradesPage, PortfolioFilters, PortfolioPage
 from .quotes import POLL_MS, MarketQuotes, compatible_marks, effective_marks, newer_closes
-from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE
+from .store import GROUP_EDIT_FIELDS, TRADED_FIELDS
 from .widgets import (GROUP_FIELDS, PLAN_FIELDS, TRADE_BASIS_COLUMN, BasisDialog, FormDialog, ImportDialog, MetricCard,
                       Table, TradeEditor, audit_display, button, card, fmt, label, trade_display, trade_table)
+from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE
 
 
 LEDGER_STYLE = """
@@ -65,6 +66,7 @@ QTableWidget#positions QHeaderView::section { padding: 8px 5px; }
 """
 LEG_NAMES = dict(zip(LEGS, ('ETF', '股指期货', '跟踪指数')))
 SECTION_ROLE = Qt.ItemDataRole.UserRole + 1
+TODAY_TRADES = 'today-trades'
 
 
 class Task(QThread):
@@ -109,6 +111,7 @@ class LedgerWindow(QMainWindow):
         self.filter_status, self.filter_period = 'all', ('', '')
         self.market_update = None
         self.market_by_group = {}
+        self.quote_generation = 0
         self.refresh_pending = False
         self.quote_timer = QTimer(self, interval=POLL_MS)
         self.quote_timer.timeout.connect(self.poll_market)
@@ -123,6 +126,7 @@ class LedgerWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.addWidget(label('基差交易台账', 'title'))
         toolbar.addStretch()
+        toolbar.addWidget(button('今日成交', self.open_daily_trades))
         self.import_button = button('导入 Excel', self.pick_workbook)
         toolbar.addWidget(self.import_button)
         self.export_button = button('导出 Excel', lambda: None)
@@ -145,10 +149,14 @@ class LedgerWindow(QMainWindow):
         side_header = QHBoxLayout()
         side_header.addWidget(label('交易组', 'sectionTitle'))
         side_header.addStretch()
-        self.rename_button = button('改名', self.rename_group)
-        self.rename_button.setObjectName('quickField')
-        self.rename_button.setEnabled(False)
-        side_header.addWidget(self.rename_button)
+        self.edit_group_button = button('编辑', self.edit_group)
+        self.delete_group_button = button('删除', self.delete_group)
+        for action, hint in ((self.edit_group_button, '编辑所选交易组的名称和标的'),
+                             (self.delete_group_button, '删除所选交易组及组内流水')):
+            action.setObjectName('quickField')
+            action.setToolTip(hint)
+            action.setEnabled(False)
+            side_header.addWidget(action)
         side_layout.addLayout(side_header)
         self.recent = label('', 'muted')
         self.recent.setWordWrap(True)
@@ -178,6 +186,9 @@ class LedgerWindow(QMainWindow):
         self.portfolio_page.hedge_selection_changed.connect(self.portfolio_hedge_changed)
         self.portfolio_page.hedge_refresh_requested.connect(lambda: self.request_portfolio(force=True))
         self.panes.addWidget(self.portfolio_page)
+        self.daily_page = DailyTradesPage()
+        self.daily_page.group_selected.connect(self.open_daily_group)
+        self.panes.addWidget(self.daily_page)
         body.addWidget(self.panes, 1)
         outer.addLayout(body, 1)
         self.setCentralWidget(root)
@@ -186,7 +197,7 @@ class LedgerWindow(QMainWindow):
         disk.setToolTip(str(ledger.path))
         self.statusBar().addPermanentWidget(disk)
         self.groups.currentItemChanged.connect(self.choose_group)
-        self.groups.itemDoubleClicked.connect(lambda _: self.rename_group())
+        self.groups.itemDoubleClicked.connect(lambda _: self.edit_group())
         self.populate_groups()
 
     def paintEvent(self, event):
@@ -255,6 +266,8 @@ class LedgerWindow(QMainWindow):
         actions.addStretch()
         self.edit_button = button('编辑选中成交', self.edit_trade)
         self.history_button = button('更正记录', self.show_revisions)
+        self.delete_trade_button = button('删除流水', self.delete_trade)
+        actions.addWidget(self.delete_trade_button)
         actions.addWidget(self.history_button)
         actions.addWidget(self.edit_button)
         layout.addLayout(actions)
@@ -396,7 +409,8 @@ class LedgerWindow(QMainWindow):
         refresh = self.group_id != group_id
         self.portfolio_scope = None
         if not refresh:
-            self.rename_button.setEnabled(True)
+            self.edit_group_button.setEnabled(True)
+            self.delete_group_button.setEnabled(True)
             self.export_current.setEnabled(True)
             self.panes.setCurrentIndex(1)
             if self.detail_hedge_active():
@@ -427,18 +441,34 @@ class LedgerWindow(QMainWindow):
         self.filters.reset()
         self.filter_status, self.filter_period = 'all', ('', '')
 
+    def open_daily_trades(self):
+        self.invalidate_portfolio()
+        self.show_portfolio(TODAY_TRADES)
+        self.render_group_list()
+
+    def open_daily_group(self, group_id):
+        if self.has_filtered_groups():
+            self.reset_filters_for_new_group()
+            self.render_group_list()
+        self.select_group(group_id)
+
     def show_portfolio(self, section):
         if self.portfolio_scope != section:
             self.portfolio_page.show_hedge_choices([], [], refresh=False)
         self.portfolio_scope = section
         self.portfolio_update = None
-        self.portfolio_page.show_loading(section)
-        self.rename_button.setEnabled(False)
+        daily = section == TODAY_TRADES
+        if daily:
+            self.daily_page.show_values(now().date().isoformat(), [])
+        else:
+            self.portfolio_page.show_loading(section)
+        self.edit_group_button.setEnabled(False)
+        self.delete_group_button.setEnabled(False)
         self.export_current.setEnabled(False)
-        self.panes.setCurrentIndex(2)
+        self.panes.setCurrentWidget(self.daily_page if daily else self.portfolio_page)
         if self.portfolio_records is not None:
             self.render_portfolio()
-        else:
+        elif not daily:
             self.render_portfolio_hedge()
         self.request_portfolio()
 
@@ -471,7 +501,7 @@ class LedgerWindow(QMainWindow):
                 return current, None, limits
             if records is None:
                 task.partial.emit((current, limits))
-            selected = filtered(current, status, period, scope)
+            selected = current if scope == TODAY_TRADES else filtered(current, status, period, scope)
             codes = {row['config'][leg] for row in selected for leg in LEGS[:2] if row['result'][leg].quantity}
             reference = next((row for row in current if hedge and row['config']['id'] == hedge[0]), None)
             priced = selected
@@ -505,6 +535,8 @@ class LedgerWindow(QMainWindow):
                 return
             if task.error:
                 self.statusBar().showMessage('汇总读取失败：' + task.error, 8000)
+                if self.portfolio_scope == TODAY_TRADES and self.portfolio_records is None:
+                    self.daily_page.description.setText('读取失败，可点击「今日成交」重试。')
                 return
             scope_changed = (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)
             if generation == self.portfolio_generation and not scope_changed:
@@ -525,6 +557,13 @@ class LedgerWindow(QMainWindow):
     def render_portfolio(self):
         if self.portfolio_scope is None or self.portfolio_records is None:
             return
+        if self.portfolio_scope == TODAY_TRADES:
+            at = now()
+            day = at.date().isoformat()
+            valued, positions = portfolio_values(self.portfolio_records, self.portfolio_update, self.market_by_group, at)
+            rows, trades = daily_trades(valued, day)
+            self.daily_page.show_values(day, rows, trades, positions)
+            return
         selected = filtered(self.portfolio_records, self.filter_status, self.filter_period, self.portfolio_scope)
         rows, totals = portfolio_values(selected, self.portfolio_update, self.market_by_group)
         message = self.portfolio_update.message if self.portfolio_update else ''
@@ -538,7 +577,7 @@ class LedgerWindow(QMainWindow):
 
     def portfolio_hedge_selection(self):
         page = self.portfolio_page
-        if self.portfolio_scope is not None and page.tabs.currentWidget() == page.borrow_page:
+        if self.portfolio_scope not in (None, TODAY_TRADES) and page.tabs.currentWidget() == page.borrow_page:
             group_id, etf = page.hedge_group.currentData(), page.hedge_etf.currentData()
             if group_id is not None and etf:
                 return group_id, etf
@@ -636,7 +675,8 @@ class LedgerWindow(QMainWindow):
         self.symbols.setText(f"{self.config['etf']}  /  {self.config['futures']}   ·   乘数 {self.config['multiplier']}")
         self.audit_button.setVisible(bool(self.audit))
         self.export_current.setEnabled(True)
-        self.rename_button.setEnabled(True)
+        self.edit_group_button.setEnabled(True)
+        self.delete_group_button.setEnabled(True)
         self.render_result(result)
         posted = sum(row['status'] == 'posted' for row in self.rows)
         self.trade_count.setText(f'组内流水   ·   已入账 {posted}   ·   草稿 {len(trades) - posted}')
@@ -711,24 +751,70 @@ class LedgerWindow(QMainWindow):
             cell.setText(fmt(result.get(key, self.config.get(key)), 0 if key in ('base_shares', 'plan_lots') else 2))
         self.hedge.set_context(self.group_id, self.config, result, self.quotes, self.detail_borrow_capacity())
 
-    def rename_group(self):
-        item = self.groups.currentItem()
-        if item is None:
+    def edit_group(self):
+        group_id = self.group_id
+        if group_id is None or self.portfolio_scope is not None:
             return
-        group_id = item.data(Qt.ItemDataRole.UserRole)
-        if group_id is None:
+        config = self.config.copy()
+        posted = any(row['status'] == 'posted' for row in self.rows)
+        fields = [field for field in GROUP_FIELDS if field[0] in GROUP_EDIT_FIELDS]
+        hint = ('ETF、期货合约和乘数用于已入账流水核算，现已锁定。' if posted else
+                '修改代码后，草稿将按新标的入账，相应估值会重新读取。')
+        dialog = FormDialog('编辑交易组', fields, config,
+                            lambda values: self.ledger.update_group(group_id, values, expected=config), self, hint=hint)
+        for key in TRADED_FIELDS:
+            dialog.fields[key].setReadOnly(posted)
+        if not dialog.exec():
             return
-        group = next(group for group in self.group_rows if group['id'] == group_id)
-        dialog = FormDialog('修改交易组名称', (('name', '组名', ''),), group,
-                            lambda values: self.ledger.rename_group(group_id, values['name']), self)
-        if dialog.exec():
-            name = group['name'] = dialog.result_value
-            self.invalidate_portfolio()
-            self.label_group(item, group)
-            if group_id == self.group_id:
-                self.config['name'] = name
-                self.title.setText(name)
-                self.recent.setText('最近打开 · ' + name)
+        changed_codes = any(config[leg] != dialog.result_value[leg] for leg in LEGS)
+        if changed_codes:
+            self.clear_group_quotes(group_id)
+        self.populate_groups()
+        self.load_group()
+        if changed_codes and self.auto_quotes.isChecked():
+            self.refresh_quotes(force=False)
+        self.statusBar().showMessage('交易组已保存', 5000)
+
+    def confirm_deletion(self, title, message):
+        dialog = QMessageBox(QMessageBox.Icon.Warning, title, message, parent=self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        delete = dialog.addButton('删除', QMessageBox.ButtonRole.DestructiveRole)
+        cancel = dialog.addButton('取消', QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(cancel)
+        dialog.exec()
+        return dialog.clickedButton() is delete
+
+    def clear_group_quotes(self, group_id):
+        self.quote_generation += 1
+        self.market_by_group.pop(group_id, None)
+        self.market_update = None
+        self.quote_status.setToolTip('')
+
+    def delete_group(self):
+        group_id = self.group_id
+        if group_id is None or self.portfolio_scope is not None:
+            return
+        name = self.config['name']
+        if not self.confirm_deletion('删除交易组', f'删除「{name}」及组内全部流水？删除后将从持仓、盈亏和成交汇总中移除。'):
+            return
+        try:
+            self.ledger.delete_group(group_id)
+        except (ValueError, sqlite3.Error) as exc:
+            self.statusBar().showMessage(str(exc), 8000)
+            return
+        self.clear_group_quotes(group_id)
+        self.group_id = self.config = None
+        self.editor.reset()
+        self.editor_error.hide()
+        self.populate_groups()
+        if self.group_rows:
+            self.select_group(self.ledger.recent() or self.group_rows[0]['id'])
+        else:
+            self.edit_group_button.setEnabled(False)
+            self.delete_group_button.setEnabled(False)
+            self.export_current.setEnabled(False)
+            self.panes.setCurrentIndex(0)
+        self.statusBar().showMessage('交易组已删除', 5000)
 
     def create_group(self, reuse=False):
         values = {'opened': now().date().isoformat()}
@@ -754,7 +840,7 @@ class LedgerWindow(QMainWindow):
         values = self.editor.values()
         try:
             self.ledger.save_trade(self.group_id, values, status, trade_id=row.get('id'),
-                                   version=row.get('version'), reason=values['reason'])
+                                   version=row.get('version'), reason=values['reason'], expected=self.config)
         except (ValueError, sqlite3.Error) as exc:
             self.editor_error.setText(str(exc))
             self.editor_error.show()
@@ -784,7 +870,27 @@ class LedgerWindow(QMainWindow):
     def update_trade_actions(self):
         selected = self.selected_trade()
         self.edit_button.setEnabled(bool(selected))
+        self.delete_trade_button.setEnabled(bool(selected))
         self.history_button.setEnabled(bool(selected and selected['version'] > 1 and selected['status'] == 'posted'))
+
+    def delete_trade(self):
+        row = self.selected_trade()
+        if not row:
+            return
+        stamp = row.get('time') or '时间缺失'
+        if not self.confirm_deletion('删除流水', f"删除这笔流水？\n{stamp} · {row['direction']}\n保存后将按剩余流水重新计算。"):
+            return
+        try:
+            self.ledger.delete_trade(self.group_id, row['id'], row['version'])
+        except (ValueError, sqlite3.Error) as exc:
+            self.statusBar().showMessage(str(exc), 8000)
+            return
+        if (self.editor.entry or {}).get('id') == row['id']:
+            self.editor.reset()
+            self.editor_error.hide()
+        self.invalidate_portfolio()
+        self.load_group()
+        self.statusBar().showMessage('流水已删除，已重新计算持仓和盈亏', 5000)
 
     def edit_trade(self):
         row = self.selected_trade()
@@ -949,6 +1055,7 @@ class LedgerWindow(QMainWindow):
             self.refresh_pending |= force
             return
         group_id = self.group_id
+        generation = self.quote_generation
         codes = sorted({self.config[leg] for leg in LEGS if self.config[leg]})
         saved_closes = self.saved_closes.copy()
         subscribe = force or self.auto_quotes.isChecked()
@@ -964,7 +1071,7 @@ class LedgerWindow(QMainWindow):
         task = self.quote_job = Task(refresh, self)
 
         def apply(update):
-            if self.closing:
+            if self.closing or generation != self.quote_generation:
                 return
             self.market_by_group[group_id] = update
             if group_id != self.group_id:
@@ -979,7 +1086,7 @@ class LedgerWindow(QMainWindow):
             self.quote_job = None
             self.refresh_button.setEnabled(True)
             try:
-                if self.closing:
+                if self.closing or generation != self.quote_generation:
                     return
                 if task.result:
                     if task.result.closes:
@@ -1004,7 +1111,8 @@ class LedgerWindow(QMainWindow):
                 task.deleteLater()
                 if self.closing:
                     self.close()
-                elif self.refresh_pending or (group_id != self.group_id and self.auto_quotes.isChecked()):
+                elif self.refresh_pending or ((group_id != self.group_id or generation != self.quote_generation)
+                                              and self.auto_quotes.isChecked() and self.portfolio_scope is None):
                     pending, self.refresh_pending = self.refresh_pending, False
                     self.refresh_quotes(force=pending)
                 elif not self.auto_quotes.isChecked():

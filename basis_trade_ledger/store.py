@@ -10,6 +10,8 @@ from .model import LEGS, code, group_config, now, number, plan_config, trade_dat
 
 
 BORROW_LIMIT_PREFIX = 'borrow-limit:'
+TRADED_FIELDS = ('etf', 'futures', 'multiplier')
+GROUP_EDIT_FIELDS = ('name', *LEGS, 'multiplier')
 
 
 def data_paths(root=None):
@@ -24,36 +26,42 @@ class Ledger:
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connection() as con:
+        with self.connection(write=True) as con:
             version = con.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ValueError('台账数据库版本较新，请更新应用')
-            if version == 1:
-                return
-            con.executescript('''
-                BEGIN IMMEDIATE;
+            if version == 0:
+                self._create_schema(con)
+            if version < 2:
+                con.execute('ALTER TABLE groups ADD COLUMN deleted TEXT')
+                con.execute('ALTER TABLE trades ADD COLUMN deleted TEXT')
+                con.execute('PRAGMA user_version=2')
+
+    @staticmethod
+    def _create_schema(con):
+        statements = (
+            '''
                 CREATE TABLE IF NOT EXISTS groups (
                     id INTEGER PRIMARY KEY, config TEXT NOT NULL, created TEXT NOT NULL,
-                    import_key TEXT UNIQUE, audit TEXT
-                );
+                    import_key TEXT UNIQUE, audit TEXT)''',
+            '''
                 CREATE TABLE IF NOT EXISTS trades (
                     id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id),
-                    version INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL, updated TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS trades_group ON trades(group_id, id);
+                    version INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL, updated TEXT NOT NULL)''',
+            'CREATE INDEX IF NOT EXISTS trades_group ON trades(group_id, id)',
+            '''
                 CREATE TABLE IF NOT EXISTS revisions (
                     trade_id INTEGER NOT NULL REFERENCES trades(id), version INTEGER NOT NULL,
                     data TEXT NOT NULL, updated TEXT NOT NULL, reason TEXT NOT NULL,
-                    PRIMARY KEY (trade_id, version)
-                );
+                    PRIMARY KEY (trade_id, version))''',
+            '''
                 CREATE TABLE IF NOT EXISTS marks (
                     group_id INTEGER NOT NULL REFERENCES groups(id), code TEXT NOT NULL,
-                    kind TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (group_id, code, kind)
-                );
-                CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                PRAGMA user_version=1;
-                COMMIT;
-            ''')
+                    kind TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (group_id, code, kind))''',
+            'CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+        )
+        for statement in statements:
+            con.execute(statement)
 
     @contextmanager
     def connection(self, write=False):
@@ -71,7 +79,7 @@ class Ledger:
     @staticmethod
     def _groups(con):
         return [dict(json.loads(row['config']), id=row['id'], imported=bool(row['import_key']))
-                for row in con.execute('SELECT id,config,import_key FROM groups ORDER BY id DESC')]
+                for row in con.execute('SELECT id,config,import_key FROM groups WHERE deleted IS NULL ORDER BY id DESC')]
 
     def portfolio(self):
         from .portfolio import group_rollup
@@ -82,14 +90,15 @@ class Ledger:
             for group in self._groups(con):
                 group_id = group['id']
                 trades = [json.loads(row[0]) for row in con.execute(
-                    'SELECT data FROM trades WHERE group_id=? ORDER BY id', (group_id,))]
+                    'SELECT data FROM trades WHERE group_id=? AND deleted IS NULL ORDER BY id', (group_id,))]
                 records.append(group_rollup(group, trades, self._quotes(con, group_id, group),
                                             self._closing_marks(con, group_id)))
             return records
 
     def recent(self):
         with self.connection() as con:
-            row = con.execute("SELECT value FROM preferences WHERE key='recent'").fetchone()
+            row = con.execute('''SELECT groups.id FROM groups JOIN preferences ON groups.id=preferences.value
+                                 WHERE key='recent' AND groups.deleted IS NULL''').fetchone()
             return int(row[0]) if row else None
 
     def borrow_limits(self):
@@ -126,12 +135,19 @@ class Ledger:
 
     def open_group(self, group_id):
         with self.connection(write=True) as con:
-            row = con.execute('SELECT config,audit FROM groups WHERE id=?', (group_id,)).fetchone()
+            row = self._group_row(con, group_id)
             config = json.loads(row['config'])
             trades = [self._trade(row) for row in con.execute(
-                'SELECT * FROM trades WHERE group_id=? ORDER BY id', (group_id,))]
+                'SELECT * FROM trades WHERE group_id=? AND deleted IS NULL ORDER BY id', (group_id,))]
             self._set_recent(con, group_id)
             return config, trades, self._quotes(con, group_id, config), json.loads(row['audit'] or 'null')
+
+    @staticmethod
+    def _group_row(con, group_id):
+        row = con.execute('SELECT config,audit FROM groups WHERE id=? AND deleted IS NULL', (group_id,)).fetchone()
+        if row is None:
+            raise ValueError('找不到这个交易组，可能已在另一窗口删除')
+        return row
 
     @staticmethod
     def _trade(row):
@@ -172,7 +188,7 @@ class Ledger:
     def update_plan(self, group_id, values):
         plan = plan_config(values)
         with self.connection(write=True) as con:
-            row = con.execute('SELECT config FROM groups WHERE id=?', (group_id,)).fetchone()
+            row = self._group_row(con, group_id)
             con.execute('UPDATE groups SET config=? WHERE id=?', (encode(dict(json.loads(row[0]), **plan)), group_id))
 
     def rename_group(self, group_id, name):
@@ -180,24 +196,54 @@ class Ledger:
         if not name or '\n' in name or '\r' in name:
             raise ValueError('请填写一行交易组名称')
         with self.connection(write=True) as con:
-            row = con.execute('SELECT config FROM groups WHERE id=?', (group_id,)).fetchone()
-            if row is None:
-                raise ValueError('找不到这个交易组')
+            row = self._group_row(con, group_id)
             con.execute('UPDATE groups SET config=? WHERE id=?', (encode(dict(json.loads(row[0]), name=name)), group_id))
         return name
+
+    def update_group(self, group_id, values, *, expected=None):
+        changes = {key: values[key] for key in GROUP_EDIT_FIELDS if key in values}
+        with self.connection(write=True) as con:
+            current = json.loads(self._group_row(con, group_id)['config'])
+            if expected and any(current[key] != expected[key] for key in GROUP_EDIT_FIELDS):
+                raise ValueError('交易组已由另一窗口修改，请重开该组后再编辑')
+            values = dict(current, **changes)
+            default_name = f"{current['etf']} / {current['futures']}"
+            if values['name'] == current['name'] == default_name:
+                values['name'] = ''
+            validated = group_config(values)
+            config = dict(current, **{key: validated[key] for key in GROUP_EDIT_FIELDS})
+            if any(str(config[key]) != str(current[key]) for key in TRADED_FIELDS) and con.execute('''
+                SELECT 1 FROM trades WHERE group_id=? AND deleted IS NULL
+                AND json_extract(data, '$.status')='posted' LIMIT 1''', (group_id,)).fetchone():
+                raise ValueError('组内已有入账成交，ETF、期货合约和乘数已锁定')
+            obsolete = {current[leg] for leg in LEGS} - {config[leg] for leg in LEGS}
+            con.executemany('DELETE FROM marks WHERE group_id=? AND code=?',
+                            ((group_id, symbol) for symbol in obsolete))
+            con.execute('UPDATE groups SET config=? WHERE id=?', (encode(config), group_id))
+            return config
+
+    def delete_group(self, group_id):
+        with self.connection(write=True) as con:
+            self._group_row(con, group_id)
+            con.execute('UPDATE groups SET deleted=? WHERE id=?', (now().isoformat(), group_id))
+            con.execute("DELETE FROM preferences WHERE key='recent' AND value=?", (str(group_id),))
 
     @staticmethod
     def _insert_trade(con, group_id, data, *, version=1, updated=None):
         return con.execute('INSERT INTO trades(group_id,data,updated,version) VALUES (?,?,?,?)',
                            (group_id, encode(data), updated or now().isoformat(), version)).lastrowid
 
-    def save_trade(self, group_id, values, status, *, trade_id=None, version=None, reason=''):
+    def save_trade(self, group_id, values, status, *, trade_id=None, version=None, reason='', expected=None):
         with self.connection(write=True) as con:
+            current = json.loads(self._group_row(con, group_id)['config'])
+            if expected and any(current[key] != expected[key] for key in TRADED_FIELDS):
+                raise ValueError('标的或乘数已由另一窗口修改，请重开该组后再保存成交')
             saved = now().isoformat(timespec='seconds')
             data = trade_data(dict(values, time=str(values.get('time') or '').strip() or saved), status)
             if trade_id is None:
                 return self._insert_trade(con, group_id, data, updated=saved)
-            row = con.execute('SELECT * FROM trades WHERE id=? AND group_id=?', (trade_id, group_id)).fetchone()
+            row = con.execute('SELECT * FROM trades WHERE id=? AND group_id=? AND deleted IS NULL',
+                              (trade_id, group_id)).fetchone()
             if row is None or row['version'] != version:
                 raise ValueError('这笔成交已由另一窗口修改，请重开该组后再更正')
             old = json.loads(row['data'])
@@ -213,11 +259,21 @@ class Ledger:
                         (encode(data), saved, trade_id))
             return trade_id
 
+    def delete_trade(self, group_id, trade_id, version):
+        with self.connection(write=True) as con:
+            config = json.loads(self._group_row(con, group_id)['config'])
+            deleted = encode(dict(time=now().isoformat(), config=config))
+            updated = con.execute('''UPDATE trades SET deleted=? WHERE id=? AND group_id=?
+                                     AND version=? AND deleted IS NULL''', (deleted, trade_id, group_id, version))
+            if not updated.rowcount:
+                raise ValueError('这笔流水已由另一窗口修改或删除，请重开该组后再操作')
+
     def revisions(self, group_id, trade_id):
         with self.connection() as con:
             return [dict(json.loads(row['data']), version=row['version'], reason=row['reason'], updated=row['updated'])
                     for row in con.execute('''SELECT r.* FROM revisions r JOIN trades t ON t.id=r.trade_id
-                        WHERE t.group_id=? AND t.id=? ORDER BY r.version''', (group_id, trade_id))]
+                    JOIN groups g ON g.id=t.group_id WHERE t.group_id=? AND t.id=?
+                    AND t.deleted IS NULL AND g.deleted IS NULL ORDER BY r.version''', (group_id, trade_id))]
 
     @staticmethod
     def _save_marks(con, group_id, marks, kind):
@@ -227,7 +283,7 @@ class Ledger:
 
     def set_marks(self, group_id, marks, kind, *, clear=()):
         with self.connection(write=True) as con:
-            allowed = json.loads(con.execute('SELECT config FROM groups WHERE id=?', (group_id,)).fetchone()[0])
+            allowed = json.loads(self._group_row(con, group_id)['config'])
             symbols = {allowed[leg] for leg in LEGS} - {''}
             if (set(clear) | {mark['code'] for mark in marks}) - symbols:
                 raise ValueError('估值代码与当前组不符')
@@ -244,19 +300,19 @@ class Ledger:
     def exchange_groups(self, group_id=None):
         with self.connection() as con:
             con.execute('BEGIN')
-            selected = con.execute('SELECT id,config FROM groups WHERE id=?', (group_id,)) if group_id else con.execute(
-                'SELECT id,config FROM groups ORDER BY id')
+            query = 'SELECT id,config FROM groups WHERE deleted IS NULL'
+            selected = con.execute(query + ' AND id=?', (group_id,)) if group_id else con.execute(query + ' ORDER BY id')
             groups = []
             for row in selected:
                 key = row['id']
                 trades = [self._trade(trade) for trade in con.execute(
-                    'SELECT * FROM trades WHERE group_id=? ORDER BY id', (key,))]
+                    'SELECT * FROM trades WHERE group_id=? AND deleted IS NULL ORDER BY id', (key,))]
                 marks = [json.loads(mark['data']) for mark in con.execute(
                     'SELECT data FROM marks WHERE group_id=? ORDER BY code,kind', (key,))]
                 revisions = [dict(json.loads(r['data']), id=r['trade_id'], version=r['version'],
                                   updated=r['updated'], reason=r['reason']) for r in con.execute('''
                     SELECT r.* FROM revisions r JOIN trades t ON t.id=r.trade_id
-                    WHERE t.group_id=? ORDER BY r.trade_id,r.version''', (key,))]
+                    WHERE t.group_id=? AND t.deleted IS NULL ORDER BY r.trade_id,r.version''', (key,))]
                 groups.append(dict(id=key, config=json.loads(row['config']), trades=trades, marks=marks, revisions=revisions))
             return groups
 
@@ -264,9 +320,10 @@ class Ledger:
         added, skipped = [], 0
         with self.connection(write=True) as con:
             for group in previews:
-                if con.execute('SELECT 1 FROM groups WHERE import_key=?', (group.key,)).fetchone():
+                if con.execute('SELECT 1 FROM groups WHERE import_key=? AND deleted IS NULL', (group.key,)).fetchone():
                     skipped += 1
                     continue
+                con.execute('UPDATE groups SET import_key=NULL WHERE import_key=? AND deleted IS NOT NULL', (group.key,))
                 group_id = self._insert_group(con, group.config, group.key, group.audit)
                 for order, trade in enumerate(group.trades, 1):
                     data = dict(trade)

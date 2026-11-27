@@ -13,11 +13,13 @@
 | statistics_app | 独立统计桌面入口，复用原统计实现和数据 | [统计交接](statistics_app/PROJECT_HANDOFF.md) |
 | account_daily_pnl | 三账户场内收益日更、策略台合约收益分类统计 | [PnL 交接](account_daily_pnl/PROJECT_HANDOFF.md) |
 | index_futures_basis | 独立基差、分红、期限结构及报告；历史 Excel 与简报生成问题可双击 `diagnose_recent_brief.cmd` 测试 | [基差交接](index_futures_basis/PROJECT_HANDOFF.md) |
-| basis_trade_ledger | 基差记账、指数实际持仓和敞口、ETF 融券额度、逐笔基差、对冲数量及估值 | [台账交接](basis_trade_ledger/PROJECT_HANDOFF.md) |
+| basis_trade_ledger | 基差记账、今日成交和敞口、指数实际持仓、ETF 融券额度、逐笔基差、对冲数量及估值 | [台账交接](basis_trade_ledger/PROJECT_HANDOFF.md) |
 | index_strategy | 历史 / 实时采集与兼容桌面工具 | [采集接口](index_strategy/instant_dld/README.md) |
 | shared_data | 公共目录、数据登记与原有迁移 | [公共数据说明](SHARED_DATA.md) |
 
 ## 最近发布
+
+- 2026-11-27 基差台账支持修改未入账交易组的标的、删除整组或单笔流水、查看今日成交与当前敞口。公司更新后正常重开台账，原 SQLite 自动升级至版本 2。[台账交接](basis_trade_ledger/PROJECT_HANDOFF.md)。
 
 - 2026-11-26 15:30 当日成交汇总的累计成交金额按买入为正、卖出为负统计。已登记任务在更新后下一次生成时生效。[操作说明](account_daily_pnl/README.md#每天-1530-当日成交汇总)。
 

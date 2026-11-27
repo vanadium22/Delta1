@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from dashboard.native.instruments import UNDERLYINGS
 
-from .model import LEGS, ZERO, calculate, now, revalue
+from .model import DIRECTIONS, LEGS, ZERO, calculate, now, revalue
 from .quotes import effective_marks
 from .wind_close import WIND_CLOSE, WIND_LOCAL_CLOSE
 
@@ -30,10 +30,47 @@ def group_rollup(config, trades, quotes, closes):
     posted = sum(trade['status'] == 'posted' for trade in trades)
     draft = len(trades) - posted
     active = bool(result['etf'].quantity or result['futures'].quantity or draft or not posted)
-    days = {stamp[:10] for trade in trades if (stamp := trade.get('time') or '')[4:5] == '-' and stamp[7:8] == '-'}
+    days = set()
+    daily = defaultdict(lambda: dict(count=0, etf=ZERO, futures=ZERO, turnover=ZERO))
+    undated = 0
+    multiplier = Decimal(config['multiplier'])
+    for trade in trades:
+        stamp = trade.get('time') or ''
+        day = stamp[:10] if stamp[4:5] == '-' and stamp[7:8] == '-' else ''
+        if day:
+            days.add(day)
+        if trade['status'] != 'posted' or trade.get('entry_type') == '结算':
+            continue
+        if not day:
+            undated += 1
+            continue
+        etf_sign, futures_sign = DIRECTIONS[trade['direction']]
+        etf = etf_sign * Decimal(trade.get('amount') or 0)
+        futures = futures_sign * Decimal(trade.get('lots') or 0) * Decimal(trade.get('futures_price') or 0) * multiplier
+        tally = daily[day]
+        tally['count'] += 1
+        tally['etf'] += etf
+        tally['futures'] += futures
+        tally['turnover'] += abs(etf) + abs(futures)
     if config.get('opened'):
         days.add(config['opened'])
-    return dict(config=config, result=result, quotes=quotes, closes=closes, active=active, dates=days)
+    return dict(config=config, result=result, quotes=quotes, closes=closes, active=active, dates=days,
+                daily=dict(daily), undated=undated)
+
+
+def daily_trades(records, day):
+    totals = dict(count=0, turnover=ZERO, net=ZERO, undated=sum(row['undated'] for row in records))
+    rows = []
+    for record in records:
+        trade = record['daily'].get(day)
+        if trade is None:
+            continue
+        net = trade['etf'] + trade['futures']
+        rows.append(dict(trade, config=record['config'], net=net, position_net=record['net'], position_gross=record['gross']))
+        totals['count'] += trade['count']
+        totals['turnover'] += trade['turnover']
+        totals['net'] += net
+    return rows, totals
 
 
 def date_filter(preset, start='', end='', today=None):

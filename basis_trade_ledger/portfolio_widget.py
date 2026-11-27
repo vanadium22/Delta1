@@ -62,6 +62,60 @@ class PortfolioFilters(QWidget):
         self.date_box.hide()
 
 
+class DailyTradesPage(QWidget):
+    group_selected = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.addWidget(label('今日成交汇总', 'groupTitle'))
+        self.description = label('', 'muted')
+        self.description.setWordWrap(True)
+        layout.addWidget(self.description)
+        metrics = QHBoxLayout()
+        self.metrics = {}
+        for key, caption, context in (
+            ('turnover', '今日成交额 · 元', '两腿成交名义额绝对值'),
+            ('trade_net', '今日成交净额 · 元', '按成交价，买入为正'),
+            ('position_net', '全台账净敞口 · 元', '按当前估值，含历史持仓'),
+            ('position_gross', '全台账总敞口 · 元', '各组各腿绝对名义额'),
+        ):
+            panel = MetricCard(caption, variant='positionCard' if key.startswith('position') else 'pnlCard')
+            self.metrics[key] = panel, context
+            metrics.addWidget(panel, 1)
+        layout.addLayout(metrics)
+        self.table = Table(('交易组', '笔数', 'ETF 成交净额', '期货成交净额', '成交净额', '当前净敞口', '当前总敞口'),
+                           (125, 52, 101, 108, 94, 99, 99), number_columns=range(1, 7))
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, 1)
+        self.table.cellDoubleClicked.connect(lambda row, _: self.group_selected.emit(self.rows[row]['config']['id']))
+        self.rows = []
+        self.cells = None
+
+    def show_values(self, day, rows, trades=None, positions=None):
+        self.rows = rows
+        message = '正在读取台账…'
+        values = {}
+        if trades is not None:
+            message = f"{trades['count']} 笔已入账 · 金额单位为元" if rows else '今日暂无已入账成交'
+            if trades['undated']:
+                message += f" · {trades['undated']} 笔历史成交缺少日期，未计入当日汇总"
+            values = dict(turnover=trades['turnover'], trade_net=trades['net'],
+                          position_net=positions['net'], position_gross=positions['gross'])
+        self.description.setText(f'{day} 北京时间　·　{message}')
+        for key, (panel, context) in self.metrics.items():
+            panel.set_metric(values.get(key), context, missing='待估值' if values else '—')
+        cells = [((row['config']['name'], str(row['count']), *(fmt(row[key], missing='待估值') for key in
+                   ('etf', 'futures', 'net', 'position_net', 'position_gross'))), row['config']) for row in rows]
+        if cells != self.cells:
+            self.cells = cells
+            self.table.fill([values for values, _ in cells])
+            for index, (_, config) in enumerate(cells):
+                self.table.item(index, 0).setToolTip(f"{config['name']} · #{config['id']}\n{config['etf']} / {config['futures']}")
+                for col in range(1, self.table.columnCount()):
+                    self.table.item(index, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+
 class PortfolioPage(QWidget):
     group_selected = Signal(int)
     borrow_limit_selected = Signal(str)

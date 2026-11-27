@@ -16,7 +16,7 @@ from .excel import workbook_preview
 from .excel_exchange import export_exchange
 from .hedge import hedge_size, projected_borrow
 from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
-from .portfolio import borrow_capacity, filtered, group_rollup, index_section, portfolio_values
+from .portfolio import borrow_capacity, daily_trades, filtered, group_rollup, index_section, portfolio_values
 from .quotes import MarketQuotes, compatible_marks, local_closes
 from .store import Ledger, data_paths
 from .wind_close import WIND_CLOSE, download_closes
@@ -153,6 +153,81 @@ class PersistenceTest(unittest.TestCase):
         self.assertEqual(self.db.exchange_groups(first)[0]['config']['name'], '跨日对冲')
         with self.assertRaises(ValueError):
             self.db.rename_group(first, '   ')
+
+    def test_edit_symbols_keeps_draft_and_only_keeps_matching_quotes(self):
+        group = self.db.create(dict(CONFIG, name=''))
+        config, _, _, _ = self.db.open_group(group)
+        draft = self.db.save_trade(group, fills('卖基差'), 'draft')
+        self.db.set_marks(group, [dict(code=CONFIG[leg], price=6) for leg in ('etf', 'futures')], 'manual')
+        self.db.update_group(group, dict(etf=' 510500.sh ', index='000905.sh', multiplier=200), expected=config)
+        reopened = Ledger(self.path)
+        cfg, trades, quotes, _ = reopened.open_group(group)
+        self.assertEqual((cfg['name'], cfg['etf'], cfg['index'], cfg['multiplier'], cfg['plan_lots']),
+                         ('510500.SH / IF2912.CFE', '510500.SH', '000905.SH', '200', '4'))
+        self.assertEqual(trades[0]['id'], draft)
+        self.assertIsNone(quotes['etf'])
+        self.assertEqual(quotes['futures']['price'], 6)
+        self.assertEqual([row['code'] for row in reopened.exchange_groups(group)[0]['marks']], [CONFIG['futures']])
+        with self.assertRaisesRegex(ValueError, '另一窗口'):
+            self.db.save_trade(group, fills('卖基差'), 'posted', expected=config)
+        self.db.save_trade(group, fills('卖基差'), 'posted', trade_id=draft, version=1, expected=cfg)
+        for change in (dict(etf='510300.SH'), dict(futures='IC2912.CFE'), dict(multiplier=100)):
+            with self.assertRaisesRegex(ValueError, '已锁定'):
+                reopened.update_group(group, change)
+        reopened.update_group(group, dict(name='指数更新', index='000300.SH'))
+        self.assertEqual(reopened.groups()[0]['index'], '000300.SH')
+
+    def test_delete_trade_and_group_excludes_them_from_replay_and_exchange(self):
+        group, other = self.db.create(CONFIG), self.db.create(CONFIG)
+        first = self.db.save_trade(group, fills('卖基差'), 'posted')
+        second = self.db.save_trade(group, fills('ETF买入', shares=50, amount=200), 'posted')
+        self.db.save_trade(group, fills('卖基差', amount=700), 'posted', trade_id=first, version=1, reason='更正金额')
+        self.db.save_trade(other, fills('期货买入'), 'posted')
+        with self.assertRaisesRegex(ValueError, '另一窗口'):
+            self.db.delete_trade(group, first, 1)
+        self.db.delete_trade(group, first, 2)
+        reopened = Ledger(self.path)
+        cfg, rows, quotes, _ = reopened.open_group(group)
+        self.assertEqual([row['id'] for row in rows], [second])
+        result = calculate(cfg, rows, quotes)
+        self.assertEqual((result['etf'].quantity, result['futures'].quantity, result['realized']), (50, 0, 0))
+        exported, = reopened.exchange_groups(group)
+        self.assertEqual([row['id'] for row in exported['trades']], [second])
+        self.assertEqual(exported['revisions'], [])
+        with self.db.connection() as con:
+            self.assertEqual(con.execute('SELECT count(*) FROM revisions WHERE trade_id=?', (first,)).fetchone()[0], 1)
+            deleted = con.execute('SELECT deleted FROM trades WHERE id=?', (first,)).fetchone()[0]
+            self.assertEqual(json.loads(deleted)['config']['etf'], CONFIG['etf'])
+        self.db.delete_group(group)
+        self.assertIsNone(reopened.recent())
+        self.assertEqual([row['config']['id'] for row in reopened.portfolio()], [other])
+        self.assertEqual([row['id'] for row in reopened.exchange_groups()], [other])
+        with self.assertRaisesRegex(ValueError, '已在另一窗口删除'):
+            self.db.save_trade(group, fills('卖基差'), 'draft')
+
+    def test_v1_upgrade_and_deleted_import_can_be_imported_again(self):
+        path = self.root / 'legacy.sqlite'
+        preview = Mock(config=group_config(CONFIG), key='workbook', audit={'sheet': '旧表'},
+                       trades=[posted('买基差')], revisions={}, marks=[], quotes={})
+        with closing(sqlite3.connect(path)) as con, con:
+            Ledger._create_schema(con)
+            group = Ledger._insert_group(con, preview.config, preview.key, preview.audit)
+            Ledger._insert_trade(con, group, preview.trades[0])
+            Ledger._set_recent(con, group)
+            con.execute('PRAGMA user_version=1')
+        db = Ledger(path)
+        self.assertEqual(db.recent(), group)
+        self.assertEqual(db.open_group(group)[1][0]['direction'], '买基差')
+        self.assertEqual(db.import_groups([preview]), ([], 1))
+        db.delete_group(group)
+        new, skipped = db.import_groups([preview])
+        self.assertNotEqual(new, [group])
+        self.assertEqual(skipped, 0)
+        self.assertEqual(db.import_groups([preview]), ([], 1))
+        self.assertEqual(db.open_group(new[0])[3]['sheet'], '旧表')
+        with db.connection() as con:
+            self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 2)
+            self.assertEqual(con.execute('SELECT count(*) FROM trades').fetchone()[0], 2)
 
     def test_reopen_two_groups_cross_day_and_correction(self):
         a, b = self.db.create(CONFIG), self.db.create(CONFIG)
@@ -324,6 +399,24 @@ class PersistenceTest(unittest.TestCase):
 
 
 class PortfolioTest(unittest.TestCase):
+    def test_daily_trades_counts_dated_postings_and_values_full_remaining_positions(self):
+        cfg = dict(group_config(CONFIG), id=1)
+        today = '2026-11-27'
+        records = [group_rollup(cfg, [posted('卖基差', amount=500, lots=2, price=100, time=today),
+            posted('ETF买入', amount=650, time=today + ' 15:01'), posted('期货买入', lots=1, price=30, time=today),
+            posted('ETF买入', time='10:00'), dict(posted('ETF买入', time=today), entry_type='结算'),
+            posted('ETF买入', time='2026-11-26'), dict(posted('卖基差', time=today), status='draft')],
+            {'etf': mark(4)}, {})]
+        records.append(group_rollup(dict(cfg, id=2), [posted('ETF买入', time='2026-11-26')], {'etf': mark(4)}, {}))
+        valued, positions = portfolio_values(records)
+        rows, totals = daily_trades(valued, today)
+        self.assertEqual(totals, dict(count=3, turnover=24150, net=23150, undated=1))
+        self.assertEqual([(row['config']['id'], row['etf'], row['futures'], row['position_net']) for row in rows],
+                         [(1, 150, 23000, None)])
+        self.assertIsNone(positions['gross'])
+        self.assertEqual(valued[1]['net'], 400)
+        self.assertEqual(daily_trades(valued, '2026-11-28')[0], [])
+
     def test_index_classification_and_open_or_closed_date_filters(self):
         first = dict(group_config(dict(CONFIG, opened='2026-11-20', futures='IC2612.CFE', index='')), id=1)
         second = dict(group_config(dict(CONFIG, opened='2026-11-20')), id=2)
