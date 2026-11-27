@@ -12,6 +12,7 @@
   "editable_group_instruments": true,
   "ledger_deletions": true,
   "daily_trades_and_exposure": true,
+  "daily_trades_clipboard": true,
   "numeric_font": "Alien Encounters",
   "wind_close_after": "15:10 Asia/Shanghai",
   "company_entry": "start.cmd",

@@ -188,6 +188,7 @@ class LedgerWindow(QMainWindow):
         self.panes.addWidget(self.portfolio_page)
         self.daily_page = DailyTradesPage()
         self.daily_page.group_selected.connect(self.open_daily_group)
+        self.daily_page.copied.connect(lambda: self.statusBar().showMessage('已按交易组复制今日成交', 4500))
         self.panes.addWidget(self.daily_page)
         body.addWidget(self.panes, 1)
         outer.addLayout(body, 1)
@@ -533,21 +534,24 @@ class LedgerWindow(QMainWindow):
             if self.closing:
                 self.close()
                 return
+            scope_changed = (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)
+            outdated = generation != self.portfolio_generation or scope_changed
             if task.error:
+                if outdated:
+                    self.request_portfolio()
+                    return
                 self.statusBar().showMessage('汇总读取失败：' + task.error, 8000)
                 if self.portfolio_scope == TODAY_TRADES and self.portfolio_records is None:
                     self.daily_page.description.setText('读取失败，可点击「今日成交」重试。')
                 return
-            scope_changed = (scope, status, period) != (self.portfolio_scope, self.filter_status, self.filter_period)
-            if generation == self.portfolio_generation and not scope_changed:
+            if not outdated:
                 rebuild_sidebar = self.portfolio_records is None
                 self.portfolio_records, self.portfolio_update, self.portfolio_limits = task.result
                 if rebuild_sidebar:
                     self.render_group_list()
                 self.render_portfolio()
                 self.update_detail_borrow()
-            if (self.portfolio_refresh_pending or generation != self.portfolio_generation or scope_changed
-                    or hedge != self.portfolio_hedge_selection()):
+            if self.portfolio_refresh_pending or outdated or hedge != self.portfolio_hedge_selection():
                 self.request_portfolio()
 
         task.partial.connect(show_cached)

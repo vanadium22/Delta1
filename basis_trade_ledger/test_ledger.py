@@ -16,7 +16,7 @@ from .excel import workbook_preview
 from .excel_exchange import export_exchange
 from .hedge import hedge_size, projected_borrow
 from .model import SHANGHAI, calculate, group_config, now, revalue, trade_data
-from .portfolio import borrow_capacity, daily_trades, filtered, group_rollup, index_section, portfolio_values
+from .portfolio import borrow_capacity, daily_trades, daily_trades_text, filtered, group_rollup, index_section, portfolio_values
 from .quotes import MarketQuotes, compatible_marks, local_closes
 from .store import Ledger, data_paths
 from .wind_close import WIND_CLOSE, download_closes
@@ -399,6 +399,27 @@ class PersistenceTest(unittest.TestCase):
 
 
 class PortfolioTest(unittest.TestCase):
+    def test_copy_daily_trades_formats_each_group_and_keeps_buy_and_sell_separate(self):
+        day = '2026-11-27'
+        cfg = dict(group_config(dict(CONFIG, name='第一组', etf='510500.SH', futures='IC2612.CFE')), id=1)
+        example = trade_data(dict(direction='买基差', shares=3170822, etf_price='6.337808',
+                                  lots=16, futures_price='6274.5', time=day), 'posted')
+        records = [group_rollup(cfg, [example], {}, {})]
+        records.append(group_rollup(dict(cfg, id=2, name='第二组'), [
+            posted('期货买入', lots=1, price='6200.2', time=day),
+            posted('期货买入', lots=3, price='6200.6', time=day),
+            posted('期货卖出', lots=4, price=6201, time=day),
+            posted('ETF买入', shares=100, amount='600.1', time=day),
+            posted('ETF买入', shares=300, amount='1800.9', time=day),
+            posted('ETF卖出', time='2026-11-26'),
+            dict(posted('ETF卖出', time=day), status='draft'),
+        ], {}, {}))
+        valued, _ = portfolio_values(records)
+        rows, _ = daily_trades(valued, day)
+        self.assertEqual(daily_trades_text(rows),
+                         '第一组\n510500 买入@6.337808  3170822份；ic2612  卖出 16 手 @6274.5\n\n'
+                         '第二组\n510500 买入@6.002500  400份；ic2612  买入 4 手 @6200.5；ic2612  卖出 4 手 @6201')
+
     def test_daily_trades_counts_dated_postings_and_values_full_remaining_positions(self):
         cfg = dict(group_config(CONFIG), id=1)
         today = '2026-11-27'

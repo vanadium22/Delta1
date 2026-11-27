@@ -1,9 +1,9 @@
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QHeaderView, QScrollArea, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QHBoxLayout, QHeaderView, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 
 from .hedge_widget import HedgePage
-from .portfolio import date_filter, index_section, section_title
+from .portfolio import daily_trades_text, date_filter, index_section, section_title
 from .widgets import MetricCard, Table, button, fmt, label, text_input
 
 
@@ -64,11 +64,17 @@ class PortfolioFilters(QWidget):
 
 class DailyTradesPage(QWidget):
     group_selected = Signal(int)
+    copied = Signal()
 
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.addWidget(label('今日成交汇总', 'groupTitle'))
+        header = QHBoxLayout()
+        header.addWidget(label('今日成交汇总', 'groupTitle'), 1)
+        self.copy_button = button('复制成交', self.copy_trades)
+        self.copy_button.setEnabled(False)
+        header.addWidget(self.copy_button)
+        layout.addLayout(header)
         self.description = label('', 'muted')
         self.description.setWordWrap(True)
         layout.addWidget(self.description)
@@ -92,8 +98,14 @@ class DailyTradesPage(QWidget):
         self.rows = []
         self.cells = None
 
+    def copy_trades(self):
+        if self.rows:
+            QApplication.clipboard().setText(daily_trades_text(self.rows))
+            self.copied.emit()
+
     def show_values(self, day, rows, trades=None, positions=None):
         self.rows = rows
+        self.copy_button.setEnabled(bool(rows))
         message = '正在读取台账…'
         values = {}
         if trades is not None:

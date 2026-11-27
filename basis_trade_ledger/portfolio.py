@@ -31,7 +31,7 @@ def group_rollup(config, trades, quotes, closes):
     draft = len(trades) - posted
     active = bool(result['etf'].quantity or result['futures'].quantity or draft or not posted)
     days = set()
-    daily = defaultdict(lambda: dict(count=0, etf=ZERO, futures=ZERO, turnover=ZERO))
+    daily = defaultdict(lambda: dict(count=0, etf=ZERO, futures=ZERO, turnover=ZERO, fills={}))
     undated = 0
     multiplier = Decimal(config['multiplier'])
     for trade in trades:
@@ -44,14 +44,23 @@ def group_rollup(config, trades, quotes, closes):
         if not day:
             undated += 1
             continue
-        etf_sign, futures_sign = DIRECTIONS[trade['direction']]
-        etf = etf_sign * Decimal(trade.get('amount') or 0)
-        futures = futures_sign * Decimal(trade.get('lots') or 0) * Decimal(trade.get('futures_price') or 0) * multiplier
         tally = daily[day]
         tally['count'] += 1
-        tally['etf'] += etf
-        tally['futures'] += futures
-        tally['turnover'] += abs(etf) + abs(futures)
+        for leg, sign in zip(LEGS[:2], DIRECTIONS[trade['direction']]):
+            if not sign:
+                continue
+            if leg == 'etf':
+                quantity = Decimal(trade['shares'])
+                value = notional = Decimal(trade['amount'])
+            else:
+                quantity = Decimal(trade['lots'])
+                value = quantity * Decimal(trade['futures_price'])
+                notional = value * multiplier
+            tally[leg] += sign * notional
+            tally['turnover'] += notional
+            key = leg, sign
+            previous_quantity, previous_value = tally['fills'].get(key, (ZERO, ZERO))
+            tally['fills'][key] = previous_quantity + quantity, previous_value + value
     if config.get('opened'):
         days.add(config['opened'])
     return dict(config=config, result=result, quotes=quotes, closes=closes, active=active, dates=days,
@@ -71,6 +80,28 @@ def daily_trades(records, day):
         totals['turnover'] += trade['turnover']
         totals['net'] += net
     return rows, totals
+
+
+def daily_trades_text(rows):
+    sections = []
+    for row in rows:
+        config = row['config']
+        lines = []
+        for leg in LEGS[:2]:
+            symbol = config[leg].split('.', 1)[0]
+            for sign, direction in ((1, '买入'), (-1, '卖出')):
+                fill = row['fills'].get((leg, sign))
+                if fill is None:
+                    continue
+                quantity, value = fill
+                price = f'{value / quantity:.6f}'
+                if leg == 'etf':
+                    lines.append(f'{symbol} {direction}@{price}  {quantity:.0f}份')
+                else:
+                    price = price.rstrip('0').rstrip('.')
+                    lines.append(f'{symbol.lower()}  {direction} {quantity:.0f} 手 @{price}')
+        sections.append(config['name'] + '\n' + '；'.join(lines))
+    return '\n\n'.join(sections)
 
 
 def date_filter(preset, start='', end='', today=None):
